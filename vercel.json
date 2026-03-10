@@ -1,9 +1,7 @@
 {
   "buildCommand": "cd frontend && npm install && npx vite build",
   "outputDirectory": "frontend/dist",
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" }
   ]
 }
