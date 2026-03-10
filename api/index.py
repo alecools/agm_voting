@@ -42,7 +42,7 @@ from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
 # Serve the React SPA from the bundled frontend/dist directory.
 # frontend/dist is included in the Lambda via vercel.json includeFiles.
-_dist_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_dist_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(_dist_dir):
     from fastapi.staticfiles import StaticFiles  # noqa: E402
     from fastapi.responses import FileResponse  # noqa: E402

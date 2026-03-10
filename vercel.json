@@ -1,10 +1,5 @@
 {
-  "buildCommand": "cd frontend && npm install && npx vite build",
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "frontend/dist/**"
-    }
-  },
+  "buildCommand": "cd frontend && npm install && npx vite build && cp -r dist ../api/static",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ]
