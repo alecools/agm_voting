@@ -1,0 +1,46 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class LotOwner(Base):
+    __tablename__ = "lot_owners"
+    __table_args__ = (
+        UniqueConstraint("building_id", "lot_number", name="uq_lot_owners_building_lot"),
+        CheckConstraint("unit_entitlement >= 0", name="ck_lot_owners_entitlement_nonneg"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    building_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("buildings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    lot_number: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    unit_entitlement: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    building: Mapped["Building"] = relationship(  # noqa: F821
+        "Building", back_populates="lot_owners"
+    )
+    agm_lot_weights: Mapped[list["AGMLotWeight"]] = relationship(  # noqa: F821
+        "AGMLotWeight", back_populates="lot_owner", cascade="all, delete-orphan"
+    )

@@ -1,0 +1,367 @@
+import { http, HttpResponse } from "msw";
+import type { Building, LotOwner } from "../../src/types";
+import type {
+  BuildingImportResult,
+  LotOwnerImportResult,
+  AGMListItem,
+  AGMDetail,
+  AGMOut,
+  AGMCloseOut,
+  ResendReportOut,
+} from "../../src/api/admin";
+import type { AGMSummaryData } from "../../src/api/public";
+
+const BASE = "http://localhost:8000";
+
+export const ADMIN_BUILDINGS: Building[] = [
+  {
+    id: "b1",
+    name: "Alpha Tower",
+    manager_email: "alpha@example.com",
+    created_at: "2024-01-01T00:00:00Z",
+  },
+  {
+    id: "b2",
+    name: "Beta Court",
+    manager_email: "beta@example.com",
+    created_at: "2024-02-01T00:00:00Z",
+  },
+];
+
+export const ADMIN_LOT_OWNERS: LotOwner[] = [
+  {
+    id: "lo1",
+    building_id: "b1",
+    lot_number: "1A",
+    email: "owner1@example.com",
+    unit_entitlement: 100,
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+  },
+  {
+    id: "lo2",
+    building_id: "b1",
+    lot_number: "2B",
+    email: "owner2@example.com",
+    unit_entitlement: 200,
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+  },
+];
+
+export const ADMIN_AGM_LIST: AGMListItem[] = [
+  {
+    id: "agm1",
+    building_id: "b1",
+    building_name: "Alpha Tower",
+    title: "2024 AGM",
+    status: "open",
+    meeting_at: "2024-06-01T10:00:00Z",
+    voting_closes_at: "2024-06-01T12:00:00Z",
+    created_at: "2024-01-01T00:00:00Z",
+  },
+  {
+    id: "agm2",
+    building_id: "b2",
+    building_name: "Beta Court",
+    title: "2023 AGM",
+    status: "closed",
+    meeting_at: "2023-06-01T10:00:00Z",
+    voting_closes_at: "2023-06-01T12:00:00Z",
+    created_at: "2023-01-01T00:00:00Z",
+  },
+];
+
+export const ADMIN_AGM_DETAIL: AGMDetail = {
+  id: "agm1",
+  building_name: "Alpha Tower",
+  title: "2024 AGM",
+  status: "open",
+  meeting_at: "2024-06-01T10:00:00Z",
+  voting_closes_at: "2024-06-01T12:00:00Z",
+  closed_at: null,
+  total_eligible_voters: 5,
+  total_submitted: 3,
+  motions: [
+    {
+      id: "m1",
+      title: "Motion 1",
+      description: "Description 1",
+      order_index: 0,
+      tally: {
+        yes: { voter_count: 2, entitlement_sum: 200 },
+        no: { voter_count: 1, entitlement_sum: 100 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 2, entitlement_sum: 150 },
+      },
+      voter_lists: {
+        yes: [
+          { voter_email: "voter1@example.com", entitlement: 100 },
+          { voter_email: "voter2@example.com", entitlement: 100 },
+        ],
+        no: [{ voter_email: "voter3@example.com", entitlement: 100 }],
+        abstained: [],
+        absent: [
+          { voter_email: "voter4@example.com", entitlement: 100 },
+          { voter_email: "voter5@example.com", entitlement: 50 },
+        ],
+      },
+    },
+  ],
+};
+
+export const ADMIN_AGM_DETAIL_CLOSED: AGMDetail = {
+  ...ADMIN_AGM_DETAIL,
+  id: "agm2",
+  title: "2023 AGM",
+  status: "closed",
+  closed_at: "2023-06-01T13:00:00Z",
+};
+
+export const ADMIN_CREATED_AGM: AGMOut = {
+  id: "agm-new",
+  building_id: "b1",
+  title: "New AGM",
+  status: "open",
+  meeting_at: "2025-06-01T10:00:00Z",
+  voting_closes_at: "2025-06-01T12:00:00Z",
+  motions: [
+    {
+      id: "m-new",
+      title: "First Motion",
+      description: null,
+      order_index: 0,
+    },
+  ],
+};
+
+export const adminHandlers = [
+  http.get(`${BASE}/api/admin/buildings`, () => {
+    return HttpResponse.json(ADMIN_BUILDINGS);
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/import`, () => {
+    return HttpResponse.json<BuildingImportResult>({ created: 2, updated: 1 });
+  }),
+
+  http.get(`${BASE}/api/admin/buildings/:buildingId/lot-owners`, () => {
+    return HttpResponse.json(ADMIN_LOT_OWNERS);
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners`, async ({ request }) => {
+    const body = await request.json() as { lot_number?: string };
+    if (body?.lot_number === "DUPLICATE") {
+      return HttpResponse.json(
+        { detail: "lot_number 'DUPLICATE' already exists in this building" },
+        { status: 409 }
+      );
+    }
+    const newOwner: LotOwner = {
+      id: "lo-new",
+      building_id: "b1",
+      lot_number: body?.lot_number ?? "NEW",
+      email: "new@example.com",
+      unit_entitlement: 50,
+      created_at: "2024-03-01T00:00:00Z",
+      updated_at: "2024-03-01T00:00:00Z",
+    };
+    return HttpResponse.json(newOwner, { status: 201 });
+  }),
+
+  http.patch(`${BASE}/api/admin/lot-owners/:lotOwnerId`, async ({ request }) => {
+    const body = await request.json() as { unit_entitlement?: number; email?: string };
+    if (body?.unit_entitlement !== undefined && body.unit_entitlement < 0) {
+      return HttpResponse.json(
+        { detail: "unit_entitlement must be >= 0" },
+        { status: 422 }
+      );
+    }
+    const updated: LotOwner = {
+      ...ADMIN_LOT_OWNERS[0],
+      email: body?.email ?? ADMIN_LOT_OWNERS[0].email,
+      unit_entitlement: body?.unit_entitlement ?? ADMIN_LOT_OWNERS[0].unit_entitlement,
+    };
+    return HttpResponse.json(updated);
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import`, () => {
+    return HttpResponse.json<LotOwnerImportResult>({ imported: 5 });
+  }),
+
+  http.get(`${BASE}/api/admin/agms`, () => {
+    return HttpResponse.json(ADMIN_AGM_LIST);
+  }),
+
+  http.post(`${BASE}/api/admin/agms`, async ({ request }) => {
+    const body = await request.json() as { building_id?: string };
+    if (body?.building_id === "conflict-building") {
+      return HttpResponse.json(
+        { detail: "An open AGM already exists for this building" },
+        { status: 409 }
+      );
+    }
+    return HttpResponse.json(ADMIN_CREATED_AGM, { status: 201 });
+  }),
+
+  http.get(`${BASE}/api/admin/agms/:agmId`, ({ params }) => {
+    if (params.agmId === "agm2") {
+      return HttpResponse.json(ADMIN_AGM_DETAIL_CLOSED);
+    }
+    if (params.agmId === "agm-notfound") {
+      return HttpResponse.json({ detail: "AGM not found" }, { status: 404 });
+    }
+    if (params.agmId === "agm-failed-email") {
+      return HttpResponse.json({
+        ...ADMIN_AGM_DETAIL_CLOSED,
+        id: "agm-failed-email",
+        email_delivery: { status: "failed", last_error: "SMTP error" },
+      });
+    }
+    return HttpResponse.json(ADMIN_AGM_DETAIL);
+  }),
+
+  http.post(`${BASE}/api/admin/agms/:agmId/close`, ({ params }) => {
+    if (params.agmId === "agm-already-closed") {
+      return HttpResponse.json({ detail: "AGM is already closed" }, { status: 409 });
+    }
+    const result: AGMCloseOut = {
+      id: params.agmId as string,
+      status: "closed",
+      closed_at: "2024-06-01T13:00:00Z",
+    };
+    return HttpResponse.json(result);
+  }),
+
+  http.post(`${BASE}/api/admin/agms/:agmId/resend-report`, ({ params }) => {
+    if (params.agmId === "agm-resend-fail") {
+      return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
+    }
+    const result: ResendReportOut = { queued: true };
+    return HttpResponse.json(result);
+  }),
+];
+
+export const SUMMARY_AGM_ID = "agm-summary-test-999";
+
+export const agmSummaryFixture: AGMSummaryData = {
+  agm_id: SUMMARY_AGM_ID,
+  title: "2024 AGM",
+  status: "open",
+  meeting_at: "2024-06-01T10:00:00Z",
+  voting_closes_at: "2024-06-01T18:00:00Z",
+  building_name: "Sunset Towers",
+  motions: [
+    { order_index: 0, title: "Motion 1", description: "Approve the budget" },
+    { order_index: 1, title: "Motion 2", description: null },
+  ],
+};
+
+export const AGM_ID = "agm-111";
+export const BUILDING_ID = "bld-222";
+export const MOTION_ID_1 = "mot-001";
+export const MOTION_ID_2 = "mot-002";
+
+export const buildingFixture = { id: BUILDING_ID, name: "Sunset Towers" };
+
+export const agmOpenFixture = {
+  id: AGM_ID,
+  title: "2024 AGM",
+  status: "open" as const,
+  meeting_at: "2024-06-01T10:00:00Z",
+  voting_closes_at: "2024-06-01T12:00:00Z",
+};
+
+export const agmClosedFixture = {
+  id: "agm-closed-999",
+  title: "2023 AGM",
+  status: "closed" as const,
+  meeting_at: "2023-06-01T10:00:00Z",
+  voting_closes_at: "2023-06-01T12:00:00Z",
+};
+
+export const motionFixtures = [
+  {
+    id: MOTION_ID_1,
+    title: "Motion 1",
+    description: "Approve the budget",
+    order_index: 0,
+  },
+  {
+    id: MOTION_ID_2,
+    title: "Motion 2",
+    description: null,
+    order_index: 1,
+  },
+];
+
+export const myBallotFixture = {
+  voter_email: "owner@example.com",
+  agm_title: "2024 AGM",
+  building_name: "Sunset Towers",
+  votes: [
+    {
+      motion_id: MOTION_ID_1,
+      motion_title: "Motion 1",
+      order_index: 0,
+      choice: "yes" as const,
+    },
+    {
+      motion_id: MOTION_ID_2,
+      motion_title: "Motion 2",
+      order_index: 1,
+      choice: "no" as const,
+    },
+  ],
+};
+
+export const handlers = [
+  ...adminHandlers,
+  http.get(`${BASE}/api/server-time`, () =>
+    HttpResponse.json({ utc: "2024-06-01T10:00:00Z" })
+  ),
+
+  http.get(`${BASE}/api/buildings`, () =>
+    HttpResponse.json([buildingFixture])
+  ),
+
+  http.get(`${BASE}/api/buildings/:buildingId/agms`, () =>
+    HttpResponse.json([agmOpenFixture, agmClosedFixture])
+  ),
+
+  http.post(`${BASE}/api/auth/verify`, () =>
+    HttpResponse.json({ already_submitted: false, voter_email: "owner@example.com", agm_status: "open" })
+  ),
+
+  http.get(`${BASE}/api/agm/:agmId/motions`, () =>
+    HttpResponse.json(motionFixtures)
+  ),
+
+  http.get(`${BASE}/api/agm/:agmId/drafts`, () =>
+    HttpResponse.json({ drafts: [] })
+  ),
+
+  http.put(`${BASE}/api/agm/:agmId/draft`, () =>
+    HttpResponse.json({ saved: true })
+  ),
+
+  http.post(`${BASE}/api/agm/:agmId/submit`, () =>
+    HttpResponse.json({
+      submitted: true,
+      votes: [
+        { motion_id: MOTION_ID_1, motion_title: "Motion 1", choice: "yes" },
+        { motion_id: MOTION_ID_2, motion_title: "Motion 2", choice: "abstained" },
+      ],
+    })
+  ),
+
+  http.get(`${BASE}/api/agm/:agmId/my-ballot`, () =>
+    HttpResponse.json(myBallotFixture)
+  ),
+
+  http.get(`${BASE}/api/agm/:agmId/summary`, ({ params }) => {
+    if (params.agmId === "agm-summary-notfound") {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    return HttpResponse.json(agmSummaryFixture);
+  }),
+];

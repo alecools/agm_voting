@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AGM Results Report</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#333333;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:6px;border:1px solid #dddddd;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1a3c5e;border-radius:6px 6px 0 0;padding:24px 32px;">
+              <h1 style="margin:0;font-size:22px;color:#ffffff;font-weight:bold;">AGM Results Report</h1>
+              <p style="margin:6px 0 0 0;font-size:14px;color:#a8c4e0;">{{ building_name }}</p>
+            </td>
+          </tr>
+
+          <!-- AGM details -->
+          <tr>
+            <td style="padding:24px 32px 0 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding-bottom:8px;">
+                    <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#888888;">Meeting</span><br/>
+                    <span style="font-size:16px;font-weight:bold;color:#1a3c5e;">{{ agm_title }}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-bottom:6px;">
+                    <span style="font-size:13px;color:#555555;">
+                      <strong>Meeting date:</strong> {{ meeting_at }}
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-bottom:16px;">
+                    <span style="font-size:13px;color:#555555;">
+                      <strong>Voting closed:</strong> {{ voting_closes_at }}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Summary -->
+          <tr>
+            <td style="padding:16px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f4f8;border-radius:4px;">
+                <tr>
+                  <td style="padding:16px;border-right:1px solid #d0dce8;" width="50%" align="center">
+                    <div style="font-size:28px;font-weight:bold;color:#1a3c5e;">{{ total_eligible_voters }}</div>
+                    <div style="font-size:12px;color:#666666;margin-top:4px;">Eligible Voters</div>
+                  </td>
+                  <td style="padding:16px;" width="50%" align="center">
+                    <div style="font-size:28px;font-weight:bold;color:#1a3c5e;">{{ total_submitted }}</div>
+                    <div style="font-size:12px;color:#666666;margin-top:4px;">Ballots Submitted</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Motions -->
+          {% for motion in motions %}
+          <tr>
+            <td style="padding:0 32px 24px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e0e0e0;border-radius:4px;">
+
+                <!-- Motion header -->
+                <tr>
+                  <td style="background-color:#f7f7f7;padding:12px 16px;border-bottom:1px solid #e0e0e0;border-radius:4px 4px 0 0;">
+                    <div style="font-size:11px;color:#888888;text-transform:uppercase;letter-spacing:0.5px;">Motion {{ loop.index }}</div>
+                    <div style="font-size:15px;font-weight:bold;color:#1a3c5e;margin-top:2px;">{{ motion.title }}</div>
+                    {% if motion.description %}
+                    <div style="font-size:13px;color:#555555;margin-top:6px;">{{ motion.description }}</div>
+                    {% endif %}
+                  </td>
+                </tr>
+
+                <!-- Tally table -->
+                <tr>
+                  <td style="padding:16px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                      <thead>
+                        <tr style="background-color:#f0f4f8;">
+                          <th style="text-align:left;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Category</th>
+                          <th style="text-align:right;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Voter Count</th>
+                          <th style="text-align:right;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Entitlement Sum</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr style="background-color:#eaf7ea;">
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#2e7d32;border-bottom:1px solid #e8e8e8;">Yes</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.yes.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.yes.entitlement_sum }}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#c62828;border-bottom:1px solid #e8e8e8;">No</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.no.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.no.entitlement_sum }}</td>
+                        </tr>
+                        <tr style="background-color:#fafafa;">
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#f57c00;border-bottom:1px solid #e8e8e8;">Abstained</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.abstained.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.abstained.entitlement_sum }}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#777777;">Absent</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;">{{ motion.tally.absent.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;">{{ motion.tally.absent.entitlement_sum }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Voter lists -->
+                {% if motion.voter_lists.yes %}
+                <tr>
+                  <td style="padding:0 16px 8px 16px;">
+                    <div style="font-size:12px;font-weight:bold;color:#2e7d32;margin-bottom:4px;">Voted Yes</div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      {% for voter in motion.voter_lists.yes %}
+                      <tr>
+                        <td style="padding:2px 0;font-size:12px;color:#333333;">{{ voter.voter_email }}</td>
+                        <td style="padding:2px 0;font-size:12px;color:#666666;text-align:right;">entitlement: {{ voter.entitlement }}</td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+                {% endif %}
+
+                {% if motion.voter_lists.no %}
+                <tr>
+                  <td style="padding:0 16px 8px 16px;">
+                    <div style="font-size:12px;font-weight:bold;color:#c62828;margin-bottom:4px;">Voted No</div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      {% for voter in motion.voter_lists.no %}
+                      <tr>
+                        <td style="padding:2px 0;font-size:12px;color:#333333;">{{ voter.voter_email }}</td>
+                        <td style="padding:2px 0;font-size:12px;color:#666666;text-align:right;">entitlement: {{ voter.entitlement }}</td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+                {% endif %}
+
+                {% if motion.voter_lists.abstained %}
+                <tr>
+                  <td style="padding:0 16px 8px 16px;">
+                    <div style="font-size:12px;font-weight:bold;color:#f57c00;margin-bottom:4px;">Abstained</div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      {% for voter in motion.voter_lists.abstained %}
+                      <tr>
+                        <td style="padding:2px 0;font-size:12px;color:#333333;">{{ voter.voter_email }}</td>
+                        <td style="padding:2px 0;font-size:12px;color:#666666;text-align:right;">entitlement: {{ voter.entitlement }}</td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+                {% endif %}
+
+                {% if motion.voter_lists.absent %}
+                <tr>
+                  <td style="padding:0 16px 8px 16px;">
+                    <div style="font-size:12px;font-weight:bold;color:#777777;margin-bottom:4px;">Absent</div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      {% for voter in motion.voter_lists.absent %}
+                      <tr>
+                        <td style="padding:2px 0;font-size:12px;color:#333333;">{{ voter.voter_email }}</td>
+                        <td style="padding:2px 0;font-size:12px;color:#666666;text-align:right;">entitlement: {{ voter.entitlement }}</td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+                {% endif %}
+
+              </table>
+            </td>
+          </tr>
+          {% endfor %}
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 32px 24px 32px;border-top:1px solid #e8e8e8;">
+              <p style="margin:0;font-size:12px;color:#aaaaaa;text-align:center;">
+                This report was automatically generated by the AGM Voting App.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

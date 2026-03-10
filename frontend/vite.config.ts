@@ -1,0 +1,50 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: ["./tests/setup.ts"],
+    exclude: ["**/node_modules/**", "**/e2e/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: [
+        "src/api/voter.ts",
+        "src/api/client.ts",
+        "src/components/vote/**/*.tsx",
+        "src/hooks/useServerTime.ts",
+        "src/hooks/useCountdown.ts",
+        "src/hooks/useAutoSave.ts",
+        "src/pages/vote/**/*.tsx",
+        "src/routes/VoteRoutes.tsx",
+        "src/App.tsx",
+        // Admin files (Phase 5) — included for joint coverage tracking
+        "src/api/admin.ts",
+        "src/components/admin/**/*.tsx",
+        "src/pages/admin/**/*.tsx",
+        "src/routes/AdminRoutes.tsx",
+        // Phase B utilities
+        "src/utils/parseMotionsExcel.ts",
+        // Phase D public summary
+        "src/api/public.ts",
+        "src/pages/AGMSummaryPage.tsx",
+      ],
+      thresholds: {
+        // Per-file thresholds for Phase 4 vote files
+        "src/api/voter.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/api/client.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/hooks/useServerTime.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/hooks/useCountdown.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/hooks/useAutoSave.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/App.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/routes/VoteRoutes.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/utils/parseMotionsExcel.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/api/public.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/pages/AGMSummaryPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+      },
+    },
+  },
+});
