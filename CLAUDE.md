@@ -25,7 +25,7 @@ This applies equally to small bug fixes and large features. If feedback is recei
 
 Every feature or bugfix must follow this process, executed by a sub-agent:
 
-1. **Create a new branch** from `master` (e.g. `git checkout -b feat/my-feature`)
+1. **Pull the latest** from the base branch before branching: `git checkout preview && git pull origin preview`, then **create a new branch** (e.g. `git checkout -b feat/my-feature`)
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
 4. **Signal the orchestrator** — report local test results, indicate ready to push. **Pause and wait** for the orchestrator to grant the push slot
