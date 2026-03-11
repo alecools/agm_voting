@@ -25,23 +25,35 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Continue" }).click();
 
-    // Voting page — allow extra time for Lambda cold-start and motions fetch
-    await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible({ timeout: 15000 });
+    // After successful auth the frontend navigates to either:
+    //   /vote/{agmId}/voting     — first time voting on this AGM
+    //   /vote/{agmId}/confirmation — E2E-1 already submitted (can happen when
+    //                                multiple test runs share the same deployment)
+    // Wait for the URL to settle on one of these pages first.
+    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 15000 });
 
-    // Vote Yes on all motions
-    const yesButtons = page.getByRole("button", { name: "Yes" });
-    const count = await yesButtons.count();
-    for (let i = 0; i < count; i++) {
-      await yesButtons.nth(i).click();
+    if (page.url().includes("/voting")) {
+      // On the voting page: vote Yes on all motions and submit
+      // Allow extra time for Lambda cold-start and motions fetch
+      await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible({ timeout: 15000 });
+
+      // Vote Yes on all motions
+      const yesButtons = page.getByRole("button", { name: "Yes" });
+      const count = await yesButtons.count();
+      for (let i = 0; i < count; i++) {
+        await yesButtons.nth(i).click();
+      }
+
+      // Submit
+      await page.getByRole("button", { name: "Submit ballot" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await page.getByRole("button", { name: "Submit ballot" }).last().click();
+
+      // Confirmation — allow extra time for remote server ballot submission
+      await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
     }
 
-    // Submit
-    await page.getByRole("button", { name: "Submit ballot" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: "Submit ballot" }).last().click();
-
-    // Confirmation — allow extra time for remote server ballot submission
-    await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
+    // On the confirmation page (whether just submitted or already voted)
     await expect(page.getByText("Your votes", { exact: true })).toBeVisible({ timeout: 15000 });
   });
 
