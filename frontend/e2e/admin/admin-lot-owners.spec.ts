@@ -27,9 +27,17 @@ test.describe("Admin Lot Owners", () => {
   });
 
   test("add lot owner form submits and shows in table", async ({ page, request }) => {
-    // Use "E2E Building" by name — never buildings[0] — to avoid touching
-    // "E2E Test Building" (which owns the E2E-1 lot owner used by voting-flow
-    // tests). The admin API sorts by created_at, so index 0 is not stable.
+    // Use "E2E Building" explicitly — never buildings[0], which can be the
+    // "E2E Test Building" that the voting-flow tests depend on.
+    await request.post("/api/admin/buildings/import", {
+      multipart: {
+        file: {
+          name: "buildings.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from("building_name,manager_email\nE2E Building,manager@e2e.com"),
+        },
+      },
+    });
     const buildingsRes = await request.get("/api/admin/buildings");
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings.find((b) => b.name === "E2E Building");
@@ -47,9 +55,19 @@ test.describe("Admin Lot Owners", () => {
   });
 
   test("CSV import shows imported count", async ({ page, request }) => {
-    // Use "E2E Building" by name — never buildings[0] — so the CSV import
-    // (which deletes lot owners not present in the file) only touches
-    // "E2E Building" and never wipes "E2E Test Building"'s E2E-1 voter.
+    // Use "E2E Building" explicitly — never buildings[0], which can be the
+    // "E2E Test Building" that the voting-flow tests depend on. The import
+    // deletes lot owners not present in the file, so targeting the wrong
+    // building would wipe out the E2E-1 lot owner needed for voting tests.
+    await request.post("/api/admin/buildings/import", {
+      multipart: {
+        file: {
+          name: "buildings.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from("building_name,manager_email\nE2E Building,manager@e2e.com"),
+        },
+      },
+    });
     const buildingsRes = await request.get("/api/admin/buildings");
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
     const building = buildings.find((b) => b.name === "E2E Building");

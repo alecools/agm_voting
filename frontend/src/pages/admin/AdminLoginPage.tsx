@@ -80,6 +80,13 @@ export default function AdminLoginPage() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <button
+          type="button"
+          className="btn btn--ghost admin-login-back"
+          onClick={() => navigate("/")}
+        >
+          ← Back to home
+        </button>
       </div>
     </div>
   );

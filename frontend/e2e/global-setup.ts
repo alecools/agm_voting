@@ -30,6 +30,13 @@ export const E2E_LOT_EMAIL = "e2e-voter@test.com";
 export const E2E_LOT_ENTITLEMENT = 10;
 export const E2E_AGM_TITLE = "E2E Test AGM";
 
+// A second building with its own open AGM, used exclusively by the
+// admin-agms tests that interact with open AGMs (e.g. Close Voting dialog).
+// Created AFTER the voting-test AGM so it appears first in the admin AGM
+// list (sorted by created_at DESC) — ensuring admin tests target this AGM
+// rather than the voting-test AGM.
+export const E2E_ADMIN_BUILDING_NAME = "E2E Admin Test Building";
+
 const BYPASS_TOKEN = process.env.VERCEL_BYPASS_TOKEN;
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -177,6 +184,60 @@ export default async function globalSetup(_config: FullConfig) {
   // global-setup needs to clear it so the voting-flow test can re-vote
   // without hitting a 409 conflict).
   await api.delete(`/api/admin/agms/${newAgm.id}/ballots`);
+
+  // ── 3. Seed a dedicated "admin test" building with its own open AGM ─────────
+  // Admin-agms E2E tests that exercise the Close Voting dialog look for the
+  // FIRST open AGM in the list (sorted created_at DESC). By creating this AGM
+  // AFTER the voting-test AGM, it becomes the newest and therefore the first
+  // result — keeping admin tests away from the voting-test AGM.
+  let adminBuilding = buildings.find((b) => b.name === E2E_ADMIN_BUILDING_NAME);
+  if (!adminBuilding) {
+    const created = await api.post("/api/admin/buildings", {
+      data: { name: E2E_ADMIN_BUILDING_NAME, manager_email: "e2e-admin-mgr@test.com" },
+    });
+    adminBuilding = (await created.json()) as { id: string; name: string };
+  }
+
+  // Add a placeholder lot owner so the building has at least one voter
+  const adminLotOwnersRes = await api.get(`/api/admin/buildings/${adminBuilding.id}/lot-owners`);
+  const adminLotOwners = (await adminLotOwnersRes.json()) as { lot_number: string }[];
+  if (!adminLotOwners.find((l) => l.lot_number === "ADMIN-1")) {
+    await api.post(`/api/admin/buildings/${adminBuilding.id}/lot-owners`, {
+      data: { lot_number: "ADMIN-1", email: "admin-voter@test.com", unit_entitlement: 1 },
+    });
+  }
+
+  // Close any existing open AGMs for the admin-test building, then create a fresh one
+  const allAgmsRes = await api.get("/api/admin/agms");
+  const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
+  const openAdminAgms = allAgms.filter(
+    (a) => a.building_id === adminBuilding!.id && a.status === "open"
+  );
+  for (const agm of openAdminAgms) {
+    await api.post(`/api/admin/agms/${agm.id}/close`);
+  }
+
+  const adminFuture = new Date();
+  adminFuture.setFullYear(adminFuture.getFullYear() + 1);
+  adminFuture.setDate(adminFuture.getDate() + 14);
+  const adminClosesAt = new Date(adminFuture);
+  adminClosesAt.setDate(adminClosesAt.getDate() + 7);
+
+  await api.post("/api/admin/agms", {
+    data: {
+      building_id: adminBuilding.id,
+      title: "E2E Admin Test AGM",
+      meeting_at: adminFuture.toISOString(),
+      voting_closes_at: adminClosesAt.toISOString(),
+      motions: [
+        {
+          title: "Admin Test Motion 1",
+          description: "Admin-only test motion — do not vote on this.",
+          order_index: 1,
+        },
+      ],
+    },
+  });
 
   await api.dispose();
 }

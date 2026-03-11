@@ -21,84 +21,70 @@ This applies equally to small bug fixes and large features. If feedback is recei
 
 ### Sub-agent branch workflow (required for all feature dev and bugfixes)
 
+> **Vercel environment note:** Every non-production deployment — whether triggered by `git push` or the CLI — lands in the Preview environment and uses Preview env vars. There is no separate "development" deployment target. The branch preview URL is `agm-voting-git-<branch>-ocss.vercel.app`.
+
 Every feature or bugfix must follow this process, executed by a sub-agent:
 
-1. **Create a new branch** from the current base (e.g. `git checkout -b feat/my-feature`)
+1. **Create a new branch** from `master` (e.g. `git checkout -b feat/my-feature`)
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
-4. **Signal the orchestrator** — report local test results and indicate readiness to deploy. Then **pause and wait** for the orchestrator to grant a deployment slot
-5. **Deploy to Vercel development** (only after orchestrator grants the slot) — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
-6. **Run the full E2E suite** against the deployed URL — always run to completion regardless of failures:
+4. **Signal the orchestrator** — report local test results, indicate ready to push. **Pause and wait** for the orchestrator to grant the push slot
+5. **Push the branch** (only after orchestrator grants the slot) — `git push -u origin <branch>`. Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
+6. **Wait for Vercel to finish deploying**, then run the **full E2E suite to completion** — never stop early, record ALL failures:
    ```bash
-   cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" npx playwright test
+   cd frontend && PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
+     VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
+     npx playwright test
    ```
-   Do **not** stop early when a test fails. Collect the full list of failures.
-7. **Release the deployment slot** — notify the orchestrator the slot is free (regardless of whether tests passed or failed)
-8. **Fix all recorded failures** — work through every issue found in step 6. Do not re-deploy during this phase
-9. **Re-queue for deployment** — once all fixes are applied, signal the orchestrator again (back to step 4) for a fresh deployment and re-test
-10. **Report results to the user** — share the development URL and full test summary, then **wait for explicit approval before pushing**
-11. **Push the branch** — `git push -u origin <branch>` — only after the user approves
+7. **Release the push slot** — notify the orchestrator the slot is free (pass or fail)
+8. **Fix all recorded failures** — work through every issue while the next agent may be using the slot. Do not push during this phase
+9. If fixes were needed: **re-queue** (back to step 4) for another push + test cycle
+10. Once all E2E tests pass: **raise a PR** to merge into `preview`
+11. **Monitor the GitHub Actions post-deploy workflow** — it runs automatically after the PR is raised. Check for any failures
+12. If the CI workflow fails: fix the issues and re-queue (back to step 4) to push and re-test
+13. When all tests pass including the CI workflow: **ask the user to approve and merge the PR**
 
-#### Orchestrator responsibilities (deployment queue)
+#### Orchestrator responsibilities (push slot queue)
 
-The Vercel development environment is shared — only one agent may deploy and run E2E tests at a time. When acting as orchestrator over multiple sub-agents:
+The shared preview environment supports only one branch being pushed and tested at a time to avoid test interference. When orchestrating multiple sub-agents:
 
-- Maintain a mental queue of agents waiting for the deployment slot
-- Grant the slot to one agent at a time (FIFO by default; use judgement to reprioritise if one feature is more urgent or less risky)
-- When the active agent reports its slot is free (step 7), immediately grant it to the next agent in the queue — even if that agent is still fixing issues from a previous run, another waiting agent should get the slot
-- If only one agent is running, grant the slot as soon as it signals readiness — no delay
-- An agent fixing issues re-joins the back of the queue, not the front
+- Maintain a queue of agents waiting for the push slot
+- Grant the slot to one agent at a time — FIFO by default; reprioritise by urgency or risk if needed
+- Slot is released after the agent's E2E run completes (step 7) — immediately grant to the next agent in the queue
+- An agent returning after fixing issues rejoins the **back** of the queue
+- If only one agent is running, grant the slot immediately when it signals readiness
 
 #### Parallel agents (multiple features at once)
 
-When multiple sub-agents work in parallel:
-
-- Use **git worktrees** so each agent has its own working directory:
-  ```bash
-  git worktree add ../agm_survey-feat-foo feat/foo
-  git worktree add ../agm_survey-feat-bar feat/bar
-  ```
-- Each agent deploys independently to Vercel development (`vercel deploy`) — each gets its own temporary URL
-- If agents need persistent isolated databases (e.g. for migration testing), create a separate Neon branch per feature and set `DATABASE_URL` when deploying:
-  ```bash
-  DATABASE_URL="..." vercel deploy
-  # or add a temporary env override in the Vercel dashboard for that deployment
-  ```
-- Clean up worktrees after the branch is merged: `git worktree remove ../agm_survey-feat-foo`
+Use **git worktrees** so each agent has its own isolated working directory:
+```bash
+git worktree add ../agm_survey-feat-foo feat/foo
+git worktree add ../agm_survey-feat-bar feat/bar
+# Clean up after merge:
+git worktree remove ../agm_survey-feat-foo
+```
 
 #### Provisioning an isolated test database for a feature branch
 
 When a feature includes schema migrations or needs a clean DB state, create a dedicated Neon branch:
 
-1. **Create the branch in Neon** — in the Neon dashboard, branch off `preview` (not `main`) so it starts with the current preview schema. Name it after the feature (e.g. `feat/my-feature`).
-
-2. **Run migrations on the new branch:**
+1. **Create the branch in Neon** — branch off `preview` in the Neon dashboard. Name it after the feature.
+2. **Run migrations:**
    ```bash
    uv run alembic -x "dburl=postgresql+asyncpg://<user>:<pass>@<host>/neondb?ssl=require" upgrade head
    ```
-   Strip `sslmode=require` → `ssl=require` and remove `channel_binding=require` if present (asyncpg does not support either).
-
-3. **Deploy with the feature DB** — pass the branch DB URL as an env override so only this Vercel dev deployment uses it:
-   ```bash
-   # From the feature worktree directory:
-   vercel deploy --env DATABASE_URL="postgresql://<user>:<pass>@<pooler-host>/neondb?sslmode=require&channel_binding=require" \
-                 --env DATABASE_URL_UNPOOLED="postgresql://<user>:<pass>@<direct-host>/neondb?sslmode=require&channel_binding=require"
-   ```
-   `api/index.py` will sanitise the URL at runtime (strips `sslmode` → `ssl`, strips `channel_binding`).
-
-4. **Run the full E2E suite** against the dev URL as normal.
-
-5. **Tear down the Neon branch** once the feature is merged — delete it in the Neon dashboard to avoid accumulating stale branches.
+   Strip `sslmode=require` → `ssl=require` and remove `channel_binding=require` (asyncpg does not support either).
+3. **Override the DB for the branch** — add a branch-scoped `DATABASE_URL` env var in the Vercel dashboard for that git branch, pointing to the feature Neon branch
+4. **Tear down the Neon branch** once the feature is merged
 
 ### Definition of Done
 
 A change is only complete when all of the following are true:
 
 1. All local tests pass (`npm run test:coverage` and backend pytest with coverage)
-2. Deployed to the **development** Vercel environment only — run `vercel deploy` from project root (never `--prod`)
-3. All required environment variables are present in the target Vercel environment — run `vercel env ls --scope ocss` and compare against `.env.example`. Add any missing vars before testing
-4. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
-5. The full test suite is run against the deployed development instance to confirm parity
+2. Branch pushed, Vercel preview deployed, full E2E suite passes against the branch preview URL
+3. PR raised to `preview`, GitHub Actions post-deploy workflow passes
+4. User has approved and merged the PR
 
 ---
 
@@ -189,114 +175,17 @@ DB="postgresql+asyncpg://user:pass@host/db?ssl=require"
 
 ## Container Management
 
-**Always use Podman** — never Docker — for all container and compose operations in this project.
+> See user-level `~/.claude/CLAUDE.md` for general Podman rules. Project-specific note:
 
-```bash
-# Start services
-podman compose up -d
-
-# Stop services
-podman compose down
-
-# View logs
-podman compose logs -f
-
-# Run a one-off command inside a container
-podman compose exec <service> <command>
-```
-
-- Use `podman compose` (not `docker compose` or `docker-compose`)
-- Use `podman` (not `docker`) for any direct container commands
-- The compose file is `podman-compose.yml` at the project root
+- The compose file for this project is `podman-compose.yml` at the project root
 
 ---
 
 ## Testing Standards
 
-### Coverage Target
+> See user-level `~/.claude/CLAUDE.md` for coverage targets, backend/frontend/Playwright testing standards and best practices. Project-specific scenarios are below.
 
-**100% line coverage is required** — every line of code, both backend and frontend, must be exercised by at least one test. Coverage reports must be generated on every test run and a build/CI check should fail if coverage drops below 100%.
-
-- Backend: `pytest-cov` with `--cov-fail-under=100`
-- Frontend: Vitest with `coverage.thresholds` set to 100 for lines, functions, branches, and statements
-
-The only acceptable exclusions are lines explicitly marked with `# pragma: no cover` (backend) or `/* istanbul ignore */` (frontend), and these must have a comment justifying the exclusion.
-
----
-
-### Backend Testing (pytest)
-
-Every API endpoint must have thorough tests. Apply the following techniques for all backend test suites.
-
-#### Input Partition Testing
-
-Divide inputs into equivalence classes and test at least one value from each class. For every endpoint parameter, identify:
-
-- Valid inputs (normal case)
-- Invalid type (e.g. string where integer expected)
-- Missing required fields
-- Null / empty values
-- Unexpected extra fields
-
-#### Boundary Value Analysis
-
-Test at the edges of valid ranges, not just the middle:
-
-- Min valid value, max valid value
-- One below min, one above max
-- Zero and negative numbers where relevant
-- Empty string vs single character vs max-length string
-
-#### State-Based Testing
-
-Many endpoints behave differently depending on entity state. Test each state transition explicitly:
-
-- AGM status: `open` → `closed` (test that actions valid in one state are rejected in the other)
-- Lot owner: authenticated session vs unauthenticated vs already-voted
-- Vote: before submission vs after submission (immutable)
-
-#### Error and Edge Cases
-
-- Duplicate records (e.g. same lot number in same building)
-- Foreign key violations (e.g. AGM ID that does not exist)
-- Concurrent requests (e.g. two submissions for the same lot at the same time)
-- Empty collections (e.g. AGM with zero motions, building with zero lot owners)
-
-#### Test Structure
-
-Each API test file should be organised with clearly labelled sections:
-
-```python
-# --- Happy path ---
-# --- Input validation ---
-# --- Boundary values ---
-# --- State / precondition errors ---
-# --- Edge cases ---
-```
-
-Tests that exercise DB state must use isolated transactions or a dedicated test database — never the development database.
-
----
-
-### Frontend Testing (Vitest + React Testing Library)
-
-All React components and utility functions must be covered by unit and integration tests using Vitest and React Testing Library (RTL).
-
-#### Unit Tests (per component)
-
-- Render the component with required props and assert the output contains expected elements
-- Test every conditional render branch (e.g. loading state, error state, empty state, populated state)
-- Test all user interactions: clicks, form input, form submission, keyboard events
-- Assert that the correct callbacks are called with the correct arguments
-- Test components in isolation using mocked API calls (use `msw` — Mock Service Worker — to intercept fetch/axios requests)
-
-#### Integration Tests
-
-- Test complete user flows across multiple components wired together (e.g. building select → lot auth → vote page)
-- Use RTL's `userEvent` (not `fireEvent`) to simulate realistic user interactions
-- Assert on visible UI outcomes, not internal component state
-
-#### What to Test Per User Story
+### What to Test Per User Story
 
 - **US-002 Building selector:** dropdown renders all buildings, selecting one shows AGM details, submitting without selection shows error
 - **US-003 Auth form:** valid credentials advance to vote page, invalid credentials show error message, empty fields show validation errors
@@ -306,15 +195,7 @@ All React components and utility functions must be covered by unit and integrati
 
 ---
 
-### End-to-End / Browser Testing (Playwright)
-
-Playwright automates a real browser (Chromium by default) and must be used to verify complete user journeys from browser open to final state. Tests run headlessly and should be part of CI.
-
-#### Setup
-
-Playwright runs against the Vite dev server (or a test server). Configure `baseURL` in `playwright.config.ts` to point to the local dev server.
-
-#### What to Cover with E2E Tests
+### E2E Tests — AGM User Flows
 
 Write one E2E test per major user flow:
 
@@ -323,14 +204,6 @@ Write one E2E test per major user flow:
 3. **AGM closed state:** attempt to vote on a closed AGM → see "Voting has closed" message → see read-only confirmation if already submitted
 4. **CSV import flow:** navigate to host page → upload valid CSV → verify success message and record count
 5. **Close AGM and report:** manager closes AGM → confirm status changes → verify lot owners can no longer vote
-
-#### Playwright Best Practices
-
-- Use `page.getByRole()` and `page.getByLabel()` locators (not CSS selectors or `data-testid`) wherever possible — this tests accessibility as a side effect
-- Add `data-testid` attributes only when no semantic locator is available
-- Each test must be fully independent — seed the database to a known state before each test using API calls or a test fixture helper
-- Assert on visible UI state after each action, not just at the end of the flow
-- Use Playwright's `expect(page).toHaveURL()` and `expect(locator).toBeVisible()` assertions rather than arbitrary waits
 
 ---
 
