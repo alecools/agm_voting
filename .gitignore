@@ -1,5 +1,7 @@
 .vercel
 .env
+.env.development
+.env.preview
 api/static/
 __pycache__/
 *.pyc
