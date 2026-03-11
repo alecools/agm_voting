@@ -65,13 +65,28 @@ if _db_url:  # pragma: no cover — runs at Lambda cold-start; cannot unit-test 
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
-# TEMP: debug endpoint to verify DB URL and migration state
+# TEMP: debug endpoint to verify DB URL and run migration on demand
 @app.get("/api/debug/db-info", include_in_schema=False)  # pragma: no cover
 async def _debug_db_info():  # pragma: no cover
-    import subprocess  # pragma: no cover
+    db_url = os.environ.get("DATABASE_URL", "")  # pragma: no cover
+    migration_result = None  # pragma: no cover
+    try:  # pragma: no cover
+        from alembic.config import Config as _AConfig  # pragma: no cover
+        from alembic import command as _acmd  # pragma: no cover
+        import io  # pragma: no cover
+        _ini = os.path.join(os.path.dirname(__file__), "..", "backend", "alembic.ini")  # pragma: no cover
+        ini_exists = os.path.isfile(_ini)  # pragma: no cover
+        cfg = _AConfig(_ini)  # pragma: no cover
+        cfg.set_main_option("sqlalchemy.url", db_url)  # pragma: no cover
+        _acmd.upgrade(cfg, "head")  # pragma: no cover
+        migration_result = "success"  # pragma: no cover
+    except Exception as e:  # pragma: no cover
+        migration_result = str(e)  # pragma: no cover
+        ini_exists = ini_exists if 'ini_exists' in dir() else "unknown"  # pragma: no cover
     return {  # pragma: no cover
-        "DATABASE_URL": os.environ.get("DATABASE_URL", "")[:60] + "...",
-        "DATABASE_URL_UNPOOLED": os.environ.get("DATABASE_URL_UNPOOLED", "")[:60] + "...",
+        "DATABASE_URL_prefix": db_url[:60],  # pragma: no cover
+        "alembic_ini_exists": os.path.isfile(os.path.join(os.path.dirname(__file__), "..", "backend", "alembic.ini")),  # pragma: no cover
+        "migration_result": migration_result,  # pragma: no cover
     }
 
 # Serve the React SPA from the bundled frontend/dist directory.
