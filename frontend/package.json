@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "tsc --noEmit",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:smoke": "playwright test e2e/smoke.spec.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.45.0",

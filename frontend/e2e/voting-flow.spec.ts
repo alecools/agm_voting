@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 // NOTE: These E2E tests require both the frontend dev server and the backend API
 // to be running. Run with: npx playwright test

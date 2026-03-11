@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 
 test.describe("Admin Lot Owners", () => {
   // Note: Requires a building to exist. Seed via API before tests.
