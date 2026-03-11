@@ -66,16 +66,55 @@ git worktree remove ../agm_survey-feat-foo
 
 #### Provisioning an isolated test database for a feature branch
 
-When a feature includes schema migrations or needs a clean DB state, create a dedicated Neon branch:
+Every feature branch that includes schema migrations MUST have its own Neon DB branch. This prevents migration conflicts on the shared preview DB and ensures E2E tests run against a DB that matches the branch's schema exactly. The Lambda auto-migrates on first cold start, so no manual `alembic upgrade` step is needed after the branch is wired up.
 
-1. **Create the branch in Neon** — branch off `preview` in the Neon dashboard. Name it after the feature.
-2. **Run migrations:**
+**Steps (run once when creating the feature branch):**
+
+1. **Create a Neon branch** in the [Neon dashboard](https://console.neon.tech) — branch off `preview`. Name it after the feature (e.g. `feat/my-feature`).
+
+2. **Note the connection strings** from the Neon dashboard for the new branch:
+   - Pooled: `postgresql://...@<pooler-host>/neondb?sslmode=require&channel_binding=require`
+   - Unpooled: `postgresql://...@<direct-host>/neondb?sslmode=require&channel_binding=require`
+
+3. **Set branch-scoped env vars in Vercel** so only this git branch uses the new DB. Use the Vercel REST API (replace `<branch>` with your branch name, e.g. `feat/my-feature`):
+
+
    ```bash
-   uv run alembic -x "dburl=postgresql+asyncpg://<user>:<pass>@<host>/neondb?ssl=require" upgrade head
+   # Get the Vercel project ID from .vercel/project.json
+   PROJECT_ID=$(cat .vercel/project.json | python3 -c "import sys,json; print(json.load(sys.stdin)['projectId'])")
+
+   # Set DATABASE_URL for the branch (Vercel API — requires VERCEL_TOKEN env var)
+   python3 - <<'EOF'
+   import urllib.request, urllib.parse, json, os
+
+   token = os.environ["VERCEL_TOKEN"]
+   project_id = os.environ["PROJECT_ID"]  # or hardcode from above
+   branch = "feat/my-feature"  # your branch name
+
+   pooled_url = "postgresql://...?sslmode=require&channel_binding=require"
+   unpooled_url = "postgresql://...?sslmode=require&channel_binding=require"
+
+   for key, value in [("DATABASE_URL", pooled_url), ("DATABASE_URL_UNPOOLED", unpooled_url)]:
+       body = json.dumps({
+           "key": key, "value": value, "type": "encrypted",
+           "target": ["preview"], "gitBranch": branch
+       }).encode()
+       req = urllib.request.Request(
+           f"https://api.vercel.com/v10/projects/{project_id}/env",
+           data=body,
+           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+           method="POST"
+       )
+       resp = urllib.request.urlopen(req)
+       print(f"{key}: {resp.status}")
+   EOF
    ```
-   Strip `sslmode=require` → `ssl=require` and remove `channel_binding=require` (asyncpg does not support either).
-3. **Override the DB for the branch** — add a branch-scoped `DATABASE_URL` env var in the Vercel dashboard for that git branch, pointing to the feature Neon branch
-4. **Tear down the Neon branch** once the feature is merged
+
+4. **Push the branch** — Vercel deploys it using the new Neon branch URL. On first cold start, the Lambda auto-runs `alembic upgrade head` against the feature DB.
+
+5. **Tear down** after the PR is merged — delete the Neon branch in the dashboard and remove the branch-scoped Vercel env vars.
+
+**Note on the shared preview DB:** When a feature PR is merged to `preview`, the Lambda on the `preview` branch will auto-migrate the shared preview DB on its next cold start. No manual migration step needed.
 
 ### Definition of Done
 

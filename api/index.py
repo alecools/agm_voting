@@ -43,6 +43,30 @@ if "DATABASE_URL" in os.environ:
         .replace("channel_binding=require", "")
     )
 
+# ---------------------------------------------------------------------------
+# Run Alembic migrations at Lambda startup (once per cold start).
+# Uses the existing async env.py — no psycopg2 required.
+# Failures are logged as warnings but do NOT prevent the app from starting,
+# so a bad migration doesn't take down the entire deployment.
+# ---------------------------------------------------------------------------
+_db_url = os.environ.get("DATABASE_URL", "")
+if _db_url:  # pragma: no cover — runs at Lambda cold-start; cannot unit-test without a live DB
+    try:  # pragma: no cover
+        from alembic.config import Config as _AlembicConfig  # pragma: no cover
+        from alembic import command as _alembic_command  # pragma: no cover
+
+        _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))  # pragma: no cover
+        _alembic_ini = os.path.join(_backend_dir, "alembic.ini")  # pragma: no cover
+        _alembic_cfg = _AlembicConfig(_alembic_ini)  # pragma: no cover
+        _alembic_cfg.set_main_option("sqlalchemy.url", _db_url)  # pragma: no cover
+        # script_location in alembic.ini is relative — resolve to absolute path so it
+        # works regardless of the Lambda's current working directory.
+        _alembic_cfg.set_main_option("script_location", os.path.join(_backend_dir, "alembic"))  # pragma: no cover
+        _alembic_command.upgrade(_alembic_cfg, "head")  # pragma: no cover
+    except Exception as _migration_exc:  # pragma: no cover
+        import logging as _logging  # pragma: no cover
+        _logging.warning("[startup] Alembic migration error (non-fatal): %s", _migration_exc)  # pragma: no cover
+
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
 # Serve the React SPA from the bundled frontend/dist directory.
