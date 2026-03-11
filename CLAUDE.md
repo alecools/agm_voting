@@ -19,6 +19,15 @@ AGM Voting App — a web application for body corporates to run weighted voting 
 
 This applies equally to small bug fixes and large features. If feedback is received during implementation, pause, update the PRD, then continue.
 
+### Definition of Done
+
+A change is only complete when all of the following are true:
+
+1. All local tests pass (`npm run test:coverage` and backend pytest with coverage)
+2. Deployed to the **development** Vercel environment (`vercel deploy` from project root)
+3. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
+4. The full test suite is run against the deployed development instance to confirm parity
+
 ---
 
 ## Example Files
