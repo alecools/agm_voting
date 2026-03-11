@@ -1962,6 +1962,218 @@ class TestResendReport:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/admin/agms/{agm_id}/ballots
+# ---------------------------------------------------------------------------
+
+
+class TestResetAGMBallots:
+    async def _create_agm_with_ballot(
+        self, db_session: AsyncSession, name: str
+    ) -> tuple[AGM, LotOwner, Motion]:
+        b = Building(name=name, manager_email=f"reset_{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(
+            building_id=b.id,
+            lot_number="RESET-1",
+            email="reset-voter@test.com",
+            unit_entitlement=10,
+        )
+        db_session.add(lo)
+        await db_session.flush()
+
+        agm = AGM(
+            building_id=b.id,
+            title=f"Reset Ballots AGM {name}",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="Reset Motion", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        # Add a submitted vote + ballot submission
+        vote = Vote(
+            agm_id=agm.id,
+            motion_id=motion.id,
+            voter_email="reset-voter@test.com",
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+
+        submission = BallotSubmission(
+            agm_id=agm.id,
+            voter_email="reset-voter@test.com",
+        )
+        db_session.add(submission)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        return agm, lo, motion
+
+    # --- Happy path ---
+
+    async def test_reset_ballots_deletes_submissions_and_returns_count(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Happy Reset")
+        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] == 1
+
+        # Verify ballot submission is gone
+        subs = await db_session.execute(
+            select(BallotSubmission).where(BallotSubmission.agm_id == agm.id)
+        )
+        assert subs.scalars().all() == []
+
+    async def test_reset_ballots_deletes_submitted_votes(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Vote Delete Reset")
+        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 200
+
+        # Verify submitted votes are gone
+        votes = await db_session.execute(
+            select(Vote).where(Vote.agm_id == agm.id, Vote.status == VoteStatus.submitted)
+        )
+        assert votes.scalars().all() == []
+
+    async def test_reset_ballots_on_agm_with_no_submissions_returns_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Empty Reset Building", manager_email="empty_reset@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="Empty Reset AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 200
+        assert response.json()["deleted"] == 0
+
+    async def test_reset_ballots_preserves_draft_votes(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Draft Preserve Building", manager_email="draft_pres@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="Draft Preserve AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="Draft Motion", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        draft_vote = Vote(
+            agm_id=agm.id,
+            motion_id=motion.id,
+            voter_email="drafter@test.com",
+            choice=VoteChoice.no,
+            status=VoteStatus.draft,
+        )
+        db_session.add(draft_vote)
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 200
+        assert response.json()["deleted"] == 0
+
+        # Draft vote should still be present
+        remaining = await db_session.execute(
+            select(Vote).where(Vote.agm_id == agm.id, Vote.status == VoteStatus.draft)
+        )
+        assert len(remaining.scalars().all()) == 1
+
+    async def test_reset_multiple_submissions_deletes_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Multi Reset Building", manager_email="multi_reset@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="Multi Reset AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="Multi Motion", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        for i in range(3):
+            email = f"multi-voter-{i}@test.com"
+            db_session.add(
+                Vote(
+                    agm_id=agm.id,
+                    motion_id=motion.id,
+                    voter_email=email,
+                    choice=VoteChoice.yes,
+                    status=VoteStatus.submitted,
+                )
+            )
+            db_session.add(BallotSubmission(agm_id=agm.id, voter_email=email))
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 200
+        assert response.json()["deleted"] == 3
+
+    # --- State / precondition errors ---
+
+    async def test_reset_ballots_not_found_returns_404(self, client: AsyncClient):
+        response = await client.delete(f"/api/admin/agms/{uuid.uuid4()}/ballots")
+        assert response.status_code == 404
+
+    # --- Edge cases ---
+
+    async def test_reset_ballots_unauthenticated_returns_401(
+        self, auth_client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Unauth Reset Building", manager_email="unauth_reset@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="Unauth Reset AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await auth_client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Schema unit tests (for coverage of schema validators)
 # ---------------------------------------------------------------------------
 

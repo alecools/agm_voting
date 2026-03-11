@@ -29,47 +29,52 @@ export default function AdminLoginPage() {
   return (
     <div className="admin-login-page">
       <div className="admin-login-card">
-        <div className="admin-login-header">
-          <img src="/logo.png" alt="AGM Vote" className="admin-login-logo" />
-          <h1 className="admin-login-title">Admin Portal</h1>
+        <div className="admin-login-card__header">
+          <img src="/logo.png" alt="AGM Vote" className="admin-login-card__logo" />
+          <h1 className="admin-login-card__title">Admin Portal</h1>
+          <p className="admin-login-card__subtitle">Sign in to manage buildings and AGMs</p>
         </div>
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="admin-login-form">
+
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="admin-login-card__form">
           {error && (
-            <p className="admin-login-error" role="alert">
+            <p className="admin-login-card__error" role="alert">
               {error}
             </p>
           )}
-          <div className="admin-login-field">
-            <label htmlFor="username" className="admin-login-label">
+
+          <div className="field">
+            <label htmlFor="username" className="field__label">
               Username
             </label>
             <input
               id="username"
               type="text"
-              className="admin-login-input"
+              className="field__input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               required
             />
           </div>
-          <div className="admin-login-field">
-            <label htmlFor="password" className="admin-login-label">
+
+          <div className="field">
+            <label htmlFor="password" className="field__label">
               Password
             </label>
             <input
               id="password"
               type="password"
-              className="admin-login-input"
+              className="field__input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
             />
           </div>
+
           <button
             type="submit"
-            className="btn btn--primary admin-login-submit"
+            className="btn btn--primary btn--full"
             disabled={loading}
           >
             {loading ? "Signing in…" : "Sign in"}

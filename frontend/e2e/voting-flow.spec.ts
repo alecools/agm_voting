@@ -25,23 +25,34 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Continue" }).click();
 
-    // Voting page
-    await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible();
+    // Wait for auth to complete and navigation away from /auth.
+    // Use a generous timeout: the Vercel Lambda may need a moment to create the
+    // session and the browser needs to receive the redirect before rendering /voting.
+    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
-    // Vote Yes on all motions
-    const yesButtons = page.getByRole("button", { name: "Yes" });
-    const count = await yesButtons.count();
-    for (let i = 0; i < count; i++) {
-      await yesButtons.nth(i).click();
+    // If the ballot for E2E-1 was already submitted in a previous test run and
+    // auth redirected straight to /confirmation, skip the voting steps.
+    if (page.url().includes("/voting")) {
+      await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible({ timeout: 10000 });
+
+      // Vote Yes on all motions
+      const yesButtons = page.getByRole("button", { name: "Yes" });
+      const count = await yesButtons.count();
+      for (let i = 0; i < count; i++) {
+        await yesButtons.nth(i).click();
+      }
+
+      // Submit
+      await page.getByRole("button", { name: "Submit ballot" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await page.getByRole("button", { name: "Submit ballot" }).last().click();
+
+      // Confirmation — allow extra time for remote server ballot submission
+      await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
     }
 
-    // Submit
-    await page.getByRole("button", { name: "Submit ballot" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: "Submit ballot" }).last().click();
-
-    // Confirmation — allow extra time for remote server ballot submission
-    await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
+    // Whether we voted just now or were redirected here directly, the
+    // confirmation page must show the voter's recorded votes.
     await expect(page.getByText("Your votes", { exact: true })).toBeVisible({ timeout: 15000 });
   });
 

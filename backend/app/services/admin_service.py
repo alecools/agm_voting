@@ -949,3 +949,38 @@ async def resend_report(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     logger.info("Email delivery triggered for AGM %s", agm_id)
 
     return {"queued": True}
+
+
+async def reset_agm_ballots(agm_id: uuid.UUID, db: AsyncSession) -> dict:
+    """Delete all ballot submissions (and their associated submitted votes) for an AGM.
+
+    Intended for E2E test setup only — clears submitted votes so the test
+    suite can re-run the voting flow without hitting a 409 conflict.
+    Returns the number of ballot submissions deleted.
+    """
+    result = await db.execute(select(AGM).where(AGM.id == agm_id))
+    agm = result.scalar_one_or_none()
+    if agm is None:
+        raise HTTPException(status_code=404, detail="AGM not found")
+
+    # Count submissions before deleting so we can return the count.
+    count_result = await db.execute(
+        select(func.count(BallotSubmission.id)).where(BallotSubmission.agm_id == agm_id)
+    )
+    deleted_count = count_result.scalar_one()
+
+    # Delete submitted votes for this AGM (must come before ballot submissions
+    # to avoid any application-level FK issues, even though there is no DB-level
+    # FK from votes → ballot_submissions).
+    await db.execute(
+        delete(Vote).where(Vote.agm_id == agm_id, Vote.status == VoteStatus.submitted)
+    )
+
+    # Delete all ballot submissions for this AGM.
+    await db.execute(
+        delete(BallotSubmission).where(BallotSubmission.agm_id == agm_id)
+    )
+
+    await db.commit()
+
+    return {"deleted": deleted_count}

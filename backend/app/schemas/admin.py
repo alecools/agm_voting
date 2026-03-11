@@ -249,6 +249,10 @@ class ResendReportOut(BaseModel):
     queued: bool
 
 
+class AGMBallotResetOut(BaseModel):
+    deleted: int
+
+
 # ---------------------------------------------------------------------------
 # Archive schemas
 # ---------------------------------------------------------------------------

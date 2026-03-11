@@ -1577,6 +1577,71 @@ button, input, select, textarea {
   gap: 12px;
 }
 
+/* === ADMIN LOGIN PAGE === */
+.admin-login-page {
+  min-height: 100vh;
+  background: var(--linen);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.admin-login-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-md);
+  padding: 40px 36px 36px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.admin-login-card__header {
+  text-align: center;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-login-card__logo {
+  height: 44px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  margin: 0 auto 16px;
+}
+
+.admin-login-card__title {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+
+.admin-login-card__subtitle {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.admin-login-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-login-card__error {
+  background: var(--red-bg);
+  border: 1px solid #F5C6C0;
+  border-radius: var(--r-md);
+  color: var(--red);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
 /* === UTILITIES === */
 .mt-8  { margin-top:  8px; }
 .mt-16 { margin-top: 16px; }

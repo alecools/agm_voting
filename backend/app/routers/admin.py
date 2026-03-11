@@ -16,6 +16,7 @@ from app.database import get_db
 from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
+    AGMBallotResetOut,
     AGMCloseOut,
     AGMCreate,
     AGMDetail,
@@ -260,3 +261,20 @@ async def resend_report(
     email_service = EmailService()
     asyncio.create_task(email_service.trigger_with_retry(agm_id))
     return ResendReportOut(**result)
+
+
+@router.delete(
+    "/agms/{agm_id}/ballots",
+    response_model=AGMBallotResetOut,
+)
+async def reset_agm_ballots(
+    agm_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> AGMBallotResetOut:
+    """Delete all ballot submissions for an AGM.
+
+    Intended for E2E test setup only — clears submitted votes so the test
+    suite can re-run the voting flow without hitting a 409 conflict.
+    """
+    result = await admin_service.reset_agm_ballots(agm_id, db)
+    return AGMBallotResetOut(**result)
