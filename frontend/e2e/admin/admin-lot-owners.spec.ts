@@ -27,9 +27,19 @@ test.describe("Admin Lot Owners", () => {
   });
 
   test("add lot owner form submits and shows in table", async ({ page, request }) => {
+    // Ensure the dedicated E2E Building exists (same seed used by "displays lot owner table")
+    await request.post("/api/admin/buildings/import", {
+      multipart: {
+        file: {
+          name: "buildings.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from("building_name,manager_email\nE2E Building,manager@e2e.com"),
+        },
+      },
+    });
     const buildingsRes = await request.get("/api/admin/buildings");
     const buildings = await buildingsRes.json() as { id: string; name: string }[];
-    const building = buildings[0];
+    const building = buildings.find((b) => b.name === "E2E Building")!;
 
     const uniqueLot = `E2E-LOT-${Date.now()}`;
     await page.goto(`/admin/buildings/${building.id}`);
@@ -43,9 +53,19 @@ test.describe("Admin Lot Owners", () => {
   });
 
   test("CSV import shows imported count", async ({ page, request }) => {
+    // Ensure the dedicated E2E Building exists before importing lot owners into it
+    await request.post("/api/admin/buildings/import", {
+      multipart: {
+        file: {
+          name: "buildings.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from("building_name,manager_email\nE2E Building,manager@e2e.com"),
+        },
+      },
+    });
     const buildingsRes = await request.get("/api/admin/buildings");
-    const buildings = await buildingsRes.json() as { id: string }[];
-    const building = buildings[0];
+    const buildings = await buildingsRes.json() as { id: string; name: string }[];
+    const building = buildings.find((b) => b.name === "E2E Building")!;
 
     await page.goto(`/admin/buildings/${building.id}`);
     const csvContent =
