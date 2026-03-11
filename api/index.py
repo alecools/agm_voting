@@ -45,6 +45,16 @@ if "DATABASE_URL" in os.environ:
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
+# TEMP: debug endpoint — retrieve unpooled DB URL for manual migration
+@app.get("/api/debug/db-url", include_in_schema=False)  # pragma: no cover
+async def _debug_db_url():  # pragma: no cover
+    return {
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+        "DATABASE_URL_UNPOOLED": os.environ.get("DATABASE_URL_UNPOOLED"),
+        "POSTGRES_URL": os.environ.get("POSTGRES_URL"),
+        "POSTGRES_URL_NON_POOLING": os.environ.get("POSTGRES_URL_NON_POOLING"),
+    }
+
 # Serve the React SPA from the bundled frontend/dist directory.
 # frontend/dist is included in the Lambda via vercel.json includeFiles.
 _dist_dir = os.path.join(os.path.dirname(__file__), "static")
