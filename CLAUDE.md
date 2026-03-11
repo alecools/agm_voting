@@ -77,6 +77,13 @@ Used for AGM motion pre-fill at creation time (US-014, Excel motion import featu
 | **Preview** | Push to any other branch (git only) | `agm-voting-git-<branch>-ocss.vercel.app` |
 | **Development** | CLI only — `vercel deploy` from project root | temporary URL |
 
+**Environment variables:** All required env vars are documented in `.env.example` at the project root. Copy it to `.env` for local development. For Vercel, add each variable in the dashboard or via `vercel env add`. Key vars:
+- `DATABASE_URL` — Neon DB connection string (set by Vercel Neon integration automatically)
+- `VITE_API_BASE_URL` — must be set to `""` (empty string) on Vercel so the frontend uses relative API paths; defaults to `http://localhost:8000` locally
+- `SESSION_SECRET` — required for admin session cookies; use a random 32-byte hex string
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — admin login credentials
+- `ALLOWED_ORIGIN` — CORS origin; set to the deployed frontend URL on Vercel
+
 **IMPORTANT — CLI deployments go to Development only.** Never run `vercel deploy --prod` or target preview from the CLI. Production and Preview are exclusively managed by git push.
 
 When investigating a Vercel deployment issue, always check which environment is affected before acting.
