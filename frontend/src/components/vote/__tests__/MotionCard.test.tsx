@@ -52,7 +52,7 @@ describe("MotionCard", () => {
     expect(screen.getByText("Motion without description")).toBeInTheDocument();
   });
 
-  it("renders Yes, No, Abstain buttons", () => {
+  it("renders For, Against, Abstain buttons", () => {
     render(
       <MotionCard
         motion={motion}
@@ -63,12 +63,12 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    expect(screen.getByRole("button", { name: "Yes" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "No" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "For" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Against" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abstain" })).toBeInTheDocument();
   });
 
-  it("shows Yes as pressed when choice is yes", () => {
+  it("shows For as pressed when choice is yes", () => {
     render(
       <MotionCard
         motion={motion}
@@ -79,10 +79,10 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    expect(screen.getByRole("button", { name: "Yes" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "For" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("calls onChoiceChange when Yes is clicked", async () => {
+  it("calls onChoiceChange when For is clicked", async () => {
     const user = userEvent.setup();
     const onChoiceChange = vi.fn();
     render(
@@ -95,7 +95,7 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    await user.click(screen.getByRole("button", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: "For" }));
     expect(onChoiceChange).toHaveBeenCalledWith("mot-001", "yes");
   });
 
@@ -112,7 +112,7 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    await user.click(screen.getByRole("button", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: "For" }));
     expect(onChoiceChange).toHaveBeenCalledWith("mot-001", null);
   });
 
@@ -129,7 +129,7 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    await user.click(screen.getByRole("button", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: "For" }));
     expect(onChoiceChange).not.toHaveBeenCalled();
   });
 
@@ -145,7 +145,7 @@ describe("MotionCard", () => {
       />
     );
     await waitFor(() => {
-      expect(screen.getByText("Saved")).toBeInTheDocument();
+      expect(screen.getByText(/Saved/)).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 
@@ -164,7 +164,7 @@ describe("MotionCard", () => {
       />
     );
     await waitFor(() => {
-      expect(screen.getByText(/Could not save your selection/)).toBeInTheDocument();
+      expect(screen.getByText(/Could not save\./)).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 
@@ -180,7 +180,7 @@ describe("MotionCard", () => {
       />
     );
     const card = screen.getByTestId("motion-card-mot-001");
-    expect(card).toHaveStyle({ border: "2px solid #ff9800" });
+    expect(card).toHaveClass("motion-card--highlight");
   });
 
   it("manual save button triggers immediate save", async () => {
@@ -200,16 +200,16 @@ describe("MotionCard", () => {
     );
     // Wait for error state
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Fix the handler and click Save
+    // Fix the handler and click Retry
     server.use(
       http.put(`${BASE}/api/agm/agm-1/draft`, () => HttpResponse.json({ saved: true }))
     );
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => {
-      expect(screen.getByText("Saved")).toBeInTheDocument();
+      expect(screen.getByText(/Saved/)).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 });

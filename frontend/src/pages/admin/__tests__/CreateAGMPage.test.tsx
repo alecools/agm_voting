@@ -34,7 +34,7 @@ describe("CreateAGMPage", () => {
 
   it("renders the create AGM form", () => {
     renderPage();
-    expect(screen.getByLabelText("Title")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title", { selector: "#agm-title" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
   });
 });

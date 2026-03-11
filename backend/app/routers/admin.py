@@ -1,7 +1,7 @@
 """
 Admin portal API router.
 All endpoints are under /api/admin prefix (set in main.py).
-No authentication required for MVP.
+Authentication is required via the require_admin dependency.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
     AGMCloseOut,
@@ -20,6 +21,7 @@ from app.schemas.admin import (
     AGMDetail,
     AGMListItem,
     AGMOut,
+    BuildingArchiveOut,
     BuildingCreate,
     BuildingImportResult,
     BuildingOut,
@@ -31,7 +33,7 @@ from app.schemas.admin import (
 )
 from app.services import admin_service
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
 _CSV_CONTENT_TYPES = {
     "text/csv",
@@ -116,6 +118,18 @@ async def list_buildings(
 ) -> list[BuildingOut]:
     buildings = await admin_service.list_buildings(db)
     return [BuildingOut.model_validate(b) for b in buildings]
+
+
+@router.post(
+    "/buildings/{building_id}/archive",
+    response_model=BuildingArchiveOut,
+)
+async def archive_building(
+    building_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> BuildingArchiveOut:
+    building = await admin_service.archive_building(building_id, db)
+    return BuildingArchiveOut.model_validate(building)
 
 
 # ---------------------------------------------------------------------------

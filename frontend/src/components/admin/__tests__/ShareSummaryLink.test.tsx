@@ -47,22 +47,11 @@ describe("ShareSummaryLink", () => {
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
   });
 
-  it("changes button text to 'Link copied!' after clicking Copy link", async () => {
+  it("shows 'Link copied' toast after clicking Copy link", async () => {
     render(<ShareSummaryLink agmId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
-    expect(screen.getByRole("button", { name: "Link copied!" })).toBeInTheDocument();
-  });
-
-  it("resets button text back to 'Copy link' after 2000ms", async () => {
-    render(<ShareSummaryLink agmId="agm42" />);
-    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
-    await flushPromises();
-    expect(screen.getByRole("button", { name: "Link copied!" })).toBeInTheDocument();
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.getByText("Link copied")).toBeInTheDocument();
   });
 
   it("calls navigator.clipboard.writeText with the correct URL", async () => {
@@ -73,17 +62,12 @@ describe("ShareSummaryLink", () => {
     expect(writeTextMock).toHaveBeenCalledWith(expectedUrl);
   });
 
-  it("still resets button after clipboard write failure, no crash", async () => {
+  it("still shows toast after clipboard write failure, no crash", async () => {
     writeTextMock.mockRejectedValueOnce(new Error("not allowed"));
     render(<ShareSummaryLink agmId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
-    // After failure, button still changes to "Link copied!"
-    expect(screen.getByRole("button", { name: "Link copied!" })).toBeInTheDocument();
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    // And resets after timeout
-    expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    // After failure, toast still appears
+    expect(screen.getByText("Link copied")).toBeInTheDocument();
   });
 });

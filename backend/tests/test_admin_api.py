@@ -25,6 +25,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_db
 from app.models import (
     AGM,
     AGMLotWeight,
@@ -351,6 +352,7 @@ class TestListBuildings:
         assert "id" in first
         assert "name" in first
         assert "manager_email" in first
+        assert "is_archived" in first
         assert "created_at" in first
 
 
@@ -1680,6 +1682,45 @@ class TestGetAGMDetail:
         assert tally["abstained"]["voter_count"] == 1
         assert tally["abstained"]["entitlement_sum"] == 40
 
+    async def test_fallback_to_current_lot_owners_when_no_snapshot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When AGMLotWeight snapshot is empty, fall back to current lot owners."""
+        b = Building(name="No Snapshot Building", manager_email="ns@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(
+            building_id=b.id,
+            lot_number="NS1",
+            email="nosnapshot@test.com",
+            unit_entitlement=75,
+        )
+        db_session.add(lo)
+        await db_session.flush()
+
+        agm = AGM(
+            building_id=b.id,
+            title="No Snapshot AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="NS Motion", order_index=1)
+        db_session.add(motion)
+        # Intentionally no AGMLotWeight rows for this AGM
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/agms/{agm.id}")
+        data = response.json()
+        assert data["total_eligible_voters"] == 1
+        tally = data["motions"][0]["tally"]
+        assert tally["absent"]["voter_count"] == 1
+        assert tally["absent"]["entitlement_sum"] == 75
+
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/agms/{agm_id}/close
@@ -2007,6 +2048,83 @@ class TestSchemas:
 
         with pytest.raises(ValidationError):
             LotOwnerCreate(lot_number="L1", email="x@test.com", unit_entitlement=-1)
+
+    def test_building_create_empty_name_raises(self):
+        from pydantic import ValidationError
+
+        from app.schemas.admin import BuildingCreate
+
+        with pytest.raises(ValidationError):
+            BuildingCreate(name="  ", manager_email="mgr@test.com")
+
+    def test_building_create_empty_email_raises(self):
+        from pydantic import ValidationError
+
+        from app.schemas.admin import BuildingCreate
+
+        with pytest.raises(ValidationError):
+            BuildingCreate(name="Valid Name", manager_email="  ")
+
+    def test_admin_login_request_valid(self):
+        from app.schemas.admin import AdminLoginRequest
+
+        req = AdminLoginRequest(username="admin", password="secret")
+        assert req.username == "admin"
+        assert req.password == "secret"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/buildings (create building via form)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBuildingEndpoint:
+    # --- Happy path ---
+
+    async def test_create_building_returns_201(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        response = await client.post(
+            "/api/admin/buildings",
+            json={"name": "New Form Building", "manager_email": "form@test.com"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "New Form Building"
+        assert data["manager_email"] == "form@test.com"
+        assert data["is_archived"] is False
+        assert "id" in data
+
+    # --- Input validation ---
+
+    async def test_empty_name_returns_422(self, client: AsyncClient):
+        response = await client.post(
+            "/api/admin/buildings",
+            json={"name": "  ", "manager_email": "mgr@test.com"},
+        )
+        assert response.status_code == 422
+
+    async def test_empty_email_returns_422(self, client: AsyncClient):
+        response = await client.post(
+            "/api/admin/buildings",
+            json={"name": "Valid Building", "manager_email": "  "},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_duplicate_name_returns_409(
+        self, client: AsyncClient
+    ):
+        await client.post(
+            "/api/admin/buildings",
+            json={"name": "Dup Form Building", "manager_email": "dup@test.com"},
+        )
+        response = await client.post(
+            "/api/admin/buildings",
+            json={"name": "Dup Form Building", "manager_email": "other@test.com"},
+        )
+        assert response.status_code == 409
 
 
 # ---------------------------------------------------------------------------
@@ -2789,3 +2907,227 @@ class TestImportLotOwnersExcel:
         weights = weights_result.scalars().all()
         assert len(weights) == 2
         assert sum(w.unit_entitlement_snapshot for w in weights) == 300  # 100 + 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/buildings/{id}/archive
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveBuilding:
+    # --- Happy path ---
+
+    async def test_archive_building_sets_is_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Arch Building A", manager_email="a@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        await db_session.refresh(b)
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_archived"] is True
+        assert data["id"] == str(b.id)
+
+    async def test_archive_archives_sole_building_owners(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Arch Building B", manager_email="b@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(
+            building_id=b.id, lot_number="1", email="sole@test.com", unit_entitlement=10
+        )
+        db_session.add(lo)
+        await db_session.flush()
+        await db_session.refresh(lo)
+
+        await client.post(f"/api/admin/buildings/{b.id}/archive")
+
+        await db_session.refresh(lo)
+        assert lo.is_archived is True
+
+    async def test_archive_does_not_archive_owner_in_other_active_building(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b1 = Building(name="Arch Building C1", manager_email="c1@test.com")
+        b2 = Building(name="Arch Building C2", manager_email="c2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+
+        # Same email in both buildings
+        lo1 = LotOwner(
+            building_id=b1.id, lot_number="1", email="shared@test.com", unit_entitlement=10
+        )
+        lo2 = LotOwner(
+            building_id=b2.id, lot_number="2", email="shared@test.com", unit_entitlement=20
+        )
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await db_session.refresh(lo1)
+        await db_session.refresh(lo2)
+
+        # Archive b1 — lo1 should NOT be archived because lo2 is in active b2
+        await client.post(f"/api/admin/buildings/{b1.id}/archive")
+
+        await db_session.refresh(lo1)
+        await db_session.refresh(lo2)
+        assert lo1.is_archived is False
+        assert lo2.is_archived is False
+
+    async def test_archive_owner_whose_other_building_is_also_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b1 = Building(name="Arch Building D1", manager_email="d1@test.com")
+        b2 = Building(name="Arch Building D2", manager_email="d2@test.com", is_archived=True)
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+
+        lo1 = LotOwner(
+            building_id=b1.id, lot_number="1", email="both_arch@test.com", unit_entitlement=10
+        )
+        lo2 = LotOwner(
+            building_id=b2.id, lot_number="2", email="both_arch@test.com", unit_entitlement=20
+        )
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+        await db_session.refresh(lo1)
+
+        # Archive b1 — lo1's only other building (b2) is already archived → archive lo1
+        await client.post(f"/api/admin/buildings/{b1.id}/archive")
+
+        await db_session.refresh(lo1)
+        assert lo1.is_archived is True
+
+    # --- State / precondition errors ---
+
+    async def test_already_archived_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Already Archived", manager_email="already@test.com", is_archived=True)
+        db_session.add(b)
+        await db_session.flush()
+        await db_session.refresh(b)
+
+        response = await client.post(f"/api/admin/buildings/{b.id}/archive")
+        assert response.status_code == 409
+
+    async def test_building_not_found_returns_404(self, client: AsyncClient):
+        response = await client.post(f"/api/admin/buildings/{uuid.uuid4()}/archive")
+        assert response.status_code == 404
+
+    # --- Edge cases ---
+
+    async def test_archived_building_excluded_from_admin_list(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Admin list still returns archived buildings (admin can see them)."""
+        b = Building(name="Archive Visible", manager_email="vis@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        await client.post(f"/api/admin/buildings/{b.id}/archive")
+
+        response = await client.get("/api/admin/buildings")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()]
+        assert str(b.id) in ids
+
+
+# ---------------------------------------------------------------------------
+# Admin authentication (uses separate app/client without require_admin bypass)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def auth_app(db_session):
+    """App fixture that does NOT bypass require_admin — for testing auth."""
+    from app.main import create_app
+
+    application = create_app()
+
+    async def override_get_db():
+        yield db_session
+
+    application.dependency_overrides[get_db] = override_get_db
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def auth_client(auth_app):
+    async with AsyncClient(
+        transport=ASGITransport(app=auth_app), base_url="http://test"
+    ) as ac:
+        yield ac
+
+
+class TestAdminAuth:
+    # --- Happy path ---
+
+    async def test_login_with_valid_credentials(self, auth_client: AsyncClient):
+        response = await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": "admin"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    async def test_me_returns_authenticated_after_login(self, auth_client: AsyncClient):
+        await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": "admin"},
+        )
+        response = await auth_client.get("/api/admin/auth/me")
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is True
+
+    async def test_logout_clears_session(self, auth_client: AsyncClient):
+        await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": "admin"},
+        )
+        await auth_client.post("/api/admin/auth/logout")
+        response = await auth_client.get("/api/admin/auth/me")
+        assert response.status_code == 401
+
+    async def test_admin_endpoint_accessible_after_login(
+        self, auth_client: AsyncClient
+    ):
+        await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": "admin"},
+        )
+        response = await auth_client.get("/api/admin/buildings")
+        assert response.status_code == 200
+
+    # --- Input validation ---
+
+    async def test_login_wrong_password_returns_401(self, auth_client: AsyncClient):
+        response = await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": "wrong"},
+        )
+        assert response.status_code == 401
+
+    async def test_login_wrong_username_returns_401(self, auth_client: AsyncClient):
+        response = await auth_client.post(
+            "/api/admin/auth/login",
+            json={"username": "notadmin", "password": "admin"},
+        )
+        assert response.status_code == 401
+
+    # --- State / precondition errors ---
+
+    async def test_unauthenticated_request_returns_401(self, auth_client: AsyncClient):
+        response = await auth_client.get("/api/admin/buildings")
+        assert response.status_code == 401
+
+    async def test_me_returns_401_when_not_logged_in(self, auth_client: AsyncClient):
+        response = await auth_client.get("/api/admin/auth/me")
+        assert response.status_code == 401
+
+    async def test_logout_without_login_returns_ok(self, auth_client: AsyncClient):
+        response = await auth_client.post("/api/admin/auth/logout")
+        assert response.status_code == 200

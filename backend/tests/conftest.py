@@ -77,8 +77,10 @@ def app(db_session: AsyncSession):
     """
     Create a FastAPI app instance with the get_db dependency overridden to use
     the test session so all HTTP requests share the same transaction.
+    Also bypasses admin authentication so tests do not need to log in.
     """
     from app.main import create_app
+    from app.routers.admin_auth import require_admin
 
     application = create_app()
 
@@ -86,5 +88,6 @@ def app(db_session: AsyncSession):
         yield db_session
 
     application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[require_admin] = lambda: None
     yield application
     application.dependency_overrides.clear()

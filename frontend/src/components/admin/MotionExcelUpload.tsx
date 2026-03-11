@@ -38,6 +38,7 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
           id="motion-excel-upload"
           type="file"
           accept=".xlsx,.xls"
+          aria-label="Upload motions (Excel)"
           ref={fileRef}
           onChange={handleChange}
           disabled={parsing}

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -68,8 +68,8 @@ describe("Voting Flow Integration", () => {
   it("voting page renders motions", async () => {
     renderApp(`/vote/${AGM_ID}/voting`);
     await waitFor(() => {
-      expect(screen.getByText("Motion 1")).toBeInTheDocument();
-      expect(screen.getByText("Motion 2")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 2" })).toBeInTheDocument();
     });
   });
 
@@ -85,21 +85,21 @@ describe("Voting Flow Integration", () => {
     renderApp(`/vote/${AGM_ID}/voting`);
 
     // Wait for motions
-    await waitFor(() => screen.getAllByRole("button", { name: "Yes" }));
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
 
     // Answer all motions
-    const yesButtons = screen.getAllByRole("button", { name: "Yes" });
+    const yesButtons = screen.getAllByRole("button", { name: "For" });
     await user.click(yesButtons[0]);
     await user.click(yesButtons[1]);
 
-    await waitFor(() => screen.getByText("2 / 2 motions answered"));
+    await waitFor(() => screen.getByLabelText("2 / 2 motions answered"));
 
     // Submit
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
     expect(screen.getByText("Are you sure? Votes cannot be changed after submission.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });

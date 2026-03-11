@@ -45,7 +45,7 @@ describe("EmailStatusBanner", () => {
     await waitFor(() => {
       expect(onRetrySuccess).toHaveBeenCalled();
     });
-    expect(screen.getByText("Report queued for resend.")).toBeInTheDocument();
+    expect(screen.getByText(/Report queued for resend\./)).toBeInTheDocument();
   });
 
   it("shows error message when retry fails", async () => {

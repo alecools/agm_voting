@@ -35,7 +35,7 @@ describe("VoteRoutes", () => {
   it("renders VotingPage at /vote/:agmId/voting", async () => {
     renderRoutes(`/vote/${AGM_ID}/voting`);
     await waitFor(() => {
-      expect(screen.getByText("Motion 1")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
   });
 

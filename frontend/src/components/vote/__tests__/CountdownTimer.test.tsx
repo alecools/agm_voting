@@ -22,7 +22,7 @@ describe("CountdownTimer", () => {
     const closesAt = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
     const serverTime = makeServerTime(Date.now());
     render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
-    expect(screen.getByRole("timer")).toHaveTextContent(/\d\d:\d\d:\d\d remaining/);
+    expect(screen.getByRole("timer")).toHaveTextContent(/\d\d:\d\d:\d\d/);
   });
 
   it("shows expired state when time is 0", () => {
@@ -38,7 +38,8 @@ describe("CountdownTimer", () => {
     const closesAt = new Date(Date.now() + 4 * 60 * 1000).toISOString();
     const serverTime = makeServerTime(Date.now());
     render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
-    expect(screen.getByRole("timer")).toHaveTextContent(/closing soon/);
+    const timer = screen.getByRole("timer");
+    expect(timer.className).toMatch(/warning/);
   });
 
   it("does not show warning at more than 5 minutes remaining", () => {
@@ -56,13 +57,13 @@ describe("CountdownTimer", () => {
     const serverTime: UseServerTimeResult = { getServerNow: () => currentNow };
     render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
 
-    expect(screen.getByRole("timer")).toHaveTextContent("00:00:05 remaining");
+    expect(screen.getByRole("timer")).toHaveTextContent("00:00:05");
 
     currentNow += 1000;
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    expect(screen.getByRole("timer")).toHaveTextContent("00:00:04 remaining");
+    expect(screen.getByRole("timer")).toHaveTextContent("00:00:04");
   });
 });

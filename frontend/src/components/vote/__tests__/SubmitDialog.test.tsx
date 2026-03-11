@@ -33,7 +33,7 @@ describe("SubmitDialog", () => {
     render(
       <SubmitDialog unansweredTitles={[]} onConfirm={onConfirm} onCancel={() => {}} />
     );
-    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 

@@ -2,10 +2,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logging_config import configure_logging
 from app.routers.admin import router as admin_router
+from app.routers.admin_auth import router as admin_auth_router
 
 configure_logging()
 
@@ -35,6 +37,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        https_only=False,
+        same_site="lax",
+    )
 
     from app.routers.public import router as public_router
     from app.routers.auth import router as auth_router
@@ -43,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(public_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(voting_router, prefix="/api")
+    app.include_router(admin_auth_router, prefix="/api/admin")
     app.include_router(admin_router, prefix="/api/admin")
 
     @app.get("/api/health")

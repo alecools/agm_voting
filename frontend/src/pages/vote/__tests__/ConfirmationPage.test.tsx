@@ -55,9 +55,9 @@ describe("ConfirmationPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
-      expect(screen.getByText("Yes")).toBeInTheDocument();
+      expect(screen.getByText("For")).toBeInTheDocument();
       expect(screen.getByText(/Motion 2/)).toBeInTheDocument();
-      expect(screen.getByText("No")).toBeInTheDocument();
+      expect(screen.getByText("Against")).toBeInTheDocument();
     });
   });
 
@@ -133,9 +133,9 @@ describe("ConfirmationPage", () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Back to Home" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /back to home/i })).toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: "Back to Home" }));
+    await user.click(screen.getByRole("button", { name: /back to home/i }));
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 

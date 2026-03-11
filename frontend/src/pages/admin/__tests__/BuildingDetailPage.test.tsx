@@ -119,7 +119,6 @@ describe("BuildingDetailPage", () => {
     });
     const file = new File(["lot_number,email,unit_entitlement\n1A,a@a.com,100"], "owners.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Lot owners file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(screen.getByText(/Import complete: 5 records imported/)).toBeInTheDocument();
     });
@@ -179,4 +178,75 @@ describe("BuildingDetailPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/admin/agms/new");
   });
 
+  it("shows Archive Building button for active buildings", async () => {
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+  });
+
+  it("archives building and navigates away on confirm", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
+    });
+  });
+
+  it("does not archive when confirm is cancelled", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("shows archive error when API fails", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    server.use(
+      http.post("http://localhost:8000/api/admin/buildings/:buildingId/archive", () => {
+        return HttpResponse.json({ detail: "Already archived" }, { status: 409 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await waitFor(() => {
+      expect(screen.getByText(/Already archived/i)).toBeInTheDocument();
+    });
+  });
+
+  it("does not show Archive Building button for archived buildings", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      })
+    );
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Archive Building" })).not.toBeInTheDocument();
+  });
 });

@@ -20,12 +20,14 @@ const buildings: Building[] = [
     id: "b1",
     name: "Alpha Tower",
     manager_email: "alpha@example.com",
+    is_archived: false,
     created_at: "2024-01-01T00:00:00Z",
   },
   {
     id: "b2",
     name: "Beta Court",
     manager_email: "beta@example.com",
+    is_archived: false,
     created_at: "2024-02-01T00:00:00Z",
   },
 ];
@@ -63,6 +65,26 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings });
     expect(screen.getByText("Name")).toBeInTheDocument();
     expect(screen.getByText("Manager Email")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created At")).toBeInTheDocument();
+  });
+
+  it("shows Archived badge for archived buildings", () => {
+    const archivedBuildings: Building[] = [
+      {
+        id: "b3",
+        name: "Old Tower",
+        manager_email: "old@example.com",
+        is_archived: true,
+        created_at: "2023-01-01T00:00:00Z",
+      },
+    ];
+    renderBuildingTable({ buildings: archivedBuildings });
+    expect(screen.getByText("Archived")).toBeInTheDocument();
+  });
+
+  it("does not show Archived badge for active buildings", () => {
+    renderBuildingTable({ buildings });
+    expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -46,8 +46,8 @@ describe("VotingPage", () => {
   it("renders all motions", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion 1")).toBeInTheDocument();
-      expect(screen.getByText("Motion 2")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Motion 2" })).toBeInTheDocument();
     });
   });
 
@@ -69,7 +69,7 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => {
-      const yesButtons = screen.getAllByRole("button", { name: "Yes" });
+      const yesButtons = screen.getAllByRole("button", { name: "For" });
       expect(yesButtons[0]).toHaveAttribute("aria-pressed", "true");
     });
   });
@@ -77,39 +77,39 @@ describe("VotingPage", () => {
   it("progress bar updates on selection", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByText("0 / 2 motions answered"));
+    await waitFor(() => screen.getByLabelText("0 / 2 motions answered"));
 
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "Yes" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
     await user.click(yesButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByText("1 / 2 motions answered")).toBeInTheDocument();
+      expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
     });
   });
 
   it("deselects choice when same button clicked again", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "Yes" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
     await user.click(yesButtons[0]);
-    await waitFor(() => screen.getByText("1 / 2 motions answered"));
+    await waitFor(() => screen.getByLabelText("1 / 2 motions answered"));
 
     await user.click(yesButtons[0]);
     await waitFor(() => {
-      expect(screen.getByText("0 / 2 motions answered")).toBeInTheDocument();
+      expect(screen.getByLabelText("0 / 2 motions answered")).toBeInTheDocument();
     });
   });
 
   it("shows simple confirm dialog when all motions answered", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "Yes" }));
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
 
-    const yesButtons = screen.getAllByRole("button", { name: "Yes" });
+    const yesButtons = screen.getAllByRole("button", { name: "For" });
     await user.click(yesButtons[0]);
     await user.click(yesButtons[1]);
 
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByText("Are you sure? Votes cannot be changed after submission.")).toBeInTheDocument();
@@ -119,9 +119,9 @@ describe("VotingPage", () => {
   it("shows unanswered review dialog when not all answered", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
 
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByText("Unanswered motions")).toBeInTheDocument();
@@ -131,13 +131,13 @@ describe("VotingPage", () => {
   it("highlights unanswered motions on submit click", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
 
     await waitFor(() => {
       const cards = screen.getAllByTestId(/motion-card/);
       cards.forEach((card) => {
-        expect(card).toHaveStyle({ border: "2px solid #ff9800" });
+        expect(card).toHaveClass("motion-card--highlight");
       });
     });
   });
@@ -145,8 +145,8 @@ describe("VotingPage", () => {
   it("cancels dialog and stays on page", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -155,10 +155,10 @@ describe("VotingPage", () => {
   it("navigates to confirmation on successful submit", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
-    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
@@ -172,10 +172,10 @@ describe("VotingPage", () => {
     );
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
-    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
@@ -189,10 +189,10 @@ describe("VotingPage", () => {
     );
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getByRole("button", { name: "Submit Votes" }));
-    await user.click(screen.getByRole("button", { name: "Submit Votes" }));
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => screen.getByRole("dialog"));
-    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
     await waitFor(() => {
       expect(screen.getByText("Voting has closed for this meeting.")).toBeInTheDocument();
     });
@@ -264,11 +264,11 @@ describe("VotingPage", () => {
   it("auto-saves after selecting a choice", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "Yes" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
     await user.click(yesButtons[0]);
     act(() => { vi.advanceTimersByTime(400); });
     await waitFor(() => {
-      expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Saved/).length).toBeGreaterThan(0);
     });
   });
 
@@ -303,12 +303,12 @@ describe("VotingPage", () => {
       http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () => HttpResponse.error())
     );
     renderPage();
-    await waitFor(() => screen.getByText("Motion 1"));
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
 
     act(() => { vi.advanceTimersByTime(11000); });
 
     // Error in poll catch — should still be on voting page
-    expect(screen.getByRole("button", { name: "Submit Votes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
   });
 
   it("handles fetch error during initial building lookup", async () => {
@@ -317,7 +317,7 @@ describe("VotingPage", () => {
     );
     renderPage();
     // Motions still load (separate query), building info just won't appear
-    await waitFor(() => screen.getByText("Motion 1"));
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // Building name and AGM title won't appear (header not shown)
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
   });

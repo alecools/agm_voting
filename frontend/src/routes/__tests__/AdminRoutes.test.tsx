@@ -2,7 +2,9 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { http, HttpResponse } from "msw";
+import { server } from "../../../tests/msw/server";
 import AdminRoutes from "../AdminRoutes";
 
 vi.mock("react-router-dom", async () => {
@@ -20,45 +22,68 @@ function renderRoutes(initialPath = "/admin") {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialPath]}>
-        <AdminRoutes />
+        <Routes>
+          <Route path="/admin/*" element={<AdminRoutes />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
 describe("AdminRoutes", () => {
-  it("renders admin layout with nav", () => {
-    renderRoutes("/buildings");
-    expect(screen.getByText("Admin Portal")).toBeInTheDocument();
+  it("renders login page on /admin/login", () => {
+    renderRoutes("/admin/login");
+    expect(screen.getByRole("heading", { name: "Admin Portal" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+  });
+
+  it("renders admin layout with nav when authenticated", async () => {
+    renderRoutes("/admin/buildings");
+    await waitFor(() => {
+      expect(screen.getByText("Admin Portal")).toBeInTheDocument();
+    });
     expect(screen.getByRole("link", { name: "Buildings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AGMs" })).toBeInTheDocument();
   });
 
-  it("renders buildings page on /buildings", async () => {
-    renderRoutes("/buildings");
+  it("renders buildings page on /admin/buildings when authenticated", async () => {
+    renderRoutes("/admin/buildings");
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
     });
   });
 
-  it("renders AGM list page on /agms", async () => {
-    renderRoutes("/agms");
+  it("renders AGM list page on /admin/agms when authenticated", async () => {
+    renderRoutes("/admin/agms");
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "AGMs" })).toBeInTheDocument();
     });
   });
 
-  it("renders create AGM page on /agms/new", async () => {
-    renderRoutes("/agms/new");
+  it("renders create AGM page on /admin/agms/new when authenticated", async () => {
+    renderRoutes("/admin/agms/new");
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Create AGM" })).toBeInTheDocument();
     });
   });
 
-  it("redirects / to buildings", async () => {
-    renderRoutes("/");
+  it("redirects /admin to buildings when authenticated", async () => {
+    renderRoutes("/admin");
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    });
+  });
+
+  it("redirects to /admin/login when not authenticated", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/auth/me", () => {
+        return HttpResponse.json({ detail: "Not authenticated" }, { status: 401 });
+      })
+    );
+    renderRoutes("/admin/buildings");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
     });
   });
 });

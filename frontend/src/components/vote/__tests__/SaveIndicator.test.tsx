@@ -17,20 +17,20 @@ describe("SaveIndicator", () => {
 
   it("shows Saved when status is saved", () => {
     render(<SaveIndicator status="saved" onSave={() => {}} />);
-    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(screen.getByText(/Saved/)).toBeInTheDocument();
   });
 
-  it("shows error message and Save button when status is error", () => {
+  it("shows error message and Retry button when status is error", () => {
     render(<SaveIndicator status="error" onSave={() => {}} />);
-    expect(screen.getByText(/Could not save your selection/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByText(/Could not save\./)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
-  it("calls onSave when Save button clicked in error state", async () => {
+  it("calls onSave when Retry button clicked in error state", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(<SaveIndicator status="error" onSave={onSave} />);
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(onSave).toHaveBeenCalledOnce();
   });
 });

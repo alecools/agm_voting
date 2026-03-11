@@ -40,8 +40,8 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
     expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
   });
   await user.selectOptions(screen.getByLabelText("Building"), "b1");
-  await user.type(screen.getByLabelText("Title"), "Test AGM");
-  await user.type(screen.getByLabelText("Meeting Date/Time"), "2025-06-01T10:00");
+  await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
+  await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
   await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T12:00");
 }
 
@@ -49,8 +49,8 @@ describe("CreateAGMForm", () => {
   it("renders all form fields", async () => {
     renderComponent();
     expect(screen.getByLabelText("Building")).toBeInTheDocument();
-    expect(screen.getByLabelText("Title")).toBeInTheDocument();
-    expect(screen.getByLabelText("Meeting Date/Time")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title", { selector: "#agm-title" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Meeting Date / Time")).toBeInTheDocument();
     expect(screen.getByLabelText("Voting Closes At")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
   });
@@ -66,7 +66,7 @@ describe("CreateAGMForm", () => {
   it("shows error when building not selected", async () => {
     const user = userEvent.setup();
     renderComponent();
-    await user.type(screen.getByLabelText("Title"), "Test AGM");
+    await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     expect(screen.getByText("Please select a building.")).toBeInTheDocument();
   });
@@ -89,7 +89,7 @@ describe("CreateAGMForm", () => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Building"), "b1");
-    await user.type(screen.getByLabelText("Title"), "Test AGM");
+    await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     expect(screen.getByText("Meeting date/time is required.")).toBeInTheDocument();
   });
@@ -101,8 +101,8 @@ describe("CreateAGMForm", () => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Building"), "b1");
-    await user.type(screen.getByLabelText("Title"), "Test AGM");
-    await user.type(screen.getByLabelText("Meeting Date/Time"), "2025-06-01T10:00");
+    await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
+    await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     expect(screen.getByText("Voting close date/time is required.")).toBeInTheDocument();
   });
@@ -114,8 +114,8 @@ describe("CreateAGMForm", () => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Building"), "b1");
-    await user.type(screen.getByLabelText("Title"), "Test AGM");
-    await user.type(screen.getByLabelText("Meeting Date/Time"), "2025-06-01T12:00");
+    await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
+    await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T12:00");
     await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T10:00");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     expect(screen.getByText("Voting close time must be after meeting time.")).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("CreateAGMForm", () => {
     renderComponent();
     await fillAndSubmit(user);
     // Remove the default motion
-    await user.click(screen.getByRole("button", { name: "Remove Motion" }));
+    await user.click(screen.getByRole("button", { name: "Remove" }));
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     expect(screen.getByText("At least one motion is required.")).toBeInTheDocument();
   });
@@ -138,8 +138,8 @@ describe("CreateAGMForm", () => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Building"), "b1");
-    await user.type(screen.getByLabelText("Title"), "Test AGM");
-    await user.type(screen.getByLabelText("Meeting Date/Time"), "2025-06-01T10:00");
+    await user.type(screen.getByLabelText("Title", { selector: "#agm-title" }), "Test AGM");
+    await user.type(screen.getByLabelText("Meeting Date / Time"), "2025-06-01T10:00");
     await user.type(screen.getByLabelText("Voting Closes At"), "2025-06-01T12:00");
     // Default motion has empty title — don't fill it
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
@@ -150,7 +150,7 @@ describe("CreateAGMForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await fillAndSubmit(user);
-    await user.type(screen.getByLabelText("Motion 1 Title"), "First Motion");
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "First Motion");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/agms/agm-new");
@@ -202,7 +202,7 @@ describe("CreateAGMForm", () => {
     const user = userEvent.setup();
     renderComponent();
     await fillAndSubmit(user);
-    await user.type(screen.getByLabelText("Motion 1 Title"), "First Motion");
+    await user.type(screen.getByLabelText("Title", { selector: "#motion-title-0" }), "First Motion");
     await user.click(screen.getByRole("button", { name: "Create AGM" }));
     await waitFor(() => {
       expect(screen.getByText(/409/)).toBeInTheDocument();

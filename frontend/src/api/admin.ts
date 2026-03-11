@@ -145,6 +145,21 @@ export interface BuildingCreateRequest {
 // Buildings
 // ---------------------------------------------------------------------------
 
+export interface BuildingArchiveOut {
+  id: string;
+  name: string;
+  is_archived: boolean;
+}
+
+export interface AdminLoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface AdminMeOut {
+  authenticated: boolean;
+}
+
 export async function listBuildings(): Promise<Building[]> {
   return apiFetch<Building[]>("/api/admin/buildings");
 }
@@ -154,6 +169,29 @@ export async function createBuilding(data: BuildingCreateRequest): Promise<Build
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function archiveBuilding(buildingId: string): Promise<BuildingArchiveOut> {
+  return apiFetch<BuildingArchiveOut>(`/api/admin/buildings/${buildingId}/archive`, {
+    method: "POST",
+  });
+}
+
+export async function adminLogin(data: AdminLoginRequest): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/admin/auth/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function adminLogout(): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/admin/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function adminGetMe(): Promise<AdminMeOut> {
+  return apiFetch<AdminMeOut>("/api/admin/auth/me");
 }
 
 export async function importBuildings(file: File): Promise<BuildingImportResult> {

@@ -19,10 +19,10 @@ function renderComponent(onSuccess = vi.fn()) {
 }
 
 describe("BuildingCSVUpload", () => {
-  it("renders file input and upload button", () => {
+  it("renders file input and choose file button", () => {
     renderComponent();
     expect(screen.getByLabelText("Buildings file")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose file" })).toBeInTheDocument();
   });
 
   it("shows success message with created/updated counts after upload", async () => {
@@ -30,7 +30,6 @@ describe("BuildingCSVUpload", () => {
     renderComponent();
     const file = new File(["building_name,manager_email\nTest,t@t.com"], "buildings.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Buildings file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(screen.getByText(/Import complete: 2 created, 1 updated/)).toBeInTheDocument();
     });
@@ -46,7 +45,6 @@ describe("BuildingCSVUpload", () => {
     renderComponent();
     const file = new File(["bad"], "bad.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Buildings file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(screen.getByText(/Error:/)).toBeInTheDocument();
     });
@@ -58,7 +56,6 @@ describe("BuildingCSVUpload", () => {
     renderComponent(onSuccess);
     const file = new File(["building_name,manager_email\nTest,t@t.com"], "buildings.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Buildings file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
     });
@@ -72,17 +69,14 @@ describe("BuildingCSVUpload", () => {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     await user.upload(screen.getByLabelText("Buildings file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
     });
   });
 
-  it("does nothing when no file selected", async () => {
-    const user = userEvent.setup();
+  it("does nothing when no file selected and choose file not clicked", () => {
     const onSuccess = vi.fn();
     renderComponent(onSuccess);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     expect(onSuccess).not.toHaveBeenCalled();
   });
 });

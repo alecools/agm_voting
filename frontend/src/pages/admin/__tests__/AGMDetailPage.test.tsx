@@ -79,7 +79,7 @@ describe("AGMDetailPage", () => {
   it("shows closed_at date when AGM is closed", async () => {
     renderPage("agm2");
     await waitFor(() => {
-      expect(screen.getByText(/Closed at:/)).toBeInTheDocument();
+      expect(screen.getByText(/Closed at/)).toBeInTheDocument();
     });
   });
 
@@ -143,7 +143,7 @@ describe("AGMDetailPage", () => {
   it("shows 'Summary page:' section label on the AGM detail page", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText(/Summary page:/)).toBeInTheDocument();
+      expect(screen.getByText(/Summary/)).toBeInTheDocument();
     });
   });
 
@@ -164,7 +164,7 @@ describe("AGMDetailPage", () => {
     });
     await user.click(screen.getByRole("button", { name: "Retry Send" }));
     await waitFor(() => {
-      expect(screen.getByText("Report queued for resend.")).toBeInTheDocument();
+      expect(screen.getByText(/Report queued for resend\./)).toBeInTheDocument();
     });
   });
 

@@ -9,6 +9,7 @@ export interface Building {
   id: string;
   name: string;
   manager_email: string;
+  is_archived: boolean;
   created_at: string;
 }
 

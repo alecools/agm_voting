@@ -24,12 +24,13 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
           <tr>
             <th>Name</th>
             <th>Manager Email</th>
+            <th>Status</th>
             <th>Created At</th>
           </tr>
         </thead>
         <tbody>
           {visible.map((b) => (
-            <tr key={b.id}>
+            <tr key={b.id} style={b.is_archived ? { opacity: 0.6 } : undefined}>
               <td>
                 <button
                   className="admin-table__link"
@@ -39,6 +40,22 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
                 </button>
               </td>
               <td>{b.manager_email}</td>
+              <td>
+                {b.is_archived && (
+                  <span
+                    className="status-badge status-badge--archived"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      background: "var(--text-muted, #888)",
+                      color: "#fff",
+                    }}
+                  >
+                    Archived
+                  </span>
+                )}
+              </td>
               <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
                 {new Date(b.created_at).toLocaleString()}
               </td>
@@ -46,7 +63,7 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
           ))}
           {buildings.length === 0 && (
             <tr>
-              <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
+              <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
                 No buildings found.
               </td>
             </tr>

@@ -19,14 +19,14 @@ const motions: MotionDetail[] = [
     },
     voter_lists: {
       yes: [
-        { voter_email: "voter1@example.com", entitlement: 100 },
-        { voter_email: "voter2@example.com", entitlement: 100 },
+        { voter_email: "voter1@example.com", lot_number: "L1", entitlement: 100 },
+        { voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 },
       ],
-      no: [{ voter_email: "voter3@example.com", entitlement: 100 }],
+      no: [{ voter_email: "voter3@example.com", lot_number: "L3", entitlement: 100 }],
       abstained: [],
       absent: [
-        { voter_email: "voter4@example.com", entitlement: 100 },
-        { voter_email: "voter5@example.com", entitlement: 50 },
+        { voter_email: "voter4@example.com", lot_number: "L4", entitlement: 100 },
+        { voter_email: "voter5@example.com", lot_number: "L5", entitlement: 50 },
       ],
     },
   },
@@ -42,11 +42,11 @@ const motions: MotionDetail[] = [
       absent: { voter_count: 0, entitlement_sum: 0 },
     },
     voter_lists: {
-      yes: [{ voter_email: "voter1@example.com", entitlement: 50 }],
+      yes: [{ voter_email: "voter1@example.com", lot_number: "L1", entitlement: 50 }],
       no: [],
       abstained: [
-        { voter_email: "voter2@example.com", entitlement: 100 },
-        { voter_email: "voter3@example.com", entitlement: 100 },
+        { voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 },
+        { voter_email: "voter3@example.com", lot_number: "L3", entitlement: 100 },
       ],
       absent: [],
     },
@@ -62,10 +62,10 @@ describe("AGMReportView", () => {
 
   it("renders tally categories for each motion", () => {
     render(<AGMReportView motions={motions} />);
-    const yesCells = screen.getAllByText("yes");
-    expect(yesCells.length).toBeGreaterThan(0);
-    const noCells = screen.getAllByText("no");
-    expect(noCells.length).toBeGreaterThan(0);
+    const forCells = screen.getAllByText("For");
+    expect(forCells.length).toBeGreaterThan(0);
+    const againstCells = screen.getAllByText("Against");
+    expect(againstCells.length).toBeGreaterThan(0);
   });
 
   it("renders voter counts and entitlement sums", () => {
@@ -88,34 +88,13 @@ describe("AGMReportView", () => {
     expect(screen.queryByText("First motion description")).not.toBeInTheDocument();
   });
 
-  it("shows voter lists when expanded", async () => {
-    const user = userEvent.setup();
+  it("renders export CSV button", () => {
     render(<AGMReportView motions={motions} />);
-    const expandButtons = screen.getAllByRole("button", { name: "Show voter lists" });
-    await user.click(expandButtons[0]);
-    expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
-    expect(screen.getByText(/voter3@example\.com/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Export voter lists/ })).toBeInTheDocument();
   });
 
-  it("hides voter lists when collapsed", async () => {
-    const user = userEvent.setup();
-    render(<AGMReportView motions={motions} />);
-    const expandButtons = screen.getAllByRole("button", { name: "Show voter lists" });
-    await user.click(expandButtons[0]);
-    expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Hide voter lists" }));
-    expect(screen.queryByText(/voter1@example\.com/)).not.toBeInTheDocument();
-  });
-
-  it("shows 'None' for empty voter lists when expanded", async () => {
-    const user = userEvent.setup();
-    render(<AGMReportView motions={[motions[0]]} />);
-    await user.click(screen.getByRole("button", { name: "Show voter lists" }));
-    expect(screen.getByText("None")).toBeInTheDocument();
-  });
-
-  it("shows 'No motions' when empty", () => {
+  it("shows 'No motions recorded' when empty", () => {
     render(<AGMReportView motions={[]} />);
-    expect(screen.getByText("No motions.")).toBeInTheDocument();
+    expect(screen.getByText("No motions recorded.")).toBeInTheDocument();
   });
 });

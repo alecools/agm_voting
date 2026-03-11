@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     resend_from_email: str = "noreply@example.com"
     allowed_origin: str = "http://localhost:5173"
     session_secret: str = "change_me_to_a_random_secret"
+    admin_username: str = "admin"
+    admin_password: str = "admin"
 
 
 settings = Settings()

@@ -23,6 +23,8 @@ class TestConfig:
         assert settings.resend_from_email == "noreply@example.com"
         assert settings.allowed_origin == "http://localhost:5173"
         assert settings.session_secret == "change_me_to_a_random_secret"
+        assert settings.admin_username == "admin"
+        assert settings.admin_password == "admin"
 
     def test_settings_database_url_has_asyncpg(self):
         from app.config import settings
@@ -105,3 +107,11 @@ class TestMain:
         # Check that CORS middleware is in the middleware stack
         middleware_classes = [m.cls for m in app.user_middleware if hasattr(m, "cls")]
         assert CORSMiddleware in middleware_classes
+
+    def test_session_middleware_present(self):
+        from starlette.middleware.sessions import SessionMiddleware
+
+        from app.main import app
+
+        middleware_classes = [m.cls for m in app.user_middleware if hasattr(m, "cls")]
+        assert SessionMiddleware in middleware_classes

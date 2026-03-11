@@ -229,6 +229,47 @@ async def list_buildings(db: AsyncSession) -> list[Building]:
     return list(result.scalars().all())
 
 
+async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
+    """
+    Archive a building and any lot owners whose email does not appear
+    in another non-archived building.
+    """
+    building = await get_building_or_404(building_id, db)
+
+    if building.is_archived:
+        raise HTTPException(status_code=409, detail="Building is already archived")
+
+    building.is_archived = True
+
+    # Find all active lot owners for this building
+    owners_result = await db.execute(
+        select(LotOwner).where(
+            LotOwner.building_id == building_id,
+            LotOwner.is_archived == False,  # noqa: E712
+        )
+    )
+    owners = list(owners_result.scalars().all())
+
+    for owner in owners:
+        # Check if this email appears in any other non-archived building
+        other_result = await db.execute(
+            select(LotOwner)
+            .join(Building, LotOwner.building_id == Building.id)
+            .where(
+                LotOwner.email == owner.email,
+                LotOwner.building_id != building_id,
+                Building.is_archived == False,  # noqa: E712
+            )
+        )
+        other = other_result.scalar_one_or_none()
+        if other is None:
+            owner.is_archived = True
+
+    await db.commit()
+    await db.refresh(building)
+    return building
+
+
 # ---------------------------------------------------------------------------
 # Lot owners
 # ---------------------------------------------------------------------------
@@ -728,7 +769,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
             voter_entitlement.get(w.voter_email, 0) + w.unit_entitlement_snapshot
         )
         email_lots.setdefault(w.voter_email, []).append(
-            {"lot_number": lot_num, "entitlement": w.unit_entitlement_snapshot}
+            {"voter_email": w.voter_email, "lot_number": lot_num, "entitlement": w.unit_entitlement_snapshot}
         )
 
     # Fallback: if snapshot is empty (AGM created before lot owners were imported),
@@ -742,7 +783,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                 voter_entitlement.get(lo.email, 0) + lo.unit_entitlement
             )
             email_lots.setdefault(lo.email, []).append(
-                {"lot_number": lo.lot_number, "entitlement": lo.unit_entitlement}
+                {"voter_email": lo.email, "lot_number": lo.lot_number, "entitlement": lo.unit_entitlement}
             )
 
     eligible_emails: set[str] = set(voter_entitlement.keys())

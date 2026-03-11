@@ -27,7 +27,43 @@ A web application for body corporates to run voting during Annual General Meetin
 
 - [ ] A separate web route (e.g. `/admin`) serves the host portal; it is distinct from the lot owner flow
 - [ ] The portal provides navigation to: Buildings, AGMs, and Lot Owners sections
-- [ ] No authentication is required for MVP (access is unrestricted; auth is deferred — see Non-Goals)
+- [ ] Admin portal login is required (see US-020)
+- [ ] Typecheck/lint passes
+
+---
+
+### US-019: Archive buildings and associated lot owners
+
+**Description:** As a meeting host, I want to archive a building so it no longer appears in the voter portal, and have its lot owners archived too unless they belong to another active building.
+
+**Acceptance Criteria:**
+
+- [ ] Admin can archive a building via a button on the building detail page; a confirmation dialog is shown before archiving
+- [ ] Archiving sets `is_archived = true` on the building
+- [ ] Archiving also sets `is_archived = true` on every lot owner in the building, unless that lot owner's email also appears as a lot owner in another non-archived building
+- [ ] Attempting to archive an already-archived building returns 409
+- [ ] Archived buildings are excluded from the voter-facing building dropdown (`GET /api/buildings`)
+- [ ] Archived buildings are excluded from the voter-facing AGM list (`GET /api/buildings/{id}/agms` returns 404 for archived buildings)
+- [ ] Archived buildings still appear in the admin portal buildings list, with a visual "Archived" badge; they can be clicked to view details
+- [ ] Admin buildings list includes a toggle to show/hide archived buildings (default: show active only)
+- [ ] Typecheck/lint passes
+
+---
+
+### US-020: Admin portal authentication
+
+**Description:** As a meeting host, I want the admin portal to require a username and password login so unauthorised users cannot access or modify AGM data.
+
+**Acceptance Criteria:**
+
+- [ ] All `/api/admin/*` endpoints (except login/logout/me) return 401 if the request is not authenticated
+- [ ] `POST /api/admin/auth/login` accepts `username` and `password`; on success sets a signed session cookie and returns `{"ok": true}`; on failure returns 401
+- [ ] `POST /api/admin/auth/logout` clears the session and returns `{"ok": true}`
+- [ ] `GET /api/admin/auth/me` returns `{"authenticated": true}` if logged in, else 401
+- [ ] Credentials are configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` environment variables with defaults `admin` / `admin`
+- [ ] Admin portal frontend redirects unauthenticated users to `/admin/login`
+- [ ] Login page shows username and password fields; on success navigates to `/admin`
+- [ ] Admin layout sidebar shows a "Logout" button that calls logout endpoint and redirects to `/admin/login`
 - [ ] Typecheck/lint passes
 
 ---

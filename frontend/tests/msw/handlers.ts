@@ -18,12 +18,14 @@ export const ADMIN_BUILDINGS: Building[] = [
     id: "b1",
     name: "Alpha Tower",
     manager_email: "alpha@example.com",
+    is_archived: false,
     created_at: "2024-01-01T00:00:00Z",
   },
   {
     id: "b2",
     name: "Beta Court",
     manager_email: "beta@example.com",
+    is_archived: false,
     created_at: "2024-02-01T00:00:00Z",
   },
 ];
@@ -136,8 +138,44 @@ export const ADMIN_CREATED_AGM: AGMOut = {
 };
 
 export const adminHandlers = [
+  http.get(`${BASE}/api/admin/auth/me`, () => {
+    return HttpResponse.json({ authenticated: true });
+  }),
+
+  http.post(`${BASE}/api/admin/auth/login`, async ({ request }) => {
+    const body = await request.json() as { username?: string; password?: string };
+    if (body?.username === "admin" && body?.password === "admin") {
+      return HttpResponse.json({ ok: true });
+    }
+    return HttpResponse.json({ detail: "Invalid credentials" }, { status: 401 });
+  }),
+
+  http.post(`${BASE}/api/admin/auth/logout`, () => {
+    return HttpResponse.json({ ok: true });
+  }),
+
   http.get(`${BASE}/api/admin/buildings`, () => {
     return HttpResponse.json(ADMIN_BUILDINGS);
+  }),
+
+  http.post(`${BASE}/api/admin/buildings`, async ({ request }) => {
+    const body = await request.json() as { name?: string; manager_email?: string };
+    const newBuilding: Building = {
+      id: "b-new",
+      name: body?.name ?? "New Building",
+      manager_email: body?.manager_email ?? "mgr@example.com",
+      is_archived: false,
+      created_at: "2024-03-01T00:00:00Z",
+    };
+    return HttpResponse.json(newBuilding, { status: 201 });
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/:buildingId/archive`, ({ params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ id: building.id, name: building.name, is_archived: true });
   }),
 
   http.post(`${BASE}/api/admin/buildings/import`, () => {

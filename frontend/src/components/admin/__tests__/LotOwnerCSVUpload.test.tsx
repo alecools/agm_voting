@@ -19,10 +19,10 @@ function renderComponent(onSuccess = vi.fn()) {
 }
 
 describe("LotOwnerCSVUpload", () => {
-  it("renders file input and upload button", () => {
+  it("renders file input and choose file button", () => {
     renderComponent();
     expect(screen.getByLabelText("Lot owners file")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose file" })).toBeInTheDocument();
   });
 
   it("shows success message with imported count after upload", async () => {
@@ -30,7 +30,6 @@ describe("LotOwnerCSVUpload", () => {
     renderComponent();
     const file = new File(["lot_number,email,unit_entitlement\n1A,a@a.com,100"], "owners.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Lot owners file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(screen.getByText(/Import complete: 5 records imported/)).toBeInTheDocument();
     });
@@ -46,7 +45,6 @@ describe("LotOwnerCSVUpload", () => {
     renderComponent();
     const file = new File(["bad"], "bad.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Lot owners file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(screen.getByText(/Error:/)).toBeInTheDocument();
     });
@@ -58,7 +56,6 @@ describe("LotOwnerCSVUpload", () => {
     renderComponent(onSuccess);
     const file = new File(["lot_number,email,unit_entitlement\n1A,a@a.com,100"], "owners.csv", { type: "text/csv" });
     await user.upload(screen.getByLabelText("Lot owners file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
     });
@@ -72,17 +69,14 @@ describe("LotOwnerCSVUpload", () => {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     await user.upload(screen.getByLabelText("Lot owners file"), file);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
     });
   });
 
-  it("does nothing when no file selected", async () => {
-    const user = userEvent.setup();
+  it("does nothing when no file selected and choose file not clicked", () => {
     const onSuccess = vi.fn();
     renderComponent(onSuccess);
-    await user.click(screen.getByRole("button", { name: "Upload" }));
     expect(onSuccess).not.toHaveBeenCalled();
   });
 });

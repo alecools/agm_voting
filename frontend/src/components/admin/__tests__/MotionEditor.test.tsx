@@ -20,14 +20,14 @@ describe("MotionEditor", () => {
 
   it("shows Add Motion button", () => {
     render(<MotionEditor motions={[]} onChange={() => {}} />);
-    expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Add Motion" })).toBeInTheDocument();
   });
 
   it("calls onChange with new motion when Add Motion clicked", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<MotionEditor motions={initialMotions} onChange={onChange} />);
-    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await user.click(screen.getByRole("button", { name: "+ Add Motion" }));
     expect(onChange).toHaveBeenCalledWith([
       ...initialMotions,
       { title: "", description: "" },
@@ -38,7 +38,7 @@ describe("MotionEditor", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<MotionEditor motions={initialMotions} onChange={onChange} />);
-    const removeButtons = screen.getAllByRole("button", { name: "Remove Motion" });
+    const removeButtons = screen.getAllByRole("button", { name: "Remove" });
     await user.click(removeButtons[0]);
     expect(onChange).toHaveBeenCalledWith([initialMotions[1]]);
   });
@@ -47,8 +47,8 @@ describe("MotionEditor", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<MotionEditor motions={initialMotions} onChange={onChange} />);
-    const titleInput = screen.getByLabelText("Motion 1 Title");
-    await user.type(titleInput, "X");
+    const titleInputs = screen.getAllByLabelText("Title");
+    await user.type(titleInputs[0], "X");
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(lastCall[0].title).toBe("Motion 1X");
   });
@@ -57,15 +57,15 @@ describe("MotionEditor", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<MotionEditor motions={initialMotions} onChange={onChange} />);
-    const descTextarea = screen.getByLabelText("Motion 1 Description");
-    await user.type(descTextarea, "X");
+    const descTextareas = screen.getAllByLabelText("Description");
+    await user.type(descTextareas[0], "X");
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(lastCall[0].description).toBe("Desc 1X");
   });
 
-  it("renders motion index labels", () => {
+  it("renders motion index headers", () => {
     render(<MotionEditor motions={initialMotions} onChange={() => {}} />);
-    expect(screen.getByText("Motion 1 Title")).toBeInTheDocument();
-    expect(screen.getByText("Motion 2 Title")).toBeInTheDocument();
+    expect(screen.getByText("Motion 1")).toBeInTheDocument();
+    expect(screen.getByText("Motion 2")).toBeInTheDocument();
   });
 });

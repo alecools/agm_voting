@@ -18,6 +18,7 @@ class BuildingOut(BaseModel):
     id: uuid.UUID
     name: str
     manager_email: str
+    is_archived: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -187,6 +188,7 @@ class AGMListItem(BaseModel):
 
 
 class VoterEntry(BaseModel):
+    voter_email: str
     lot_number: str
     entitlement: int
 
@@ -245,3 +247,26 @@ class AGMCloseOut(BaseModel):
 
 class ResendReportOut(BaseModel):
     queued: bool
+
+
+# ---------------------------------------------------------------------------
+# Archive schemas
+# ---------------------------------------------------------------------------
+
+
+class BuildingArchiveOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    is_archived: bool
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Admin auth schemas
+# ---------------------------------------------------------------------------
+
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str

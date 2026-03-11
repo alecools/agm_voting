@@ -31,8 +31,12 @@ async def server_time() -> dict:
 
 @router.get("/buildings", response_model=list[BuildingOut])
 async def list_buildings(db: AsyncSession = Depends(get_db)) -> list[BuildingOut]:
-    """List all buildings."""
-    result = await db.execute(select(Building).order_by(Building.name))
+    """List all active (non-archived) buildings."""
+    result = await db.execute(
+        select(Building)
+        .where(Building.is_archived == False)  # noqa: E712
+        .order_by(Building.name)
+    )
     buildings = result.scalars().all()
     return [BuildingOut(id=b.id, name=b.name) for b in buildings]
 
@@ -43,9 +47,12 @@ async def list_agms(
     db: AsyncSession = Depends(get_db),
 ) -> list[AGMOut]:
     """List all AGMs for a building, ordered by meeting_at descending."""
-    # Verify building exists
+    # Verify building exists and is not archived
     building_result = await db.execute(
-        select(Building).where(Building.id == building_id)
+        select(Building).where(
+            Building.id == building_id,
+            Building.is_archived == False,  # noqa: E712
+        )
     )
     building = building_result.scalar_one_or_none()
     if building is None:
