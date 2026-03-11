@@ -304,6 +304,10 @@ npm run dev
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
   uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=100 -v
 
+# Run backend tests quickly without coverage (run from backend/)
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  .venv/bin/python -m pytest --override-ini="addopts=" -q
+
 # Run a single backend test file (run from backend/)
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
   uv run pytest tests/test_models.py -v
@@ -323,3 +327,17 @@ npm run test:coverage
 # Run Playwright e2e tests (run from frontend/, requires dev server running)
 npm run e2e
 ```
+
+---
+
+## Architecture & Design Decisions
+
+Key decisions that must not be inadvertently reversed:
+
+- **Lot owner import uses upsert** — matched by `lot_number` within building. Delete-all-then-insert would cascade-delete `AGMLotWeight` records and zero out vote tallies for existing AGMs.
+
+- **`AGMLotWeight` is a snapshot** — entitlements are captured at AGM creation time and never updated by subsequent lot owner edits or imports.
+
+- **Auth on closed AGMs** — `POST /api/auth/verify` returns 200 (not 403) for closed AGMs. The response includes `agm_status: str` so the frontend can route to the confirmation page instead of blocking entry.
+
+- **`voter_email` is case-sensitive** — `AGMLotWeight.voter_email` and `BallotSubmission.voter_email` must match exactly. Auth enforces this via `LotOwner.email == request.email` in SQL.
