@@ -26,19 +26,23 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
 1. **Create a new branch** from the current base (e.g. `git checkout -b feat/my-feature`)
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
-4. **Ask the user for permission to deploy** — the Vercel development environment is shared; only one deploy can be tested at a time. Report local test results and request a deployment slot
-5. **Deploy to Vercel development** (only after approval) — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
+4. **Signal the orchestrator** — report local test results and indicate readiness to deploy. Then **pause and wait** for the orchestrator to grant a deployment slot
+5. **Deploy to Vercel development** (only after orchestrator grants the slot) — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
 6. **Run the full E2E suite** against the deployed URL:
    ```bash
    cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" npx playwright test
    ```
-7. **Fix any failures** before continuing
-8. **Report results to the user** — share the development URL and test summary, then **wait for explicit approval before pushing**
-9. **Push only after user approves** — `git push -u origin <branch>`
+7. **Fix any failures**, then notify the orchestrator that the deployment slot is free
+8. **Push the branch** — `git push -u origin <branch>` — once all tests pass
 
-The sub-agent must NEVER deploy or push to remote automatically. There are two mandatory approval gates:
-- **Before deploying** (step 4) — the dev environment is shared
-- **Before pushing** (step 8) — the user reviews results first
+#### Orchestrator responsibilities (deployment queue)
+
+The Vercel development environment is shared — only one agent may deploy and run E2E tests at a time. When acting as orchestrator over multiple sub-agents:
+
+- Maintain a mental queue of agents waiting for the deployment slot
+- Grant the slot to one agent at a time (FIFO by default; use judgement to reprioritise if one feature is more urgent or less risky)
+- When the active agent reports its slot is free, immediately grant it to the next agent in the queue
+- If only one agent is running, grant the slot as soon as it signals readiness — no delay
 
 #### Parallel agents (multiple features at once)
 
