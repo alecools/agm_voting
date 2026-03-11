@@ -25,8 +25,9 @@ A change is only complete when all of the following are true:
 
 1. All local tests pass (`npm run test:coverage` and backend pytest with coverage)
 2. Deployed to the **development** Vercel environment only — run `vercel deploy` from project root (never `--prod`)
-3. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
-4. The full test suite is run against the deployed development instance to confirm parity
+3. All required environment variables are present in the target Vercel environment — run `vercel env ls --scope ocss` and compare against `.env.example`. Add any missing vars before testing
+4. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
+5. The full test suite is run against the deployed development instance to confirm parity
 
 ---
 
