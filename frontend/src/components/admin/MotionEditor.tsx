@@ -1,6 +1,9 @@
+import type { MotionType } from "../../types";
+
 export interface MotionFormEntry {
   title: string;
   description: string;
+  motion_type: MotionType;
 }
 
 interface MotionEditorProps {
@@ -10,7 +13,7 @@ interface MotionEditorProps {
 
 export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
   function addMotion() {
-    onChange([...motions, { title: "", description: "" }]);
+    onChange([...motions, { title: "", description: "", motion_type: "general" }]);
   }
 
   function removeMotion(index: number) {
@@ -47,6 +50,18 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
               rows={3}
               style={{ resize: "vertical" }}
             />
+          </div>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label className="field__label" htmlFor={`motion-type-${index}`}>Motion Type</label>
+            <select
+              id={`motion-type-${index}`}
+              className="field__select"
+              value={motion.motion_type}
+              onChange={(e) => updateMotion(index, "motion_type", e.target.value)}
+            >
+              <option value="general">General</option>
+              <option value="special">Special</option>
+            </select>
           </div>
           <button
             type="button"

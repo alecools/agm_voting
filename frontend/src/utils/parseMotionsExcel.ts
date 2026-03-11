@@ -1,9 +1,17 @@
 import * as XLSX from "xlsx";
 import type { MotionFormEntry } from "../components/admin/MotionEditor";
+import type { MotionType } from "../types";
 
 export type ParseSuccess = { motions: MotionFormEntry[] };
 export type ParseError = { errors: string[] };
 export type ParseResult = ParseSuccess | ParseError;
+
+function parseMotionType(raw: unknown): MotionType {
+  if (raw === null || raw === undefined) return "general";
+  const s = String(raw).trim().toLowerCase();
+  if (s === "special") return "special";
+  return "general";
+}
 
 export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
@@ -28,6 +36,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
   const motionColIdx = headers.findIndex((h) => h === "motion");
   const descColIdx = headers.findIndex((h) => h === "description");
+  const motionTypeColIdx = headers.findIndex((h) => h === "motion type");
 
   const missingErrors: string[] = [];
   if (motionColIdx === -1) missingErrors.push("Missing required column: Motion");
@@ -36,7 +45,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
   const rowErrors: string[] = [];
   const motionNumbers: number[] = [];
-  const motionEntries: Array<{ order: number; title: string }> = [];
+  const motionEntries: Array<{ order: number; title: string; motion_type: MotionType }> = [];
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i] as unknown[];
@@ -44,6 +53,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
     const motionCell = row[motionColIdx];
     const descCell = row[descColIdx];
+    const motionTypeCell = motionTypeColIdx !== -1 ? row[motionTypeColIdx] : null;
 
     // Skip completely blank rows
     const allBlank = row.every(
@@ -64,7 +74,11 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
       if (descIsEmpty) {
         rowErrors.push(`Row ${rowNum}: Description is empty`);
       } else {
-        motionEntries.push({ order: motionValue, title: String(descCell) });
+        motionEntries.push({
+          order: motionValue,
+          title: String(descCell),
+          motion_type: parseMotionType(motionTypeCell),
+        });
       }
     }
 
@@ -87,6 +101,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const motions: MotionFormEntry[] = motionEntries.map((e) => ({
     title: e.title,
     description: "",
+    motion_type: e.motion_type,
   }));
 
   return { motions };

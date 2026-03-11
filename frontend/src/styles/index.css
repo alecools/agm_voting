@@ -546,6 +546,35 @@ button, input, select, textarea {
   line-height: 1.6;
 }
 
+.motion-card__top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.motion-type-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.motion-type-badge--general {
+  background: var(--neutral-100, #f1f5f9);
+  color: var(--text-muted, #64748b);
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.motion-type-badge--special {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
 .motion-card__footer {
   display: flex;
   align-items: center;

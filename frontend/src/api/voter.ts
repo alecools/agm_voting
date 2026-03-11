@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { AGMStatus, VoteChoice } from "../types";
+import type { AGMStatus, MotionType, VoteChoice } from "../types";
 
 export interface BuildingOut {
   id: string;
@@ -32,6 +32,7 @@ export interface MotionOut {
   title: string;
   description: string | null;
   order_index: number;
+  motion_type: MotionType;
 }
 
 export interface DraftItem {

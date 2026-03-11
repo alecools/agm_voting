@@ -64,6 +64,7 @@ async def list_motions(
             title=m.title,
             description=m.description,
             order_index=m.order_index,
+            motion_type=m.motion_type,
         )
         for m in motions
     ]

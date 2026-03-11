@@ -6,8 +6,8 @@ import MotionEditor from "../MotionEditor";
 import type { MotionFormEntry } from "../MotionEditor";
 
 const initialMotions: MotionFormEntry[] = [
-  { title: "Motion 1", description: "Desc 1" },
-  { title: "Motion 2", description: "" },
+  { title: "Motion 1", description: "Desc 1", motion_type: "general" },
+  { title: "Motion 2", description: "", motion_type: "special" },
 ];
 
 describe("MotionEditor", () => {
@@ -30,7 +30,7 @@ describe("MotionEditor", () => {
     await user.click(screen.getByRole("button", { name: "+ Add Motion" }));
     expect(onChange).toHaveBeenCalledWith([
       ...initialMotions,
-      { title: "", description: "" },
+      { title: "", description: "", motion_type: "general" },
     ]);
   });
 
@@ -67,5 +67,22 @@ describe("MotionEditor", () => {
     render(<MotionEditor motions={initialMotions} onChange={() => {}} />);
     expect(screen.getByText("Motion 1")).toBeInTheDocument();
     expect(screen.getByText("Motion 2")).toBeInTheDocument();
+  });
+
+  it("renders Motion Type dropdown with correct default value", () => {
+    render(<MotionEditor motions={initialMotions} onChange={() => {}} />);
+    const selects = screen.getAllByLabelText("Motion Type") as HTMLSelectElement[];
+    expect(selects[0].value).toBe("general");
+    expect(selects[1].value).toBe("special");
+  });
+
+  it("calls onChange with updated motion_type when dropdown changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MotionEditor motions={initialMotions} onChange={onChange} />);
+    const selects = screen.getAllByLabelText("Motion Type");
+    await user.selectOptions(selects[0], "special");
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall[0].motion_type).toBe("special");
   });
 });

@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.models.agm import AGMStatus
+from app.models.motion import MotionType
 
 
 class AGMOut(BaseModel):
@@ -20,6 +21,7 @@ class MotionSummaryOut(BaseModel):
     order_index: int
     title: str
     description: str | None
+    motion_type: MotionType
 
     model_config = {"from_attributes": True}
 

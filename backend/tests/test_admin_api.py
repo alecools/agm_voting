@@ -3131,3 +3131,245 @@ class TestAdminAuth:
     async def test_logout_without_login_returns_ok(self, auth_client: AsyncClient):
         response = await auth_client.post("/api/admin/auth/logout")
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# motion_type field — US-V01
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestMotionType:
+    """Tests for the motion_type field on motions."""
+
+    def _agm_payload(self, building_id: uuid.UUID, motions: list) -> dict:
+        return {
+            "building_id": str(building_id),
+            "title": "Motion Type AGM",
+            "meeting_at": meeting_dt().isoformat(),
+            "voting_closes_at": closing_dt().isoformat(),
+            "motions": motions,
+        }
+
+    # --- Happy path ---
+
+    async def test_motion_type_defaults_to_general(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A motion without explicit motion_type defaults to 'general'."""
+        b = Building(name="MotionType Default Bldg", manager_email="mt@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(b.id, [{"title": "M1", "order_index": 1}])
+        response = await client.post("/api/admin/agms", json=payload)
+        assert response.status_code == 201
+        motions = response.json()["motions"]
+        assert motions[0]["motion_type"] == "general"
+
+    async def test_motion_type_general_explicit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Explicitly setting motion_type='general' is accepted."""
+        b = Building(name="MotionType General Bldg", manager_email="mt_gen@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "General Motion", "order_index": 1, "motion_type": "general"}],
+        )
+        response = await client.post("/api/admin/agms", json=payload)
+        assert response.status_code == 201
+        assert response.json()["motions"][0]["motion_type"] == "general"
+
+    async def test_motion_type_special(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Setting motion_type='special' is stored and returned correctly."""
+        b = Building(name="MotionType Special Bldg", manager_email="mt_spe@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "Special Motion", "order_index": 1, "motion_type": "special"}],
+        )
+        response = await client.post("/api/admin/agms", json=payload)
+        assert response.status_code == 201
+        assert response.json()["motions"][0]["motion_type"] == "special"
+
+    async def test_mixed_motion_types(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Multiple motions can have different types."""
+        b = Building(name="MotionType Mixed Bldg", manager_email="mt_mix@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [
+                {"title": "General M", "order_index": 1, "motion_type": "general"},
+                {"title": "Special M", "order_index": 2, "motion_type": "special"},
+            ],
+        )
+        response = await client.post("/api/admin/agms", json=payload)
+        assert response.status_code == 201
+        motions = response.json()["motions"]
+        assert motions[0]["motion_type"] == "general"
+        assert motions[1]["motion_type"] == "special"
+
+    async def test_motion_type_returned_in_agm_detail(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """motion_type is returned in GET /api/admin/agms/{id}."""
+        b = Building(name="MotionType Detail Bldg", manager_email="mt_det@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "Special Detail", "order_index": 1, "motion_type": "special"}],
+        )
+        r = await client.post("/api/admin/agms", json=payload)
+        agm_id = r.json()["id"]
+
+        response = await client.get(f"/api/admin/agms/{agm_id}")
+        assert response.status_code == 200
+        assert response.json()["motions"][0]["motion_type"] == "special"
+
+    async def test_motion_type_returned_in_voting_motions(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """motion_type is returned in GET /api/agm/{id}/motions (voting endpoint)."""
+        b = Building(name="MotionType Voting Bldg", manager_email="mt_vot@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(
+            building_id=b.id,
+            lot_number="1",
+            email="voter@mt.com",
+            unit_entitlement=1,
+        )
+        db_session.add(lo)
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "Vote Special", "order_index": 1, "motion_type": "special"}],
+        )
+        r = await client.post("/api/admin/agms", json=payload)
+        agm_id = r.json()["id"]
+
+        # Authenticate voter
+        auth_resp = await client.post(
+            "/api/auth/verify",
+            json={
+                "lot_number": "1",
+                "email": "voter@mt.com",
+                "building_id": str(b.id),
+                "agm_id": agm_id,
+            },
+        )
+        assert auth_resp.status_code == 200
+        token = auth_resp.headers.get("x-session-token") or auth_resp.json().get("token")
+        # Use session cookie if available
+        session_cookie = auth_resp.cookies.get("agm_session")
+
+        if session_cookie:
+            motions_resp = await client.get(
+                f"/api/agm/{agm_id}/motions",
+                cookies={"agm_session": session_cookie},
+            )
+        else:
+            motions_resp = await client.get(
+                f"/api/agm/{agm_id}/motions",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert motions_resp.status_code == 200
+        assert motions_resp.json()[0]["motion_type"] == "special"
+
+    async def test_motion_type_returned_in_summary_endpoint(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """motion_type is returned in GET /api/agm/{id}/summary."""
+        b = Building(name="MotionType Summary Bldg", manager_email="mt_sum@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "Summary Special", "order_index": 1, "motion_type": "special"}],
+        )
+        r = await client.post("/api/admin/agms", json=payload)
+        agm_id = r.json()["id"]
+
+        response = await client.get(f"/api/agm/{agm_id}/summary")
+        assert response.status_code == 200
+        assert response.json()["motions"][0]["motion_type"] == "special"
+
+    # --- Input validation ---
+
+    async def test_invalid_motion_type_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An unknown motion_type value returns 422."""
+        b = Building(name="MotionType Invalid Bldg", manager_email="mt_inv@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        payload = self._agm_payload(
+            b.id,
+            [{"title": "Bad Type", "order_index": 1, "motion_type": "unknown"}],
+        )
+        response = await client.post("/api/admin/agms", json=payload)
+        assert response.status_code == 422
+
+    # --- Schema unit tests ---
+
+    def test_motion_create_default_motion_type(self):
+        from app.schemas.admin import MotionCreate
+
+        mc = MotionCreate(title="T", order_index=1)
+        assert mc.motion_type.value == "general"
+
+    def test_motion_create_special_type(self):
+        from app.schemas.admin import MotionCreate
+        from app.models.motion import MotionType
+
+        mc = MotionCreate(title="T", order_index=1, motion_type=MotionType.special)
+        assert mc.motion_type == MotionType.special
+
+    def test_motion_out_includes_motion_type(self):
+        import uuid as _uuid
+        from app.schemas.admin import MotionOut
+        from app.models.motion import MotionType
+
+        mo = MotionOut(
+            id=_uuid.uuid4(),
+            title="T",
+            description=None,
+            order_index=1,
+            motion_type=MotionType.special,
+        )
+        assert mo.motion_type == MotionType.special
+
+    def test_motion_detail_includes_motion_type(self):
+        import uuid as _uuid
+        from app.schemas.admin import MotionDetail, MotionTally, MotionVoterLists, TallyCategory
+        from app.models.motion import MotionType
+
+        empty_cat = TallyCategory(voter_count=0, entitlement_sum=0)
+        tally = MotionTally(yes=empty_cat, no=empty_cat, abstained=empty_cat, absent=empty_cat)
+        voter_lists = MotionVoterLists(yes=[], no=[], abstained=[], absent=[])
+        md = MotionDetail(
+            id=_uuid.uuid4(),
+            title="T",
+            description=None,
+            order_index=1,
+            motion_type=MotionType.general,
+            tally=tally,
+            voter_lists=voter_lists,
+        )
+        assert md.motion_type == MotionType.general

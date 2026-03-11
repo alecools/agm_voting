@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { Building, LotOwner } from "../types";
+import type { Building, LotOwner, MotionType } from "../types";
 
 // ---------------------------------------------------------------------------
 // Response types (matching backend schemas)
@@ -19,6 +19,7 @@ export interface MotionOut {
   title: string;
   description: string | null;
   order_index: number;
+  motion_type: MotionType;
 }
 
 export interface AGMOut {
@@ -71,6 +72,7 @@ export interface MotionDetail {
   title: string;
   description: string | null;
   order_index: number;
+  motion_type: MotionType;
   tally: MotionTally;
   voter_lists: MotionVoterLists;
 }
@@ -122,6 +124,7 @@ export interface MotionCreateRequest {
   title: string;
   description: string | null;
   order_index: number;
+  motion_type: MotionType;
 }
 
 export interface AGMCreateRequest {

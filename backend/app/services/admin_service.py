@@ -662,6 +662,7 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
             title=motion_data.title,
             description=motion_data.description,
             order_index=motion_data.order_index,
+            motion_type=motion_data.motion_type,
         )
         db.add(motion)
 
@@ -705,6 +706,7 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
                 "title": m.title,
                 "description": m.description,
                 "order_index": m.order_index,
+                "motion_type": m.motion_type.value if hasattr(m.motion_type, "value") else m.motion_type,
             }
             for m in loaded_motions
         ],
@@ -849,6 +851,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                 "title": motion.title,
                 "description": motion.description,
                 "order_index": motion.order_index,
+                "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
                 "tally": {
                     "yes": _tally(yes_emails),
                     "no": _tally(no_emails),

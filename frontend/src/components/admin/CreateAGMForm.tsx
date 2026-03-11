@@ -19,7 +19,7 @@ export default function CreateAGMForm() {
   const [title, setTitle] = useState("");
   const [meetingAt, setMeetingAt] = useState("");
   const [votingClosesAt, setVotingClosesAt] = useState("");
-  const [motions, setMotions] = useState<MotionFormEntry[]>([{ title: "", description: "" }]);
+  const [motions, setMotions] = useState<MotionFormEntry[]>([{ title: "", description: "", motion_type: "general" }]);
   const [formError, setFormError] = useState<string | null>(null);
 
   const mutation = useMutation<AGMOut, Error, AGMCreateRequest>({
@@ -57,6 +57,7 @@ export default function CreateAGMForm() {
         title: m.title.trim(),
         description: m.description.trim() || null,
         order_index: i,
+        motion_type: m.motion_type,
       })),
     });
   }

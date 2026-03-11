@@ -171,8 +171,8 @@ describe("CreateAGMForm", () => {
 
   it("pre-populates motions after successful Excel parse", async () => {
     const motions = [
-      { title: "Imported Motion 1", description: "" },
-      { title: "Imported Motion 2", description: "" },
+      { title: "Imported Motion 1", description: "", motion_type: "general" as const },
+      { title: "Imported Motion 2", description: "", motion_type: "special" as const },
     ];
     mockParse.mockResolvedValue({ motions });
 
@@ -188,6 +188,12 @@ describe("CreateAGMForm", () => {
       expect(screen.getByDisplayValue("Imported Motion 1")).toBeInTheDocument();
       expect(screen.getByDisplayValue("Imported Motion 2")).toBeInTheDocument();
     });
+  });
+
+  it("renders Motion Type dropdown with default value 'general'", async () => {
+    renderComponent();
+    const selects = await screen.findAllByLabelText("Motion Type") as HTMLSelectElement[];
+    expect(selects[0].value).toBe("general");
   });
 
   it("shows 409 conflict error from server", async () => {

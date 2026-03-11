@@ -11,6 +11,7 @@ const motion = {
   title: "Approve budget",
   description: "The annual budget",
   order_index: 0,
+  motion_type: "general" as const,
 };
 
 const motionNoDesc = {
@@ -18,6 +19,15 @@ const motionNoDesc = {
   title: "Motion without description",
   description: null,
   order_index: 1,
+  motion_type: "general" as const,
+};
+
+const motionSpecial = {
+  id: "mot-003",
+  title: "Special resolution",
+  description: "A special motion",
+  order_index: 2,
+  motion_type: "special" as const,
 };
 
 const BASE = "http://localhost:8000";
@@ -211,5 +221,41 @@ describe("MotionCard", () => {
     await waitFor(() => {
       expect(screen.getByText(/Saved/)).toBeInTheDocument();
     }, { timeout: 1000 });
+  });
+
+  // --- motion_type badge tests ---
+
+  it("shows 'General' badge for a general motion", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    const badge = screen.getByLabelText("Motion type: General");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("General");
+    expect(badge).toHaveClass("motion-type-badge--general");
+  });
+
+  it("shows 'Special' badge for a special motion", () => {
+    render(
+      <MotionCard
+        motion={motionSpecial}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    const badge = screen.getByLabelText("Motion type: Special");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("Special");
+    expect(badge).toHaveClass("motion-type-badge--special");
   });
 });

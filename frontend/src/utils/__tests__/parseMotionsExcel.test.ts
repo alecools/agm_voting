@@ -45,8 +45,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First motion text", description: "" },
-        { title: "Second motion text", description: "" },
+        { title: "First motion text", description: "", motion_type: "general" },
+        { title: "Second motion text", description: "", motion_type: "general" },
       ],
     });
   });
@@ -59,7 +59,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Only motion", description: "" }],
+      motions: [{ title: "Only motion", description: "", motion_type: "general" }],
     });
   });
 
@@ -74,9 +74,9 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First", description: "" },
-        { title: "Second", description: "" },
-        { title: "Third", description: "" },
+        { title: "First", description: "", motion_type: "general" },
+        { title: "Second", description: "", motion_type: "general" },
+        { title: "Third", description: "", motion_type: "general" },
       ],
     });
   });
@@ -94,8 +94,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "Valid motion", description: "" },
-        { title: "Another motion", description: "" },
+        { title: "Valid motion", description: "", motion_type: "general" },
+        { title: "Another motion", description: "", motion_type: "general" },
       ],
     });
   });
@@ -108,7 +108,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "" }],
+      motions: [{ title: "Motion content", description: "", motion_type: "general" }],
     });
   });
 
@@ -120,7 +120,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "" }],
+      motions: [{ title: "Motion content", description: "", motion_type: "general" }],
     });
   });
 
@@ -133,7 +133,92 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "" }],
+      motions: [{ title: "Motion content", description: "", motion_type: "general" }],
+    });
+  });
+
+  // --- Motion Type column ---
+
+  it("defaults to 'general' when Motion Type column is absent", async () => {
+    setupMockSheetData([
+      ["Motion", "Description"],
+      [1, "Motion A"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Motion A", description: "", motion_type: "general" }],
+    });
+  });
+
+  it("reads 'Special' from Motion Type column (case-insensitive)", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "Special Motion", "Special"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Special Motion", description: "", motion_type: "special" }],
+    });
+  });
+
+  it("reads 'SPECIAL' (all-caps) from Motion Type column", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "Special Motion", "SPECIAL"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Special Motion", description: "", motion_type: "special" }],
+    });
+  });
+
+  it("reads 'General' from Motion Type column", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "General Motion", "General"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "General Motion", description: "", motion_type: "general" }],
+    });
+  });
+
+  it("defaults to 'general' when Motion Type cell is blank", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "Motion A", null],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Motion A", description: "", motion_type: "general" }],
+    });
+  });
+
+  it("defaults to 'general' when Motion Type cell is empty string", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "Motion A", ""],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Motion A", description: "", motion_type: "general" }],
+    });
+  });
+
+  it("handles mixed motion types in same file", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "General M", "General"],
+      [2, "Special M", "Special"],
+      [3, "Default M", null],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "General M", description: "", motion_type: "general" },
+        { title: "Special M", description: "", motion_type: "special" },
+        { title: "Default M", description: "", motion_type: "general" },
+      ],
     });
   });
 

@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.models.motion import MotionType
 from app.models.vote import VoteChoice
 
 
@@ -11,6 +12,7 @@ class MotionOut(BaseModel):
     title: str
     description: Optional[str]
     order_index: int
+    motion_type: MotionType
 
     model_config = {"from_attributes": True}
 

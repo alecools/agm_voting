@@ -325,3 +325,23 @@ class TestAGMSummary:
             headers={"Authorization": "Bearer sometoken"},
         )
         assert response.status_code == 200
+
+    async def test_motion_type_returned_in_summary(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        """motion_type field is present in each motion of the summary response."""
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/agm/{agm.id}/summary")
+        assert response.status_code == 200
+        for motion in response.json()["motions"]:
+            assert "motion_type" in motion
+            assert motion["motion_type"] in ("general", "special")
+
+    async def test_motion_type_defaults_to_general_in_summary(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        """Motions created without explicit motion_type have motion_type='general'."""
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/agm/{agm.id}/summary")
+        for motion in response.json()["motions"]:
+            assert motion["motion_type"] == "general"

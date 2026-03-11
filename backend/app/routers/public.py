@@ -113,6 +113,7 @@ async def get_agm_summary(
                 order_index=m.order_index,
                 title=m.title,
                 description=m.description,
+                motion_type=m.motion_type,
             )
             for m in motions
         ],

@@ -8,6 +8,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from app.models.motion import MotionType
+
 
 # ---------------------------------------------------------------------------
 # Building schemas
@@ -120,6 +122,7 @@ class MotionCreate(BaseModel):
     title: str
     description: str | None = None
     order_index: int
+    motion_type: MotionType = MotionType.general
 
 
 class MotionOut(BaseModel):
@@ -127,6 +130,7 @@ class MotionOut(BaseModel):
     title: str
     description: str | None
     order_index: int
+    motion_type: MotionType
 
     model_config = {"from_attributes": True}
 
@@ -217,6 +221,7 @@ class MotionDetail(BaseModel):
     title: str
     description: str | None
     order_index: int
+    motion_type: MotionType
     tally: MotionTally
     voter_lists: MotionVoterLists
 

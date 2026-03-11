@@ -33,12 +33,22 @@ export function MotionCard({
     onChoiceChange(motion.id, next);
   };
 
+  const isSpecial = motion.motion_type === "special";
+
   return (
     <div
       data-testid={`motion-card-${motion.id}`}
       className={`motion-card${highlight ? " motion-card--highlight" : ""}`}
     >
-      <p className="motion-card__number">Motion {motion.order_index}</p>
+      <div className="motion-card__top-row">
+        <p className="motion-card__number">Motion {motion.order_index}</p>
+        <span
+          className={`motion-type-badge${isSpecial ? " motion-type-badge--special" : " motion-type-badge--general"}`}
+          aria-label={`Motion type: ${isSpecial ? "Special" : "General"}`}
+        >
+          {isSpecial ? "Special" : "General"}
+        </span>
+      </div>
       <h3 className="motion-card__title">{motion.title}</h3>
       {motion.description && (
         <p className="motion-card__description">{motion.description}</p>
