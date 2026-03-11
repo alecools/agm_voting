@@ -1,0 +1,47 @@
+name: Post-Deploy Smoke Tests
+
+# Triggered by Vercel when it posts a deployment_status event back to GitHub.
+# Runs against the exact URL Vercel just deployed so we catch env-var and
+# migration issues before anyone notices them in the browser.
+on:
+  deployment_status:
+
+jobs:
+  smoke:
+    name: Playwright smoke tests
+    # Only run when the deployment finished successfully
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Run smoke tests
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.target_url }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: npm run e2e:smoke
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: frontend/playwright-report/
+          retention-days: 14
