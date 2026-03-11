@@ -19,6 +19,40 @@ AGM Voting App — a web application for body corporates to run weighted voting 
 
 This applies equally to small bug fixes and large features. If feedback is received during implementation, pause, update the PRD, then continue.
 
+### Sub-agent branch workflow (required for all feature dev and bugfixes)
+
+Every feature or bugfix must follow this process, executed by a sub-agent:
+
+1. **Create a new branch** from the current base (e.g. `git checkout -b feat/my-feature`)
+2. **Do all work on that branch** — multiple commits are fine and encouraged
+3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
+4. **Deploy to Vercel development** — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
+5. **Run the full E2E suite** against the deployed URL:
+   ```bash
+   cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> npx playwright test
+   ```
+6. **Fix any failures** before continuing
+7. **Push the branch to remote** — `git push -u origin <branch>` — only after all tests pass
+
+The parent agent must not push to remote or merge until the sub-agent completes all steps above.
+
+#### Parallel agents (multiple features at once)
+
+When multiple sub-agents work in parallel:
+
+- Use **git worktrees** so each agent has its own working directory:
+  ```bash
+  git worktree add ../agm_survey-feat-foo feat/foo
+  git worktree add ../agm_survey-feat-bar feat/bar
+  ```
+- Each agent deploys independently to Vercel development (`vercel deploy`) — each gets its own temporary URL
+- If agents need persistent isolated databases (e.g. for migration testing), create a separate Neon branch per feature and set `DATABASE_URL` when deploying:
+  ```bash
+  DATABASE_URL="..." vercel deploy
+  # or add a temporary env override in the Vercel dashboard for that deployment
+  ```
+- Clean up worktrees after the branch is merged: `git worktree remove ../agm_survey-feat-foo`
+
 ### Definition of Done
 
 A change is only complete when all of the following are true:
