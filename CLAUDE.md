@@ -21,71 +21,70 @@ This applies equally to small bug fixes and large features. If feedback is recei
 
 ### Sub-agent branch workflow (required for all feature dev and bugfixes)
 
+> **Vercel environment note:** Every non-production deployment — whether triggered by `git push` or the CLI — lands in the Preview environment and uses Preview env vars. There is no separate "development" deployment target. The branch preview URL is `agm-voting-git-<branch>-ocss.vercel.app`.
+
 Every feature or bugfix must follow this process, executed by a sub-agent:
 
-1. **Create a new branch** from the current base (e.g. `git checkout -b feat/my-feature`)
+1. **Create a new branch** from `preview` (e.g. `git checkout -b feat/my-feature`)
 2. **Do all work on that branch** — multiple commits are fine and encouraged
 3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
-4. **Deploy to Vercel development** — `vercel deploy` from project root (never `--prod`). This produces a temporary development URL
-5. **Run the full E2E suite** against the deployed URL:
+4. **Signal the orchestrator** — report local test results, indicate ready to push. **Pause and wait** for the orchestrator to grant the push slot
+5. **Push the branch** (only after orchestrator grants the slot) — `git push -u origin <branch>`. Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
+6. **Wait for Vercel to finish deploying**, then run the **full E2E suite to completion** — never stop early, record ALL failures:
    ```bash
-   cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> npx playwright test
+   cd frontend && PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
+     VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
+     npx playwright test
    ```
-6. **Fix any failures** before continuing
-7. **Push the branch to remote** — `git push -u origin <branch>` — only after all tests pass
+7. **Release the push slot** — notify the orchestrator the slot is free (pass or fail)
+8. **Fix all recorded failures** — work through every issue while the next agent may be using the slot. Do not push during this phase
+9. If fixes were needed: **re-queue** (back to step 4) for another push + test cycle
+10. Once all E2E tests pass: **raise a PR** to merge into `preview`
+11. **Monitor the GitHub Actions post-deploy workflow** — it runs automatically after the PR is merged to `preview`. Check for any failures
+12. If the CI workflow fails: fix the issues and re-queue (back to step 4) to push and re-test
+13. When all tests pass including the CI workflow: **ask the user to approve and merge the PR**
 
-The parent agent must not push to remote or merge until the sub-agent completes all steps above.
+#### Orchestrator responsibilities (push slot queue)
+
+The shared preview environment supports only one branch being pushed and tested at a time to avoid test interference. When orchestrating multiple sub-agents:
+
+- Maintain a queue of agents waiting for the push slot
+- Grant the slot to one agent at a time — FIFO by default; reprioritise by urgency or risk if needed
+- Slot is released after the agent's E2E run completes (step 7) — immediately grant to the next agent in the queue
+- An agent returning after fixing issues rejoins the **back** of the queue
+- If only one agent is running, grant the slot immediately when it signals readiness
 
 #### Parallel agents (multiple features at once)
 
-When multiple sub-agents work in parallel:
-
-- Use **git worktrees** so each agent has its own working directory:
-  ```bash
-  git worktree add ../agm_survey-feat-foo feat/foo
-  git worktree add ../agm_survey-feat-bar feat/bar
-  ```
-- Each agent deploys independently to Vercel development (`vercel deploy`) — each gets its own temporary URL
-- If agents need persistent isolated databases (e.g. for migration testing), create a separate Neon branch per feature and set `DATABASE_URL` when deploying:
-  ```bash
-  DATABASE_URL="..." vercel deploy
-  # or add a temporary env override in the Vercel dashboard for that deployment
-  ```
-- Clean up worktrees after the branch is merged: `git worktree remove ../agm_survey-feat-foo`
+Use **git worktrees** so each agent has its own isolated working directory:
+```bash
+git worktree add ../agm_survey-feat-foo feat/foo
+git worktree add ../agm_survey-feat-bar feat/bar
+# Clean up after merge:
+git worktree remove ../agm_survey-feat-foo
+```
 
 #### Provisioning an isolated test database for a feature branch
 
 When a feature includes schema migrations or needs a clean DB state, create a dedicated Neon branch:
 
-1. **Create the branch in Neon** — in the Neon dashboard, branch off `preview` (not `main`) so it starts with the current preview schema. Name it after the feature (e.g. `feat/my-feature`).
-
-2. **Run migrations on the new branch:**
+1. **Create the branch in Neon** — branch off `preview` in the Neon dashboard. Name it after the feature.
+2. **Run migrations:**
    ```bash
    uv run alembic -x "dburl=postgresql+asyncpg://<user>:<pass>@<host>/neondb?ssl=require" upgrade head
    ```
-   Strip `sslmode=require` → `ssl=require` and remove `channel_binding=require` if present (asyncpg does not support either).
-
-3. **Deploy with the feature DB** — pass the branch DB URL as an env override so only this Vercel dev deployment uses it:
-   ```bash
-   # From the feature worktree directory:
-   vercel deploy --env DATABASE_URL="postgresql://<user>:<pass>@<pooler-host>/neondb?sslmode=require&channel_binding=require" \
-                 --env DATABASE_URL_UNPOOLED="postgresql://<user>:<pass>@<direct-host>/neondb?sslmode=require&channel_binding=require"
-   ```
-   `api/index.py` will sanitise the URL at runtime (strips `sslmode` → `ssl`, strips `channel_binding`).
-
-4. **Run the full E2E suite** against the dev URL as normal.
-
-5. **Tear down the Neon branch** once the feature is merged — delete it in the Neon dashboard to avoid accumulating stale branches.
+   Strip `sslmode=require` → `ssl=require` and remove `channel_binding=require` (asyncpg does not support either).
+3. **Override the DB for the branch** — add a branch-scoped `DATABASE_URL` env var in the Vercel dashboard for that git branch, pointing to the feature Neon branch
+4. **Tear down the Neon branch** once the feature is merged
 
 ### Definition of Done
 
 A change is only complete when all of the following are true:
 
 1. All local tests pass (`npm run test:coverage` and backend pytest with coverage)
-2. Deployed to the **development** Vercel environment only — run `vercel deploy` from project root (never `--prod`)
-3. All required environment variables are present in the target Vercel environment — run `vercel env ls --scope ocss` and compare against `.env.example`. Add any missing vars before testing
-4. Any deployment issues (missing migrations, env vars, runtime errors) are fixed
-5. The full test suite is run against the deployed development instance to confirm parity
+2. Branch pushed, Vercel preview deployed, full E2E suite passes against the branch preview URL
+3. PR raised to `preview`, GitHub Actions post-deploy workflow passes
+4. User has approved and merged the PR
 
 ---
 
