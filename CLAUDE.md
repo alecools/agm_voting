@@ -32,9 +32,10 @@ Every feature or bugfix must follow this process, executed by a sub-agent:
    cd frontend && PLAYWRIGHT_BASE_URL=<dev-url> VERCEL_BYPASS_TOKEN=<token> npx playwright test
    ```
 6. **Fix any failures** before continuing
-7. **Push the branch to remote** — `git push -u origin <branch>` — only after all tests pass
+7. **Report results to the user** — share the development URL and test summary, then **wait for explicit approval before pushing**
+8. **Push only after user approves** — `git push -u origin <branch>`
 
-The parent agent must not push to remote or merge until the sub-agent completes all steps above.
+The sub-agent must NEVER push to remote automatically. Always stop after step 6, report to the user, and wait for a go-ahead.
 
 #### Parallel agents (multiple features at once)
 
