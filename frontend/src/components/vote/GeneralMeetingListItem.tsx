@@ -22,7 +22,7 @@ export function GeneralMeetingListItem({ meeting, onEnterVoting, onViewSubmissio
           className={`status-badge status-badge--${meeting.status}`}
           data-testid="status-badge"
         >
-          {meeting.status === "open" ? "Open" : "Closed"}
+          {meeting.status === "open" ? "Open" : meeting.status === "pending" ? "Pending" : "Closed"}
         </span>
       </div>
       <div className="agm-item__meta">
@@ -38,6 +38,10 @@ export function GeneralMeetingListItem({ meeting, onEnterVoting, onViewSubmissio
       {meeting.status === "open" ? (
         <button className="btn btn--primary" onClick={() => onEnterVoting(meeting.id)}>
           Enter Voting
+        </button>
+      ) : meeting.status === "pending" ? (
+        <button className="btn btn--secondary" disabled>
+          Voting Not Yet Open
         </button>
       ) : (
         <button className="btn btn--secondary" onClick={() => onViewSubmission(meeting.id)}>

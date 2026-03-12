@@ -19,6 +19,14 @@ const closedMeeting = {
   voting_closes_at: "2023-06-01T12:00:00Z",
 };
 
+const pendingMeeting = {
+  id: "agm-3",
+  title: "2025 AGM",
+  status: "pending" as const,
+  meeting_at: "2025-12-01T10:00:00Z",
+  voting_closes_at: "2025-12-31T12:00:00Z",
+};
+
 describe("GeneralMeetingListItem", () => {
   it("renders meeting title", () => {
     render(
@@ -41,6 +49,13 @@ describe("GeneralMeetingListItem", () => {
     expect(screen.getByTestId("status-badge")).toHaveTextContent("Closed");
   });
 
+  it("renders Pending status badge for pending meeting", () => {
+    render(
+      <GeneralMeetingListItem meeting={pendingMeeting} onEnterVoting={() => {}} onViewSubmission={() => {}} />
+    );
+    expect(screen.getByTestId("status-badge")).toHaveTextContent("Pending");
+  });
+
   it("shows Enter Voting button for open meeting", () => {
     render(
       <GeneralMeetingListItem meeting={openMeeting} onEnterVoting={() => {}} onViewSubmission={() => {}} />
@@ -53,6 +68,15 @@ describe("GeneralMeetingListItem", () => {
       <GeneralMeetingListItem meeting={closedMeeting} onEnterVoting={() => {}} onViewSubmission={() => {}} />
     );
     expect(screen.getByRole("button", { name: "View My Submission" })).toBeInTheDocument();
+  });
+
+  it("shows disabled Voting Not Yet Open button for pending meeting", () => {
+    render(
+      <GeneralMeetingListItem meeting={pendingMeeting} onEnterVoting={() => {}} onViewSubmission={() => {}} />
+    );
+    const btn = screen.getByRole("button", { name: "Voting Not Yet Open" });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
   });
 
   it("calls onEnterVoting with meeting id when Enter Voting clicked", async () => {

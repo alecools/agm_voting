@@ -1,6 +1,6 @@
 // TypeScript types matching backend SQLAlchemy models
 
-export type GeneralMeetingStatus = "open" | "closed";
+export type GeneralMeetingStatus = "open" | "closed" | "pending";
 export type VoteChoice = "yes" | "no" | "abstained" | "not_eligible";
 export type VoteStatus = "draft" | "submitted";
 export type EmailDeliveryStatus = "pending" | "delivered" | "failed";

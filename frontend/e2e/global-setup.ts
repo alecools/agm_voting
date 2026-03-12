@@ -159,24 +159,30 @@ export default async function globalSetup(_config: FullConfig) {
     status: string;
     building_id: string;
   }[];
+  // Close any open or pending AGMs for this building before creating a fresh one.
+  // Include "pending" because with the pending-status feature, AGMs whose
+  // meeting_at is in the future now return status="pending" from the API.
   const openE2eAgms = agms.filter(
-    (a) => a.building_id === building!.id && a.status === "open"
+    (a) => a.building_id === building!.id && (a.status === "open" || a.status === "pending")
   );
 
   for (const agm of openE2eAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
   }
 
-  const future = new Date();
-  future.setFullYear(future.getFullYear() + 1);
-  const closesAt = new Date(future);
-  closesAt.setDate(closesAt.getDate() + 7);
+  // Set meeting_at to 1 hour ago so the effective status is "open" (meeting has
+  // started, voting still open). Using a future meeting_at would produce status
+  // "pending" and the "Enter Voting" button would not be rendered.
+  const meetingStarted = new Date();
+  meetingStarted.setHours(meetingStarted.getHours() - 1);
+  const closesAt = new Date();
+  closesAt.setFullYear(closesAt.getFullYear() + 1);
 
   const createAgmRes = await api.post("/api/admin/general-meetings", {
     data: {
       building_id: building.id,
       title: E2E_AGM_TITLE,
-      meeting_at: future.toISOString(),
+      meeting_at: meetingStarted.toISOString(),
       voting_closes_at: closesAt.toISOString(),
       motions: [
         {
@@ -220,24 +226,25 @@ export default async function globalSetup(_config: FullConfig) {
   // Close any existing open AGMs for the admin-test building, then create a fresh one
   const allAgmsRes = await api.get("/api/admin/general-meetings");
   const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
+  // Include "pending" in the filter — same reason as the voter-test AGM above.
   const openAdminAgms = allAgms.filter(
-    (a) => a.building_id === adminBuilding!.id && a.status === "open"
+    (a) => a.building_id === adminBuilding!.id && (a.status === "open" || a.status === "pending")
   );
   for (const agm of openAdminAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
   }
 
-  const adminFuture = new Date();
-  adminFuture.setFullYear(adminFuture.getFullYear() + 1);
-  adminFuture.setDate(adminFuture.getDate() + 14);
-  const adminClosesAt = new Date(adminFuture);
-  adminClosesAt.setDate(adminClosesAt.getDate() + 7);
+  // Set meeting_at to 2 hours ago so admin tests can find it as status="open".
+  const adminMeetingStarted = new Date();
+  adminMeetingStarted.setHours(adminMeetingStarted.getHours() - 2);
+  const adminClosesAt = new Date();
+  adminClosesAt.setFullYear(adminClosesAt.getFullYear() + 1);
 
   await api.post("/api/admin/general-meetings", {
     data: {
       building_id: adminBuilding.id,
       title: "E2E Admin Test AGM",
-      meeting_at: adminFuture.toISOString(),
+      meeting_at: adminMeetingStarted.toISOString(),
       voting_closes_at: adminClosesAt.toISOString(),
       motions: [
         {

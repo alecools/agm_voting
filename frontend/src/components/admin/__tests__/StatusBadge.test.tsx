@@ -13,6 +13,11 @@ describe("StatusBadge", () => {
     expect(screen.getByText("Closed")).toBeInTheDocument();
   });
 
+  it("shows Pending for pending status", () => {
+    render(<StatusBadge status="pending" />);
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+
   it("shows Closed for unknown status", () => {
     render(<StatusBadge status="other" />);
     expect(screen.getByText("Closed")).toBeInTheDocument();
