@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,6 +18,24 @@ from app.models.base import Base
 class AGMStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
+
+
+def get_effective_status(agm: "AGM") -> AGMStatus:
+    """Return the effective status of an AGM.
+
+    If the AGM's voting_closes_at is in the past and the stored status is
+    still ``open``, the effective status is ``closed``.  This lets the API
+    surface a closed status before the background auto-close job has run.
+    """
+    if agm.status == AGMStatus.open and agm.voting_closes_at is not None:
+        # Make the comparison timezone-aware regardless of how the timestamp
+        # was stored (with or without tzinfo).
+        closes_at = agm.voting_closes_at
+        if closes_at.tzinfo is None:
+            closes_at = closes_at.replace(tzinfo=UTC)
+        if closes_at < datetime.now(UTC):
+            return AGMStatus.closed
+    return agm.status
 
 
 class AGM(Base):

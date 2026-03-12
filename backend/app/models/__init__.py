@@ -2,7 +2,7 @@ from app.models.base import Base, TimestampMixin
 from app.models.building import Building
 from app.models.lot_owner import LotOwner, FinancialPosition
 from app.models.lot_owner_email import LotOwnerEmail
-from app.models.agm import AGM, AGMStatus
+from app.models.agm import AGM, AGMStatus, get_effective_status
 from app.models.motion import Motion, MotionType
 from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
 from app.models.vote import Vote, VoteChoice, VoteStatus
@@ -20,6 +20,7 @@ __all__ = [
     "LotOwnerEmail",
     "AGM",
     "AGMStatus",
+    "get_effective_status",
     "Motion",
     "MotionType",
     "AGMLotWeight",

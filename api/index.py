@@ -69,6 +69,50 @@ if _db_url:  # pragma: no cover — runs at Lambda cold-start; cannot unit-test 
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation
 
+# ---------------------------------------------------------------------------
+# Auto-close AGMs whose voting_closes_at has passed (US-CD01).
+# Runs once per Lambda cold start, after migrations.
+# Failures are logged as warnings but do NOT prevent the app from starting.
+# ---------------------------------------------------------------------------
+if _db_url:  # pragma: no cover — requires a live DB; exercised by integration tests
+    try:  # pragma: no cover
+        import asyncio as _asyncio  # pragma: no cover
+        import logging as _logging  # pragma: no cover
+        from datetime import UTC as _UTC, datetime as _datetime  # pragma: no cover
+
+        async def _auto_close_expired_agms() -> None:  # pragma: no cover
+            """Close all AGMs where voting_closes_at < now() and status = open."""
+            from sqlalchemy import select as _select  # pragma: no cover
+            from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession  # pragma: no cover
+            from sqlalchemy.orm import sessionmaker  # pragma: no cover
+            from app.models.agm import AGM as _AGM, AGMStatus as _AGMStatus  # pragma: no cover
+            from app.services.admin_service import close_agm as _close_agm  # pragma: no cover
+
+            _engine = create_async_engine(_db_url, echo=False)  # pragma: no cover
+            _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)  # pragma: no cover
+            closed_count = 0  # pragma: no cover
+            async with _session_factory() as _db:  # pragma: no cover
+                _res = await _db.execute(  # pragma: no cover
+                    _select(_AGM).where(  # pragma: no cover
+                        _AGM.status == _AGMStatus.open,  # pragma: no cover
+                        _AGM.voting_closes_at < _datetime.now(_UTC),  # pragma: no cover
+                    )  # pragma: no cover
+                )  # pragma: no cover
+                expired = list(_res.scalars().all())  # pragma: no cover
+                for _agm in expired:  # pragma: no cover
+                    try:  # pragma: no cover
+                        await _close_agm(_agm.id, _db)  # pragma: no cover
+                        closed_count += 1  # pragma: no cover
+                    except Exception as _exc:  # pragma: no cover
+                        _logging.warning("[startup] Could not auto-close AGM %s: %s", _agm.id, _exc)  # pragma: no cover
+            await _engine.dispose()  # pragma: no cover
+            _logging.info("[startup] Auto-closed %d expired AGM(s)", closed_count)  # pragma: no cover
+
+        _asyncio.run(_auto_close_expired_agms())  # pragma: no cover
+    except Exception as _autoclose_exc:  # pragma: no cover
+        import logging as _logging  # pragma: no cover
+        _logging.warning("[startup] Auto-close error (non-fatal): %s", _autoclose_exc)  # pragma: no cover
+
 # Serve the React SPA from the bundled frontend/dist directory.
 # frontend/dist is included in the Lambda via vercel.json includeFiles.
 _dist_dir = os.path.join(os.path.dirname(__file__), "static")

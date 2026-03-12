@@ -30,7 +30,9 @@ from app.models import (
     LotProxy,
     Motion,
     Vote,
+    VoteChoice,
     VoteStatus,
+    get_effective_status,
 )
 from app.schemas.admin import (
     AGMCreate,
@@ -919,13 +921,14 @@ async def list_agms(db: AsyncSession) -> list[dict]:
     rows = result.all()
     items = []
     for agm, building_name in rows:
+        effective = get_effective_status(agm)
         items.append(
             {
                 "id": agm.id,
                 "building_id": agm.building_id,
                 "building_name": building_name,
                 "title": agm.title,
-                "status": agm.status.value if hasattr(agm.status, "value") else agm.status,
+                "status": effective.value if hasattr(effective, "value") else effective,
                 "meeting_at": agm.meeting_at,
                 "voting_closes_at": agm.voting_closes_at,
                 "created_at": agm.created_at,
@@ -1095,11 +1098,12 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
 
     total_entitlement = sum(lot_entitlement.values())
 
+    effective = get_effective_status(agm)
     return {
         "id": agm.id,
         "building_name": building_name,
         "title": agm.title,
-        "status": agm.status.value if hasattr(agm.status, "value") else agm.status,
+        "status": effective.value if hasattr(effective, "value") else effective,
         "meeting_at": agm.meeting_at,
         "voting_closes_at": agm.voting_closes_at,
         "closed_at": agm.closed_at,
@@ -1129,6 +1133,64 @@ async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) 
             Vote.status == VoteStatus.draft,
         )
     )
+
+    # Generate absent BallotSubmissions + absent Votes for lots that never voted.
+    # 1. Find all AGMLotWeight records (the snapshot of eligible lots at AGM creation time).
+    weights_result = await db.execute(
+        select(AGMLotWeight).where(AGMLotWeight.agm_id == agm_id)
+    )
+    weight_lot_ids: list[uuid.UUID] = [w.lot_owner_id for w in weights_result.scalars().all()]
+
+    # 2. Find lot_owner_ids that already have a BallotSubmission.
+    if weight_lot_ids:
+        subs_result = await db.execute(
+            select(BallotSubmission.lot_owner_id).where(
+                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.lot_owner_id.in_(weight_lot_ids),
+            )
+        )
+        already_submitted_ids: set[uuid.UUID] = {row[0] for row in subs_result.all()}
+
+        # 3. Get motions for this AGM (to create absent Vote rows per motion).
+        motions_result = await db.execute(
+            select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+        )
+        motions = list(motions_result.scalars().all())
+
+        absent_lot_ids = [lid for lid in weight_lot_ids if lid not in already_submitted_ids]
+        for lot_owner_id in absent_lot_ids:
+            # Fetch the first email for this lot owner (for voter_email audit field).
+            email_result = await db.execute(
+                select(LotOwnerEmail.email)
+                .where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+                .limit(1)
+            )
+            row = email_result.first()
+            voter_email: str = row[0] if row and row[0] else ""
+
+            # Create a BallotSubmission to mark the lot as absent.
+            absent_submission = BallotSubmission(
+                agm_id=agm_id,
+                lot_owner_id=lot_owner_id,
+                voter_email=voter_email,
+                proxy_email=None,
+                submitted_at=datetime.now(UTC),
+            )
+            db.add(absent_submission)
+
+            # Create absent Vote rows for every motion.
+            for motion in motions:
+                absent_vote = Vote(
+                    agm_id=agm_id,
+                    motion_id=motion.id,
+                    voter_email=voter_email,
+                    lot_owner_id=lot_owner_id,
+                    choice=VoteChoice.abstained,
+                    status=VoteStatus.submitted,
+                )
+                db.add(absent_vote)
+
+        await db.flush()
 
     # Create EmailDelivery record
     email_delivery = EmailDelivery(
