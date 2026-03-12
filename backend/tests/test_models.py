@@ -9,7 +9,8 @@ Covers:
 - Motion: create, order_index uniqueness per AGM
 - AGMLotWeight: create, UniqueConstraint(agm_id, lot_owner_id), financial_position_snapshot
 - Vote: create draft, UniqueConstraint(agm_id, motion_id, voter_email), status transitions
-- BallotSubmission: create, UniqueConstraint(agm_id, lot_owner_id)
+- BallotSubmission: create, UniqueConstraint(agm_id, lot_owner_id), proxy_email nullable
+- LotProxy: create, unique constraint on lot_owner_id, index on proxy_email, cascade delete
 - SessionRecord: create
 - EmailDelivery: create, unique per agm_id
 """
@@ -32,6 +33,7 @@ from app.models import (
     FinancialPositionSnapshot,
     LotOwner,
     LotOwnerEmail,
+    LotProxy,
     Motion,
     SessionRecord,
     Vote,
@@ -961,6 +963,167 @@ class TestBallotSubmission:
         s2 = BallotSubmission(agm_id=agm2.id, lot_owner_id=lo.id, voter_email="voter@example.com")
         db_session.add_all([s1, s2])
         await db_session.flush()  # Should NOT raise
+
+    async def test_ballot_submission_proxy_email_null_by_default(self, db_session: AsyncSession):
+        """proxy_email defaults to NULL when not supplied (direct vote)."""
+        _, lo, agm = await self._setup(db_session, " ProxyNull")
+
+        sub = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email="direct@example.com")
+        db_session.add(sub)
+        await db_session.flush()
+
+        assert sub.proxy_email is None
+
+    async def test_ballot_submission_proxy_email_stored(self, db_session: AsyncSession):
+        """proxy_email can be set when a proxy votes on behalf of a lot owner."""
+        _, lo, agm = await self._setup(db_session, " ProxySet")
+
+        sub = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="owner@example.com",
+            proxy_email="proxy@example.com",
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        assert sub.proxy_email == "proxy@example.com"
+
+
+# ---------------------------------------------------------------------------
+# LotProxy tests
+# ---------------------------------------------------------------------------
+
+
+class TestLotProxy:
+    """Happy path and constraint tests for LotProxy model."""
+
+    async def _setup(self, db_session: AsyncSession, suffix: str = ""):
+        b = make_building(f"Proxy Bldg{suffix}")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
+        return b, lo
+
+    # --- Happy path ---
+
+    async def test_create_lot_proxy(self, db_session: AsyncSession):
+        """A LotProxy record is created with the expected fields."""
+        _, lo = await self._setup(db_session, " Create")
+
+        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="proxy@example.com")
+        db_session.add(proxy)
+        await db_session.flush()
+
+        assert proxy.id is not None
+        assert isinstance(proxy.id, uuid.UUID)
+        assert proxy.lot_owner_id == lo.id
+        assert proxy.proxy_email == "proxy@example.com"
+        assert proxy.created_at is not None
+
+    async def test_lot_proxy_relationship_via_lot_owner(self, db_session: AsyncSession):
+        """LotProxy is accessible through the lot_owner relationship."""
+        _, lo = await self._setup(db_session, " Rel")
+
+        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="relproxy@example.com")
+        db_session.add(proxy)
+        await db_session.flush()
+
+        # Expire the cached lo object so the relationship is reloaded
+        await db_session.refresh(lo, ["lot_proxy"])
+        assert lo.lot_proxy is not None
+        assert lo.lot_proxy.proxy_email == "relproxy@example.com"
+
+    async def test_multiple_lot_owners_can_have_different_proxies(self, db_session: AsyncSession):
+        """Different lot owners can each have their own proxy."""
+        b = make_building("Multi Proxy Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo1 = make_lot_owner(b, lot_number="P1")
+        lo2 = make_lot_owner(b, lot_number="P2")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+
+        p1 = LotProxy(lot_owner_id=lo1.id, proxy_email="proxyA@example.com")
+        p2 = LotProxy(lot_owner_id=lo2.id, proxy_email="proxyB@example.com")
+        db_session.add_all([p1, p2])
+        await db_session.flush()  # Should NOT raise
+
+        assert p1.id != p2.id
+
+    async def test_same_proxy_email_for_multiple_lots(self, db_session: AsyncSession):
+        """The same proxy email can represent multiple lots (no unique constraint on proxy_email)."""
+        b = make_building("Shared Proxy Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo1 = make_lot_owner(b, lot_number="S1")
+        lo2 = make_lot_owner(b, lot_number="S2")
+        db_session.add_all([lo1, lo2])
+        await db_session.flush()
+
+        p1 = LotProxy(lot_owner_id=lo1.id, proxy_email="shared@example.com")
+        p2 = LotProxy(lot_owner_id=lo2.id, proxy_email="shared@example.com")
+        db_session.add_all([p1, p2])
+        await db_session.flush()  # Should NOT raise — same email, different lots
+
+        assert p1.id != p2.id
+
+    # --- Input validation / constraints ---
+
+    async def test_unique_constraint_lot_owner_id(self, db_session: AsyncSession):
+        """Only one proxy per lot_owner_id — second insert raises IntegrityError."""
+        _, lo = await self._setup(db_session, " UniqueOwner")
+
+        p1 = LotProxy(lot_owner_id=lo.id, proxy_email="first@example.com")
+        db_session.add(p1)
+        await db_session.flush()
+
+        p2 = LotProxy(lot_owner_id=lo.id, proxy_email="second@example.com")
+        db_session.add(p2)
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
+
+    async def test_cascade_delete_when_lot_owner_deleted(self, db_session: AsyncSession):
+        """Deleting a LotOwner cascades and removes its LotProxy record."""
+        _, lo = await self._setup(db_session, " Cascade")
+
+        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="cascade@example.com")
+        db_session.add(proxy)
+        await db_session.flush()
+        proxy_id = proxy.id
+
+        await db_session.delete(lo)
+        await db_session.flush()
+
+        result = await db_session.get(LotProxy, proxy_id)
+        assert result is None
+
+    # --- Boundary values ---
+
+    async def test_lot_proxy_long_email(self, db_session: AsyncSession):
+        """proxy_email accepts long email-like strings."""
+        _, lo = await self._setup(db_session, " LongEmail")
+
+        long_email = "a" * 200 + "@example.com"
+        proxy = LotProxy(lot_owner_id=lo.id, proxy_email=long_email)
+        db_session.add(proxy)
+        await db_session.flush()
+        assert proxy.proxy_email == long_email
+
+    async def test_lot_proxy_tagged_email(self, db_session: AsyncSession):
+        """proxy_email accepts tagged emails (user+tag@domain)."""
+        _, lo = await self._setup(db_session, " Tagged")
+
+        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="proxy+tag@domain.co.nz")
+        db_session.add(proxy)
+        await db_session.flush()
+        assert proxy.proxy_email == "proxy+tag@domain.co.nz"
 
 
 # ---------------------------------------------------------------------------

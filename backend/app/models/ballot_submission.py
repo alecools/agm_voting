@@ -26,6 +26,7 @@ class BallotSubmission(Base):
         nullable=False,
     )
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
+    proxy_email: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

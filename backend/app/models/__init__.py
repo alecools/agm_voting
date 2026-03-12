@@ -7,6 +7,7 @@ from app.models.motion import Motion, MotionType
 from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
 from app.models.vote import Vote, VoteChoice, VoteStatus
 from app.models.ballot_submission import BallotSubmission
+from app.models.lot_proxy import LotProxy
 from app.models.session_record import SessionRecord
 from app.models.email_delivery import EmailDelivery, EmailDeliveryStatus
 
@@ -27,6 +28,7 @@ __all__ = [
     "VoteChoice",
     "VoteStatus",
     "BallotSubmission",
+    "LotProxy",
     "SessionRecord",
     "EmailDelivery",
     "EmailDeliveryStatus",

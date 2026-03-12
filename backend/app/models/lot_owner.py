@@ -62,3 +62,6 @@ class LotOwner(Base):
     ballot_submissions: Mapped[list["BallotSubmission"]] = relationship(  # noqa: F821
         "BallotSubmission", back_populates="lot_owner", cascade="all, delete-orphan"
     )
+    lot_proxy: Mapped["LotProxy | None"] = relationship(  # noqa: F821
+        "LotProxy", back_populates="lot_owner", cascade="all, delete-orphan", uselist=False
+    )
