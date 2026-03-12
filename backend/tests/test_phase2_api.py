@@ -46,7 +46,8 @@ from app.models.general_meeting import get_effective_status
 
 
 def meeting_dt() -> datetime:
-    return datetime.now(UTC) + timedelta(days=1)
+    """Return a past meeting_at so meetings are effectively open (not pending)."""
+    return datetime.now(UTC) - timedelta(hours=1)
 
 
 def closing_dt() -> datetime:
@@ -730,6 +731,37 @@ class TestSaveDraft:
         )
         assert response.status_code == 403
 
+    async def test_save_draft_pending_agm_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Draft save returns 403 when meeting is pending (not yet started, US-PS03)."""
+        building = building_with_agm["building"]
+        voter_email = building_with_agm["voter_email"]
+
+        pending_agm = GeneralMeeting(
+            building_id=building.id,
+            title="Pending Draft GeneralMeeting",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(pending_agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=pending_agm.id, title="PM1", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, pending_agm.id)
+
+        response = await client.put(
+            f"/api/general-meeting/{pending_agm.id}/draft",
+            json={"motion_id": str(motion.id), "choice": "yes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert "not started" in response.json()["detail"].lower()
+
     async def test_save_draft_already_submitted_returns_409(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
@@ -1106,6 +1138,34 @@ class TestSubmitBallot:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+    async def test_submit_pending_agm_returns_403(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Submit returns 403 when meeting is pending (not yet started, US-PS03)."""
+        building = building_with_agm["building"]
+        voter_email = building_with_agm["voter_email"]
+
+        pending_agm = GeneralMeeting(
+            building_id=building.id,
+            title="Pending Submit GeneralMeeting",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(pending_agm)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, pending_agm.id)
+
+        lo = building_with_agm["lot_owner"]
+        response = await client.post(
+            f"/api/general-meeting/{pending_agm.id}/submit",
+            json={"lot_owner_ids": [str(lo.id)]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert "not started" in response.json()["detail"].lower()
 
     async def test_submit_already_submitted_returns_409(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict

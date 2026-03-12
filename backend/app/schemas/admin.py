@@ -269,10 +269,17 @@ class GeneralMeetingDetail(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GeneralMeetingStartOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    meeting_at: datetime
+
+
 class GeneralMeetingCloseOut(BaseModel):
     id: uuid.UUID
     status: str
     closed_at: datetime
+    voting_closes_at: datetime
 
 
 class ResendReportOut(BaseModel):

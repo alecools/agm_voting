@@ -36,10 +36,10 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a developer, I need the Lambda cold start check to open meetings whose `meeting_at` has been reached so voters can enter at the right time.
 
 **Acceptance Criteria:**
-- [ ] The existing `auto_migrate_on_startup` function (or the auto-close block added in US-CD01) is extended to also auto-open: set `status = 'open'` for all meetings where `status = 'pending'` and `meeting_at <= now()`
-- [ ] Auto-open runs before auto-close in the same startup sequence
-- [ ] A meeting that transitions from `pending` → `open` in the same cold start as `open` → `closed` (i.e. both timestamps have passed) goes directly to `closed` with absent records generated
-- [ ] Typecheck/lint passes
+- [x] The existing `auto_migrate_on_startup` function (or the auto-close block added in US-CD01) is extended to also auto-open: set `status = 'open'` for all meetings where `status = 'pending'` and `meeting_at <= now()`
+- [x] Auto-open runs before auto-close in the same startup sequence
+- [x] A meeting that transitions from `pending` → `open` in the same cold start as `open` → `closed` (i.e. both timestamps have passed) goes directly to `closed` with absent records generated
+- [x] Typecheck/lint passes
 
 ---
 
@@ -48,10 +48,10 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a developer, I need all API responses that return meeting status to reflect the effective status (`pending` if `meeting_at > now()`) so the frontend always shows the correct state.
 
 **Acceptance Criteria:**
-- [ ] `GET /api/admin/general-meetings` and all routes that return meeting status derive effective status as `pending` if `meeting_at > now()` and stored status is `pending` (consistent with the existing `closed` derivation pattern from US-CD01)
-- [ ] `POST /api/auth/verify` returns `agm_status: "pending"` for meetings that haven't started yet
-- [ ] `POST /api/general-meeting/{id}/submit` returns 403 if meeting status is `pending`
-- [ ] Typecheck/lint passes
+- [x] `GET /api/admin/general-meetings` and all routes that return meeting status derive effective status as `pending` if `meeting_at > now()` and stored status is `pending` (consistent with the existing `closed` derivation pattern from US-CD01)
+- [x] `POST /api/auth/verify` returns `agm_status: "pending"` for meetings that haven't started yet
+- [x] `POST /api/general-meeting/{id}/submit` returns 403 if meeting status is `pending`
+- [x] Typecheck/lint passes
 
 ---
 
@@ -60,14 +60,14 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a building manager, I want to manually start a pending meeting from the admin detail page so I can open voting even if the scheduled start time hasn't arrived.
 
 **Acceptance Criteria:**
-- [ ] Admin meeting detail page shows a "Start Meeting" button when the meeting status is `pending`
-- [ ] Clicking "Start Meeting" calls `POST /api/admin/general-meetings/{id}/start`
-- [ ] The endpoint sets `status = 'open'` and updates `meeting_at = now()`
-- [ ] Returns 409 if the meeting is not in `pending` status
-- [ ] Returns 404 if the meeting does not exist
-- [ ] After success, the admin detail page reflects the updated status and `meeting_at` timestamp
-- [ ] "Start Meeting" button is not shown for `open` or `closed` meetings
-- [ ] Typecheck/lint passes
+- [x] Admin meeting detail page shows a "Start Meeting" button when the meeting status is `pending`
+- [x] Clicking "Start Meeting" calls `POST /api/admin/general-meetings/{id}/start`
+- [x] The endpoint sets `status = 'open'` and updates `meeting_at = now()`
+- [x] Returns 409 if the meeting is not in `pending` status
+- [x] Returns 404 if the meeting does not exist
+- [x] After success, the admin detail page reflects the updated status and `meeting_at` timestamp
+- [x] "Start Meeting" button is not shown for `open` or `closed` meetings
+- [x] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
 ---
@@ -77,10 +77,10 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a building manager, I want manually closing a meeting to record the actual close time so the data accurately reflects when voting ended.
 
 **Acceptance Criteria:**
-- [ ] The existing `POST /api/admin/general-meetings/{id}/close` endpoint additionally sets `voting_closes_at = now()` when manually closed (only if `voting_closes_at` is in the future — do not backdate if it has already passed)
-- [ ] The response includes the updated `voting_closes_at` value
-- [ ] Existing close behaviour (absent records, email) is unchanged
-- [ ] Typecheck/lint passes
+- [x] The existing `POST /api/admin/general-meetings/{id}/close` endpoint additionally sets `voting_closes_at = now()` when manually closed (only if `voting_closes_at` is in the future — do not backdate if it has already passed)
+- [x] The response includes the updated `voting_closes_at` value
+- [x] Existing close behaviour (absent records, email) is unchanged
+- [x] Typecheck/lint passes
 
 ---
 

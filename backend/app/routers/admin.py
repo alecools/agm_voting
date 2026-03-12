@@ -23,6 +23,7 @@ from app.schemas.admin import (
     GeneralMeetingDetail,
     GeneralMeetingListItem,
     GeneralMeetingOut,
+    GeneralMeetingStartOut,
     BuildingArchiveOut,
     BuildingCreate,
     BuildingImportResult,
@@ -314,6 +315,22 @@ async def get_general_meeting_detail(
 
 
 @router.post(
+    "/general-meetings/{general_meeting_id}/start",
+    response_model=GeneralMeetingStartOut,
+)
+async def start_general_meeting_endpoint(
+    general_meeting_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> GeneralMeetingStartOut:
+    meeting = await admin_service.start_general_meeting(general_meeting_id, db)
+    return GeneralMeetingStartOut(
+        id=meeting.id,
+        status=meeting.status.value if hasattr(meeting.status, "value") else meeting.status,
+        meeting_at=meeting.meeting_at,
+    )
+
+
+@router.post(
     "/general-meetings/{general_meeting_id}/close",
     response_model=GeneralMeetingCloseOut,
 )
@@ -328,6 +345,7 @@ async def close_general_meeting(
         id=meeting.id,
         status=meeting.status.value if hasattr(meeting.status, "value") else meeting.status,
         closed_at=meeting.closed_at,
+        voting_closes_at=meeting.voting_closes_at,
     )
 
 

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus
+from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
@@ -49,7 +49,10 @@ async def save_draft(
     if general_meeting is None:  # pragma: no cover
         raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
-    if general_meeting.status != GeneralMeetingStatus.open:
+    effective = get_effective_status(general_meeting)
+    if effective == GeneralMeetingStatus.pending:
+        raise HTTPException(status_code=403, detail="Voting has not started yet for this General Meeting")
+    if effective == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
     # Check not already submitted — check by lot_owner_id if provided, else by voter_email
@@ -165,7 +168,10 @@ async def submit_ballot(
     if general_meeting is None:  # pragma: no cover
         raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
-    if general_meeting.status != GeneralMeetingStatus.open:
+    effective_submit = get_effective_status(general_meeting)
+    if effective_submit == GeneralMeetingStatus.pending:
+        raise HTTPException(status_code=403, detail="Voting has not started yet for this General Meeting")
+    if effective_submit == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
     if not lot_owner_ids:

@@ -76,7 +76,8 @@ def future_dt(days: int = 1) -> datetime:
 
 
 def meeting_dt() -> datetime:
-    return datetime.now(UTC) + timedelta(days=1)
+    """Return a past meeting_at so meetings are effectively open (not pending)."""
+    return datetime.now(UTC) - timedelta(hours=1)
 
 
 def closing_dt() -> datetime:
@@ -1479,6 +1480,46 @@ class TestCreateAGM:
         r2 = await client.post("/api/admin/general-meetings", json=payload)
         assert r2.status_code == 201
 
+    async def test_create_agm_with_future_meeting_at_returns_pending_status(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Meeting created with future meeting_at should have status=pending."""
+        b = Building(name="Pending Status Building", manager_email="pending@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        now = datetime.now(UTC)
+        payload = self._agm_payload(
+            b.id,
+            meeting_at=(now + timedelta(days=1)).isoformat(),
+            voting_closes_at=(now + timedelta(days=2)).isoformat(),
+        )
+        response = await client.post("/api/admin/general-meetings", json=payload)
+        assert response.status_code == 201
+        assert response.json()["status"] == "pending"
+
+    async def test_second_pending_agm_for_same_building_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Cannot create a meeting if a pending meeting already exists for the building."""
+        b = Building(name="Pending Block Building", manager_email="pendblock@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        now = datetime.now(UTC)
+        payload = self._agm_payload(
+            b.id,
+            meeting_at=(now + timedelta(days=1)).isoformat(),
+            voting_closes_at=(now + timedelta(days=2)).isoformat(),
+        )
+        r1 = await client.post("/api/admin/general-meetings", json=payload)
+        assert r1.status_code == 201
+        assert r1.json()["status"] == "pending"
+
+        # Second create should be blocked
+        r2 = await client.post("/api/admin/general-meetings", json=payload)
+        assert r2.status_code == 409
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/general-meetings
@@ -2236,6 +2277,172 @@ class TestCloseAGM:
 
     async def test_close_not_found_returns_404(self, client: AsyncClient):
         response = await client.post(f"/api/admin/general-meetings/{uuid.uuid4()}/close")
+        assert response.status_code == 404
+
+    async def test_close_returns_voting_closes_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Close response includes voting_closes_at field (US-PS05)."""
+        agm = await self._create_open_agm(db_session, "VotingClosesAt Building")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        assert response.status_code == 200
+        data = response.json()
+        assert "voting_closes_at" in data
+        assert data["voting_closes_at"] is not None
+
+    async def test_close_updates_voting_closes_at_when_future(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Close sets voting_closes_at to now when it was in the future (US-PS05)."""
+        b = Building(name="EarlyClose Building", manager_email="eclose@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        original_close = datetime.now(UTC) + timedelta(days=2)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Early Close GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=original_close,
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+
+        before_close = datetime.now(UTC)
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        assert response.status_code == 200
+        after_close = datetime.now(UTC)
+
+        # voting_closes_at should have been updated to approximately now
+        updated_closes_at_str = response.json()["voting_closes_at"]
+        from datetime import timezone as _tz
+        updated_closes_at = datetime.fromisoformat(updated_closes_at_str.replace("Z", "+00:00"))
+        assert before_close <= updated_closes_at <= after_close
+
+    async def test_close_preserves_voting_closes_at_when_already_past(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Close does not update voting_closes_at if it is already in the past (US-PS05)."""
+        b = Building(name="PastClose Building", manager_email="pastclose@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        past_close = datetime.now(UTC) - timedelta(hours=1)
+        # meeting_at also past so constraint ok, but pass as naive to hit the naive branch
+        past_meeting_at = (datetime.now(UTC) - timedelta(hours=2)).replace(tzinfo=None)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Past Close GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=past_meeting_at,
+            voting_closes_at=past_close,
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        assert response.status_code == 200
+        # voting_closes_at should be preserved (not changed to now)
+        data = response.json()
+        assert "voting_closes_at" in data
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/general-meetings/{agm_id}/start (US-PS04)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestStartGeneralMeeting:
+    """Tests for POST /api/admin/general-meetings/{id}/start."""
+
+    async def _create_pending_agm(self, db_session: AsyncSession, name: str) -> GeneralMeeting:
+        b = Building(name=name, manager_email=f"start_{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"Pending Test GeneralMeeting {name}",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        return agm
+
+    # --- Happy path ---
+
+    async def test_start_pending_meeting_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        agm = await self._create_pending_agm(db_session, "StartHappy1")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "open"
+        assert data["id"] == str(agm.id)
+        assert data["meeting_at"] is not None
+
+    async def test_start_updates_meeting_at_to_now(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Start endpoint sets meeting_at to approximately now."""
+        agm = await self._create_pending_agm(db_session, "StartMeetingAt")
+        before = datetime.now(UTC)
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/start")
+        after = datetime.now(UTC)
+        assert response.status_code == 200
+        from datetime import timezone as _tz
+        meeting_at_str = response.json()["meeting_at"]
+        meeting_at = datetime.fromisoformat(meeting_at_str.replace("Z", "+00:00"))
+        assert before <= meeting_at <= after
+
+    # --- State / precondition errors ---
+
+    async def test_start_open_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="StartOpen Building", manager_email="startopen@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Open Start GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/start")
+        assert response.status_code == 409
+
+    async def test_start_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="StartClosed Building", manager_email="startclosed@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Closed Start GeneralMeeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+            closed_at=datetime.now(UTC),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/start")
+        assert response.status_code == 409
+
+    async def test_start_not_found_returns_404(self, client: AsyncClient):
+        response = await client.post(f"/api/admin/general-meetings/{uuid.uuid4()}/start")
         assert response.status_code == 404
 
 

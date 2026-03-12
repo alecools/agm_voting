@@ -7,7 +7,7 @@ import csv
 import io
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 
 import openpyxl
 
@@ -827,25 +827,32 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     # Validate building exists
     building = await get_building_or_404(data.building_id, db)
 
-    # Check no open General Meeting already exists for this building
+    # Check no open or pending General Meeting already exists for this building
     result = await db.execute(
         select(GeneralMeeting).where(
             GeneralMeeting.building_id == data.building_id,
-            GeneralMeeting.status == GeneralMeetingStatus.open,
+            GeneralMeeting.status.in_([GeneralMeetingStatus.open, GeneralMeetingStatus.pending]),
         )
     )
     existing_open = result.scalar_one_or_none()
     if existing_open is not None:
         raise HTTPException(
             status_code=409,
-            detail="An open General Meeting already exists for this building",
+            detail="An open or pending General Meeting already exists for this building.",
         )
+
+    # Set initial status based on meeting_at
+    initial_status = (
+        GeneralMeetingStatus.pending
+        if data.meeting_at > datetime.now(timezone.utc)
+        else GeneralMeetingStatus.open
+    )
 
     # Create General Meeting
     general_meeting = GeneralMeeting(
         building_id=data.building_id,
         title=data.title,
-        status=GeneralMeetingStatus.open,
+        status=initial_status,
         meeting_at=data.meeting_at,
         voting_closes_at=data.voting_closes_at,
     )
@@ -1114,6 +1121,21 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     }
 
 
+async def start_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession) -> GeneralMeeting:
+    """Manually start a pending General Meeting, setting status=open and meeting_at=now."""
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = result.scalar_one_or_none()
+    if general_meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+    if get_effective_status(general_meeting) != GeneralMeetingStatus.pending:
+        raise HTTPException(status_code=409, detail="General Meeting is not in pending status")
+    general_meeting.status = GeneralMeetingStatus.open
+    general_meeting.meeting_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(general_meeting)
+    return general_meeting
+
+
 async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession, background_tasks=None) -> GeneralMeeting:
     result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
     general_meeting = result.scalar_one_or_none()
@@ -1123,8 +1145,23 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
         raise HTTPException(status_code=409, detail="General Meeting is already closed")
 
     # Close the General Meeting
+    now = datetime.now(UTC)
     general_meeting.status = GeneralMeetingStatus.closed
-    general_meeting.closed_at = datetime.now(UTC)
+    general_meeting.closed_at = now
+
+    # Update voting_closes_at to now if closing before the scheduled close time (US-PS05).
+    # Only update when voting_closes_at is in the future AND meeting_at is in the past
+    # (i.e., the meeting has started). If meeting_at is still in the future, preserving
+    # voting_closes_at avoids violating the CHECK constraint (voting_closes_at > meeting_at).
+    meeting_at_aware = general_meeting.meeting_at
+    if meeting_at_aware is not None and meeting_at_aware.tzinfo is None:  # pragma: no cover — DB always returns tz-aware
+        meeting_at_aware = meeting_at_aware.replace(tzinfo=UTC)  # pragma: no cover
+    if (
+        general_meeting.voting_closes_at is not None
+        and general_meeting.voting_closes_at > now
+        and (meeting_at_aware is None or meeting_at_aware <= now)
+    ):
+        general_meeting.voting_closes_at = now
 
     # Delete draft votes
     await db.execute(

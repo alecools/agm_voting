@@ -62,7 +62,7 @@ def make_agm(building: Building, status: GeneralMeetingStatus = GeneralMeetingSt
         building_id=building.id,
         title=title,
         status=status,
-        meeting_at=now + timedelta(days=1),
+        meeting_at=now - timedelta(hours=1),  # past so meeting is effectively open
         voting_closes_at=now + timedelta(days=2),
     )
 
