@@ -1,11 +1,11 @@
 import { useState } from "react";
 
 interface ShareSummaryLinkProps {
-  agmId: string;
+  meetingId: string;
 }
 
-export default function ShareSummaryLink({ agmId }: ShareSummaryLinkProps) {
-  const url = window.location.origin + "/agm/" + agmId + "/summary";
+export default function ShareSummaryLink({ meetingId }: ShareSummaryLinkProps) {
+  const url = window.location.origin + "/general-meeting/" + meetingId + "/summary";
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {

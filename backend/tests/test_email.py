@@ -7,7 +7,7 @@ Covers:
 - EmailService.trigger_with_retry()
 - EmailService.requeue_pending_on_startup()
 - OTEL-compliant structured logging
-- Integration: close AGM → email triggered
+- Integration: close GeneralMeeting → email triggered
 """
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.logging_config import configure_logging, get_logger
 from app.models import (
-    AGM,
-    AGMLotWeight,
-    AGMStatus,
+    GeneralMeeting,
+    GeneralMeetingLotWeight,
+    GeneralMeetingStatus,
     BallotSubmission,
     Building,
     EmailDelivery,
@@ -76,11 +76,11 @@ async def _create_building(db: AsyncSession, manager_email: str = "mgr@example.c
     return building
 
 
-async def _create_agm(db: AsyncSession, building: Building) -> AGM:
-    agm = AGM(
+async def _create_agm(db: AsyncSession, building: Building) -> GeneralMeeting:
+    agm = GeneralMeeting(
         building_id=building.id,
-        title="Test AGM",
-        status=AGMStatus.closed,
+        title="Test GeneralMeeting",
+        status=GeneralMeetingStatus.closed,
         meeting_at=meeting_dt(),
         voting_closes_at=closing_dt(),
         closed_at=datetime.now(UTC),
@@ -90,9 +90,9 @@ async def _create_agm(db: AsyncSession, building: Building) -> AGM:
     return agm
 
 
-async def _create_motion(db: AsyncSession, agm: AGM, order_index: int = 0, description: str | None = "A motion") -> Motion:
+async def _create_motion(db: AsyncSession, agm: GeneralMeeting, order_index: int = 0, description: str | None = "A motion") -> Motion:
     motion = Motion(
-        agm_id=agm.id,
+        general_meeting_id=agm.id,
         title=f"Motion {order_index}",
         description=description,
         order_index=order_index,
@@ -116,9 +116,9 @@ async def _create_lot_owner(db: AsyncSession, building: Building, email: str, un
     return lo
 
 
-async def _create_lot_weight(db: AsyncSession, agm: AGM, lot_owner: LotOwner) -> AGMLotWeight:
-    w = AGMLotWeight(
-        agm_id=agm.id,
+async def _create_lot_weight(db: AsyncSession, agm: GeneralMeeting, lot_owner: LotOwner) -> GeneralMeetingLotWeight:
+    w = GeneralMeetingLotWeight(
+        general_meeting_id=agm.id,
         lot_owner_id=lot_owner.id,
         unit_entitlement_snapshot=lot_owner.unit_entitlement,
     )
@@ -127,8 +127,8 @@ async def _create_lot_weight(db: AsyncSession, agm: AGM, lot_owner: LotOwner) ->
     return w
 
 
-async def _create_ballot(db: AsyncSession, agm: AGM, lot_owner: LotOwner, email: str) -> BallotSubmission:
-    bs = BallotSubmission(agm_id=agm.id, lot_owner_id=lot_owner.id, voter_email=email)
+async def _create_ballot(db: AsyncSession, agm: GeneralMeeting, lot_owner: LotOwner, email: str) -> BallotSubmission:
+    bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lot_owner.id, voter_email=email)
     db.add(bs)
     await db.flush()
     return bs
@@ -136,13 +136,13 @@ async def _create_ballot(db: AsyncSession, agm: AGM, lot_owner: LotOwner, email:
 
 async def _create_vote(
     db: AsyncSession,
-    agm: AGM,
+    agm: GeneralMeeting,
     motion: Motion,
     email: str,
     choice: VoteChoice = VoteChoice.yes,
 ) -> Vote:
     v = Vote(
-        agm_id=agm.id,
+        general_meeting_id=agm.id,
         motion_id=motion.id,
         voter_email=email,
         choice=choice,
@@ -153,9 +153,9 @@ async def _create_vote(
     return v
 
 
-async def _create_email_delivery(db: AsyncSession, agm: AGM) -> EmailDelivery:
+async def _create_email_delivery(db: AsyncSession, agm: GeneralMeeting) -> EmailDelivery:
     ed = EmailDelivery(
-        agm_id=agm.id,
+        general_meeting_id=agm.id,
         status=EmailDeliveryStatus.pending,
         total_attempts=0,
     )
@@ -208,7 +208,7 @@ class TestEmailTemplateRendering:
     def _default_context(self) -> dict:
         return {
             "building_name": "Sunrise Apartments",
-            "agm_title": "Annual General Meeting 2026",
+            "meeting_title": "Annual General Meeting 2026",
             "meeting_at": "2026-03-09 10:00:00+00:00",
             "voting_closes_at": "2026-03-09 18:00:00+00:00",
             "total_eligible_voters": 5,
@@ -471,7 +471,7 @@ class TestSendReport:
         mock_send.assert_called_once()
         call_args = mock_send.call_args[0][0]
         assert call_args["to"] == ["mgr@example.com"]
-        assert "AGM Results Report" in call_args["subject"]
+        assert "General Meeting Results Report" in call_args["subject"]
         assert "<html" in call_args["html"].lower()
 
     async def test_send_report_sets_api_key(self, db_session: AsyncSession, mocker):
@@ -505,7 +505,7 @@ class TestSendReport:
             await service.send_report(agm.id, db_session)
 
     async def test_send_report_agm_not_found_raises(self, db_session: AsyncSession, mocker):
-        """AGM not found → get_agm_detail raises HTTPException(404)."""
+        """GeneralMeeting not found → get_agm_detail raises HTTPException(404)."""
         from fastapi import HTTPException
         mocker.patch("resend.Emails.send")
 
@@ -912,7 +912,7 @@ class TestRequeuePendingOnStartup:
 
 
 # ---------------------------------------------------------------------------
-# Integration: close AGM → email triggered
+# Integration: close GeneralMeeting → email triggered
 # ---------------------------------------------------------------------------
 
 
@@ -923,15 +923,15 @@ class TestCloseAgmEmailIntegration:
     async def test_close_agm_creates_email_delivery_and_triggers(
         self, client: AsyncClient, db_session: AsyncSession, mocker
     ):
-        """POST /api/admin/agms/{id}/close creates EmailDelivery and calls trigger_with_retry."""
+        """POST /api/admin/general-meetings/{id}/close creates EmailDelivery and calls trigger_with_retry."""
         building = Building(name=f"Bld {uuid.uuid4()}", manager_email="mgr@example.com")
         db_session.add(building)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=building.id,
-            title="Test AGM",
-            status=AGMStatus.open,
+            title="Test GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
@@ -939,19 +939,19 @@ class TestCloseAgmEmailIntegration:
         await db_session.flush()
 
         motion = Motion(
-            agm_id=agm.id, title="M1", description=None, order_index=0
+            general_meeting_id=agm.id, title="M1", description=None, order_index=0
         )
         db_session.add(motion)
         await db_session.commit()
 
         create_task_mock = mocker.patch("asyncio.create_task")
 
-        resp = await client.post(f"/api/admin/agms/{agm.id}/close")
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert resp.status_code == 200
 
         # EmailDelivery should have been created
         result = await db_session.execute(
-            select(EmailDelivery).where(EmailDelivery.agm_id == agm.id)
+            select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm.id)
         )
         delivery = result.scalar_one_or_none()
         assert delivery is not None
@@ -963,15 +963,15 @@ class TestCloseAgmEmailIntegration:
     async def test_resend_report_triggers_email(
         self, client: AsyncClient, db_session: AsyncSession, mocker
     ):
-        """POST /api/admin/agms/{id}/resend-report triggers email retry."""
+        """POST /api/admin/general-meetings/{id}/resend-report triggers email retry."""
         building = Building(name=f"Bld2 {uuid.uuid4()}", manager_email="mgr@example.com")
         db_session.add(building)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=building.id,
-            title="Test AGM 2",
-            status=AGMStatus.closed,
+            title="Test GeneralMeeting 2",
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -980,7 +980,7 @@ class TestCloseAgmEmailIntegration:
         await db_session.flush()
 
         delivery = EmailDelivery(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             status=EmailDeliveryStatus.failed,
             total_attempts=5,
             last_error="network timeout",
@@ -990,7 +990,7 @@ class TestCloseAgmEmailIntegration:
 
         create_task_mock = mocker.patch("asyncio.create_task")
 
-        resp = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert resp.status_code == 200
         assert resp.json()["queued"] is True
 
@@ -1045,7 +1045,7 @@ class TestOtelLogFields:
         log = sl.get_logger("email_service")
         log.info(
             "email_delivery_attempt",
-            agm_id="test-agm-id",
+            general_meeting_id="test-agm-id",
             attempt_number=1,
             status="delivered",
             error=None,
@@ -1063,7 +1063,7 @@ class TestOtelLogFields:
         assert "event" in parsed or "message" in parsed
 
         # Email attempt fields
-        assert parsed.get("agm_id") == "test-agm-id"
+        assert parsed.get("general_meeting_id") == "test-agm-id"
         assert parsed.get("attempt_number") == 1
         assert parsed.get("status") == "delivered"
 
@@ -1093,7 +1093,7 @@ class TestOtelLogFields:
         log = sl.get_logger("test.error.log")
         log.error(
             "email_delivery_attempt",
-            agm_id="agm-xyz",
+            general_meeting_id="agm-xyz",
             attempt_number=30,
             status="failed",
             error="connection refused",

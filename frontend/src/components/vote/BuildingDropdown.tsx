@@ -1,4 +1,3 @@
-import React from "react";
 import type { BuildingOut } from "../../api/voter";
 
 interface BuildingDropdownProps {

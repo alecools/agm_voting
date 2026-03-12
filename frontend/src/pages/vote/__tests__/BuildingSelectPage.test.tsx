@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -86,10 +85,10 @@ describe("BuildingSelectPage", () => {
     });
   });
 
-  it("shows AGMs loading state briefly before AGMs appear", async () => {
+  it("shows General Meetings loading state briefly before General Meetings appear", async () => {
     let resolveAGMs!: (value: Response) => void;
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () =>
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
         new Promise<Response>((res) => {
           resolveAGMs = res;
         })
@@ -101,17 +100,17 @@ describe("BuildingSelectPage", () => {
     await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
     // While AGMs are still loading (pending promise)
     await waitFor(() => {
-      expect(screen.getByText("Loading AGMs...")).toBeInTheDocument();
+      expect(screen.getByText("Loading General Meetings...")).toBeInTheDocument();
     });
     resolveAGMs(HttpResponse.json([]) as unknown as Response);
     await waitFor(() => {
-      expect(screen.queryByText("Loading AGMs...")).not.toBeInTheDocument();
+      expect(screen.queryByText("Loading General Meetings...")).not.toBeInTheDocument();
     });
   });
 
   it("shows empty AGM list when no AGMs returned", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () =>
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
         HttpResponse.json([])
       )
     );
@@ -120,7 +119,7 @@ describe("BuildingSelectPage", () => {
     await waitFor(() => screen.getByLabelText("Select your building"));
     await user.selectOptions(screen.getByRole("combobox"), BUILDING_ID);
     await waitFor(() => {
-      expect(screen.getByText("No AGMs found for this building.")).toBeInTheDocument();
+      expect(screen.getByText("No General Meetings found for this building.")).toBeInTheDocument();
     });
   });
 

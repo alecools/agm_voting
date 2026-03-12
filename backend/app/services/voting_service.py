@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.agm import AGM, AGMStatus
-from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
+from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus
+from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
@@ -30,59 +30,59 @@ from app.schemas.voting import (
 
 async def save_draft(
     db: AsyncSession,
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     motion_id: uuid.UUID,
     voter_email: str,
     choice: VoteChoice | None,
     lot_owner_id: uuid.UUID | None = None,
 ) -> None:
     """
-    Upsert a draft Vote for (agm_id, motion_id, voter_email[, lot_owner_id]).
+    Upsert a draft Vote for (general_meeting_id, motion_id, voter_email[, lot_owner_id]).
     If choice is None, delete the existing draft record.
-    Raises 422 if motion does not belong to agm_id.
-    Raises 403 if agm is closed.
+    Raises 422 if motion does not belong to general_meeting_id.
+    Raises 403 if meeting is closed.
     Raises 409 if ballot already submitted.
     """
-    # Verify the AGM exists and is open
-    agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:  # pragma: no cover
-        raise HTTPException(status_code=404, detail="AGM not found")  # pragma: no cover
+    # Verify the General Meeting exists and is open
+    meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = meeting_result.scalar_one_or_none()
+    if general_meeting is None:  # pragma: no cover
+        raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
-    if agm.status != AGMStatus.open:
-        raise HTTPException(status_code=403, detail="Voting is closed for this AGM")
+    if general_meeting.status != GeneralMeetingStatus.open:
+        raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
     # Check not already submitted — check by lot_owner_id if provided, else by voter_email
     if lot_owner_id is not None:
         submission_result = await db.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.general_meeting_id == general_meeting_id,
                 BallotSubmission.lot_owner_id == lot_owner_id,
             )
         )
     else:
         submission_result = await db.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.general_meeting_id == general_meeting_id,
                 BallotSubmission.voter_email == voter_email,
             )
         )
     if submission_result.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
 
-    # Verify motion belongs to this agm
+    # Verify motion belongs to this general meeting
     motion_result = await db.execute(
-        select(Motion).where(Motion.id == motion_id, Motion.agm_id == agm_id)
+        select(Motion).where(Motion.id == motion_id, Motion.general_meeting_id == general_meeting_id)
     )
     motion = motion_result.scalar_one_or_none()
     if motion is None:
         raise HTTPException(
-            status_code=422, detail="Motion does not belong to this AGM"
+            status_code=422, detail="Motion does not belong to this meeting"
         )
 
     # Build the filter for the vote record
     vote_filter = [
-        Vote.agm_id == agm_id,
+        Vote.general_meeting_id == general_meeting_id,
         Vote.motion_id == motion_id,
         Vote.voter_email == voter_email,
         Vote.status == VoteStatus.draft,
@@ -96,7 +96,7 @@ async def save_draft(
     else:
         # Upsert: look for existing draft
         existing_filter = [
-            Vote.agm_id == agm_id,
+            Vote.general_meeting_id == general_meeting_id,
             Vote.motion_id == motion_id,
             Vote.voter_email == voter_email,
         ]
@@ -112,7 +112,7 @@ async def save_draft(
             existing.status = VoteStatus.draft
         else:
             vote = Vote(
-                agm_id=agm_id,
+                general_meeting_id=general_meeting_id,
                 motion_id=motion_id,
                 voter_email=voter_email,
                 lot_owner_id=lot_owner_id,
@@ -126,13 +126,13 @@ async def save_draft(
 
 async def get_drafts(
     db: AsyncSession,
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     voter_email: str,
     lot_owner_id: uuid.UUID | None = None,
 ) -> list[DraftItem]:
-    """Return all current draft choices for the voter for this AGM."""
+    """Return all current draft choices for the voter for this General Meeting."""
     filters = [
-        Vote.agm_id == agm_id,
+        Vote.general_meeting_id == general_meeting_id,
         Vote.voter_email == voter_email,
         Vote.status == VoteStatus.draft,
         Vote.choice.is_not(None),
@@ -147,26 +147,26 @@ async def get_drafts(
 
 async def submit_ballot(
     db: AsyncSession,
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     voter_email: str,
     lot_owner_ids: list[uuid.UUID],
 ) -> SubmitResponse:
     """
     Formally submit the ballot for the specified lot owners.
     Creates one BallotSubmission per lot_owner_id in a single transaction.
-    Raises 403 if agm is closed.
+    Raises 403 if meeting is closed.
     Raises 409 if any lot already submitted (no partial commit).
     Raises 403 if any lot_owner_id doesn't belong to authenticated voter_email.
     Silently drops General Motion votes for in-arrear lots.
     """
-    # Fetch AGM
-    agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:  # pragma: no cover
-        raise HTTPException(status_code=404, detail="AGM not found")  # pragma: no cover
+    # Fetch General Meeting
+    meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = meeting_result.scalar_one_or_none()
+    if general_meeting is None:  # pragma: no cover
+        raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
-    if agm.status != AGMStatus.open:
-        raise HTTPException(status_code=403, detail="Voting is closed for this AGM")
+    if general_meeting.status != GeneralMeetingStatus.open:
+        raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
     if not lot_owner_ids:
         raise HTTPException(status_code=422, detail="At least one lot_owner_id is required")
@@ -205,7 +205,7 @@ async def submit_ballot(
     # Check if any lots are already submitted
     existing_subs = await db.execute(
         select(BallotSubmission).where(
-            BallotSubmission.agm_id == agm_id,
+            BallotSubmission.general_meeting_id == general_meeting_id,
             BallotSubmission.lot_owner_id.in_(lot_owner_ids),
         )
     )
@@ -216,20 +216,20 @@ async def submit_ballot(
             detail="One or more lots have already submitted ballots",
         )
 
-    # Get all motions for this AGM
+    # Get all motions for this General Meeting
     motions_result = await db.execute(
-        select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+        select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.order_index)
     )
     motions = list(motions_result.scalars().all())
 
-    # Get AGMLotWeight records for financial position snapshots
+    # Get GeneralMeetingLotWeight records for financial position snapshots
     weights_result = await db.execute(
-        select(AGMLotWeight).where(
-            AGMLotWeight.agm_id == agm_id,
-            AGMLotWeight.lot_owner_id.in_(lot_owner_ids),
+        select(GeneralMeetingLotWeight).where(
+            GeneralMeetingLotWeight.general_meeting_id == general_meeting_id,
+            GeneralMeetingLotWeight.lot_owner_id.in_(lot_owner_ids),
         )
     )
-    weight_by_lot: dict[uuid.UUID, AGMLotWeight] = {
+    weight_by_lot: dict[uuid.UUID, GeneralMeetingLotWeight] = {
         w.lot_owner_id: w for w in weights_result.scalars().all()
     }
 
@@ -255,7 +255,7 @@ async def submit_ballot(
         # Get existing draft votes for this lot
         drafts_result = await db.execute(
             select(Vote).where(
-                Vote.agm_id == agm_id,
+                Vote.general_meeting_id == general_meeting_id,
                 Vote.voter_email == voter_email,
                 Vote.lot_owner_id == lot_owner_id,
                 Vote.status == VoteStatus.draft,
@@ -298,7 +298,7 @@ async def submit_ballot(
         # Now insert not_eligible votes for in-arrear general motions
         for motion in motions_needing_not_eligible:
             not_eligible_vote = Vote(
-                agm_id=agm_id,
+                general_meeting_id=general_meeting_id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lot_owner_id,
@@ -316,7 +316,7 @@ async def submit_ballot(
 
         for motion in motions_needing_new_vote:
             new_vote = Vote(
-                agm_id=agm_id,
+                general_meeting_id=general_meeting_id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lot_owner_id,
@@ -338,7 +338,7 @@ async def submit_ballot(
 
         # Insert BallotSubmission (set proxy_email for audit trail)
         submission = BallotSubmission(
-            agm_id=agm_id,
+            general_meeting_id=general_meeting_id,
             lot_owner_id=lot_owner_id,
             voter_email=voter_email,
             proxy_email=proxy_email_by_lot.get(lot_owner_id),
@@ -358,7 +358,7 @@ async def submit_ballot(
 
 async def get_my_ballot(
     db: AsyncSession,
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     voter_email: str,
     lot_owner_ids: list[uuid.UUID] | None = None,
 ) -> MyBallotResponse:
@@ -369,14 +369,14 @@ async def get_my_ballot(
     """
     from app.models.building import Building
 
-    # Get AGM with building
-    agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found")  # pragma: no cover
+    # Get General Meeting with building
+    meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = meeting_result.scalar_one_or_none()
+    if general_meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
     building_result = await db.execute(
-        select(Building).where(Building.id == agm.building_id)
+        select(Building).where(Building.id == general_meeting.building_id)
     )
     building = building_result.scalar_one_or_none()
 
@@ -387,7 +387,7 @@ async def get_my_ballot(
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
             LotOwnerEmail.email == voter_email,
-            LotOwner.building_id == agm.building_id,
+            LotOwner.building_id == general_meeting.building_id,
         )
     )
     direct_lot_owner_ids = [r.lot_owner_id for r in all_email_lots_result.scalars().all()]
@@ -397,7 +397,7 @@ async def get_my_ballot(
         .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
         .where(
             LotProxy.proxy_email == voter_email,
-            LotOwner.building_id == agm.building_id,
+            LotOwner.building_id == general_meeting.building_id,
         )
     )
     proxy_lot_owner_ids = [r.lot_owner_id for r in all_proxy_lots_result.scalars().all()]
@@ -406,10 +406,10 @@ async def get_my_ballot(
     all_lot_owner_ids_set = set(direct_lot_owner_ids) | set(proxy_lot_owner_ids)
     all_lot_owner_ids = list(all_lot_owner_ids_set)
 
-    # Get all submissions for this AGM and voter
+    # Get all submissions for this General Meeting and voter
     all_subs_result = await db.execute(
         select(BallotSubmission).where(
-            BallotSubmission.agm_id == agm_id,
+            BallotSubmission.general_meeting_id == general_meeting_id,
             BallotSubmission.lot_owner_id.in_(all_lot_owner_ids),
         )
     )
@@ -434,20 +434,20 @@ async def get_my_ballot(
         lo.id: lo for lo in lot_owners_result.scalars().all()
     }
 
-    # Get AGMLotWeight for financial position snapshot
+    # Get GeneralMeetingLotWeight for financial position snapshot
     weights_result = await db.execute(
-        select(AGMLotWeight).where(
-            AGMLotWeight.agm_id == agm_id,
-            AGMLotWeight.lot_owner_id.in_(target_lot_ids),
+        select(GeneralMeetingLotWeight).where(
+            GeneralMeetingLotWeight.general_meeting_id == general_meeting_id,
+            GeneralMeetingLotWeight.lot_owner_id.in_(target_lot_ids),
         )
     )
-    weight_by_lot: dict[uuid.UUID, AGMLotWeight] = {
+    weight_by_lot: dict[uuid.UUID, GeneralMeetingLotWeight] = {
         w.lot_owner_id: w for w in weights_result.scalars().all()
     }
 
     # Get all motions
     motions_result = await db.execute(
-        select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+        select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.order_index)
     )
     motions = list(motions_result.scalars().all())
 
@@ -456,7 +456,7 @@ async def get_my_ballot(
         select(Vote, Motion)
         .join(Motion, Vote.motion_id == Motion.id)
         .where(
-            Vote.agm_id == agm_id,
+            Vote.general_meeting_id == general_meeting_id,
             Vote.voter_email == voter_email,
             Vote.lot_owner_id.in_(target_lot_ids),
             Vote.status == VoteStatus.submitted,
@@ -520,7 +520,7 @@ async def get_my_ballot(
                 # Motion voted on via old path (no lot_owner_id on vote) — try to find it
                 fallback_result = await db.execute(
                     select(Vote).where(
-                        Vote.agm_id == agm_id,
+                        Vote.general_meeting_id == general_meeting_id,
                         Vote.motion_id == motion.id,
                         Vote.voter_email == voter_email,
                         Vote.status == VoteStatus.submitted,
@@ -556,7 +556,7 @@ async def get_my_ballot(
 
     return MyBallotResponse(
         voter_email=voter_email,
-        agm_title=agm.title,
+        meeting_title=general_meeting.title,
         building_name=building.name if building else "",
         submitted_lots=submitted_lots,
         remaining_lot_owner_ids=remaining_lot_owner_ids,

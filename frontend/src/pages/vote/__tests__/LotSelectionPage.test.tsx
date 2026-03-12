@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,18 +17,18 @@ vi.mock("react-router-dom", async () => {
 });
 
 function setLotsInStorage(lots: LotInfo[]) {
-  sessionStorage.setItem(`agm_lots_info_${AGM_ID}`, JSON.stringify(lots));
+  sessionStorage.setItem(`meeting_lots_info_${AGM_ID}`, JSON.stringify(lots));
 }
 
 function clearStorage() {
-  sessionStorage.removeItem(`agm_lots_info_${AGM_ID}`);
+  sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
 }
 
-function renderPage(agmId = AGM_ID) {
+function renderPage(meetingId = AGM_ID) {
   return render(
-    <MemoryRouter initialEntries={[`/vote/${agmId}/lot-selection`]}>
+    <MemoryRouter initialEntries={[`/vote/${meetingId}/lot-selection`]}>
       <Routes>
-        <Route path="/vote/:agmId/lot-selection" element={<LotSelectionPage />} />
+        <Route path="/vote/:meetingId/lot-selection" element={<LotSelectionPage />} />
       </Routes>
     </MemoryRouter>
   );
@@ -210,7 +209,7 @@ describe("LotSelectionPage", () => {
   });
 
   it("renders empty list on invalid JSON in storage", () => {
-    sessionStorage.setItem(`agm_lots_info_${AGM_ID}`, "not-valid-json{{{");
+    sessionStorage.setItem(`meeting_lots_info_${AGM_ID}`, "not-valid-json{{{");
     renderPage();
     expect(screen.getByRole("list")).toBeInTheDocument();
     expect(screen.queryByText(/Lot /)).not.toBeInTheDocument();

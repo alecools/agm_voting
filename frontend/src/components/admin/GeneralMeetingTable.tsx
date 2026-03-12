@@ -1,12 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import type { AGMListItem } from "../../api/admin";
+import type { GeneralMeetingListItem } from "../../api/admin";
 import StatusBadge from "./StatusBadge";
 
-interface AGMTableProps {
-  agms: AGMListItem[];
+interface GeneralMeetingTableProps {
+  meetings: GeneralMeetingListItem[];
 }
 
-export default function AGMTable({ agms }: AGMTableProps) {
+export default function GeneralMeetingTable({ meetings }: GeneralMeetingTableProps) {
   const navigate = useNavigate();
 
   return (
@@ -21,27 +21,27 @@ export default function AGMTable({ agms }: AGMTableProps) {
         </tr>
       </thead>
       <tbody>
-        {agms.map((agm) => (
+        {meetings.map((meeting) => (
           <tr
-            key={agm.id}
+            key={meeting.id}
             style={{ cursor: "pointer" }}
-            onClick={() => navigate(`/admin/agms/${agm.id}`)}
+            onClick={() => navigate(`/admin/general-meetings/${meeting.id}`)}
           >
-            <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>{agm.building_name}</td>
-            <td style={{ fontWeight: 600 }}>{agm.title}</td>
-            <td><StatusBadge status={agm.status} /></td>
+            <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>{meeting.building_name}</td>
+            <td style={{ fontWeight: 600 }}>{meeting.title}</td>
+            <td><StatusBadge status={meeting.status} /></td>
             <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-              {new Date(agm.meeting_at).toLocaleString()}
+              {new Date(meeting.meeting_at).toLocaleString()}
             </td>
             <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-              {new Date(agm.voting_closes_at).toLocaleString()}
+              {new Date(meeting.voting_closes_at).toLocaleString()}
             </td>
           </tr>
         ))}
-        {agms.length === 0 && (
+        {meetings.length === 0 && (
           <tr>
             <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
-              No AGMs found.
+              No General Meetings found.
             </td>
           </tr>
         )}

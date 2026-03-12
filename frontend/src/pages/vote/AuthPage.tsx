@@ -1,49 +1,37 @@
-import React, { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchBuildings, verifyAuth } from "../../api/voter";
+import { fetchBuildings, fetchGeneralMeetings, verifyAuth } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
-  const { agmId } = useParams<{ agmId: string }>();
-  const [searchParams] = useSearchParams();
+  const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
 
-  const _viewMode = searchParams.get("view"); // reserved for future use
-
-  // We need building info — fetch all buildings then find the one for this AGM
-  // We get building_id from the AGM list by querying all buildings and their AGMs.
-  // For simplicity, we store building_id in the AGM list fetch.
-  // Strategy: fetch all buildings, then for each building fetch AGMs to find our AGM.
-  // Better: we load all buildings, then when user picks the AGM we already have building_id.
-  // Since we navigate here from BuildingSelectPage which has the building context in query cache,
-  // we use a query that finds the agm from all buildings.
-
+  // We need building info — fetch all buildings then find the one for this meeting
   const { data: buildings } = useQuery({
     queryKey: ["buildings"],
     queryFn: fetchBuildings,
   });
 
-  // Find which building has this AGM
-  // We query all AGMs per building to find the right one
-  const [foundBuildingId, setFoundBuildingId] = React.useState<string | null>(null);
-  const [foundBuildingName, setFoundBuildingName] = React.useState<string>("");
-  const [agmTitle, setAgmTitle] = React.useState<string>("");
+  // Find which building has this meeting
+  const [foundBuildingId, setFoundBuildingId] = useState<string | null>(null);
+  const [foundBuildingName, setFoundBuildingName] = useState<string>("");
+  const [meetingTitle, setMeetingTitle] = useState<string>("");
 
-  React.useEffect(() => {
-    if (!buildings || !agmId) return;
+  useEffect(() => {
+    if (!buildings || !meetingId) return;
 
     const findBuilding = async () => {
       for (const building of buildings) {
         try {
-          const { fetchAGMs: fetch } = await import("../../api/voter");
-          const agms = await fetch(building.id);
-          const found = agms.find((a) => a.id === agmId);
+          const meetings = await fetchGeneralMeetings(building.id);
+          const found = meetings.find((a) => a.id === meetingId);
           if (found) {
             setFoundBuildingId(building.id);
             setFoundBuildingName(building.name);
-            setAgmTitle(found.title);
+            setMeetingTitle(found.title);
             return;
           }
         } catch {
@@ -53,35 +41,35 @@ export function AuthPage() {
     };
 
     void findBuilding();
-  }, [buildings, agmId]);
+  }, [buildings, meetingId]);
 
   const mutation = useMutation({
     mutationFn: ({ email }: { email: string }) => {
-      if (!foundBuildingId || !agmId) {
-        return Promise.reject(new Error("Missing building or AGM context"));
+      if (!foundBuildingId || !meetingId) {
+        return Promise.reject(new Error("Missing building or meeting context"));
       }
       return verifyAuth({
         email,
         building_id: foundBuildingId,
-        agm_id: agmId,
+        general_meeting_id: meetingId,
       });
     },
     onSuccess: (data) => {
       /* c8 ignore next */
-      if (!agmId) return;
+      if (!meetingId) return;
       const allSubmitted = data.lots.length > 0 && data.lots.every((l) => l.already_submitted);
       const pendingLots = data.lots.filter((l) => !l.already_submitted);
       const pendingLotIds = pendingLots.map((l) => l.lot_owner_id);
       // Persist pending lot IDs in sessionStorage so VotingPage can submit on behalf of them
-      sessionStorage.setItem(`agm_lots_${agmId}`, JSON.stringify(pendingLotIds));
+      sessionStorage.setItem(`meeting_lots_${meetingId}`, JSON.stringify(pendingLotIds));
       // Persist full lot info (including is_proxy) for the lot selection screen
-      sessionStorage.setItem(`agm_lots_info_${agmId}`, JSON.stringify(data.lots));
+      sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
       // Persist lot info (including financial_position) so VotingPage can enforce eligibility
-      sessionStorage.setItem(`agm_lot_info_${agmId}`, JSON.stringify(pendingLots));
+      sessionStorage.setItem(`meeting_lot_info_${meetingId}`, JSON.stringify(pendingLots));
       if (data.agm_status === "closed" || allSubmitted) {
-        navigate(`/vote/${agmId}/confirmation`);
+        navigate(`/vote/${meetingId}/confirmation`);
       } else {
-        navigate(`/vote/${agmId}/lot-selection`);
+        navigate(`/vote/${meetingId}/lot-selection`);
       }
     },
     onError: (error: Error) => {
@@ -104,7 +92,7 @@ export function AuthPage() {
         ← Back
       </button>
       <AuthForm
-        agmTitle={agmTitle || "Loading..."}
+        agmTitle={meetingTitle || "Loading..."}
         buildingName={foundBuildingName || ""}
         onSubmit={handleSubmit}
         isLoading={mutation.isPending}
@@ -113,3 +101,4 @@ export function AuthPage() {
     </main>
   );
 }
+

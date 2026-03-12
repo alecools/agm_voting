@@ -31,8 +31,8 @@ class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (
         UniqueConstraint(
-            "agm_id", "motion_id", "lot_owner_id",
-            name="uq_votes_agm_motion_lot_owner",
+            "general_meeting_id", "motion_id", "lot_owner_id",
+            name="uq_votes_gm_motion_lot_owner",
         ),
     )
 
@@ -40,8 +40,8 @@ class Vote(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
     motion_id: Mapped[uuid.UUID] = mapped_column(
@@ -76,8 +76,8 @@ class Vote(Base):
     )
 
     # Relationships
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="votes"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="votes"
     )
     motion: Mapped["Motion"] = relationship(  # noqa: F821
         "Motion", back_populates="votes"

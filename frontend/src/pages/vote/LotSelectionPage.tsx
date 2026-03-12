@@ -13,34 +13,34 @@ import type { LotInfo } from "../../api/voter";
  * The voter clicks "Start Voting" to proceed.
  */
 export function LotSelectionPage() {
-  const { agmId } = useParams<{ agmId: string }>();
+  const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
 
   // Load lots stored by AuthPage after successful auth
   const lots: LotInfo[] = React.useMemo(() => {
-    const raw = sessionStorage.getItem(`agm_lots_info_${agmId}`);
+    const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
     if (!raw) return [];
     try {
       return JSON.parse(raw) as LotInfo[];
     } catch {
       return [];
     }
-  }, [agmId]);
+  }, [meetingId]);
 
   const pendingLots = lots.filter((l) => !l.already_submitted);
   const allSubmitted = lots.length > 0 && lots.every((l) => l.already_submitted);
 
   const handleStartVoting = () => {
-    navigate(`/vote/${agmId}/voting`);
+    navigate(`/vote/${meetingId}/voting`);
   };
 
   const handleViewSubmission = () => {
-    navigate(`/vote/${agmId}/confirmation`);
+    navigate(`/vote/${meetingId}/confirmation`);
   };
 
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${agmId}`)}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}`)}>
         ← Back
       </button>
       <div className="lot-selection">

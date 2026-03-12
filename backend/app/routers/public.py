@@ -2,8 +2,8 @@
 Public endpoints (no auth required):
   GET /api/server-time
   GET /api/buildings
-  GET /api/buildings/{building_id}/agms
-  GET /api/agm/{agm_id}/summary
+  GET /api/buildings/{building_id}/general-meetings
+  GET /api/general-meeting/{general_meeting_id}/summary
 """
 import uuid
 from datetime import UTC, datetime
@@ -13,10 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agm import AGM, get_effective_status
+from app.models.general_meeting import GeneralMeeting, get_effective_status
 from app.models.building import Building
 from app.models.motion import Motion
-from app.schemas.agm import AGMOut, AGMSummaryOut, MotionSummaryOut
+from app.schemas.agm import GeneralMeetingOut, GeneralMeetingSummaryOut, MotionSummaryOut
 from app.schemas.building import BuildingOut
 
 router = APIRouter()
@@ -41,12 +41,12 @@ async def list_buildings(db: AsyncSession = Depends(get_db)) -> list[BuildingOut
     return [BuildingOut(id=b.id, name=b.name) for b in buildings]
 
 
-@router.get("/buildings/{building_id}/agms", response_model=list[AGMOut])
-async def list_agms(
+@router.get("/buildings/{building_id}/general-meetings", response_model=list[GeneralMeetingOut])
+async def list_general_meetings(
     building_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> list[AGMOut]:
-    """List all AGMs for a building, ordered by meeting_at descending."""
+) -> list[GeneralMeetingOut]:
+    """List all General Meetings for a building, ordered by meeting_at descending."""
     # Verify building exists and is not archived
     building_result = await db.execute(
         select(Building).where(
@@ -59,56 +59,56 @@ async def list_agms(
         raise HTTPException(status_code=404, detail="Building not found")
 
     result = await db.execute(
-        select(AGM)
-        .where(AGM.building_id == building_id)
-        .order_by(AGM.meeting_at.desc())
+        select(GeneralMeeting)
+        .where(GeneralMeeting.building_id == building_id)
+        .order_by(GeneralMeeting.meeting_at.desc())
     )
-    agms = result.scalars().all()
+    meetings = result.scalars().all()
     return [
-        AGMOut(
-            id=a.id,
-            title=a.title,
-            # Use effective status so past-voting_closes_at AGMs appear as closed
+        GeneralMeetingOut(
+            id=m.id,
+            title=m.title,
+            # Use effective status so past-voting_closes_at meetings appear as closed
             # before the auto-close background job has run.
-            status=get_effective_status(a),
-            meeting_at=a.meeting_at,
-            voting_closes_at=a.voting_closes_at,
+            status=get_effective_status(m),
+            meeting_at=m.meeting_at,
+            voting_closes_at=m.voting_closes_at,
         )
-        for a in agms
+        for m in meetings
     ]
 
 
-@router.get("/agm/{agm_id}/summary", response_model=AGMSummaryOut)
-async def get_agm_summary(
-    agm_id: uuid.UUID,
+@router.get("/general-meeting/{general_meeting_id}/summary", response_model=GeneralMeetingSummaryOut)
+async def get_general_meeting_summary(
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> AGMSummaryOut:
-    """Return public summary of an AGM including building name and motions."""
-    agm_result = await db.execute(
-        select(AGM).where(AGM.id == agm_id)
+) -> GeneralMeetingSummaryOut:
+    """Return public summary of a General Meeting including building name and motions."""
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id)
     )
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found")
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
 
     building_result = await db.execute(
-        select(Building).where(Building.id == agm.building_id)
+        select(Building).where(Building.id == meeting.building_id)
     )
     building = building_result.scalar_one()
 
     motions_result = await db.execute(
         select(Motion)
-        .where(Motion.agm_id == agm_id)
+        .where(Motion.general_meeting_id == general_meeting_id)
         .order_by(Motion.order_index)
     )
     motions = motions_result.scalars().all()
 
-    return AGMSummaryOut(
-        agm_id=agm.id,
-        title=agm.title,
-        status=get_effective_status(agm).value,
-        meeting_at=agm.meeting_at,
-        voting_closes_at=agm.voting_closes_at,
+    return GeneralMeetingSummaryOut(
+        general_meeting_id=meeting.id,
+        title=meeting.title,
+        status=get_effective_status(meeting).value,
+        meeting_at=meeting.meeting_at,
+        voting_closes_at=meeting.voting_closes_at,
         building_name=building.name,
         motions=[
             MotionSummaryOut(

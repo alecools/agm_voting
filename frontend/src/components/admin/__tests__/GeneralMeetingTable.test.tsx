@@ -1,10 +1,9 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import AGMTable from "../AGMTable";
-import type { AGMListItem } from "../../../api/admin";
+import GeneralMeetingTable from "../GeneralMeetingTable";
+import type { GeneralMeetingListItem } from "../../../api/admin";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -15,7 +14,7 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-const agms: AGMListItem[] = [
+const meetings: GeneralMeetingListItem[] = [
   {
     id: "agm1",
     building_id: "b1",
@@ -38,47 +37,47 @@ const agms: AGMListItem[] = [
   },
 ];
 
-function renderAGMTable(props: { agms: AGMListItem[] }) {
+function renderTable(props: { meetings: GeneralMeetingListItem[] }) {
   return render(
     <MemoryRouter>
-      <AGMTable {...props} />
+      <GeneralMeetingTable {...props} />
     </MemoryRouter>
   );
 }
 
-describe("AGMTable", () => {
-  it("renders AGM titles and building names", () => {
-    renderAGMTable({ agms });
+describe("GeneralMeetingTable", () => {
+  it("renders meeting titles and building names", () => {
+    renderTable({ meetings });
     expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     expect(screen.getByText("Beta Court")).toBeInTheDocument();
   });
 
-  it("renders Open badge for open AGM", () => {
-    renderAGMTable({ agms });
+  it("renders Open badge for open meeting", () => {
+    renderTable({ meetings });
     expect(screen.getByText("Open")).toBeInTheDocument();
   });
 
-  it("renders Closed badge for closed AGM", () => {
-    renderAGMTable({ agms });
+  it("renders Closed badge for closed meeting", () => {
+    renderTable({ meetings });
     expect(screen.getByText("Closed")).toBeInTheDocument();
   });
 
-  it("navigates to AGM detail on row click", async () => {
+  it("navigates to meeting detail on row click", async () => {
     const user = userEvent.setup();
-    renderAGMTable({ agms });
+    renderTable({ meetings });
     await user.click(screen.getByText("2024 AGM"));
-    expect(mockNavigate).toHaveBeenCalledWith("/admin/agms/agm1");
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings/agm1");
   });
 
-  it("shows empty message when no AGMs", () => {
-    renderAGMTable({ agms: [] });
-    expect(screen.getByText("No AGMs found.")).toBeInTheDocument();
+  it("shows empty message when no meetings", () => {
+    renderTable({ meetings: [] });
+    expect(screen.getByText("No General Meetings found.")).toBeInTheDocument();
   });
 
   it("renders table headers", () => {
-    renderAGMTable({ agms });
+    renderTable({ meetings });
     expect(screen.getByText("Building")).toBeInTheDocument();
     expect(screen.getByText("Title")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();

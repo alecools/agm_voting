@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,13 +19,13 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage(agmId = AGM_ID) {
+function renderPage(meetingId = AGM_ID) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${agmId}/voting`]}>
+      <MemoryRouter initialEntries={[`/vote/${meetingId}/voting`]}>
         <Routes>
-          <Route path="/vote/:agmId/voting" element={<VotingPage />} />
+          <Route path="/vote/:meetingId/voting" element={<VotingPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -61,7 +60,7 @@ describe("VotingPage", () => {
 
   it("restores draft selections on load", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/drafts`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/drafts`, () =>
         HttpResponse.json({
           drafts: [{ motion_id: MOTION_ID_1, choice: "yes" }],
         })
@@ -166,7 +165,7 @@ describe("VotingPage", () => {
 
   it("navigates to confirmation on 409 (already submitted)", async () => {
     server.use(
-      http.post(`${BASE}/api/agm/${AGM_ID}/submit`, () =>
+      http.post(`${BASE}/api/general-meeting/${AGM_ID}/submit`, () =>
         HttpResponse.json({ detail: "already submitted" }, { status: 409 })
       )
     );
@@ -183,7 +182,7 @@ describe("VotingPage", () => {
 
   it("shows ClosedBanner on 403 during submit", async () => {
     server.use(
-      http.post(`${BASE}/api/agm/${AGM_ID}/submit`, () =>
+      http.post(`${BASE}/api/general-meeting/${AGM_ID}/submit`, () =>
         HttpResponse.json({ detail: "closed" }, { status: 403 })
       )
     );
@@ -200,7 +199,7 @@ describe("VotingPage", () => {
 
   it("shows ClosedBanner and disables inputs when poll detects closed AGM", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () =>
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
         HttpResponse.json([
           {
             id: AGM_ID,
@@ -234,7 +233,7 @@ describe("VotingPage", () => {
       http.get(`${BASE}/api/server-time`, () =>
         HttpResponse.json({ utc: new Date().toISOString() })
       ),
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () =>
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
         HttpResponse.json([
           {
             id: AGM_ID,
@@ -275,7 +274,7 @@ describe("VotingPage", () => {
   it("poll finds open AGM (no status change - stays open)", async () => {
     // AGM remains open in poll — the `if (found) return` branch
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () =>
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
         HttpResponse.json([
           {
             id: AGM_ID,
@@ -300,7 +299,7 @@ describe("VotingPage", () => {
 
   it("poll handles fetch error gracefully (continues)", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () => HttpResponse.error())
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
@@ -313,7 +312,7 @@ describe("VotingPage", () => {
 
   it("handles fetch error during initial building lookup", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () => HttpResponse.error())
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
     );
     renderPage();
     // Motions still load (separate query), building info just won't appear
@@ -343,7 +342,7 @@ describe("VotingPage", () => {
   it("shows in-arrear notice when lot info has in-arrear lots", async () => {
     // Set up motions with motion_type
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
           { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general" },
           { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special" },
@@ -351,7 +350,7 @@ describe("VotingPage", () => {
       )
     );
     sessionStorage.setItem(
-      `agm_lot_info_${AGM_ID}`,
+      `meeting_lot_info_${AGM_ID}`,
       JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
     );
     renderPage();
@@ -359,20 +358,20 @@ describe("VotingPage", () => {
       expect(screen.getByTestId("in-arrear-notice")).toBeInTheDocument();
       expect(screen.getByText(/5A.*are in arrear/)).toBeInTheDocument();
     });
-    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
   });
 
   it("shows in-arrear modal when clicking locked general motion button", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
           { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general" },
         ])
       )
     );
     sessionStorage.setItem(
-      `agm_lot_info_${AGM_ID}`,
+      `meeting_lot_info_${AGM_ID}`,
       JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
     );
     renderPage();
@@ -391,12 +390,12 @@ describe("VotingPage", () => {
     await user.click(screen.getByRole("button", { name: "OK" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
   });
 
   it("counts in-arrear general motions as answered in progress bar", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
           { id: MOTION_ID_1, title: "General Motion", description: null, order_index: 0, motion_type: "general" },
           { id: MOTION_ID_2, title: "Special Motion", description: null, order_index: 1, motion_type: "special" },
@@ -404,7 +403,7 @@ describe("VotingPage", () => {
       )
     );
     sessionStorage.setItem(
-      `agm_lot_info_${AGM_ID}`,
+      `meeting_lot_info_${AGM_ID}`,
       JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
     );
     renderPage();
@@ -412,17 +411,17 @@ describe("VotingPage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
     });
-    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
   });
 
   it("handles invalid sessionStorage lot info gracefully", async () => {
-    sessionStorage.setItem(`agm_lot_info_${AGM_ID}`, "not valid json");
+    sessionStorage.setItem(`meeting_lot_info_${AGM_ID}`, "not valid json");
     renderPage();
     // Should not crash, and no in-arrear notice should appear
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
     expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
-    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
   });
 });

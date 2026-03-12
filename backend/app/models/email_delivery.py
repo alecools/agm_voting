@@ -21,8 +21,8 @@ class EmailDelivery(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
     )
@@ -56,6 +56,6 @@ class EmailDelivery(Base):
     )
 
     # Relationships
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="email_delivery"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="email_delivery"
     )

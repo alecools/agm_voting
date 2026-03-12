@@ -38,7 +38,7 @@ describe("useAutoSave", () => {
 
   it("shows error status when save fails", async () => {
     server.use(
-      http.put(`${BASE}/api/agm/agm-1/draft`, () => HttpResponse.error())
+      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
     );
 
     const { result } = renderHook(() =>

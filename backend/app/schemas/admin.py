@@ -158,11 +158,11 @@ class MotionOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# AGM schemas
+# General Meeting schemas
 # ---------------------------------------------------------------------------
 
 
-class AGMCreate(BaseModel):
+class GeneralMeetingCreate(BaseModel):
     building_id: uuid.UUID
     title: str
     meeting_at: datetime
@@ -177,13 +177,13 @@ class AGMCreate(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def voting_closes_after_meeting(self) -> "AGMCreate":
+    def voting_closes_after_meeting(self) -> "GeneralMeetingCreate":
         if self.voting_closes_at <= self.meeting_at:
             raise ValueError("voting_closes_at must be after meeting_at")
         return self
 
 
-class AGMOut(BaseModel):
+class GeneralMeetingOut(BaseModel):
     id: uuid.UUID
     building_id: uuid.UUID
     title: str
@@ -195,7 +195,7 @@ class AGMOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AGMListItem(BaseModel):
+class GeneralMeetingListItem(BaseModel):
     id: uuid.UUID
     building_id: uuid.UUID
     building_name: str
@@ -250,7 +250,7 @@ class MotionDetail(BaseModel):
     voter_lists: MotionVoterLists
 
 
-class AGMDetail(BaseModel):
+class GeneralMeetingDetail(BaseModel):
     id: uuid.UUID
     building_name: str
     title: str
@@ -265,11 +265,11 @@ class AGMDetail(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# AGM close / resend schemas
+# General Meeting close / resend schemas
 # ---------------------------------------------------------------------------
 
 
-class AGMCloseOut(BaseModel):
+class GeneralMeetingCloseOut(BaseModel):
     id: uuid.UUID
     status: str
     closed_at: datetime
@@ -279,7 +279,7 @@ class ResendReportOut(BaseModel):
     queued: bool
 
 
-class AGMBallotResetOut(BaseModel):
+class GeneralMeetingBallotResetOut(BaseModel):
     deleted: int
 
 

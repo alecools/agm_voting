@@ -1,10 +1,10 @@
 """
 Voting endpoints (all require valid session):
-  GET  /api/agm/{agm_id}/motions
-  PUT  /api/agm/{agm_id}/draft
-  GET  /api/agm/{agm_id}/drafts
-  POST /api/agm/{agm_id}/submit
-  GET  /api/agm/{agm_id}/my-ballot
+  GET  /api/general-meeting/{general_meeting_id}/motions
+  PUT  /api/general-meeting/{general_meeting_id}/draft
+  GET  /api/general-meeting/{general_meeting_id}/drafts
+  POST /api/general-meeting/{general_meeting_id}/submit
+  GET  /api/general-meeting/{general_meeting_id}/my-ballot
 """
 import uuid
 from typing import Optional
@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agm import AGM
+from app.models.general_meeting import GeneralMeeting
 from app.models.motion import Motion
 from app.models.session_record import SessionRecord
 from app.schemas.voting import (
@@ -41,25 +41,25 @@ class SubmitBallotRequest(BaseModel):
     lot_owner_ids: list[uuid.UUID]
 
 
-@router.get("/agm/{agm_id}/motions", response_model=list[MotionOut])
+@router.get("/general-meeting/{general_meeting_id}/motions", response_model=list[MotionOut])
 async def list_motions(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    agm_session: str | None = Cookie(default=None),
+    meeting_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> list[MotionOut]:
-    """List motions for an AGM. Requires valid session."""
-    await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
+    """List motions for a General Meeting. Requires valid session."""
+    await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
 
-    # Verify AGM exists
-    agm_result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:  # pragma: no cover
-        raise HTTPException(status_code=404, detail="AGM not found")  # pragma: no cover
+    # Verify General Meeting exists
+    meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:  # pragma: no cover
+        raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
 
     result = await db.execute(
         select(Motion)
-        .where(Motion.agm_id == agm_id)
+        .where(Motion.general_meeting_id == general_meeting_id)
         .order_by(Motion.order_index)
     )
     motions = result.scalars().all()
@@ -75,20 +75,20 @@ async def list_motions(
     ]
 
 
-@router.put("/agm/{agm_id}/draft", response_model=DraftSaveResponse)
+@router.put("/general-meeting/{general_meeting_id}/draft", response_model=DraftSaveResponse)
 async def save_draft_endpoint(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     body: DraftSaveRequest,
     db: AsyncSession = Depends(get_db),
-    agm_session: str | None = Cookie(default=None),
+    meeting_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> DraftSaveResponse:
     """Auto-save a single motion's draft selection. Requires valid session."""
-    session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
 
     await save_draft(
         db=db,
-        agm_id=agm_id,
+        general_meeting_id=general_meeting_id,
         motion_id=body.motion_id,
         voter_email=session.voter_email,
         choice=body.choice,
@@ -98,40 +98,40 @@ async def save_draft_endpoint(
     return DraftSaveResponse(saved=True)
 
 
-@router.get("/agm/{agm_id}/drafts", response_model=DraftsResponse)
+@router.get("/general-meeting/{general_meeting_id}/drafts", response_model=DraftsResponse)
 async def get_drafts_endpoint(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     lot_owner_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
-    agm_session: str | None = Cookie(default=None),
+    meeting_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> DraftsResponse:
     """Return all saved draft choices for the voter. Requires valid session."""
-    session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
 
     drafts = await get_drafts(
         db=db,
-        agm_id=agm_id,
+        general_meeting_id=general_meeting_id,
         voter_email=session.voter_email,
         lot_owner_id=lot_owner_id,
     )
     return DraftsResponse(drafts=drafts)
 
 
-@router.post("/agm/{agm_id}/submit", response_model=SubmitResponse)
+@router.post("/general-meeting/{general_meeting_id}/submit", response_model=SubmitResponse)
 async def submit_ballot_endpoint(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     body: SubmitBallotRequest,
     db: AsyncSession = Depends(get_db),
-    agm_session: str | None = Cookie(default=None),
+    meeting_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> SubmitResponse:
     """Formally submit the ballot for the specified lots. Requires valid session."""
-    session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
 
     result = await submit_ballot(
         db=db,
-        agm_id=agm_id,
+        general_meeting_id=general_meeting_id,
         voter_email=session.voter_email,
         lot_owner_ids=body.lot_owner_ids,
     )
@@ -139,14 +139,14 @@ async def submit_ballot_endpoint(
     return result
 
 
-@router.get("/agm/{agm_id}/my-ballot", response_model=MyBallotResponse)
+@router.get("/general-meeting/{general_meeting_id}/my-ballot", response_model=MyBallotResponse)
 async def my_ballot_endpoint(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    agm_session: str | None = Cookie(default=None),
+    meeting_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> MyBallotResponse:
     """Return the submitted ballot for the confirmation screen. Requires valid session."""
-    session = await get_session(agm_id=agm_id, db=db, agm_session=agm_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
 
-    return await get_my_ballot(db=db, agm_id=agm_id, voter_email=session.voter_email)
+    return await get_my_ballot(db=db, general_meeting_id=general_meeting_id, voter_email=session.voter_email)

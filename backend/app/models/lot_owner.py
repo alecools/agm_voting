@@ -56,8 +56,8 @@ class LotOwner(Base):
     emails: Mapped[list["LotOwnerEmail"]] = relationship(  # noqa: F821
         "LotOwnerEmail", back_populates="lot_owner", cascade="all, delete-orphan"
     )
-    agm_lot_weights: Mapped[list["AGMLotWeight"]] = relationship(  # noqa: F821
-        "AGMLotWeight", back_populates="lot_owner", cascade="all, delete-orphan"
+    general_meeting_lot_weights: Mapped[list["GeneralMeetingLotWeight"]] = relationship(  # noqa: F821
+        "GeneralMeetingLotWeight", back_populates="lot_owner", cascade="all, delete-orphan"
     )
     ballot_submissions: Mapped[list["BallotSubmission"]] = relationship(  # noqa: F821
         "BallotSubmission", back_populates="lot_owner", cascade="all, delete-orphan"

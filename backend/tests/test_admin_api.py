@@ -27,9 +27,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import (
-    AGM,
-    AGMLotWeight,
-    AGMStatus,
+    GeneralMeeting,
+    GeneralMeetingLotWeight,
+    GeneralMeetingStatus,
     BallotSubmission,
     Building,
     EmailDelivery,
@@ -801,10 +801,10 @@ class TestImportLotOwners:
     async def test_reimport_preserves_agm_lot_weight_snapshots(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
-        """Re-importing lot owners must NOT destroy AGMLotWeight snapshots.
+        """Re-importing lot owners must NOT destroy GeneralMeetingLotWeight snapshots.
 
         Bug: delete-all-then-insert gave new IDs to lot owners, which cascaded
-        deletes to AGMLotWeight records, causing entitlement_sum=0 in tallies.
+        deletes to GeneralMeetingLotWeight records, causing entitlement_sum=0 in tallies.
         Fix: upsert by lot_number preserves existing LotOwner IDs.
         """
         # Initial import
@@ -817,17 +817,17 @@ class TestImportLotOwners:
             files={"file": ("owners.csv", csv1, "text/csv")},
         )
 
-        # Create AGM and snapshot lot weights
-        agm = AGM(
+        # Create GeneralMeeting and snapshot lot weights
+        agm = GeneralMeeting(
             building_id=building.id,
-            title="Snapshot AGM",
-            status=AGMStatus.open,
+            title="Snapshot GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
-        motion = Motion(agm_id=agm.id, title="Test Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Test Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
@@ -835,8 +835,8 @@ class TestImportLotOwners:
             select(LotOwner).where(LotOwner.building_id == building.id)
         )
         for lo in owners_result.scalars().all():
-            db_session.add(AGMLotWeight(
-                agm_id=agm.id,
+            db_session.add(GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
@@ -853,9 +853,9 @@ class TestImportLotOwners:
         )
         assert response.status_code == 200
 
-        # AGMLotWeight snapshots must still exist (not cascade-deleted)
+        # GeneralMeetingLotWeight snapshots must still exist (not cascade-deleted)
         weights_result = await db_session.execute(
-            select(AGMLotWeight).where(AGMLotWeight.agm_id == agm.id)
+            select(GeneralMeetingLotWeight).where(GeneralMeetingLotWeight.general_meeting_id == agm.id)
         )
         weights = weights_result.scalars().all()
         assert len(weights) == 2
@@ -1275,7 +1275,7 @@ class TestRemoveEmailFromLotOwner:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/admin/agms
+# POST /api/admin/general-meetings
 # ---------------------------------------------------------------------------
 
 
@@ -1303,7 +1303,7 @@ class TestCreateAGM:
         self, client: AsyncClient, building_with_owners: Building
     ):
         response = await client.post(
-            "/api/admin/agms",
+            "/api/admin/general-meetings",
             json=self._agm_payload(building_with_owners.id),
         )
         assert response.status_code == 201
@@ -1328,14 +1328,14 @@ class TestCreateAGM:
         await db_session.commit()
 
         response = await client.post(
-            "/api/admin/agms",
+            "/api/admin/general-meetings",
             json=self._agm_payload(b.id),
         )
         assert response.status_code == 201
         agm_id = response.json()["id"]
 
         weights = await db_session.execute(
-            select(AGMLotWeight).where(AGMLotWeight.agm_id == uuid.UUID(agm_id))
+            select(GeneralMeetingLotWeight).where(GeneralMeetingLotWeight.general_meeting_id == uuid.UUID(agm_id))
         )
         weight_list = list(weights.scalars().all())
         assert len(weight_list) == 1
@@ -1356,7 +1356,7 @@ class TestCreateAGM:
             {"title": "Motion B", "description": "B", "order_index": 2},
             {"title": "Motion C", "description": None, "order_index": 3},
         ]
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 201
         assert len(response.json()["motions"]) == 3
 
@@ -1381,14 +1381,14 @@ class TestCreateAGM:
         await db_session.commit()
 
         response = await client.post(
-            "/api/admin/agms",
+            "/api/admin/general-meetings",
             json=self._agm_payload(b.id),
         )
         assert response.status_code == 201
         agm_id = response.json()["id"]
 
         weights = await db_session.execute(
-            select(AGMLotWeight).where(AGMLotWeight.agm_id == uuid.UUID(agm_id))
+            select(GeneralMeetingLotWeight).where(GeneralMeetingLotWeight.general_meeting_id == uuid.UUID(agm_id))
         )
         weight_list = list(weights.scalars().all())
         assert len(weight_list) == 2
@@ -1401,7 +1401,7 @@ class TestCreateAGM:
         self, client: AsyncClient, building_with_owners: Building
     ):
         payload = self._agm_payload(building_with_owners.id, motions=[])
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 422
 
     async def test_voting_closes_before_meeting_returns_422(
@@ -1413,7 +1413,7 @@ class TestCreateAGM:
             meeting_at=(now + timedelta(days=2)).isoformat(),
             voting_closes_at=(now + timedelta(days=1)).isoformat(),
         )
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 422
 
     async def test_voting_closes_equal_to_meeting_returns_422(
@@ -1426,7 +1426,7 @@ class TestCreateAGM:
             meeting_at=t,
             voting_closes_at=t,
         )
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 422
 
     async def test_missing_building_id_returns_422(self, client: AsyncClient):
@@ -1436,52 +1436,52 @@ class TestCreateAGM:
             "voting_closes_at": closing_dt().isoformat(),
             "motions": [{"title": "M1", "order_index": 1}],
         }
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 422
 
     # --- State / precondition errors ---
 
     async def test_building_not_found_returns_404(self, client: AsyncClient):
         payload = self._agm_payload(uuid.uuid4())
-        response = await client.post("/api/admin/agms", json=payload)
+        response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 404
 
     async def test_second_open_agm_for_same_building_returns_409(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        b = Building(name="One AGM Building", manager_email="one@test.com")
+        b = Building(name="One GeneralMeeting Building", manager_email="one@test.com")
         db_session.add(b)
         await db_session.commit()
 
         payload = self._agm_payload(b.id)
-        r1 = await client.post("/api/admin/agms", json=payload)
+        r1 = await client.post("/api/admin/general-meetings", json=payload)
         assert r1.status_code == 201
 
-        r2 = await client.post("/api/admin/agms", json=payload)
+        r2 = await client.post("/api/admin/general-meetings", json=payload)
         assert r2.status_code == 409
 
     async def test_can_create_agm_after_closed(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        b = Building(name="Closed AGM Building", manager_email="closed@test.com")
+        b = Building(name="Closed GeneralMeeting Building", manager_email="closed@test.com")
         db_session.add(b)
         await db_session.commit()
 
         payload = self._agm_payload(b.id)
-        r1 = await client.post("/api/admin/agms", json=payload)
+        r1 = await client.post("/api/admin/general-meetings", json=payload)
         assert r1.status_code == 201
         agm_id = r1.json()["id"]
 
-        # Close the AGM
-        await client.post(f"/api/admin/agms/{agm_id}/close")
+        # Close the GeneralMeeting
+        await client.post(f"/api/admin/general-meetings/{agm_id}/close")
 
         # Now create another
-        r2 = await client.post("/api/admin/agms", json=payload)
+        r2 = await client.post("/api/admin/general-meetings", json=payload)
         assert r2.status_code == 201
 
 
 # ---------------------------------------------------------------------------
-# GET /api/admin/agms
+# GET /api/admin/general-meetings
 # ---------------------------------------------------------------------------
 
 
@@ -1489,32 +1489,32 @@ class TestListAGMs:
     # --- Happy path ---
 
     async def test_returns_list(self, client: AsyncClient):
-        response = await client.get("/api/admin/agms")
+        response = await client.get("/api/admin/general-meetings")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
 
     async def test_agm_list_fields_present(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        b = Building(name="List AGM Building", manager_email="list@test.com")
+        b = Building(name="List GeneralMeeting Building", manager_email="list@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="List Test AGM",
-            status=AGMStatus.open,
+            title="List Test GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.commit()
 
-        response = await client.get("/api/admin/agms")
+        response = await client.get("/api/admin/general-meetings")
         data = response.json()
         assert len(data) > 0
 
-        # Find our AGM
-        our_agm = next((a for a in data if a["title"] == "List Test AGM"), None)
+        # Find our GeneralMeeting
+        our_agm = next((a for a in data if a["title"] == "List Test GeneralMeeting"), None)
         assert our_agm is not None
         assert "id" in our_agm
         assert "building_id" in our_agm
@@ -1523,7 +1523,7 @@ class TestListAGMs:
         assert "meeting_at" in our_agm
         assert "voting_closes_at" in our_agm
         assert "created_at" in our_agm
-        assert our_agm["building_name"] == "List AGM Building"
+        assert our_agm["building_name"] == "List GeneralMeeting Building"
 
     async def test_ordered_by_created_at_desc(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1532,7 +1532,7 @@ class TestListAGMs:
         db_session.add(b)
         await db_session.commit()
 
-        response = await client.get("/api/admin/agms")
+        response = await client.get("/api/admin/general-meetings")
         data = response.json()
         if len(data) > 1:
             # Check ordering
@@ -1541,14 +1541,14 @@ class TestListAGMs:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/admin/agms/{agm_id}
+# GET /api/admin/general-meetings/{agm_id}
 # ---------------------------------------------------------------------------
 
 
-class TestGetAGMDetail:
+class TestGetGeneralMeetingDetail:
     async def _setup_agm_with_votes(
         self, db_session: AsyncSession
-    ) -> tuple[AGM, list[LotOwner], list[Motion]]:
+    ) -> tuple[GeneralMeeting, list[LotOwner], list[Motion]]:
         b = Building(name="Detail Building", manager_email="detail@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -1567,24 +1567,24 @@ class TestGetAGMDetail:
         db_session.add(LotOwnerEmail(lot_owner_id=lo4.id, email="absent@test.com"))
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Detail AGM",
-            status=AGMStatus.open,
+            title="Detail GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Motion D1", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Motion D1", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         # Snapshot (no voter_email)
         for lo in [lo1, lo2, lo3, lo4]:
-            w = AGMLotWeight(
-                agm_id=agm.id,
+            w = GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
@@ -1601,7 +1601,7 @@ class TestGetAGMDetail:
         ]:
             voter_email = lo_email_map[lo.id]
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lo.id,
@@ -1610,7 +1610,7 @@ class TestGetAGMDetail:
             )
             db_session.add(vote)
             bs = BallotSubmission(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 voter_email=voter_email,
             )
@@ -1625,7 +1625,7 @@ class TestGetAGMDetail:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _, _ = await self._setup_agm_with_votes(db_session)
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         assert response.status_code == 200
         data = response.json()
 
@@ -1641,7 +1641,7 @@ class TestGetAGMDetail:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _, _ = await self._setup_agm_with_votes(db_session)
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         assert response.status_code == 200
         data = response.json()
         # lo1=100, lo2=80, lo3=30, lo4=200
@@ -1651,7 +1651,7 @@ class TestGetAGMDetail:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _, _ = await self._setup_agm_with_votes(db_session)
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
 
         assert data["total_eligible_voters"] == 4
@@ -1672,7 +1672,7 @@ class TestGetAGMDetail:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _, _ = await self._setup_agm_with_votes(db_session)
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
 
         motion = data["motions"][0]
@@ -1702,29 +1702,29 @@ class TestGetAGMDetail:
         db_session.add(lo)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="No Votes AGM",
-            status=AGMStatus.open,
+            title="No Votes GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Motion NV1", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Motion NV1", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
-        w = AGMLotWeight(
-            agm_id=agm.id,
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
         db_session.add(w)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
 
         assert data["total_eligible_voters"] == 1
@@ -1755,23 +1755,23 @@ class TestGetAGMDetail:
         db_session.add(lo_email)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Snapshot Tally AGM",
-            status=AGMStatus.open,
+            title="Snapshot Tally GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="ST Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="ST Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         # Snapshot at 500
-        w = AGMLotWeight(
-            agm_id=agm.id,
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             unit_entitlement_snapshot=500,
         )
@@ -1780,7 +1780,7 @@ class TestGetAGMDetail:
 
         # Vote yes
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="snap_tally@test.com",
             lot_owner_id=lo.id,
@@ -1789,7 +1789,7 @@ class TestGetAGMDetail:
         )
         db_session.add(vote)
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email="snap_tally@test.com",
         )
@@ -1800,7 +1800,7 @@ class TestGetAGMDetail:
         lo.unit_entitlement = 999
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         tally = response.json()["motions"][0]["tally"]
         assert tally["yes"]["entitlement_sum"] == 500
 
@@ -1819,23 +1819,23 @@ class TestGetAGMDetail:
         db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="twolots@test.com"))
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Two Lots AGM",
-            status=AGMStatus.open,
+            title="Two Lots GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="TL Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="TL Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         for lo in [lo1, lo2]:
-            w = AGMLotWeight(
-                agm_id=agm.id,
+            w = GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
@@ -1845,7 +1845,7 @@ class TestGetAGMDetail:
         # Submit for both lots
         for lo in [lo1, lo2]:
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email="twolots@test.com",
                 lot_owner_id=lo.id,
@@ -1854,14 +1854,14 @@ class TestGetAGMDetail:
             )
             db_session.add(vote)
             bs = BallotSubmission(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 voter_email="twolots@test.com",
             )
             db_session.add(bs)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
         # Each lot is a separate eligible voter
         assert data["total_eligible_voters"] == 2
@@ -1872,7 +1872,7 @@ class TestGetAGMDetail:
     # --- State / precondition errors ---
 
     async def test_not_found_returns_404(self, client: AsyncClient):
-        response = await client.get(f"/api/admin/agms/{uuid.uuid4()}")
+        response = await client.get(f"/api/admin/general-meetings/{uuid.uuid4()}")
         assert response.status_code == 404
 
     # --- Edge cases ---
@@ -1899,29 +1899,29 @@ class TestGetAGMDetail:
             db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=f"yes{i}@test.com"))
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="All Yes AGM",
-            status=AGMStatus.open,
+            title="All Yes GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="All Yes Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="All Yes Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         for i, lo in enumerate(owners):
-            w = AGMLotWeight(
-                agm_id=agm.id,
+            w = GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email=f"yes{i}@test.com",
                 lot_owner_id=lo.id,
@@ -1930,14 +1930,14 @@ class TestGetAGMDetail:
             )
             db_session.add(vote)
             bs = BallotSubmission(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 voter_email=f"yes{i}@test.com",
             )
             db_session.add(bs)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
         tally = data["motions"][0]["tally"]
         # 10 + 20 + 30 = 60
@@ -1963,22 +1963,22 @@ class TestGetAGMDetail:
         db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="nullchoice@test.com"))
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Null Choice AGM",
-            status=AGMStatus.open,
+            title="Null Choice GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="NC Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="NC Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
-        w = AGMLotWeight(
-            agm_id=agm.id,
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
@@ -1986,7 +1986,7 @@ class TestGetAGMDetail:
 
         # Vote with null choice (submitted but no selection → abstained)
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="nullchoice@test.com",
             lot_owner_id=lo.id,
@@ -1995,14 +1995,14 @@ class TestGetAGMDetail:
         )
         db_session.add(vote)
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email="nullchoice@test.com",
         )
         db_session.add(bs)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         tally = response.json()["motions"][0]["tally"]
         assert tally["abstained"]["voter_count"] == 1
         assert tally["abstained"]["entitlement_sum"] == 40
@@ -2010,7 +2010,7 @@ class TestGetAGMDetail:
     async def test_fallback_to_current_lot_owners_when_no_snapshot(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """When AGMLotWeight snapshot is empty, fall back to current lot owners."""
+        """When GeneralMeetingLotWeight snapshot is empty, fall back to current lot owners."""
         b = Building(name="No Snapshot Building", manager_email="ns@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -2023,22 +2023,22 @@ class TestGetAGMDetail:
         db_session.add(lo)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="No Snapshot AGM",
-            status=AGMStatus.open,
+            title="No Snapshot GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="NS Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="NS Motion", order_index=1)
         db_session.add(motion)
-        # Intentionally no AGMLotWeight rows for this AGM
+        # Intentionally no GeneralMeetingLotWeight rows for this GeneralMeeting
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         data = response.json()
         assert data["total_eligible_voters"] == 1
         tally = data["motions"][0]["tally"]
@@ -2063,23 +2063,23 @@ class TestGetAGMDetail:
         db_session.add(LotOwnerEmail(lot_owner_id=lo_arrear.id, email="arrear@ne.com"))
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="NE AGM",
-            status=AGMStatus.open,
+            title="NE GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="NE Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="NE Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         for lo in [lo_normal, lo_arrear]:
-            db_session.add(AGMLotWeight(
-                agm_id=agm.id,
+            db_session.add(GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
@@ -2087,24 +2087,24 @@ class TestGetAGMDetail:
 
         # Normal lot voted yes; in-arrear lot has not_eligible
         db_session.add(Vote(
-            agm_id=agm.id, motion_id=motion.id,
+            general_meeting_id=agm.id, motion_id=motion.id,
             voter_email="normal@ne.com", lot_owner_id=lo_normal.id,
             choice=VoteChoice.yes, status=VoteStatus.submitted,
         ))
         db_session.add(BallotSubmission(
-            agm_id=agm.id, lot_owner_id=lo_normal.id, voter_email="normal@ne.com",
+            general_meeting_id=agm.id, lot_owner_id=lo_normal.id, voter_email="normal@ne.com",
         ))
         db_session.add(Vote(
-            agm_id=agm.id, motion_id=motion.id,
+            general_meeting_id=agm.id, motion_id=motion.id,
             voter_email="arrear@ne.com", lot_owner_id=lo_arrear.id,
             choice=VoteChoice.not_eligible, status=VoteStatus.submitted,
         ))
         db_session.add(BallotSubmission(
-            agm_id=agm.id, lot_owner_id=lo_arrear.id, voter_email="arrear@ne.com",
+            general_meeting_id=agm.id, lot_owner_id=lo_arrear.id, voter_email="arrear@ne.com",
         ))
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
         assert response.status_code == 200
         data = response.json()
         tally = data["motions"][0]["tally"]
@@ -2118,19 +2118,19 @@ class TestGetAGMDetail:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/admin/agms/{agm_id}/close
+# POST /api/admin/general-meetings/{agm_id}/close
 # ---------------------------------------------------------------------------
 
 
 class TestCloseAGM:
-    async def _create_open_agm(self, db_session: AsyncSession, name: str) -> AGM:
+    async def _create_open_agm(self, db_session: AsyncSession, name: str) -> GeneralMeeting:
         b = Building(name=name, manager_email=f"close_{name}@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title=f"Close Test AGM {name}",
-            status=AGMStatus.open,
+            title=f"Close Test GeneralMeeting {name}",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
@@ -2145,7 +2145,7 @@ class TestCloseAGM:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm = await self._create_open_agm(db_session, "Close Happy 1")
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "closed"
@@ -2165,30 +2165,30 @@ class TestCloseAGM:
         db_session.add(lo)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Draft Delete AGM",
-            status=AGMStatus.open,
+            title="Draft Delete GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="DD Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="DD Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         # Add draft and submitted votes
         draft_vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="draft@test.com",
             choice=VoteChoice.yes,
             status=VoteStatus.draft,
         )
         submitted_vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="submitted@test.com",
             choice=VoteChoice.no,
@@ -2197,13 +2197,13 @@ class TestCloseAGM:
         db_session.add_all([draft_vote, submitted_vote])
         await db_session.commit()
 
-        # Close AGM
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        # Close GeneralMeeting
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         # Check draft vote deleted, submitted vote remains
         remaining = await db_session.execute(
-            select(Vote).where(Vote.agm_id == agm.id)
+            select(Vote).where(Vote.general_meeting_id == agm.id)
         )
         remaining_votes = list(remaining.scalars().all())
         assert all(v.status == VoteStatus.submitted for v in remaining_votes)
@@ -2213,11 +2213,11 @@ class TestCloseAGM:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm = await self._create_open_agm(db_session, "Email Delivery Building")
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         result = await db_session.execute(
-            select(EmailDelivery).where(EmailDelivery.agm_id == agm.id)
+            select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm.id)
         )
         delivery = result.scalar_one_or_none()
         assert delivery is not None
@@ -2230,31 +2230,31 @@ class TestCloseAGM:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm = await self._create_open_agm(db_session, "Double Close Building")
-        await client.post(f"/api/admin/agms/{agm.id}/close")
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 409
 
     async def test_close_not_found_returns_404(self, client: AsyncClient):
-        response = await client.post(f"/api/admin/agms/{uuid.uuid4()}/close")
+        response = await client.post(f"/api/admin/general-meetings/{uuid.uuid4()}/close")
         assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# POST /api/admin/agms/{agm_id}/resend-report
+# POST /api/admin/general-meetings/{agm_id}/resend-report
 # ---------------------------------------------------------------------------
 
 
 class TestResendReport:
     async def _setup_closed_agm_with_delivery(
         self, db_session: AsyncSession, name: str, delivery_status: EmailDeliveryStatus
-    ) -> tuple[AGM, EmailDelivery]:
+    ) -> tuple[GeneralMeeting, EmailDelivery]:
         b = Building(name=name, manager_email=f"resend_{name}@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
             title=f"Resend Test {name}",
-            status=AGMStatus.closed,
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -2263,7 +2263,7 @@ class TestResendReport:
         await db_session.flush()
 
         delivery = EmailDelivery(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             status=delivery_status,
             total_attempts=5,
             last_error="some error" if delivery_status == EmailDeliveryStatus.failed else None,
@@ -2282,7 +2282,7 @@ class TestResendReport:
         agm, delivery = await self._setup_closed_agm_with_delivery(
             db_session, "Failed Delivery Building", EmailDeliveryStatus.failed
         )
-        response = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert response.status_code == 200
         assert response.json()["queued"] is True
 
@@ -2300,7 +2300,7 @@ class TestResendReport:
         agm, _ = await self._setup_closed_agm_with_delivery(
             db_session, "Pending Delivery Building", EmailDeliveryStatus.pending
         )
-        response = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert response.status_code == 409
 
     async def test_resend_delivered_delivery_returns_409(
@@ -2309,7 +2309,7 @@ class TestResendReport:
         agm, _ = await self._setup_closed_agm_with_delivery(
             db_session, "Delivered Delivery Building", EmailDeliveryStatus.delivered
         )
-        response = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert response.status_code == 409
 
     async def test_resend_open_agm_returns_409(
@@ -2318,21 +2318,21 @@ class TestResendReport:
         b = Building(name="Open Resend Building", manager_email="op_res@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Open Resend AGM",
-            status=AGMStatus.open,
+            title="Open Resend GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert response.status_code == 409
 
     async def test_resend_not_found_returns_404(self, client: AsyncClient):
-        response = await client.post(f"/api/admin/agms/{uuid.uuid4()}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{uuid.uuid4()}/resend-report")
         assert response.status_code == 404
 
     async def test_resend_no_delivery_record_returns_404(
@@ -2341,10 +2341,10 @@ class TestResendReport:
         b = Building(name="No Delivery Building", manager_email="nd@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="No Delivery AGM",
-            status=AGMStatus.closed,
+            title="No Delivery GeneralMeeting",
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -2352,19 +2352,19 @@ class TestResendReport:
         db_session.add(agm)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/resend-report")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/admin/agms/{agm_id}/ballots
+# DELETE /api/admin/general-meetings/{agm_id}/ballots
 # ---------------------------------------------------------------------------
 
 
 class TestResetAGMBallots:
     async def _create_agm_with_ballot(
         self, db_session: AsyncSession, name: str
-    ) -> tuple[AGM, LotOwner, Motion]:
+    ) -> tuple[GeneralMeeting, LotOwner, Motion]:
         b = Building(name=name, manager_email=f"reset_{name}@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -2377,23 +2377,23 @@ class TestResetAGMBallots:
         db_session.add(lo)
         await db_session.flush()
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title=f"Reset Ballots AGM {name}",
-            status=AGMStatus.open,
+            title=f"Reset Ballots GeneralMeeting {name}",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Reset Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Reset Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         # Add a submitted vote + ballot submission
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="reset-voter@test.com",
             lot_owner_id=lo.id,
@@ -2404,7 +2404,7 @@ class TestResetAGMBallots:
         await db_session.flush()
 
         submission = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email="reset-voter@test.com",
         )
@@ -2419,14 +2419,14 @@ class TestResetAGMBallots:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Happy Reset")
-        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 200
         data = response.json()
         assert data["deleted"] == 1
 
         # Verify ballot submission is gone
         subs = await db_session.execute(
-            select(BallotSubmission).where(BallotSubmission.agm_id == agm.id)
+            select(BallotSubmission).where(BallotSubmission.general_meeting_id == agm.id)
         )
         assert subs.scalars().all() == []
 
@@ -2434,12 +2434,12 @@ class TestResetAGMBallots:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Vote Delete Reset")
-        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 200
 
         # Verify submitted votes are gone
         votes = await db_session.execute(
-            select(Vote).where(Vote.agm_id == agm.id, Vote.status == VoteStatus.submitted)
+            select(Vote).where(Vote.general_meeting_id == agm.id, Vote.status == VoteStatus.submitted)
         )
         assert votes.scalars().all() == []
 
@@ -2449,17 +2449,17 @@ class TestResetAGMBallots:
         b = Building(name="Empty Reset Building", manager_email="empty_reset@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Empty Reset AGM",
-            status=AGMStatus.open,
+            title="Empty Reset GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.commit()
 
-        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 200
         assert response.json()["deleted"] == 0
 
@@ -2469,22 +2469,22 @@ class TestResetAGMBallots:
         b = Building(name="Draft Preserve Building", manager_email="draft_pres@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Draft Preserve AGM",
-            status=AGMStatus.open,
+            title="Draft Preserve GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Draft Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Draft Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         draft_vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="drafter@test.com",
             choice=VoteChoice.no,
@@ -2493,13 +2493,13 @@ class TestResetAGMBallots:
         db_session.add(draft_vote)
         await db_session.commit()
 
-        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 200
         assert response.json()["deleted"] == 0
 
         # Draft vote should still be present
         remaining = await db_session.execute(
-            select(Vote).where(Vote.agm_id == agm.id, Vote.status == VoteStatus.draft)
+            select(Vote).where(Vote.general_meeting_id == agm.id, Vote.status == VoteStatus.draft)
         )
         assert len(remaining.scalars().all()) == 1
 
@@ -2509,17 +2509,17 @@ class TestResetAGMBallots:
         b = Building(name="Multi Reset Building", manager_email="multi_reset@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Multi Reset AGM",
-            status=AGMStatus.open,
+            title="Multi Reset GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Multi Motion", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Multi Motion", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
@@ -2530,7 +2530,7 @@ class TestResetAGMBallots:
             email = f"multi-voter-{i}@test.com"
             db_session.add(
                 Vote(
-                    agm_id=agm.id,
+                    general_meeting_id=agm.id,
                     motion_id=motion.id,
                     voter_email=email,
                     lot_owner_id=lo.id,
@@ -2539,20 +2539,20 @@ class TestResetAGMBallots:
                 )
             )
             db_session.add(BallotSubmission(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 voter_email=email,
             ))
         await db_session.commit()
 
-        response = await client.delete(f"/api/admin/agms/{agm.id}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 200
         assert response.json()["deleted"] == 3
 
     # --- State / precondition errors ---
 
     async def test_reset_ballots_not_found_returns_404(self, client: AsyncClient):
-        response = await client.delete(f"/api/admin/agms/{uuid.uuid4()}/ballots")
+        response = await client.delete(f"/api/admin/general-meetings/{uuid.uuid4()}/ballots")
         assert response.status_code == 404
 
     # --- Edge cases ---
@@ -2567,10 +2567,10 @@ class TestResetAGMBallots:
         b = Building(name="Unauth Reset Building", manager_email="unauth_reset@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="Unauth Reset AGM",
-            status=AGMStatus.open,
+            title="Unauth Reset GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
@@ -2588,7 +2588,7 @@ class TestResetAGMBallots:
         async with AsyncClient(
             transport=ASGITransport(app=unauth_app), base_url="http://test"
         ) as unauth_client:
-            response = await unauth_client.delete(f"/api/admin/agms/{agm.id}/ballots")
+            response = await unauth_client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
         assert response.status_code == 401
 
 
@@ -2637,10 +2637,10 @@ class TestSchemas:
     def test_agm_create_no_motions_raises(self):
         from pydantic import ValidationError
 
-        from app.schemas.admin import AGMCreate
+        from app.schemas.admin import GeneralMeetingCreate
 
         with pytest.raises(ValidationError):
-            AGMCreate(
+            GeneralMeetingCreate(
                 building_id=uuid.uuid4(),
                 title="t",
                 meeting_at=meeting_dt(),
@@ -2651,11 +2651,11 @@ class TestSchemas:
     def test_agm_create_closes_before_meeting_raises(self):
         from pydantic import ValidationError
 
-        from app.schemas.admin import AGMCreate, MotionCreate
+        from app.schemas.admin import GeneralMeetingCreate, MotionCreate
 
         now = datetime.now(UTC)
         with pytest.raises(ValidationError):
-            AGMCreate(
+            GeneralMeetingCreate(
                 building_id=uuid.uuid4(),
                 title="t",
                 meeting_at=now + timedelta(days=2),
@@ -3820,9 +3820,9 @@ class TestAddEmailDuplicate:
 
 
 class _FakeAGM:
-    """Minimal stand-in for AGM used to unit-test get_effective_status without a DB."""
+    """Minimal stand-in for GeneralMeeting used to unit-test get_effective_status without a DB."""
 
-    def __init__(self, status: AGMStatus, voting_closes_at):
+    def __init__(self, status: GeneralMeetingStatus, voting_closes_at):
         self.status = status
         self.voting_closes_at = voting_closes_at
 
@@ -3833,34 +3833,34 @@ class TestGetEffectiveStatus:
     # --- Happy path ---
 
     def test_open_agm_with_future_closes_at_returns_open(self):
-        """An AGM whose voting_closes_at is in the future stays open."""
-        agm = _FakeAGM(AGMStatus.open, datetime.now(UTC) + timedelta(days=1))
-        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+        """An GeneralMeeting whose voting_closes_at is in the future stays open."""
+        agm = _FakeAGM(GeneralMeetingStatus.open, datetime.now(UTC) + timedelta(days=1))
+        assert get_effective_status(agm) == GeneralMeetingStatus.open  # type: ignore[arg-type]
 
     def test_open_agm_with_past_closes_at_returns_closed(self):
-        """An AGM whose voting_closes_at has passed is effectively closed."""
-        agm = _FakeAGM(AGMStatus.open, datetime.now(UTC) - timedelta(seconds=1))
-        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+        """An GeneralMeeting whose voting_closes_at has passed is effectively closed."""
+        agm = _FakeAGM(GeneralMeetingStatus.open, datetime.now(UTC) - timedelta(seconds=1))
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
 
     def test_already_closed_agm_returns_closed_regardless_of_closes_at(self):
-        """An AGM with status=closed stays closed whether closes_at is past or future."""
-        agm = _FakeAGM(AGMStatus.closed, datetime.now(UTC) + timedelta(days=1))
-        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+        """An GeneralMeeting with status=closed stays closed whether closes_at is past or future."""
+        agm = _FakeAGM(GeneralMeetingStatus.closed, datetime.now(UTC) + timedelta(days=1))
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
 
     def test_open_agm_with_none_closes_at_returns_open(self):
-        """An AGM with no voting_closes_at set stays open (edge case)."""
-        agm = _FakeAGM(AGMStatus.open, None)
-        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+        """An GeneralMeeting with no voting_closes_at set stays open (edge case)."""
+        agm = _FakeAGM(GeneralMeetingStatus.open, None)
+        assert get_effective_status(agm) == GeneralMeetingStatus.open  # type: ignore[arg-type]
 
     def test_naive_datetime_past_returns_closed(self):
         """A naive (tz-unaware) voting_closes_at in the past is treated as UTC."""
-        agm = _FakeAGM(AGMStatus.open, datetime(2000, 1, 1, 0, 0, 0))
-        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+        agm = _FakeAGM(GeneralMeetingStatus.open, datetime(2000, 1, 1, 0, 0, 0))
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
 
     def test_naive_datetime_future_returns_open(self):
         """A naive (tz-unaware) voting_closes_at far in the future stays open."""
-        agm = _FakeAGM(AGMStatus.open, datetime(2099, 12, 31, 23, 59, 59))
-        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+        agm = _FakeAGM(GeneralMeetingStatus.open, datetime(2099, 12, 31, 23, 59, 59))
+        assert get_effective_status(agm) == GeneralMeetingStatus.open  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -3878,17 +3878,17 @@ class TestListAGMsEffectiveStatus:
         b = Building(name="EffStatus Building", manager_email="eff@test.com")
         db_session.add(b)
         await db_session.flush()
-        past_agm = AGM(
+        past_agm = GeneralMeeting(
             building_id=b.id,
-            title="Expired AGM",
-            status=AGMStatus.open,
+            title="Expired GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) - timedelta(days=3),
             voting_closes_at=datetime.now(UTC) - timedelta(days=1),
         )
         db_session.add(past_agm)
         await db_session.commit()
 
-        response = await client.get("/api/admin/agms")
+        response = await client.get("/api/admin/general-meetings")
         assert response.status_code == 200
         items = response.json()
         match = next((i for i in items if i["id"] == str(past_agm.id)), None)
@@ -3901,17 +3901,17 @@ class TestListAGMsEffectiveStatus:
         b = Building(name="FutureStatus Building", manager_email="fut@test.com")
         db_session.add(b)
         await db_session.flush()
-        future_agm = AGM(
+        future_agm = GeneralMeeting(
             building_id=b.id,
-            title="Future AGM",
-            status=AGMStatus.open,
+            title="Future GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) + timedelta(days=1),
             voting_closes_at=datetime.now(UTC) + timedelta(days=2),
         )
         db_session.add(future_agm)
         await db_session.commit()
 
-        response = await client.get("/api/admin/agms")
+        response = await client.get("/api/admin/general-meetings")
         assert response.status_code == 200
         items = response.json()
         match = next((i for i in items if i["id"] == str(future_agm.id)), None)
@@ -3925,7 +3925,7 @@ class TestListAGMsEffectiveStatus:
 
 
 @pytest.mark.asyncio
-class TestGetAGMDetailEffectiveStatus:
+class TestGetGeneralMeetingDetailEffectiveStatus:
     """get_agm_detail returns effective (closed) status for past-closes_at AGMs."""
 
     async def test_detail_past_closes_at_shows_closed(
@@ -3934,17 +3934,17 @@ class TestGetAGMDetailEffectiveStatus:
         b = Building(name="DetailEff Building", manager_email="de@test.com")
         db_session.add(b)
         await db_session.flush()
-        past_agm = AGM(
+        past_agm = GeneralMeeting(
             building_id=b.id,
-            title="Detail Expired AGM",
-            status=AGMStatus.open,
+            title="Detail Expired GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) - timedelta(days=3),
             voting_closes_at=datetime.now(UTC) - timedelta(days=1),
         )
         db_session.add(past_agm)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{past_agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{past_agm.id}")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "closed"
@@ -3955,17 +3955,17 @@ class TestGetAGMDetailEffectiveStatus:
         b = Building(name="DetailFut Building", manager_email="df@test.com")
         db_session.add(b)
         await db_session.flush()
-        future_agm = AGM(
+        future_agm = GeneralMeeting(
             building_id=b.id,
-            title="Detail Future AGM",
-            status=AGMStatus.open,
+            title="Detail Future GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) + timedelta(days=1),
             voting_closes_at=datetime.now(UTC) + timedelta(days=2),
         )
         db_session.add(future_agm)
         await db_session.commit()
 
-        response = await client.get(f"/api/admin/agms/{future_agm.id}")
+        response = await client.get(f"/api/admin/general-meetings/{future_agm.id}")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "open"
@@ -3978,12 +3978,12 @@ class TestGetAGMDetailEffectiveStatus:
 
 @pytest.mark.asyncio
 class TestCloseAGMAbsentRecords:
-    """Closing an AGM generates absent BallotSubmission + Vote rows for non-voters."""
+    """Closing an GeneralMeeting generates absent BallotSubmission + Vote rows for non-voters."""
 
     async def _make_agm_with_lots(
         self, db_session: AsyncSession, name: str, n_lots: int = 2
     ):
-        """Create building + AGM + n lots with AGMLotWeight snapshots."""
+        """Create building + GeneralMeeting + n lots with GeneralMeetingLotWeight snapshots."""
         b = Building(name=name, manager_email=f"absent_{name}@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -4001,23 +4001,23 @@ class TestCloseAGMAbsentRecords:
             db_session.add(lo_email)
             lots.append(lo)
 
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title=f"Absent Test AGM {name}",
-            status=AGMStatus.open,
+            title=f"Absent Test GeneralMeeting {name}",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=agm.id, title="Motion 1", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Motion 1", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         for lo in lots:
-            w = AGMLotWeight(
-                agm_id=agm.id,
+            w = GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
                 lot_owner_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
@@ -4031,27 +4031,27 @@ class TestCloseAGMAbsentRecords:
     async def test_close_creates_absent_submissions_for_non_voters(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Lots with no BallotSubmission get an absent record on AGM close."""
+        """Lots with no BallotSubmission get an absent record on GeneralMeeting close."""
         _, agm, lots, _ = await self._make_agm_with_lots(
             db_session, "AbsentHappy1", n_lots=2
         )
 
         # lot[0] already voted
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lots[0].id,
             voter_email=f"voter1@AbsentHappy1.test",
         )
         db_session.add(bs)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         # lots[1] should now have an absent BallotSubmission
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lots[1].id,
             )
         )
@@ -4061,18 +4061,18 @@ class TestCloseAGMAbsentRecords:
     async def test_close_creates_absent_votes_for_each_motion(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Absent lots get one Vote row per motion when AGM is closed."""
+        """Absent lots get one Vote row per motion when GeneralMeeting is closed."""
         _, agm, lots, motions = await self._make_agm_with_lots(
             db_session, "AbsentVotes1", n_lots=1
         )
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         votes_result = await db_session.execute(
             select(Vote).where(
-                Vote.agm_id == agm.id,
+                Vote.general_meeting_id == agm.id,
                 Vote.lot_owner_id == lots[0].id,
                 Vote.status == VoteStatus.submitted,
             )
@@ -4088,19 +4088,19 @@ class TestCloseAGMAbsentRecords:
             db_session, "AbsentNoDup1", n_lots=1
         )
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lots[0].id,
             voter_email="voter1@AbsentNoDup1.test",
         )
         db_session.add(bs)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lots[0].id,
             )
         )
@@ -4109,25 +4109,25 @@ class TestCloseAGMAbsentRecords:
     async def test_close_agm_with_no_lot_weights_no_absent_records(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Closing an AGM with no AGMLotWeight snapshot creates no absent records."""
+        """Closing an GeneralMeeting with no GeneralMeetingLotWeight snapshot creates no absent records."""
         b = Building(name="NoWeights Building", manager_email="nw@test.com")
         db_session.add(b)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="No Weights AGM",
-            status=AGMStatus.open,
+            title="No Weights GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         subs_result = await db_session.execute(
-            select(BallotSubmission).where(BallotSubmission.agm_id == agm.id)
+            select(BallotSubmission).where(BallotSubmission.general_meeting_id == agm.id)
         )
         assert list(subs_result.scalars().all()) == []
 
@@ -4140,12 +4140,12 @@ class TestCloseAGMAbsentRecords:
         )
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lots[0].id,
             )
         )
@@ -4162,29 +4162,29 @@ class TestCloseAGMAbsentRecords:
         lo = LotOwner(building_id=b.id, lot_number="NE1", unit_entitlement=50)
         db_session.add(lo)
         await db_session.flush()
-        agm = AGM(
+        agm = GeneralMeeting(
             building_id=b.id,
-            title="No Email AGM",
-            status=AGMStatus.open,
+            title="No Email GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
         db_session.add(agm)
         await db_session.flush()
-        w = AGMLotWeight(
-            agm_id=agm.id,
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             unit_entitlement_snapshot=50,
         )
         db_session.add(w)
         await db_session.commit()
 
-        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert response.status_code == 200
 
         subs_result = await db_session.execute(
             select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lo.id,
             )
         )

@@ -12,10 +12,10 @@ class FinancialPositionSnapshot(str, enum.Enum):
     in_arrear = "in_arrear"
 
 
-class AGMLotWeight(Base):
-    __tablename__ = "agm_lot_weights"
+class GeneralMeetingLotWeight(Base):
+    __tablename__ = "general_meeting_lot_weights"
     __table_args__ = (
-        UniqueConstraint("agm_id", "lot_owner_id", name="uq_agm_lot_weights_agm_lot"),
+        UniqueConstraint("general_meeting_id", "lot_owner_id", name="uq_general_meeting_lot_weights_gm_lot"),
         CheckConstraint(
             "unit_entitlement_snapshot >= 0",
             name="ck_agm_lot_weights_entitlement_nonneg",
@@ -26,8 +26,8 @@ class AGMLotWeight(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
     lot_owner_id: Mapped[uuid.UUID] = mapped_column(
@@ -43,9 +43,9 @@ class AGMLotWeight(Base):
     )
 
     # Relationships
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="agm_lot_weights"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="general_meeting_lot_weights"
     )
     lot_owner: Mapped["LotOwner"] = relationship(  # noqa: F821
-        "LotOwner", back_populates="agm_lot_weights"
+        "LotOwner", back_populates="general_meeting_lot_weights"
     )

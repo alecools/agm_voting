@@ -10,15 +10,15 @@ from app.models.base import Base
 class BallotSubmission(Base):
     __tablename__ = "ballot_submissions"
     __table_args__ = (
-        UniqueConstraint("agm_id", "lot_owner_id", name="uq_ballot_submissions_agm_lot_owner"),
+        UniqueConstraint("general_meeting_id", "lot_owner_id", name="uq_ballot_submissions_gm_lot_owner"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
     lot_owner_id: Mapped[uuid.UUID] = mapped_column(
@@ -34,8 +34,8 @@ class BallotSubmission(Base):
     )
 
     # Relationships
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="ballot_submissions"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="ballot_submissions"
     )
     lot_owner: Mapped["LotOwner"] = relationship(  # noqa: F821
         "LotOwner", back_populates="ballot_submissions"

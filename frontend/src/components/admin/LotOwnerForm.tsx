@@ -272,7 +272,7 @@ function EditModal({
               id="lot-financial-position"
               className="field__input"
               value={financialPosition}
-              onChange={(e) => setFinancialPosition(e.target.value)}
+              onChange={(e) => setFinancialPosition(e.target.value as "normal" | "in_arrear")}
             >
               <option value="normal">Normal</option>
               <option value="in_arrear">In Arrear</option>
@@ -424,7 +424,7 @@ function AddForm({
               id="lot-financial-position"
               className="field__input"
               value={financialPosition}
-              onChange={(e) => setFinancialPosition(e.target.value)}
+              onChange={(e) => setFinancialPosition(e.target.value as "normal" | "in_arrear")}
             >
               <option value="normal">Normal</option>
               <option value="in_arrear">In Arrear</option>

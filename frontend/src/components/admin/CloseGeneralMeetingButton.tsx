@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { closeAGM } from "../../api/admin";
-import type { AGMCloseOut } from "../../api/admin";
+import { closeGeneralMeeting } from "../../api/admin";
+import type { GeneralMeetingCloseOut } from "../../api/admin";
 
-interface CloseAGMButtonProps {
-  agmId: string;
-  agmTitle: string;
+interface CloseGeneralMeetingButtonProps {
+  meetingId: string;
+  meetingTitle: string;
   onSuccess: () => void;
 }
 
-export default function CloseAGMButton({ agmId, agmTitle, onSuccess }: CloseAGMButtonProps) {
+export default function CloseGeneralMeetingButton({ meetingId, meetingTitle, onSuccess }: CloseGeneralMeetingButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutation = useMutation<AGMCloseOut, Error, string>({
-    mutationFn: (id) => closeAGM(id),
+  const mutation = useMutation<GeneralMeetingCloseOut, Error, string>({
+    mutationFn: (id) => closeGeneralMeeting(id),
     onSuccess: () => {
       setShowDialog(false);
       setError(null);
@@ -26,7 +26,7 @@ export default function CloseAGMButton({ agmId, agmTitle, onSuccess }: CloseAGMB
   });
 
   function handleConfirm() {
-    mutation.mutate(agmId);
+    mutation.mutate(meetingId);
   }
 
   return (
@@ -36,12 +36,12 @@ export default function CloseAGMButton({ agmId, agmTitle, onSuccess }: CloseAGMB
       </button>
 
       {showDialog && (
-        <div className="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="close-agm-title">
+        <div className="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="close-meeting-title">
           <div className="dialog">
             <div className="dialog__icon dialog__icon--warning">⚠</div>
-            <h2 className="dialog__title" id="close-agm-title">Close Voting</h2>
+            <h2 className="dialog__title" id="close-meeting-title">Close Voting</h2>
             <p className="dialog__body">
-              Close voting for <strong>{agmTitle}</strong>? This cannot be undone.
+              Close voting for <strong>{meetingTitle}</strong>? This cannot be undone.
               Results will be emailed to all lot owners.
             </p>
             {error && (

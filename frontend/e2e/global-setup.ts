@@ -152,7 +152,7 @@ export default async function globalSetup(_config: FullConfig) {
   // close any existing open E2E AGMs first (so the lot owner has no submitted
   // ballot on the new AGM), then create a new one. The just-closed AGM
   // satisfies the "AGM closed state" test which looks for any closed AGM.
-  const agmsRes = await api.get("/api/admin/agms");
+  const agmsRes = await api.get("/api/admin/general-meetings");
   const agms = (await agmsRes.json()) as {
     id: string;
     title: string;
@@ -164,7 +164,7 @@ export default async function globalSetup(_config: FullConfig) {
   );
 
   for (const agm of openE2eAgms) {
-    await api.post(`/api/admin/agms/${agm.id}/close`);
+    await api.post(`/api/admin/general-meetings/${agm.id}/close`);
   }
 
   const future = new Date();
@@ -172,7 +172,7 @@ export default async function globalSetup(_config: FullConfig) {
   const closesAt = new Date(future);
   closesAt.setDate(closesAt.getDate() + 7);
 
-  const createAgmRes = await api.post("/api/admin/agms", {
+  const createAgmRes = await api.post("/api/admin/general-meetings", {
     data: {
       building_id: building.id,
       title: E2E_AGM_TITLE,
@@ -193,7 +193,7 @@ export default async function globalSetup(_config: FullConfig) {
   // runs: if a previous attempt submitted a ballot before the suite failed,
   // global-setup needs to clear it so the voting-flow test can re-vote
   // without hitting a 409 conflict).
-  await api.delete(`/api/admin/agms/${newAgm.id}/ballots`);
+  await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
 
   // ── 3. Seed a dedicated "admin test" building with its own open AGM ─────────
   // Admin-agms E2E tests that exercise the Close Voting dialog look for the
@@ -218,13 +218,13 @@ export default async function globalSetup(_config: FullConfig) {
   }
 
   // Close any existing open AGMs for the admin-test building, then create a fresh one
-  const allAgmsRes = await api.get("/api/admin/agms");
+  const allAgmsRes = await api.get("/api/admin/general-meetings");
   const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
   const openAdminAgms = allAgms.filter(
     (a) => a.building_id === adminBuilding!.id && a.status === "open"
   );
   for (const agm of openAdminAgms) {
-    await api.post(`/api/admin/agms/${agm.id}/close`);
+    await api.post(`/api/admin/general-meetings/${agm.id}/close`);
   }
 
   const adminFuture = new Date();
@@ -233,7 +233,7 @@ export default async function globalSetup(_config: FullConfig) {
   const adminClosesAt = new Date(adminFuture);
   adminClosesAt.setDate(adminClosesAt.getDate() + 7);
 
-  await api.post("/api/admin/agms", {
+  await api.post("/api/admin/general-meetings", {
     data: {
       building_id: adminBuilding.id,
       title: "E2E Admin Test AGM",

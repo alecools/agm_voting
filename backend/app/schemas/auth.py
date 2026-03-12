@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 class AuthVerifyRequest(BaseModel):
     email: str
     building_id: uuid.UUID
-    agm_id: uuid.UUID
+    general_meeting_id: uuid.UUID
 
     @field_validator("email")
     @classmethod

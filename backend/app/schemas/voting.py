@@ -73,7 +73,7 @@ class LotBallotSummary(BaseModel):
 
 class MyBallotResponse(BaseModel):
     voter_email: str
-    agm_title: str
+    meeting_title: str
     building_name: str
     submitted_lots: list[LotBallotSummary]
     remaining_lot_owner_ids: list[uuid.UUID]

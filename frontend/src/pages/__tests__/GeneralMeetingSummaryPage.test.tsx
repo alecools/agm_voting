@@ -1,22 +1,21 @@
-import React from "react";
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/msw/server";
-import AGMSummaryPage from "../AGMSummaryPage";
+import GeneralMeetingSummaryPage from "../GeneralMeetingSummaryPage";
 import { SUMMARY_AGM_ID, agmSummaryFixture } from "../../../tests/msw/handlers";
 
 const BASE = "http://localhost:8000";
 
-function renderPage(agmId = SUMMARY_AGM_ID) {
+function renderPage(meetingId = SUMMARY_AGM_ID) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/agm/${agmId}/summary`]}>
+      <MemoryRouter initialEntries={[`/general-meeting/${meetingId}/summary`]}>
         <Routes>
-          <Route path="/agm/:agmId/summary" element={<AGMSummaryPage />} />
+          <Route path="/general-meeting/:meetingId/summary" element={<GeneralMeetingSummaryPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -27,7 +26,7 @@ afterEach(() => {
   document.title = "";
 });
 
-describe("AGMSummaryPage", () => {
+describe("GeneralMeetingSummaryPage", () => {
   // --- Happy path ---
 
   it("shows loading state initially", () => {
@@ -35,7 +34,7 @@ describe("AGMSummaryPage", () => {
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
 
-  it("renders AGM title as h1", async () => {
+  it("renders meeting title as h1", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("heading", { level: 1, name: "2024 AGM" })).toBeInTheDocument();
@@ -70,9 +69,9 @@ describe("AGMSummaryPage", () => {
     });
   });
 
-  it("renders status badge showing Closed for closed AGM", async () => {
+  it("renders status badge showing Closed for closed meeting", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/:agmId/summary`, () =>
+      http.get(`${BASE}/api/general-meeting/:meetingId/summary`, () =>
         HttpResponse.json({ ...agmSummaryFixture, status: "closed" })
       )
     );
@@ -100,19 +99,16 @@ describe("AGMSummaryPage", () => {
   it("does not render description element when motion has null description", async () => {
     renderPage();
     await waitFor(() => {
-      // Motion 2 has null description — only its title should appear, no extra paragraph
       expect(screen.getByText(/2\. Motion 2/)).toBeInTheDocument();
     });
-    // The fixture has motion 2 with null description; confirm no blank description paragraph
     const items = screen.getAllByRole("listitem");
-    // Motion 2 is the second listitem
     expect(items[1].querySelector("p")).toBeNull();
   });
 
   it("sets document.title after data loads", async () => {
     renderPage();
     await waitFor(() => {
-      expect(document.title).toBe("2024 AGM — AGM Summary");
+      expect(document.title).toBe("2024 AGM — General Meeting Summary");
     });
   });
 
@@ -120,7 +116,7 @@ describe("AGMSummaryPage", () => {
 
   it("shows 'No motions listed.' when motions array is empty", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/:agmId/summary`, () =>
+      http.get(`${BASE}/api/general-meeting/:meetingId/summary`, () =>
         HttpResponse.json({ ...agmSummaryFixture, motions: [] })
       )
     );
@@ -134,7 +130,7 @@ describe("AGMSummaryPage", () => {
 
   it("shows 'Meeting not found' for 404 error", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/:agmId/summary`, () =>
+      http.get(`${BASE}/api/general-meeting/:meetingId/summary`, () =>
         HttpResponse.json({ detail: "Not found" }, { status: 404 })
       )
     );
@@ -146,7 +142,7 @@ describe("AGMSummaryPage", () => {
 
   it("shows 'Failed to load meeting.' for network/server error", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/:agmId/summary`, () =>
+      http.get(`${BASE}/api/general-meeting/:meetingId/summary`, () =>
         HttpResponse.json({ detail: "Server error" }, { status: 500 })
       )
     );

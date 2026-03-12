@@ -1,65 +1,65 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getAGMDetail } from "../../api/admin";
-import type { AGMDetail } from "../../api/admin";
+import { getGeneralMeetingDetail } from "../../api/admin";
+import type { GeneralMeetingDetail } from "../../api/admin";
 import StatusBadge from "../../components/admin/StatusBadge";
-import CloseAGMButton from "../../components/admin/CloseAGMButton";
+import CloseGeneralMeetingButton from "../../components/admin/CloseGeneralMeetingButton";
 import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 
-export default function AGMDetailPage() {
-  const { agmId } = useParams<{ agmId: string }>();
+export default function GeneralMeetingDetailPage() {
+  const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: agm, isLoading, error } = useQuery<AGMDetail>({
-    queryKey: ["admin", "agms", agmId],
-    queryFn: () => getAGMDetail(agmId!),
-    enabled: !!agmId,
+  const { data: meeting, isLoading, error } = useQuery<GeneralMeetingDetail>({
+    queryKey: ["admin", "general-meetings", meetingId],
+    queryFn: () => getGeneralMeetingDetail(meetingId!),
+    enabled: !!meetingId,
   });
 
   function handleCloseSuccess() {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "agms", agmId] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
   }
 
   function handleRetrySuccess() {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "agms", agmId] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
   }
 
-  if (isLoading) return <p className="state-message">Loading AGM...</p>;
+  if (isLoading) return <p className="state-message">Loading General Meeting...</p>;
 
   if (error) {
     const msg = (error as Error).message;
-    if (msg.includes("404")) return <p className="state-message">AGM not found</p>;
-    return <p className="state-message state-message--error">Failed to load AGM.</p>;
+    if (msg.includes("404")) return <p className="state-message">General Meeting not found</p>;
+    return <p className="state-message state-message--error">Failed to load General Meeting.</p>;
   }
 
   /* c8 ignore next -- unreachable: error handling above covers all falsy data cases */
-  if (!agm) return <p className="state-message">AGM not found</p>;
+  if (!meeting) return <p className="state-message">General Meeting not found</p>;
 
-  const agmExtended = agm as AGMDetail & {
+  const meetingExtended = meeting as GeneralMeetingDetail & {
     email_delivery?: { status: string; last_error: string | null };
   };
 
   const showEmailBanner =
-    agm.status === "closed" &&
-    agmExtended.email_delivery?.status === "failed";
+    meeting.status === "closed" &&
+    meetingExtended.email_delivery?.status === "failed";
 
   return (
     <div>
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/agms")}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/general-meetings")}>
         ← Back
       </button>
       <div className="admin-page-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <h1 style={{ margin: 0 }}>{agm.title}</h1>
-          <StatusBadge status={agm.status} />
+          <h1 style={{ margin: 0 }}>{meeting.title}</h1>
+          <StatusBadge status={meeting.status} />
         </div>
-        {agm.status === "open" && (
-          <CloseAGMButton
-            agmId={agmId!}
-            agmTitle={agm.title}
+        {meeting.status === "open" && (
+          <CloseGeneralMeetingButton
+            meetingId={meetingId!}
+            meetingTitle={meeting.title}
             onSuccess={handleCloseSuccess}
           />
         )}
@@ -68,42 +68,42 @@ export default function AGMDetailPage() {
       <div className="admin-meta">
         <span className="admin-meta__item">
           <span className="admin-meta__label">Building</span>
-          {agm.building_name}
+          {meeting.building_name}
         </span>
         <span className="admin-meta__item">
           <span className="admin-meta__label">Meeting</span>
-          {new Date(agm.meeting_at).toLocaleString()}
+          {new Date(meeting.meeting_at).toLocaleString()}
         </span>
         <span className="admin-meta__item">
           <span className="admin-meta__label">Voting closes</span>
-          {new Date(agm.voting_closes_at).toLocaleString()}
+          {new Date(meeting.voting_closes_at).toLocaleString()}
         </span>
-        {agm.closed_at && (
+        {meeting.closed_at && (
           <span className="admin-meta__item">
             <span className="admin-meta__label">Closed at</span>
-            {new Date(agm.closed_at).toLocaleString()}
+            {new Date(meeting.closed_at).toLocaleString()}
           </span>
         )}
         <span className="admin-meta__item">
           <span className="admin-meta__label">Summary</span>
-          <ShareSummaryLink agmId={agmId!} />
+          <ShareSummaryLink meetingId={meetingId!} />
         </span>
       </div>
 
       <div className="admin-stats">
         <div className="admin-stats__item">
           <span className="admin-stats__label">Eligible voters</span>
-          <span className="admin-stats__value">{agm.total_eligible_voters}</span>
+          <span className="admin-stats__value">{meeting.total_eligible_voters}</span>
         </div>
         <div className="admin-stats__item">
           <span className="admin-stats__label">Submitted</span>
-          <span className="admin-stats__value">{agm.total_submitted}</span>
+          <span className="admin-stats__value">{meeting.total_submitted}</span>
         </div>
         <div className="admin-stats__item">
           <span className="admin-stats__label">Participation</span>
           <span className="admin-stats__value">
-            {agm.total_eligible_voters > 0
-              ? Math.round((agm.total_submitted / agm.total_eligible_voters) * 100)
+            {meeting.total_eligible_voters > 0
+              ? Math.round((meeting.total_submitted / meeting.total_eligible_voters) * 100)
               : 0}%
           </span>
         </div>
@@ -111,14 +111,14 @@ export default function AGMDetailPage() {
 
       {showEmailBanner && (
         <EmailStatusBanner
-          agmId={agmId!}
-          lastError={agmExtended.email_delivery?.last_error ?? null}
+          meetingId={meetingId!}
+          lastError={meetingExtended.email_delivery?.last_error ?? null}
           onRetrySuccess={handleRetrySuccess}
         />
       )}
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
-      <AGMReportView motions={agm.motions} agmTitle={agm.title} totalEntitlement={agm.total_entitlement} />
+      <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
     </div>
   );
 }

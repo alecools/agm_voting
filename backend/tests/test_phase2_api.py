@@ -24,8 +24,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
-    AGM,
-    AGMStatus,
+    GeneralMeeting,
+    GeneralMeetingStatus,
     BallotSubmission,
     Building,
     LotOwner,
@@ -37,7 +37,7 @@ from app.models import (
     VoteStatus,
 )
 from app.models.lot_owner_email import LotOwnerEmail
-from app.models.agm import get_effective_status
+from app.models.general_meeting import get_effective_status
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ async def client(app):
 
 @pytest_asyncio.fixture
 async def building_with_agm(db_session: AsyncSession):
-    """Building with one open AGM and one lot owner with email."""
+    """Building with one open GeneralMeeting and one lot owner with email."""
     b = Building(name="P2 Building", manager_email="p2@test.com")
     db_session.add(b)
     await db_session.flush()
@@ -82,18 +82,18 @@ async def building_with_agm(db_session: AsyncSession):
     lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="voter@p2test.com")
     db_session.add(lo_email)
 
-    agm = AGM(
+    agm = GeneralMeeting(
         building_id=b.id,
-        title="P2 AGM",
-        status=AGMStatus.open,
+        title="P2 GeneralMeeting",
+        status=GeneralMeetingStatus.open,
         meeting_at=meeting_dt(),
         voting_closes_at=closing_dt(),
     )
     db_session.add(agm)
     await db_session.flush()
 
-    m1 = Motion(agm_id=agm.id, title="P2 Motion 1", order_index=1, description="First")
-    m2 = Motion(agm_id=agm.id, title="P2 Motion 2", order_index=2, description=None)
+    m1 = Motion(general_meeting_id=agm.id, title="P2 Motion 1", order_index=1, description="First")
+    m2 = Motion(general_meeting_id=agm.id, title="P2 Motion 2", order_index=2, description=None)
     db_session.add_all([m1, m2])
     await db_session.flush()
 
@@ -105,7 +105,7 @@ async def create_session(
     db_session: AsyncSession,
     voter_email: str,
     building_id: uuid.UUID,
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
 ) -> str:
     """Helper to create a session token directly in DB."""
     import secrets
@@ -115,7 +115,7 @@ async def create_session(
         session_token=token,
         voter_email=voter_email,
         building_id=building_id,
-        agm_id=agm_id,
+        general_meeting_id=general_meeting_id,
         expires_at=now + timedelta(hours=24),
     )
     db_session.add(session)
@@ -172,15 +172,15 @@ class TestPublicListBuildings:
     async def test_building_without_agm_is_listed(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Buildings without AGMs now appear — the AGM list for that building will be empty."""
-        b = Building(name="No AGM Building P2", manager_email="noagm@test.com")
+        """Buildings without AGMs now appear — the GeneralMeeting list for that building will be empty."""
+        b = Building(name="No GeneralMeeting Building P2", manager_email="noagm@test.com")
         db_session.add(b)
         await db_session.flush()
 
         response = await client.get("/api/buildings")
         data = response.json()
         names = [item["name"] for item in data]
-        assert "No AGM Building P2" in names
+        assert "No GeneralMeeting Building P2" in names
 
 
 # ---------------------------------------------------------------------------
@@ -195,18 +195,18 @@ class TestPublicListAGMs:
         self, client: AsyncClient, building_with_agm: dict
     ):
         building = building_with_agm["building"]
-        response = await client.get(f"/api/buildings/{building.id}/agms")
+        response = await client.get(f"/api/buildings/{building.id}/general-meetings")
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
         titles = [a["title"] for a in data]
-        assert "P2 AGM" in titles
+        assert "P2 GeneralMeeting" in titles
 
     async def test_agm_has_required_fields(
         self, client: AsyncClient, building_with_agm: dict
     ):
         building = building_with_agm["building"]
-        response = await client.get(f"/api/buildings/{building.id}/agms")
+        response = await client.get(f"/api/buildings/{building.id}/general-meetings")
         data = response.json()
         agm = data[0]
         assert "id" in agm
@@ -218,7 +218,7 @@ class TestPublicListAGMs:
     # --- State / precondition errors ---
 
     async def test_building_not_found_returns_404(self, client: AsyncClient):
-        response = await client.get(f"/api/buildings/{uuid.uuid4()}/agms")
+        response = await client.get(f"/api/buildings/{uuid.uuid4()}/general-meetings")
         assert response.status_code == 404
 
 
@@ -242,7 +242,7 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -262,7 +262,7 @@ class TestAuthVerify:
 
         # Create a ballot submission for this lot owner
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
@@ -274,7 +274,7 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -293,11 +293,11 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
-        assert "agm_session" in response.cookies
+        assert "meeting_session" in response.cookies
 
     async def test_lots_contain_lot_info(
         self, client: AsyncClient, building_with_agm: dict
@@ -312,7 +312,7 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -338,7 +338,7 @@ class TestAuthVerify:
             json={
                 "email": "",
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 422
@@ -356,7 +356,7 @@ class TestAuthVerify:
             json={
                 "email": "wrong@email.com",
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 401
@@ -372,7 +372,7 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(uuid.uuid4()),
+                "general_meeting_id": str(uuid.uuid4()),
             },
         )
         assert response.status_code == 404
@@ -384,11 +384,11 @@ class TestAuthVerify:
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
 
-        # Create a closed AGM in the same building
-        closed_agm = AGM(
+        # Create a closed GeneralMeeting in the same building
+        closed_agm = GeneralMeeting(
             building_id=building.id,
-            title="Closed P2 AGM",
-            status=AGMStatus.closed,
+            title="Closed P2 GeneralMeeting",
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -401,7 +401,7 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(closed_agm.id),
+                "general_meeting_id": str(closed_agm.id),
             },
         )
         assert response.status_code == 200
@@ -417,10 +417,10 @@ class TestAuthVerify:
         b2 = Building(name="Other Building", manager_email="other@test.com")
         db_session.add(b2)
         await db_session.flush()
-        agm2 = AGM(
+        agm2 = GeneralMeeting(
             building_id=b2.id,
-            title="Other AGM",
-            status=AGMStatus.open,
+            title="Other GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
         )
@@ -432,7 +432,7 @@ class TestAuthVerify:
             json={
                 "email": "voter@p2test.com",
                 "building_id": str(b2.id),
-                "agm_id": str(agm2.id),
+                "general_meeting_id": str(agm2.id),
             },
         )
         assert response.status_code == 401
@@ -457,7 +457,7 @@ class TestAuthService:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -466,7 +466,7 @@ class TestAuthService:
         self, client: AsyncClient, building_with_agm: dict
     ):
         agm = building_with_agm["agm"]
-        response = await client.get(f"/api/agm/{agm.id}/motions")
+        response = await client.get(f"/api/general-meeting/{agm.id}/motions")
         assert response.status_code == 401
 
     async def test_invalid_token_returns_401(
@@ -474,7 +474,7 @@ class TestAuthService:
     ):
         agm = building_with_agm["agm"]
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": "Bearer invalid_token_xyz"},
         )
         assert response.status_code == 401
@@ -484,7 +484,7 @@ class TestAuthService:
     ):
         agm = building_with_agm["agm"]
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": "notabearer token"},
         )
         assert response.status_code == 401
@@ -502,21 +502,21 @@ class TestAuthService:
             session_token=token,
             voter_email=voter_email,
             building_id=building.id,
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             expires_at=datetime.now(UTC) - timedelta(hours=1),
         )
         db_session.add(expired_session)
         await db_session.flush()
 
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# GET /api/agm/{agm_id}/motions
+# GET /api/general-meeting/{agm_id}/motions
 # ---------------------------------------------------------------------------
 
 
@@ -533,7 +533,7 @@ class TestListMotions:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -550,7 +550,7 @@ class TestListMotions:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/motions",
+            f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
         )
         data = response.json()
@@ -562,7 +562,7 @@ class TestListMotions:
 
 
 # ---------------------------------------------------------------------------
-# PUT /api/agm/{agm_id}/draft
+# PUT /api/general-meeting/{agm_id}/draft
 # ---------------------------------------------------------------------------
 
 
@@ -581,7 +581,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -600,7 +600,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "no", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -618,7 +618,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -639,14 +639,14 @@ class TestSaveDraft:
 
         # Save once
         await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
 
         # Save again with different choice
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "no", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -666,14 +666,14 @@ class TestSaveDraft:
 
         # Save first
         await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
 
         # Then deselect (null choice)
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": None, "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -692,7 +692,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": None, "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -706,10 +706,10 @@ class TestSaveDraft:
         building = building_with_agm["building"]
         voter_email = building_with_agm["voter_email"]
 
-        closed_agm = AGM(
+        closed_agm = GeneralMeeting(
             building_id=building.id,
-            title="Closed Draft AGM",
-            status=AGMStatus.closed,
+            title="Closed Draft GeneralMeeting",
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -717,14 +717,14 @@ class TestSaveDraft:
         db_session.add(closed_agm)
         await db_session.flush()
 
-        motion = Motion(agm_id=closed_agm.id, title="CM1", order_index=1)
+        motion = Motion(general_meeting_id=closed_agm.id, title="CM1", order_index=1)
         db_session.add(motion)
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, closed_agm.id)
 
         response = await client.put(
-            f"/api/agm/{closed_agm.id}/draft",
+            f"/api/general-meeting/{closed_agm.id}/draft",
             json={"motion_id": str(motion.id), "choice": "yes"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -741,7 +741,7 @@ class TestSaveDraft:
 
         # Submit ballot for this lot owner
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
@@ -751,7 +751,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -767,7 +767,7 @@ class TestSaveDraft:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(uuid.uuid4()), "choice": "yes"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -779,14 +779,14 @@ class TestSaveDraft:
         agm = building_with_agm["agm"]
         motions = building_with_agm["motions"]
         response = await client.put(
-            f"/api/agm/{agm.id}/draft",
+            f"/api/general-meeting/{agm.id}/draft",
             json={"motion_id": str(motions[0].id), "choice": "yes"},
         )
         assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# GET /api/agm/{agm_id}/drafts
+# GET /api/general-meeting/{agm_id}/drafts
 # ---------------------------------------------------------------------------
 
 
@@ -803,7 +803,7 @@ class TestGetDrafts:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/drafts",
+            f"/api/general-meeting/{agm.id}/drafts",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -820,7 +820,7 @@ class TestGetDrafts:
 
         # Save a draft
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             lot_owner_id=lo.id,
@@ -833,7 +833,7 @@ class TestGetDrafts:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/drafts",
+            f"/api/general-meeting/{agm.id}/drafts",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -852,7 +852,7 @@ class TestGetDrafts:
         motions = building_with_agm["motions"]
 
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             lot_owner_id=lo.id,
@@ -865,7 +865,7 @@ class TestGetDrafts:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/drafts?lot_owner_id={lo.id}",
+            f"/api/general-meeting/{agm.id}/drafts?lot_owner_id={lo.id}",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -883,7 +883,7 @@ class TestGetDrafts:
 
         # Save a draft with null choice
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             lot_owner_id=lo.id,
@@ -896,7 +896,7 @@ class TestGetDrafts:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/drafts",
+            f"/api/general-meeting/{agm.id}/drafts",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -904,7 +904,7 @@ class TestGetDrafts:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/agm/{agm_id}/submit
+# POST /api/general-meeting/{agm_id}/submit
 # ---------------------------------------------------------------------------
 
 
@@ -923,7 +923,7 @@ class TestSubmitBallot:
         # Save drafts for both motions
         for i, motion in enumerate(motions):
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lo.id,
@@ -936,7 +936,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -957,7 +957,7 @@ class TestSubmitBallot:
 
         # Save draft only for first motion
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             lot_owner_id=lo.id,
@@ -970,7 +970,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -993,7 +993,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1013,7 +1013,7 @@ class TestSubmitBallot:
 
         # Save draft with null choice
         vote = Vote(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             lot_owner_id=lo.id,
@@ -1026,7 +1026,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1047,7 +1047,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": []},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1072,7 +1072,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo2.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1086,10 +1086,10 @@ class TestSubmitBallot:
         building = building_with_agm["building"]
         voter_email = building_with_agm["voter_email"]
 
-        closed_agm = AGM(
+        closed_agm = GeneralMeeting(
             building_id=building.id,
-            title="Closed Submit AGM",
-            status=AGMStatus.closed,
+            title="Closed Submit GeneralMeeting",
+            status=GeneralMeetingStatus.closed,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
             closed_at=datetime.now(UTC),
@@ -1101,7 +1101,7 @@ class TestSubmitBallot:
 
         lo = building_with_agm["lot_owner"]
         response = await client.post(
-            f"/api/agm/{closed_agm.id}/submit",
+            f"/api/general-meeting/{closed_agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1117,7 +1117,7 @@ class TestSubmitBallot:
 
         # Submit ballot already
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
@@ -1127,7 +1127,7 @@ class TestSubmitBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1139,14 +1139,14 @@ class TestSubmitBallot:
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
         )
         assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# GET /api/agm/{agm_id}/my-ballot
+# GET /api/general-meeting/{agm_id}/my-ballot
 # ---------------------------------------------------------------------------
 
 
@@ -1165,7 +1165,7 @@ class TestMyBallot:
         # Add submitted votes and ballot submission
         for motion in motions:
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lo.id,
@@ -1174,7 +1174,7 @@ class TestMyBallot:
             )
             db_session.add(vote)
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
@@ -1184,13 +1184,13 @@ class TestMyBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/my-ballot",
+            f"/api/general-meeting/{agm.id}/my-ballot",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         data = response.json()
         assert data["voter_email"] == voter_email
-        assert data["agm_title"] == agm.title
+        assert data["meeting_title"] == agm.title
         assert data["building_name"] == building.name
         assert len(data["submitted_lots"]) == 1
         assert len(data["submitted_lots"][0]["votes"]) == 2
@@ -1214,7 +1214,7 @@ class TestMyBallot:
 
         # Submit ballot for lo only
         bs = BallotSubmission(
-            agm_id=agm.id,
+            general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
@@ -1224,7 +1224,7 @@ class TestMyBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/my-ballot",
+            f"/api/general-meeting/{agm.id}/my-ballot",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1243,7 +1243,7 @@ class TestMyBallot:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/my-ballot",
+            f"/api/general-meeting/{agm.id}/my-ballot",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
@@ -1252,7 +1252,7 @@ class TestMyBallot:
         self, client: AsyncClient, building_with_agm: dict
     ):
         agm = building_with_agm["agm"]
-        response = await client.get(f"/api/agm/{agm.id}/my-ballot")
+        response = await client.get(f"/api/general-meeting/{agm.id}/my-ballot")
         assert response.status_code == 401
 
 
@@ -1284,7 +1284,7 @@ class TestProxyAuth:
             json={
                 "email": proxy_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -1306,7 +1306,7 @@ class TestProxyAuth:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -1336,7 +1336,7 @@ class TestProxyAuth:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -1366,7 +1366,7 @@ class TestProxyAuth:
             json={
                 "email": voter_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -1387,7 +1387,7 @@ class TestProxyAuth:
         proxy_email = "proxy2@test.com"
         lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
         db_session.add(lp)
-        bs = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email=proxy_email)
+        bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=proxy_email)
         db_session.add(bs)
         await db_session.flush()
 
@@ -1396,7 +1396,7 @@ class TestProxyAuth:
             json={
                 "email": proxy_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 200
@@ -1418,7 +1418,7 @@ class TestProxyAuth:
             json={
                 "email": "notaproxy@test.com",
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 401
@@ -1449,7 +1449,7 @@ class TestProxyAuth:
             json={
                 "email": proxy_email,
                 "building_id": str(building.id),
-                "agm_id": str(agm.id),
+                "general_meeting_id": str(agm.id),
             },
         )
         assert response.status_code == 401
@@ -1482,7 +1482,7 @@ class TestProxyBallotSubmission:
         token = await create_session(db_session, proxy_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1491,7 +1491,7 @@ class TestProxyBallotSubmission:
         # Verify proxy_email stored in DB
         result = await db_session.execute(
             sa_select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lo.id,
             )
         )
@@ -1512,7 +1512,7 @@ class TestProxyBallotSubmission:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1521,7 +1521,7 @@ class TestProxyBallotSubmission:
         # Verify proxy_email is NULL in DB
         result = await db_session.execute(
             sa_select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id == lo.id,
             )
         )
@@ -1552,7 +1552,7 @@ class TestProxyBallotSubmission:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo_own.id), str(lo_proxy.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1560,7 +1560,7 @@ class TestProxyBallotSubmission:
 
         subs_result = await db_session.execute(
             sa_select(BallotSubmission).where(
-                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.general_meeting_id == agm.id,
                 BallotSubmission.lot_owner_id.in_([lo_own.id, lo_proxy.id]),
             )
         )
@@ -1589,7 +1589,7 @@ class TestProxyBallotSubmission:
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo_other.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1611,7 +1611,7 @@ class TestProxyBallotSubmission:
         token = await create_session(db_session, proxy_email, building.id, agm.id)
 
         response = await client.post(
-            f"/api/agm/{agm.id}/submit",
+            f"/api/general-meeting/{agm.id}/submit",
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -1652,7 +1652,7 @@ class TestMyBallotProxyLots:
         # Submit own lot only
         for motion in motions:
             vote = Vote(
-                agm_id=agm.id,
+                general_meeting_id=agm.id,
                 motion_id=motion.id,
                 voter_email=voter_email,
                 lot_owner_id=lo.id,
@@ -1660,14 +1660,14 @@ class TestMyBallotProxyLots:
                 status=VoteStatus.submitted,
             )
             db_session.add(vote)
-        bs = BallotSubmission(agm_id=agm.id, lot_owner_id=lo.id, voter_email=voter_email)
+        bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=voter_email)
         db_session.add(bs)
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.get(
-            f"/api/agm/{agm.id}/my-ballot",
+            f"/api/general-meeting/{agm.id}/my-ballot",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1689,7 +1689,7 @@ class TestAuthVerifyEffectiveStatus:
     async def test_verify_auth_past_closes_at_returns_closed_status(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """An open AGM whose voting_closes_at is in the past returns agm_status=closed."""
+        """An open GeneralMeeting whose voting_closes_at is in the past returns agm_status=closed."""
         b = Building(name="EffStatus Auth Bldg", manager_email="effauth@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -1699,11 +1699,11 @@ class TestAuthVerifyEffectiveStatus:
         await db_session.flush()
         db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="effauth@voter.test"))
 
-        # AGM is status=open but voting_closes_at is in the past
-        past_agm = AGM(
+        # GeneralMeeting is status=open but voting_closes_at is in the past
+        past_agm = GeneralMeeting(
             building_id=b.id,
-            title="Expired AGM Auth",
-            status=AGMStatus.open,
+            title="Expired GeneralMeeting Auth",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) - timedelta(days=3),
             voting_closes_at=datetime.now(UTC) - timedelta(days=1),
         )
@@ -1715,7 +1715,7 @@ class TestAuthVerifyEffectiveStatus:
             json={
                 "email": "effauth@voter.test",
                 "building_id": str(b.id),
-                "agm_id": str(past_agm.id),
+                "general_meeting_id": str(past_agm.id),
             },
         )
         assert response.status_code == 200
@@ -1724,7 +1724,7 @@ class TestAuthVerifyEffectiveStatus:
     async def test_verify_auth_future_closes_at_returns_open_status(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """An open AGM whose voting_closes_at is in the future returns agm_status=open."""
+        """An open GeneralMeeting whose voting_closes_at is in the future returns agm_status=open."""
         b = Building(name="FutStatus Auth Bldg", manager_email="futauth@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -1734,10 +1734,10 @@ class TestAuthVerifyEffectiveStatus:
         await db_session.flush()
         db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="futauth@voter.test"))
 
-        future_agm = AGM(
+        future_agm = GeneralMeeting(
             building_id=b.id,
-            title="Future AGM Auth",
-            status=AGMStatus.open,
+            title="Future GeneralMeeting Auth",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) + timedelta(days=1),
             voting_closes_at=datetime.now(UTC) + timedelta(days=2),
         )
@@ -1749,7 +1749,7 @@ class TestAuthVerifyEffectiveStatus:
             json={
                 "email": "futauth@voter.test",
                 "building_id": str(b.id),
-                "agm_id": str(future_agm.id),
+                "general_meeting_id": str(future_agm.id),
             },
         )
         assert response.status_code == 200
@@ -1772,17 +1772,17 @@ class TestPublicListAGMsEffectiveStatus:
         db_session.add(b)
         await db_session.flush()
 
-        past_agm = AGM(
+        past_agm = GeneralMeeting(
             building_id=b.id,
-            title="Public Expired AGM",
-            status=AGMStatus.open,
+            title="Public Expired GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) - timedelta(days=3),
             voting_closes_at=datetime.now(UTC) - timedelta(days=1),
         )
         db_session.add(past_agm)
         await db_session.commit()
 
-        response = await client.get(f"/api/buildings/{b.id}/agms")
+        response = await client.get(f"/api/buildings/{b.id}/general-meetings")
         assert response.status_code == 200
         items = response.json()
         assert len(items) == 1
@@ -1795,17 +1795,17 @@ class TestPublicListAGMsEffectiveStatus:
         db_session.add(b)
         await db_session.flush()
 
-        future_agm = AGM(
+        future_agm = GeneralMeeting(
             building_id=b.id,
-            title="Public Future AGM",
-            status=AGMStatus.open,
+            title="Public Future GeneralMeeting",
+            status=GeneralMeetingStatus.open,
             meeting_at=datetime.now(UTC) + timedelta(days=1),
             voting_closes_at=datetime.now(UTC) + timedelta(days=2),
         )
         db_session.add(future_agm)
         await db_session.commit()
 
-        response = await client.get(f"/api/buildings/{b.id}/agms")
+        response = await client.get(f"/api/buildings/{b.id}/general-meetings")
         assert response.status_code == 200
         items = response.json()
         assert len(items) == 1

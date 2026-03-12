@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { listBuildings, createAGM } from "../../api/admin";
-import type { AGMOut, AGMCreateRequest } from "../../api/admin";
+import { listBuildings, createGeneralMeeting } from "../../api/admin";
+import type { GeneralMeetingOut, GeneralMeetingCreateRequest } from "../../api/admin";
 import type { Building } from "../../types";
 import MotionEditor, { type MotionFormEntry } from "./MotionEditor";
 import MotionExcelUpload from "./MotionExcelUpload";
 
-export default function CreateAGMForm() {
+export default function CreateGeneralMeetingForm() {
   const navigate = useNavigate();
 
   const { data: buildings = [] } = useQuery<Building[]>({
@@ -22,9 +22,9 @@ export default function CreateAGMForm() {
   const [motions, setMotions] = useState<MotionFormEntry[]>([{ title: "", description: "", motion_type: "general" }]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const mutation = useMutation<AGMOut, Error, AGMCreateRequest>({
-    mutationFn: (data) => createAGM(data),
-    onSuccess: (data) => { navigate(`/admin/agms/${data.id}`); },
+  const mutation = useMutation<GeneralMeetingOut, Error, GeneralMeetingCreateRequest>({
+    mutationFn: (data) => createGeneralMeeting(data),
+    onSuccess: (data) => { navigate(`/admin/general-meetings/${data.id}`); },
     onError: (err) => { setFormError(err.message); },
   });
 
@@ -122,7 +122,7 @@ export default function CreateAGMForm() {
 
       <div style={{ marginTop: 8 }}>
         <button type="submit" className="btn btn--primary" disabled={mutation.isPending}>
-          {mutation.isPending ? "Creating..." : "Create AGM"}
+          {mutation.isPending ? "Creating..." : "Create General Meeting"}
         </button>
       </div>
     </form>

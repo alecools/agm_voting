@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -21,13 +20,13 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage(agmId = AGM_ID, search = "") {
+function renderPage(meetingId = AGM_ID, search = "") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${agmId}/auth${search}`]}>
+      <MemoryRouter initialEntries={[`/vote/${meetingId}/auth${search}`]}>
         <Routes>
-          <Route path="/vote/:agmId/auth" element={<AuthPage />} />
+          <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -96,6 +95,7 @@ describe("AuthPage", () => {
     );
     mockNavigate.mockClear();
     renderPage(AGM_ID, "?view=submission");
+
     await fillAndSubmit("42", "owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
@@ -186,7 +186,7 @@ describe("AuthPage", () => {
   it("handles AGM fetch error during building lookup gracefully (shows Loading...)", async () => {
     // All building AGM fetches fail — building not found, form shows "Loading..."
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () => HttpResponse.error())
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
     );
     renderPage();
     await waitFor(() => {
@@ -198,7 +198,7 @@ describe("AuthPage", () => {
   it("shows error when submitted before building is found (missing context)", async () => {
     // All building AGM fetches fail so foundBuildingId stays null
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/agms`, () => HttpResponse.error())
+      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
     );
     renderPage();
     // Wait for buildings to load

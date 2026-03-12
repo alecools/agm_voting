@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,13 +6,13 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import EmailStatusBanner from "../EmailStatusBanner";
 
-function renderComponent(agmId = "agm-failed-email", lastError: string | null = "SMTP error", onRetrySuccess = vi.fn()) {
+function renderComponent(meetingId = "agm-failed-email", lastError: string | null = "SMTP error", onRetrySuccess = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <EmailStatusBanner agmId={agmId} lastError={lastError} onRetrySuccess={onRetrySuccess} />
+      <EmailStatusBanner meetingId={meetingId} lastError={lastError} onRetrySuccess={onRetrySuccess} />
     </QueryClientProvider>
   );
 }
@@ -50,7 +49,7 @@ describe("EmailStatusBanner", () => {
 
   it("shows error message when retry fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/agms/:agmId/resend-report", () => {
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", () => {
         return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
       })
     );

@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,7 +34,7 @@ describe("MotionExcelUpload", () => {
   });
 
   it("shows loading state while parsing", async () => {
-    let resolvePromise!: (value: { motions: { title: string; description: string }[] }) => void;
+    let resolvePromise!: (value: { motions: { title: string; description: string; motion_type: "general" | "special" }[] }) => void;
     mockParse.mockReturnValue(
       new Promise((resolve) => {
         resolvePromise = resolve;
@@ -59,8 +58,8 @@ describe("MotionExcelUpload", () => {
 
   it("calls onMotionsLoaded with parsed motions on success and shows no error", async () => {
     const motions = [
-      { title: "Motion A", description: "" },
-      { title: "Motion B", description: "" },
+      { title: "Motion A", description: "", motion_type: "general" as const },
+      { title: "Motion B", description: "", motion_type: "general" as const },
     ];
     mockParse.mockResolvedValue({ motions });
 
@@ -130,7 +129,7 @@ describe("MotionExcelUpload", () => {
 
   it("clears previous errors when a new file is selected", async () => {
     mockParse.mockResolvedValueOnce({ errors: ["Row 1: Motion must be a number"] });
-    mockParse.mockResolvedValueOnce({ motions: [{ title: "Motion A", description: "" }] });
+    mockParse.mockResolvedValueOnce({ motions: [{ title: "Motion A", description: "", motion_type: "general" as const }] });
 
     const onMotionsLoaded = vi.fn();
     const user = userEvent.setup();
@@ -151,6 +150,6 @@ describe("MotionExcelUpload", () => {
     await waitFor(() => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
-    expect(onMotionsLoaded).toHaveBeenCalledWith([{ title: "Motion A", description: "" }]);
+    expect(onMotionsLoaded).toHaveBeenCalledWith([{ title: "Motion A", description: "", motion_type: "general" }]);
   });
 });

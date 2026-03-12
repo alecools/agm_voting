@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -37,7 +36,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -52,7 +51,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motionNoDesc}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -66,7 +65,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -82,7 +81,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice="yes"
         onChoiceChange={() => {}}
         disabled={false}
@@ -98,7 +97,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={onChoiceChange}
         disabled={false}
@@ -115,7 +114,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice="yes"
         onChoiceChange={onChoiceChange}
         disabled={false}
@@ -132,7 +131,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={onChoiceChange}
         disabled={true}
@@ -147,7 +146,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice="yes"
         onChoiceChange={() => {}}
         disabled={false}
@@ -161,12 +160,12 @@ describe("MotionCard", () => {
 
   it("shows error indicator when save fails", async () => {
     server.use(
-      http.put(`${BASE}/api/agm/agm-1/draft`, () => HttpResponse.error())
+      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
     );
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice="no"
         onChoiceChange={() => {}}
         disabled={false}
@@ -182,7 +181,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -196,12 +195,12 @@ describe("MotionCard", () => {
   it("manual save button triggers immediate save", async () => {
     const user = userEvent.setup();
     server.use(
-      http.put(`${BASE}/api/agm/agm-1/draft`, () => HttpResponse.error())
+      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
     );
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice="no"
         onChoiceChange={() => {}}
         disabled={false}
@@ -215,7 +214,7 @@ describe("MotionCard", () => {
 
     // Fix the handler and click Retry
     server.use(
-      http.put(`${BASE}/api/agm/agm-1/draft`, () => HttpResponse.json({ saved: true }))
+      http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.json({ saved: true }))
     );
     await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => {
@@ -229,7 +228,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -246,7 +245,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motionSpecial}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -265,7 +264,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -281,7 +280,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -297,7 +296,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -316,7 +315,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={onChoiceChange}
         disabled={false}
@@ -333,7 +332,7 @@ describe("MotionCard", () => {
     render(
       <MotionCard
         motion={motion}
-        agmId="agm-1"
+        meetingId="agm-1"
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}

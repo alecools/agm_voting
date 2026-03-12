@@ -15,35 +15,35 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
-class AGMStatus(str, enum.Enum):
+class GeneralMeetingStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
 
 
-def get_effective_status(agm: "AGM") -> AGMStatus:
-    """Return the effective status of an AGM.
+def get_effective_status(meeting: "GeneralMeeting") -> GeneralMeetingStatus:
+    """Return the effective status of a GeneralMeeting.
 
-    If the AGM's voting_closes_at is in the past and the stored status is
+    If the meeting's voting_closes_at is in the past and the stored status is
     still ``open``, the effective status is ``closed``.  This lets the API
     surface a closed status before the background auto-close job has run.
     """
-    if agm.status == AGMStatus.open and agm.voting_closes_at is not None:
+    if meeting.status == GeneralMeetingStatus.open and meeting.voting_closes_at is not None:
         # Make the comparison timezone-aware regardless of how the timestamp
         # was stored (with or without tzinfo).
-        closes_at = agm.voting_closes_at
+        closes_at = meeting.voting_closes_at
         if closes_at.tzinfo is None:
             closes_at = closes_at.replace(tzinfo=UTC)
         if closes_at < datetime.now(UTC):
-            return AGMStatus.closed
-    return agm.status
+            return GeneralMeetingStatus.closed
+    return meeting.status
 
 
-class AGM(Base):
-    __tablename__ = "agms"
+class GeneralMeeting(Base):
+    __tablename__ = "general_meetings"
     __table_args__ = (
         CheckConstraint(
             "voting_closes_at > meeting_at",
-            name="ck_agm_voting_closes_after_meeting",
+            name="ck_general_meeting_voting_closes_after_meeting",
         ),
     )
 
@@ -56,11 +56,11 @@ class AGM(Base):
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
-    status: Mapped[AGMStatus] = mapped_column(
-        Enum(AGMStatus, name="agmstatus"),
+    status: Mapped[GeneralMeetingStatus] = mapped_column(
+        Enum(GeneralMeetingStatus, name="generalmeetingstatus"),
         nullable=False,
-        default=AGMStatus.open,
-        server_default=AGMStatus.open.value,
+        default=GeneralMeetingStatus.open,
+        server_default=GeneralMeetingStatus.open.value,
     )
     meeting_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -82,23 +82,23 @@ class AGM(Base):
 
     # Relationships
     building: Mapped["Building"] = relationship(  # noqa: F821
-        "Building", back_populates="agms"
+        "Building", back_populates="general_meetings"
     )
     motions: Mapped[list["Motion"]] = relationship(  # noqa: F821
-        "Motion", back_populates="agm", cascade="all, delete-orphan"
+        "Motion", back_populates="general_meeting", cascade="all, delete-orphan"
     )
-    agm_lot_weights: Mapped[list["AGMLotWeight"]] = relationship(  # noqa: F821
-        "AGMLotWeight", back_populates="agm", cascade="all, delete-orphan"
+    general_meeting_lot_weights: Mapped[list["GeneralMeetingLotWeight"]] = relationship(  # noqa: F821
+        "GeneralMeetingLotWeight", back_populates="general_meeting", cascade="all, delete-orphan"
     )
     votes: Mapped[list["Vote"]] = relationship(  # noqa: F821
-        "Vote", back_populates="agm", cascade="all, delete-orphan"
+        "Vote", back_populates="general_meeting", cascade="all, delete-orphan"
     )
     ballot_submissions: Mapped[list["BallotSubmission"]] = relationship(  # noqa: F821
-        "BallotSubmission", back_populates="agm", cascade="all, delete-orphan"
+        "BallotSubmission", back_populates="general_meeting", cascade="all, delete-orphan"
     )
     session_records: Mapped[list["SessionRecord"]] = relationship(  # noqa: F821
-        "SessionRecord", back_populates="agm", cascade="all, delete-orphan"
+        "SessionRecord", back_populates="general_meeting", cascade="all, delete-orphan"
     )
     email_delivery: Mapped["EmailDelivery | None"] = relationship(  # noqa: F821
-        "EmailDelivery", back_populates="agm", uselist=False, cascade="all, delete-orphan"
+        "EmailDelivery", back_populates="general_meeting", uselist=False, cascade="all, delete-orphan"
     )

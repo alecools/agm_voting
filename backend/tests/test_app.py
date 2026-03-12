@@ -87,7 +87,7 @@ class TestMain:
         from app.main import app
 
         assert app is not None
-        assert app.title == "AGM Voting App"
+        assert app.title == "General Meeting Voting App"
 
     async def test_health_endpoint(self):
         from app.main import app

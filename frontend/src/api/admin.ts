@@ -34,7 +34,7 @@ export interface MotionOut {
   motion_type: MotionType;
 }
 
-export interface AGMOut {
+export interface GeneralMeetingOut {
   id: string;
   building_id: string;
   title: string;
@@ -44,7 +44,7 @@ export interface AGMOut {
   motions: MotionOut[];
 }
 
-export interface AGMListItem {
+export interface GeneralMeetingListItem {
   id: string;
   building_id: string;
   building_name: string;
@@ -56,7 +56,8 @@ export interface AGMListItem {
 }
 
 export interface VoterEntry {
-  lot_number: string;
+  voter_email?: string;
+  lot_number?: string;
   entitlement: number;
 }
 
@@ -91,7 +92,7 @@ export interface MotionDetail {
   voter_lists: MotionVoterLists;
 }
 
-export interface AGMDetail {
+export interface GeneralMeetingDetail {
   id: string;
   building_name: string;
   title: string;
@@ -105,7 +106,7 @@ export interface AGMDetail {
   motions: MotionDetail[];
 }
 
-export interface AGMCloseOut {
+export interface GeneralMeetingCloseOut {
   id: string;
   status: string;
   closed_at: string;
@@ -166,7 +167,7 @@ export interface MotionCreateRequest {
   motion_type: MotionType;
 }
 
-export interface AGMCreateRequest {
+export interface GeneralMeetingCreateRequest {
   building_id: string;
   title: string;
   meeting_at: string;
@@ -350,32 +351,32 @@ export async function importFinancialPositions(
 }
 
 // ---------------------------------------------------------------------------
-// AGMs
+// General Meetings
 // ---------------------------------------------------------------------------
 
-export async function listAGMs(): Promise<AGMListItem[]> {
-  return apiFetch<AGMListItem[]>("/api/admin/agms");
+export async function listGeneralMeetings(): Promise<GeneralMeetingListItem[]> {
+  return apiFetch<GeneralMeetingListItem[]>("/api/admin/general-meetings");
 }
 
-export async function createAGM(data: AGMCreateRequest): Promise<AGMOut> {
-  return apiFetch<AGMOut>("/api/admin/agms", {
+export async function createGeneralMeeting(data: GeneralMeetingCreateRequest): Promise<GeneralMeetingOut> {
+  return apiFetch<GeneralMeetingOut>("/api/admin/general-meetings", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
-export async function getAGMDetail(agmId: string): Promise<AGMDetail> {
-  return apiFetch<AGMDetail>(`/api/admin/agms/${agmId}`);
+export async function getGeneralMeetingDetail(meetingId: string): Promise<GeneralMeetingDetail> {
+  return apiFetch<GeneralMeetingDetail>(`/api/admin/general-meetings/${meetingId}`);
 }
 
-export async function closeAGM(agmId: string): Promise<AGMCloseOut> {
-  return apiFetch<AGMCloseOut>(`/api/admin/agms/${agmId}/close`, {
+export async function closeGeneralMeeting(meetingId: string): Promise<GeneralMeetingCloseOut> {
+  return apiFetch<GeneralMeetingCloseOut>(`/api/admin/general-meetings/${meetingId}/close`, {
     method: "POST",
   });
 }
 
-export async function resendReport(agmId: string): Promise<ResendReportOut> {
-  return apiFetch<ResendReportOut>(`/api/admin/agms/${agmId}/resend-report`, {
+export async function resendReport(meetingId: string): Promise<ResendReportOut> {
+  return apiFetch<ResendReportOut>(`/api/admin/general-meetings/${meetingId}/resend-report`, {
     method: "POST",
   });
 }

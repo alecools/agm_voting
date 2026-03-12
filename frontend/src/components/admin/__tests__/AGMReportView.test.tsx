@@ -1,7 +1,5 @@
-import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import AGMReportView from "../AGMReportView";
 import type { MotionDetail } from "../../../api/admin";
 
@@ -11,6 +9,7 @@ const motions: MotionDetail[] = [
     title: "Motion 1",
     description: "First motion description",
     order_index: 0,
+    motion_type: "general" as const,
     tally: {
       yes: { voter_count: 2, entitlement_sum: 200 },
       no: { voter_count: 1, entitlement_sum: 100 },
@@ -37,6 +36,7 @@ const motions: MotionDetail[] = [
     title: "Motion 2",
     description: null,
     order_index: 1,
+    motion_type: "special" as const,
     tally: {
       yes: { voter_count: 1, entitlement_sum: 50 },
       no: { voter_count: 0, entitlement_sum: 0 },

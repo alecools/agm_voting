@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,13 +16,13 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-function renderPage(agmId = AGM_ID) {
+function renderPage(meetingId = AGM_ID) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${agmId}/confirmation`]}>
+      <MemoryRouter initialEntries={[`/vote/${meetingId}/confirmation`]}>
         <Routes>
-          <Route path="/vote/:agmId/confirmation" element={<ConfirmationPage />} />
+          <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -36,7 +35,7 @@ describe("ConfirmationPage", () => {
     expect(screen.getByText("Loading your submission...")).toBeInTheDocument();
   });
 
-  it("renders building name and AGM title", async () => {
+  it("renders building name and meeting title", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/Sunset Towers/)).toBeInTheDocument();
@@ -63,7 +62,7 @@ describe("ConfirmationPage", () => {
 
   it("shows 'You did not submit' on 404", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({ detail: "not found" }, { status: 404 })
       )
     );
@@ -77,7 +76,7 @@ describe("ConfirmationPage", () => {
 
   it("shows error message on non-404 failure", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({ detail: "server error" }, { status: 500 })
       )
     );
@@ -89,10 +88,10 @@ describe("ConfirmationPage", () => {
 
   it("votes are sorted by order_index", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
           voter_email: "voter@test.com",
-          agm_title: "Test AGM",
+          meeting_title: "Test Meeting",
           building_name: "Test Building",
           submitted_lots: [
             {
@@ -119,10 +118,10 @@ describe("ConfirmationPage", () => {
 
   it("shows Abstained for abstained votes", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
           voter_email: "voter@test.com",
-          agm_title: "Test AGM",
+          meeting_title: "Test Meeting",
           building_name: "Test Building",
           submitted_lots: [
             {
@@ -157,10 +156,10 @@ describe("ConfirmationPage", () => {
 
   it("falls back to raw choice value for unknown choice key", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
           voter_email: "voter@test.com",
-          agm_title: "Test AGM",
+          meeting_title: "Test Meeting",
           building_name: "Test Building",
           submitted_lots: [
             {
@@ -184,10 +183,10 @@ describe("ConfirmationPage", () => {
 
   it("renders multi-lot ballot with lot headers", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
           voter_email: "voter@test.com",
-          agm_title: "Test AGM",
+          meeting_title: "Test Meeting",
           building_name: "Test Building",
           submitted_lots: [
             {
@@ -220,10 +219,10 @@ describe("ConfirmationPage", () => {
 
   it("shows 'Not eligible' label for not_eligible votes in multi-lot ballot", async () => {
     server.use(
-      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
           voter_email: "voter@test.com",
-          agm_title: "Test AGM",
+          meeting_title: "Test Meeting",
           building_name: "Test Building",
           submitted_lots: [
             {
@@ -251,7 +250,6 @@ describe("ConfirmationPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Lot 1A")).toBeInTheDocument();
-      // "Not eligible" label should appear for the not_eligible vote
       expect(screen.getByText("Not eligible")).toBeInTheDocument();
     });
   });

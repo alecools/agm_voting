@@ -20,8 +20,8 @@ class SessionRecord(Base):
         ForeignKey("buildings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -38,6 +38,6 @@ class SessionRecord(Base):
     building: Mapped["Building"] = relationship(  # noqa: F821
         "Building", back_populates="session_records"
     )
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="session_records"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="session_records"
     )

@@ -17,12 +17,12 @@ from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
     AddEmailRequest,
-    AGMBallotResetOut,
-    AGMCloseOut,
-    AGMCreate,
-    AGMDetail,
-    AGMListItem,
-    AGMOut,
+    GeneralMeetingBallotResetOut,
+    GeneralMeetingCloseOut,
+    GeneralMeetingCreate,
+    GeneralMeetingDetail,
+    GeneralMeetingListItem,
+    GeneralMeetingOut,
     BuildingArchiveOut,
     BuildingCreate,
     BuildingImportResult,
@@ -279,84 +279,84 @@ async def remove_email_from_lot_owner(
 
 
 # ---------------------------------------------------------------------------
-# AGMs
+# General Meetings
 # ---------------------------------------------------------------------------
 
 
 @router.post(
-    "/agms",
-    response_model=AGMOut,
+    "/general-meetings",
+    response_model=GeneralMeetingOut,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_agm(
-    data: AGMCreate,
+async def create_general_meeting(
+    data: GeneralMeetingCreate,
     db: AsyncSession = Depends(get_db),
-) -> AGMOut:
-    agm_dict = await admin_service.create_agm(data, db)
-    return AGMOut(**agm_dict)
+) -> GeneralMeetingOut:
+    meeting_dict = await admin_service.create_general_meeting(data, db)
+    return GeneralMeetingOut(**meeting_dict)
 
 
-@router.get("/agms", response_model=list[AGMListItem])
-async def list_agms(
+@router.get("/general-meetings", response_model=list[GeneralMeetingListItem])
+async def list_general_meetings(
     db: AsyncSession = Depends(get_db),
-) -> list[AGMListItem]:
-    items = await admin_service.list_agms(db)
-    return [AGMListItem(**item) for item in items]
+) -> list[GeneralMeetingListItem]:
+    items = await admin_service.list_general_meetings(db)
+    return [GeneralMeetingListItem(**item) for item in items]
 
 
-@router.get("/agms/{agm_id}", response_model=AGMDetail)
-async def get_agm_detail(
-    agm_id: uuid.UUID,
+@router.get("/general-meetings/{general_meeting_id}", response_model=GeneralMeetingDetail)
+async def get_general_meeting_detail(
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> AGMDetail:
-    detail = await admin_service.get_agm_detail(agm_id, db)
-    return AGMDetail(**detail)
+) -> GeneralMeetingDetail:
+    detail = await admin_service.get_general_meeting_detail(general_meeting_id, db)
+    return GeneralMeetingDetail(**detail)
 
 
 @router.post(
-    "/agms/{agm_id}/close",
-    response_model=AGMCloseOut,
+    "/general-meetings/{general_meeting_id}/close",
+    response_model=GeneralMeetingCloseOut,
 )
-async def close_agm(
-    agm_id: uuid.UUID,
+async def close_general_meeting(
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> AGMCloseOut:
-    agm = await admin_service.close_agm(agm_id, db)
+) -> GeneralMeetingCloseOut:
+    meeting = await admin_service.close_general_meeting(general_meeting_id, db)
     email_service = EmailService()
-    asyncio.create_task(email_service.trigger_with_retry(agm.id))
-    return AGMCloseOut(
-        id=agm.id,
-        status=agm.status.value if hasattr(agm.status, "value") else agm.status,
-        closed_at=agm.closed_at,
+    asyncio.create_task(email_service.trigger_with_retry(meeting.id))
+    return GeneralMeetingCloseOut(
+        id=meeting.id,
+        status=meeting.status.value if hasattr(meeting.status, "value") else meeting.status,
+        closed_at=meeting.closed_at,
     )
 
 
 @router.post(
-    "/agms/{agm_id}/resend-report",
+    "/general-meetings/{general_meeting_id}/resend-report",
     response_model=ResendReportOut,
 )
 async def resend_report(
-    agm_id: uuid.UUID,
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> ResendReportOut:
-    result = await admin_service.resend_report(agm_id, db)
+    result = await admin_service.resend_report(general_meeting_id, db)
     email_service = EmailService()
-    asyncio.create_task(email_service.trigger_with_retry(agm_id))
+    asyncio.create_task(email_service.trigger_with_retry(general_meeting_id))
     return ResendReportOut(**result)
 
 
 @router.delete(
-    "/agms/{agm_id}/ballots",
-    response_model=AGMBallotResetOut,
+    "/general-meetings/{general_meeting_id}/ballots",
+    response_model=GeneralMeetingBallotResetOut,
 )
-async def reset_agm_ballots(
-    agm_id: uuid.UUID,
+async def reset_general_meeting_ballots(
+    general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> AGMBallotResetOut:
-    """Delete all ballot submissions for an AGM.
+) -> GeneralMeetingBallotResetOut:
+    """Delete all ballot submissions for a General Meeting.
 
     Intended for E2E test setup only — clears submitted votes so the test
     suite can re-run the voting flow without hitting a 409 conflict.
     """
-    result = await admin_service.reset_agm_ballots(agm_id, db)
-    return AGMBallotResetOut(**result)
+    result = await admin_service.reset_general_meeting_ballots(general_meeting_id, db)
+    return GeneralMeetingBallotResetOut(**result)

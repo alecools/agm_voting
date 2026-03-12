@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agm import AGM, AGMStatus, get_effective_status
+from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
@@ -65,16 +65,16 @@ async def verify_auth(
             detail="Email address not found for this building",
         )
 
-    # 4. Verify AGM belongs to building_id
-    agm_result = await db.execute(
-        select(AGM).where(
-            AGM.id == request.agm_id,
-            AGM.building_id == request.building_id,
+    # 4. Verify General Meeting belongs to building_id
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(
+            GeneralMeeting.id == request.general_meeting_id,
+            GeneralMeeting.building_id == request.building_id,
         )
     )
-    agm = agm_result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found for this building")
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found for this building")
 
     # 5. Fetch all relevant LotOwner records
     lots_result = await db.execute(
@@ -85,7 +85,7 @@ async def verify_auth(
     # 6. Check submissions per lot owner
     submissions_result = await db.execute(
         select(BallotSubmission).where(
-            BallotSubmission.agm_id == request.agm_id,
+            BallotSubmission.general_meeting_id == request.general_meeting_id,
             BallotSubmission.lot_owner_id.in_(all_lot_owner_ids),
         )
     )
@@ -115,12 +115,12 @@ async def verify_auth(
         db=db,
         voter_email=request.email,
         building_id=request.building_id,
-        agm_id=request.agm_id,
+        general_meeting_id=request.general_meeting_id,
     )
     await db.commit()
 
     response.set_cookie(
-        key="agm_session",
+        key="meeting_session",
         value=token,
         httponly=True,
         samesite="lax",
@@ -129,7 +129,7 @@ async def verify_auth(
     return AuthVerifyResponse(
         lots=lots,
         voter_email=request.email,
-        # Use effective status so past-voting_closes_at AGMs report as closed
+        # Use effective status so past-voting_closes_at meetings report as closed
         # even before the auto-close job has run (US-CD03).
-        agm_status=get_effective_status(agm).value,
+        agm_status=get_effective_status(meeting).value,
     )

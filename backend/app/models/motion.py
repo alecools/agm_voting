@@ -15,15 +15,15 @@ class MotionType(str, enum.Enum):
 class Motion(Base):
     __tablename__ = "motions"
     __table_args__ = (
-        UniqueConstraint("agm_id", "order_index", name="uq_motions_agm_order"),
+        UniqueConstraint("general_meeting_id", "order_index", name="uq_motions_general_meeting_order"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
     )
-    agm_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agms.id", ondelete="CASCADE"),
+    general_meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -37,8 +37,8 @@ class Motion(Base):
     )
 
     # Relationships
-    agm: Mapped["AGM"] = relationship(  # noqa: F821
-        "AGM", back_populates="motions"
+    general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
+        "GeneralMeeting", back_populates="motions"
     )
     votes: Mapped[list["Vote"]] = relationship(  # noqa: F821
         "Vote", back_populates="motion", cascade="all, delete-orphan"

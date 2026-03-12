@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="AGM Voting App",
+        title="General Meeting Voting App",
         version="0.1.0",
         lifespan=lifespan,
     )

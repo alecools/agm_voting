@@ -16,9 +16,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
-    AGM,
-    AGMLotWeight,
-    AGMStatus,
+    GeneralMeeting,
+    GeneralMeetingLotWeight,
+    GeneralMeetingStatus,
     BallotSubmission,
     Building,
     EmailDelivery,
@@ -35,7 +35,7 @@ from app.models import (
     get_effective_status,
 )
 from app.schemas.admin import (
-    AGMCreate,
+    GeneralMeetingCreate,
     LotOwnerCreate,
     LotOwnerUpdate,
 )
@@ -819,43 +819,43 @@ async def remove_email_from_lot_owner(
 
 
 # ---------------------------------------------------------------------------
-# AGMs
+# General Meetings
 # ---------------------------------------------------------------------------
 
 
-async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
+async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -> GeneralMeeting:
     # Validate building exists
     building = await get_building_or_404(data.building_id, db)
 
-    # Check no open AGM already exists for this building
+    # Check no open General Meeting already exists for this building
     result = await db.execute(
-        select(AGM).where(
-            AGM.building_id == data.building_id,
-            AGM.status == AGMStatus.open,
+        select(GeneralMeeting).where(
+            GeneralMeeting.building_id == data.building_id,
+            GeneralMeeting.status == GeneralMeetingStatus.open,
         )
     )
     existing_open = result.scalar_one_or_none()
     if existing_open is not None:
         raise HTTPException(
             status_code=409,
-            detail="An open AGM already exists for this building",
+            detail="An open General Meeting already exists for this building",
         )
 
-    # Create AGM
-    agm = AGM(
+    # Create General Meeting
+    general_meeting = GeneralMeeting(
         building_id=data.building_id,
         title=data.title,
-        status=AGMStatus.open,
+        status=GeneralMeetingStatus.open,
         meeting_at=data.meeting_at,
         voting_closes_at=data.voting_closes_at,
     )
-    db.add(agm)
-    await db.flush()  # get agm.id
+    db.add(general_meeting)
+    await db.flush()  # get general_meeting.id
 
     # Create motions
     for motion_data in data.motions:
         motion = Motion(
-            agm_id=agm.id,
+            general_meeting_id=general_meeting.id,
             title=motion_data.title,
             description=motion_data.description,
             order_index=motion_data.order_index,
@@ -872,8 +872,8 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
     for lot_owner in lot_owners:
         fp = lot_owner.financial_position
         fp_snapshot = FinancialPositionSnapshot(fp.value if hasattr(fp, "value") else fp)
-        weight = AGMLotWeight(
-            agm_id=agm.id,
+        weight = GeneralMeetingLotWeight(
+            general_meeting_id=general_meeting.id,
             lot_owner_id=lot_owner.id,
             unit_entitlement_snapshot=lot_owner.unit_entitlement,
             financial_position_snapshot=fp_snapshot,
@@ -881,11 +881,11 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
         db.add(weight)
 
     await db.commit()
-    await db.refresh(agm)
+    await db.refresh(general_meeting)
 
     # Load motions explicitly (avoid lazy load on async session)
     motions_result = await db.execute(
-        select(Motion).where(Motion.agm_id == agm.id).order_by(Motion.order_index)
+        select(Motion).where(Motion.general_meeting_id == general_meeting.id).order_by(Motion.order_index)
     )
     loaded_motions = list(motions_result.scalars().all())
 
@@ -893,12 +893,12 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
 
     # Return as dict to avoid triggering lazy relationship loads during serialization
     return {
-        "id": agm.id,
-        "building_id": agm.building_id,
-        "title": agm.title,
-        "status": agm.status.value if hasattr(agm.status, "value") else agm.status,
-        "meeting_at": agm.meeting_at,
-        "voting_closes_at": agm.voting_closes_at,
+        "id": general_meeting.id,
+        "building_id": general_meeting.building_id,
+        "title": general_meeting.title,
+        "status": general_meeting.status.value if hasattr(general_meeting.status, "value") else general_meeting.status,
+        "meeting_at": general_meeting.meeting_at,
+        "voting_closes_at": general_meeting.voting_closes_at,
         "motions": [
             {
                 "id": m.id,
@@ -912,54 +912,54 @@ async def create_agm(data: AGMCreate, db: AsyncSession) -> AGM:
     }
 
 
-async def list_agms(db: AsyncSession) -> list[dict]:
+async def list_general_meetings(db: AsyncSession) -> list[dict]:
     result = await db.execute(
-        select(AGM, Building.name.label("building_name"))
-        .join(Building, AGM.building_id == Building.id)
-        .order_by(AGM.created_at.desc())
+        select(GeneralMeeting, Building.name.label("building_name"))
+        .join(Building, GeneralMeeting.building_id == Building.id)
+        .order_by(GeneralMeeting.created_at.desc())
     )
     rows = result.all()
     items = []
-    for agm, building_name in rows:
-        effective = get_effective_status(agm)
+    for general_meeting, building_name in rows:
+        effective = get_effective_status(general_meeting)
         items.append(
             {
-                "id": agm.id,
-                "building_id": agm.building_id,
+                "id": general_meeting.id,
+                "building_id": general_meeting.building_id,
                 "building_name": building_name,
-                "title": agm.title,
+                "title": general_meeting.title,
                 "status": effective.value if hasattr(effective, "value") else effective,
-                "meeting_at": agm.meeting_at,
-                "voting_closes_at": agm.voting_closes_at,
-                "created_at": agm.created_at,
+                "meeting_at": general_meeting.meeting_at,
+                "voting_closes_at": general_meeting.voting_closes_at,
+                "created_at": general_meeting.created_at,
             }
         )
     return items
 
 
-async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
+async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict:
     result = await db.execute(
-        select(AGM, Building.name.label("building_name"))
-        .join(Building, AGM.building_id == Building.id)
-        .where(AGM.id == agm_id)
+        select(GeneralMeeting, Building.name.label("building_name"))
+        .join(Building, GeneralMeeting.building_id == Building.id)
+        .where(GeneralMeeting.id == general_meeting_id)
     )
     row = result.first()
     if row is None:
-        raise HTTPException(status_code=404, detail="AGM not found")
+        raise HTTPException(status_code=404, detail="General Meeting not found")
 
-    agm, building_name = row
+    general_meeting, building_name = row
 
     # Load motions
     motions_result = await db.execute(
-        select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+        select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.order_index)
     )
     motions = list(motions_result.scalars().all())
 
     # Load lot weights joined with lot_owner to get lot numbers
     weights_result = await db.execute(
-        select(AGMLotWeight, LotOwner.lot_number.label("lot_number"))
-        .join(LotOwner, AGMLotWeight.lot_owner_id == LotOwner.id)
-        .where(AGMLotWeight.agm_id == agm_id)
+        select(GeneralMeetingLotWeight, LotOwner.lot_number.label("lot_number"))
+        .join(LotOwner, GeneralMeetingLotWeight.lot_owner_id == LotOwner.id)
+        .where(GeneralMeetingLotWeight.general_meeting_id == general_meeting_id)
     )
     weight_rows = weights_result.all()
 
@@ -984,7 +984,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     # Fallback: if snapshot is empty
     if not lot_entitlement:
         current_result = await db.execute(
-            select(LotOwner).where(LotOwner.building_id == agm.building_id)
+            select(LotOwner).where(LotOwner.building_id == general_meeting.building_id)
         )
         for lo in current_result.scalars().all():
             lot_entitlement[lo.id] = lo.unit_entitlement
@@ -1004,7 +1004,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
 
     # Load ballot submissions
     submissions_result = await db.execute(
-        select(BallotSubmission).where(BallotSubmission.agm_id == agm_id)
+        select(BallotSubmission).where(BallotSubmission.general_meeting_id == general_meeting_id)
     )
     submissions = list(submissions_result.scalars().all())
     submitted_lot_owner_ids: set[uuid.UUID] = {s.lot_owner_id for s in submissions}
@@ -1013,7 +1013,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     # Load submitted votes (joined with lot owner info via voter_email)
     votes_result = await db.execute(
         select(Vote).where(
-            Vote.agm_id == agm_id,
+            Vote.general_meeting_id == general_meeting_id,
             Vote.status == VoteStatus.submitted,
         )
     )
@@ -1098,15 +1098,15 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
 
     total_entitlement = sum(lot_entitlement.values())
 
-    effective = get_effective_status(agm)
+    effective = get_effective_status(general_meeting)
     return {
-        "id": agm.id,
+        "id": general_meeting.id,
         "building_name": building_name,
-        "title": agm.title,
+        "title": general_meeting.title,
         "status": effective.value if hasattr(effective, "value") else effective,
-        "meeting_at": agm.meeting_at,
-        "voting_closes_at": agm.voting_closes_at,
-        "closed_at": agm.closed_at,
+        "meeting_at": general_meeting.meeting_at,
+        "voting_closes_at": general_meeting.voting_closes_at,
+        "closed_at": general_meeting.closed_at,
         "total_eligible_voters": total_eligible_voters,
         "total_submitted": total_submitted,
         "total_entitlement": total_entitlement,
@@ -1114,30 +1114,30 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     }
 
 
-async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) -> AGM:
-    result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found")
-    if agm.status == AGMStatus.closed:
-        raise HTTPException(status_code=409, detail="AGM is already closed")
+async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession, background_tasks=None) -> GeneralMeeting:
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = result.scalar_one_or_none()
+    if general_meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+    if general_meeting.status == GeneralMeetingStatus.closed:
+        raise HTTPException(status_code=409, detail="General Meeting is already closed")
 
-    # Close the AGM
-    agm.status = AGMStatus.closed
-    agm.closed_at = datetime.now(UTC)
+    # Close the General Meeting
+    general_meeting.status = GeneralMeetingStatus.closed
+    general_meeting.closed_at = datetime.now(UTC)
 
     # Delete draft votes
     await db.execute(
         delete(Vote).where(
-            Vote.agm_id == agm_id,
+            Vote.general_meeting_id == general_meeting_id,
             Vote.status == VoteStatus.draft,
         )
     )
 
     # Generate absent BallotSubmissions + absent Votes for lots that never voted.
-    # 1. Find all AGMLotWeight records (the snapshot of eligible lots at AGM creation time).
+    # 1. Find all GeneralMeetingLotWeight records (the snapshot of eligible lots at meeting creation time).
     weights_result = await db.execute(
-        select(AGMLotWeight).where(AGMLotWeight.agm_id == agm_id)
+        select(GeneralMeetingLotWeight).where(GeneralMeetingLotWeight.general_meeting_id == general_meeting_id)
     )
     weight_lot_ids: list[uuid.UUID] = [w.lot_owner_id for w in weights_result.scalars().all()]
 
@@ -1145,15 +1145,15 @@ async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) 
     if weight_lot_ids:
         subs_result = await db.execute(
             select(BallotSubmission.lot_owner_id).where(
-                BallotSubmission.agm_id == agm_id,
+                BallotSubmission.general_meeting_id == general_meeting_id,
                 BallotSubmission.lot_owner_id.in_(weight_lot_ids),
             )
         )
         already_submitted_ids: set[uuid.UUID] = {row[0] for row in subs_result.all()}
 
-        # 3. Get motions for this AGM (to create absent Vote rows per motion).
+        # 3. Get motions for this General Meeting (to create absent Vote rows per motion).
         motions_result = await db.execute(
-            select(Motion).where(Motion.agm_id == agm_id).order_by(Motion.order_index)
+            select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.order_index)
         )
         motions = list(motions_result.scalars().all())
 
@@ -1170,7 +1170,7 @@ async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) 
 
             # Create a BallotSubmission to mark the lot as absent.
             absent_submission = BallotSubmission(
-                agm_id=agm_id,
+                general_meeting_id=general_meeting_id,
                 lot_owner_id=lot_owner_id,
                 voter_email=voter_email,
                 proxy_email=None,
@@ -1181,7 +1181,7 @@ async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) 
             # Create absent Vote rows for every motion.
             for motion in motions:
                 absent_vote = Vote(
-                    agm_id=agm_id,
+                    general_meeting_id=general_meeting_id,
                     motion_id=motion.id,
                     voter_email=voter_email,
                     lot_owner_id=lot_owner_id,
@@ -1194,32 +1194,32 @@ async def close_agm(agm_id: uuid.UUID, db: AsyncSession, background_tasks=None) 
 
     # Create EmailDelivery record
     email_delivery = EmailDelivery(
-        agm_id=agm_id,
+        general_meeting_id=general_meeting_id,
         status=EmailDeliveryStatus.pending,
         total_attempts=0,
     )
     db.add(email_delivery)
 
     await db.commit()
-    await db.refresh(agm)
+    await db.refresh(general_meeting)
 
     # Stub: log email delivery trigger
-    logger.info("Email delivery triggered for AGM %s", agm_id)
+    logger.info("Email delivery triggered for General Meeting %s", general_meeting_id)
 
-    return agm
+    return general_meeting
 
 
-async def resend_report(agm_id: uuid.UUID, db: AsyncSession) -> dict:
-    result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found")
-    if agm.status == AGMStatus.open:
-        raise HTTPException(status_code=409, detail="AGM is not closed")
+async def resend_report(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict:
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = result.scalar_one_or_none()
+    if general_meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+    if general_meeting.status == GeneralMeetingStatus.open:
+        raise HTTPException(status_code=409, detail="General Meeting is not closed")
 
     # Check EmailDelivery
     delivery_result = await db.execute(
-        select(EmailDelivery).where(EmailDelivery.agm_id == agm_id)
+        select(EmailDelivery).where(EmailDelivery.general_meeting_id == general_meeting_id)
     )
     delivery = delivery_result.scalar_one_or_none()
     if delivery is None:
@@ -1240,39 +1240,39 @@ async def resend_report(agm_id: uuid.UUID, db: AsyncSession) -> dict:
     await db.commit()
 
     # Stub: log email delivery trigger
-    logger.info("Email delivery triggered for AGM %s", agm_id)
+    logger.info("Email delivery triggered for General Meeting %s", general_meeting_id)
 
     return {"queued": True}
 
 
-async def reset_agm_ballots(agm_id: uuid.UUID, db: AsyncSession) -> dict:
-    """Delete all ballot submissions (and their associated submitted votes) for an AGM.
+async def reset_general_meeting_ballots(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict:
+    """Delete all ballot submissions (and their associated submitted votes) for a General Meeting.
 
     Intended for E2E test setup only — clears submitted votes so the test
     suite can re-run the voting flow without hitting a 409 conflict.
     Returns the number of ballot submissions deleted.
     """
-    result = await db.execute(select(AGM).where(AGM.id == agm_id))
-    agm = result.scalar_one_or_none()
-    if agm is None:
-        raise HTTPException(status_code=404, detail="AGM not found")
+    result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
+    general_meeting = result.scalar_one_or_none()
+    if general_meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
 
     # Count submissions before deleting so we can return the count.
     count_result = await db.execute(
-        select(func.count(BallotSubmission.id)).where(BallotSubmission.agm_id == agm_id)
+        select(func.count(BallotSubmission.id)).where(BallotSubmission.general_meeting_id == general_meeting_id)
     )
     deleted_count = count_result.scalar_one()
 
-    # Delete submitted votes for this AGM (must come before ballot submissions
+    # Delete submitted votes for this General Meeting (must come before ballot submissions
     # to avoid any application-level FK issues, even though there is no DB-level
     # FK from votes -> ballot_submissions).
     await db.execute(
-        delete(Vote).where(Vote.agm_id == agm_id, Vote.status == VoteStatus.submitted)
+        delete(Vote).where(Vote.general_meeting_id == general_meeting_id, Vote.status == VoteStatus.submitted)
     )
 
-    # Delete all ballot submissions for this AGM.
+    # Delete all ballot submissions for this General Meeting.
     await db.execute(
-        delete(BallotSubmission).where(BallotSubmission.agm_id == agm_id)
+        delete(BallotSubmission).where(BallotSubmission.general_meeting_id == general_meeting_id)
     )
 
     await db.commit()

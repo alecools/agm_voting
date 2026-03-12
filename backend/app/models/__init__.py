@@ -2,9 +2,9 @@ from app.models.base import Base, TimestampMixin
 from app.models.building import Building
 from app.models.lot_owner import LotOwner, FinancialPosition
 from app.models.lot_owner_email import LotOwnerEmail
-from app.models.agm import AGM, AGMStatus, get_effective_status
+from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.motion import Motion, MotionType
-from app.models.agm_lot_weight import AGMLotWeight, FinancialPositionSnapshot
+from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
 from app.models.vote import Vote, VoteChoice, VoteStatus
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_proxy import LotProxy
@@ -18,12 +18,12 @@ __all__ = [
     "LotOwner",
     "FinancialPosition",
     "LotOwnerEmail",
-    "AGM",
-    "AGMStatus",
+    "GeneralMeeting",
+    "GeneralMeetingStatus",
     "get_effective_status",
     "Motion",
     "MotionType",
-    "AGMLotWeight",
+    "GeneralMeetingLotWeight",
     "FinancialPositionSnapshot",
     "Vote",
     "VoteChoice",

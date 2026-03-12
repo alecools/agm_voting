@@ -1,15 +1,15 @@
 import { apiFetch } from "./client";
-import type { AGMStatus, MotionType, VoteChoice } from "../types";
+import type { GeneralMeetingStatus, MotionType, VoteChoice } from "../types";
 
 export interface BuildingOut {
   id: string;
   name: string;
 }
 
-export interface AGMOut {
+export interface GeneralMeetingOut {
   id: string;
   title: string;
-  status: AGMStatus;
+  status: GeneralMeetingStatus;
   meeting_at: string;
   voting_closes_at: string;
 }
@@ -17,7 +17,7 @@ export interface AGMOut {
 export interface AuthVerifyRequest {
   email: string;
   building_id: string;
-  agm_id: string;
+  general_meeting_id: string;
 }
 
 export interface LotInfo {
@@ -94,7 +94,7 @@ export interface LotBallotSummary {
 
 export interface MyBallotResponse {
   voter_email: string;
-  agm_title: string;
+  meeting_title: string;
   building_name: string;
   submitted_lots: LotBallotSummary[];
   remaining_lot_owner_ids: string[];
@@ -116,8 +116,8 @@ export function fetchBuildings(): Promise<BuildingOut[]> {
   return apiFetch<BuildingOut[]>("/api/buildings");
 }
 
-export function fetchAGMs(buildingId: string): Promise<AGMOut[]> {
-  return apiFetch<AGMOut[]>(`/api/buildings/${buildingId}/agms`);
+export function fetchGeneralMeetings(buildingId: string): Promise<GeneralMeetingOut[]> {
+  return apiFetch<GeneralMeetingOut[]>(`/api/buildings/${buildingId}/general-meetings`);
 }
 
 export function verifyAuth(req: AuthVerifyRequest): Promise<AuthVerifyResponse> {
@@ -127,28 +127,28 @@ export function verifyAuth(req: AuthVerifyRequest): Promise<AuthVerifyResponse> 
   });
 }
 
-export function fetchMotions(agmId: string): Promise<MotionOut[]> {
-  return apiFetch<MotionOut[]>(`/api/agm/${agmId}/motions`);
+export function fetchMotions(meetingId: string): Promise<MotionOut[]> {
+  return apiFetch<MotionOut[]>(`/api/general-meeting/${meetingId}/motions`);
 }
 
-export function fetchDrafts(agmId: string): Promise<DraftsResponse> {
-  return apiFetch<DraftsResponse>(`/api/agm/${agmId}/drafts`);
+export function fetchDrafts(meetingId: string): Promise<DraftsResponse> {
+  return apiFetch<DraftsResponse>(`/api/general-meeting/${meetingId}/drafts`);
 }
 
-export function saveDraft(agmId: string, req: DraftSaveRequest): Promise<DraftSaveResponse> {
-  return apiFetch<DraftSaveResponse>(`/api/agm/${agmId}/draft`, {
+export function saveDraft(meetingId: string, req: DraftSaveRequest): Promise<DraftSaveResponse> {
+  return apiFetch<DraftSaveResponse>(`/api/general-meeting/${meetingId}/draft`, {
     method: "PUT",
     body: JSON.stringify(req),
   });
 }
 
-export function submitBallot(agmId: string, lotOwnerIds: string[]): Promise<SubmitResponse> {
-  return apiFetch<SubmitResponse>(`/api/agm/${agmId}/submit`, {
+export function submitBallot(meetingId: string, lotOwnerIds: string[]): Promise<SubmitResponse> {
+  return apiFetch<SubmitResponse>(`/api/general-meeting/${meetingId}/submit`, {
     method: "POST",
     body: JSON.stringify({ lot_owner_ids: lotOwnerIds }),
   });
 }
 
-export function fetchMyBallot(agmId: string): Promise<MyBallotResponse> {
-  return apiFetch<MyBallotResponse>(`/api/agm/${agmId}/my-ballot`);
+export function fetchMyBallot(meetingId: string): Promise<MyBallotResponse> {
+  return apiFetch<MyBallotResponse>(`/api/general-meeting/${meetingId}/my-ballot`);
 }

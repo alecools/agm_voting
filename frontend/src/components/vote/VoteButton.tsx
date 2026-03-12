@@ -12,12 +12,14 @@ const LABELS: Record<VoteChoice, string> = {
   yes: "For",
   no: "Against",
   abstained: "Abstain",
+  not_eligible: "Not Eligible",
 };
 
 const ICONS: Record<VoteChoice, string> = {
   yes: "✓",
   no: "✗",
   abstained: "—",
+  not_eligible: "—",
 };
 
 export function VoteButton({ choice, selected, disabled, ariaDisabled = false, onClick }: VoteButtonProps) {

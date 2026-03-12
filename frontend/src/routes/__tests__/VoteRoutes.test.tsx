@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -25,21 +24,21 @@ describe("VoteRoutes", () => {
     });
   });
 
-  it("renders AuthPage at /vote/:agmId/auth", async () => {
+  it("renders AuthPage at /vote/:meetingId/auth", async () => {
     renderRoutes(`/vote/${AGM_ID}/auth`);
     await waitFor(() => {
       expect(screen.getByLabelText("Lot number")).toBeInTheDocument();
     });
   });
 
-  it("renders VotingPage at /vote/:agmId/voting", async () => {
+  it("renders VotingPage at /vote/:meetingId/voting", async () => {
     renderRoutes(`/vote/${AGM_ID}/voting`);
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
   });
 
-  it("renders ConfirmationPage at /vote/:agmId/confirmation", async () => {
+  it("renders ConfirmationPage at /vote/:meetingId/confirmation", async () => {
     renderRoutes(`/vote/${AGM_ID}/confirmation`);
     await waitFor(() => {
       expect(screen.getByText(/owner@example.com/)).toBeInTheDocument();

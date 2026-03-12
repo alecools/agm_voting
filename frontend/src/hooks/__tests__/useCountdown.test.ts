@@ -85,7 +85,7 @@ describe("useCountdown", () => {
   });
 
   it("cleans up interval on unmount", () => {
-    const clearIntervalSpy = vi.spyOn(global, "clearInterval");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
     const now = Date.now();
     const closesAt = new Date(now + 10000).toISOString();
     const { unmount } = renderHook(() => useCountdown(closesAt, () => now));
