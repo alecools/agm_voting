@@ -462,6 +462,29 @@ class TestImportLotOwners:
         assert len(owners) == 1
         assert len(owners[0]["emails"]) == 2
 
+    async def test_import_semicolon_separated_emails(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Semicolon-separated emails in a single cell are split into multiple LotOwnerEmail rows."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["101", "a@test.com;b@test.com; c@test.com", "100"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["imported"] == 1
+        assert data["emails"] == 3
+
+        owners_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = owners_response.json()
+        assert sorted(owners[0]["emails"]) == ["a@test.com", "b@test.com", "c@test.com"]
+
     async def test_import_blank_email_allowed(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):

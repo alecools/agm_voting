@@ -429,8 +429,10 @@ async def import_lot_owners_from_csv(
                 # If lot already seen, the unit_entitlement and financial_position should be consistent
                 # Use values from first occurrence
                 pass
-            if email:
-                lot_data[lot_number]["emails"].add(email)
+            for addr in email.split(";"):
+                addr = addr.strip()
+                if addr:
+                    lot_data[lot_number]["emails"].add(addr)
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -542,8 +544,10 @@ async def import_lot_owners_from_excel(
                     "financial_position": financial_position,
                     "emails": set(),
                 }
-            if email:
-                lot_data[lot_number]["emails"].add(email)
+            for addr in email.split(";"):
+                addr = addr.strip()
+                if addr:
+                    lot_data[lot_number]["emails"].add(addr)
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
