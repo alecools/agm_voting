@@ -321,4 +321,92 @@ describe("VotingPage", () => {
     // Building name and AGM title won't appear (header not shown)
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
   });
+
+  // --- in-arrear lot tests ---
+
+  it("shows in-arrear notice when lot info has in-arrear lots", async () => {
+    // Set up motions with motion_type
+    server.use(
+      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special" },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `agm_lot_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("in-arrear-notice")).toBeInTheDocument();
+      expect(screen.getByText(/5A.*are in arrear/)).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+  });
+
+  it("shows in-arrear modal when clicking locked general motion button", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    server.use(
+      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general" },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `agm_lot_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Click the "For" button on the locked general motion
+    const forButton = screen.getByRole("button", { name: "For" });
+    await user.click(forButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText(/Can't vote on General Motion as financial position is in arrear/)).toBeInTheDocument();
+    });
+
+    // Dismiss the modal
+    await user.click(screen.getByRole("button", { name: "OK" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+  });
+
+  it("counts in-arrear general motions as answered in progress bar", async () => {
+    server.use(
+      http.get(`${BASE}/api/agm/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "General Motion", description: null, order_index: 0, motion_type: "general" },
+          { id: MOTION_ID_2, title: "Special Motion", description: null, order_index: 1, motion_type: "special" },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `agm_lot_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo-1", lot_number: "5A", financial_position: "in_arrear", already_submitted: false }])
+    );
+    renderPage();
+    // General motion is auto-answered, so 1/2 answered from the start
+    await waitFor(() => {
+      expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+  });
+
+  it("handles invalid sessionStorage lot info gracefully", async () => {
+    sessionStorage.setItem(`agm_lot_info_${AGM_ID}`, "not valid json");
+    renderPage();
+    // Should not crash, and no in-arrear notice should appear
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
+    sessionStorage.removeItem(`agm_lot_info_${AGM_ID}`);
+  });
 });

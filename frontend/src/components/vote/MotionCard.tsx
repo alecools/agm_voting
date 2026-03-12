@@ -13,6 +13,8 @@ interface MotionCardProps {
   onChoiceChange: (motionId: string, choice: VoteChoice | null) => void;
   disabled: boolean;
   highlight: boolean;
+  inArrearLocked?: boolean;
+  onInArrearClick?: () => void;
 }
 
 export function MotionCard({
@@ -22,12 +24,18 @@ export function MotionCard({
   onChoiceChange,
   disabled,
   highlight,
+  inArrearLocked = false,
+  onInArrearClick,
 }: MotionCardProps) {
   const { status, saveNow } = useAutoSave(agmId, motion.id, choice);
 
   const handleClick = (c: VoteChoice) => {
     /* c8 ignore next */
     if (disabled) return;
+    if (inArrearLocked) {
+      onInArrearClick?.();
+      return;
+    }
     // Clicking the currently selected choice deselects it
     const next = choice === c ? null : c;
     onChoiceChange(motion.id, next);
@@ -53,13 +61,19 @@ export function MotionCard({
       {motion.description && (
         <p className="motion-card__description">{motion.description}</p>
       )}
-      <div className="vote-buttons">
+      {inArrearLocked && (
+        <p className="motion-card__in-arrear-label" data-testid="in-arrear-label">
+          Not eligible (in arrear)
+        </p>
+      )}
+      <div className={`vote-buttons${inArrearLocked ? " vote-buttons--locked" : ""}`}>
         {CHOICES.map((c) => (
           <VoteButton
             key={c}
             choice={c}
             selected={choice === c}
             disabled={disabled}
+            ariaDisabled={inArrearLocked}
             onClick={() => handleClick(c)}
           />
         ))}

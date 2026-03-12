@@ -10,6 +10,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   no: "Against",
   abstained: "Abstained",
   absent: "Absent",
+  not_eligible: "Not eligible",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -17,6 +18,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   no: "var(--red)",
   abstained: "var(--text-muted)",
   absent: "var(--text-muted)",
+  not_eligible: "var(--text-muted)",
 };
 
 export default function AGMReportView({ motions, agmTitle }: AGMReportViewProps) {
@@ -24,7 +26,7 @@ export default function AGMReportView({ motions, agmTitle }: AGMReportViewProps)
     const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE)"];
     for (const motion of motions) {
       const motionLabel = `${motion.order_index + 1}. ${motion.title.replace(/"/g, '""')}`;
-      for (const cat of ["yes", "no", "abstained", "absent"] as const) {
+      for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
         for (const v of motion.voter_lists[cat]) {
           rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement}`);
         }
@@ -74,7 +76,7 @@ export default function AGMReportView({ motions, agmTitle }: AGMReportViewProps)
               </tr>
             </thead>
             <tbody>
-              {(["yes", "no", "abstained", "absent"] as const).map((cat) => (
+              {(["yes", "no", "abstained", "absent", "not_eligible"] as const).map((cat) => (
                 <tr key={cat}>
                   <td>
                     <span style={{

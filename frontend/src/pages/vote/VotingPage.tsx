@@ -9,7 +9,7 @@ import {
   fetchBuildings,
 } from "../../api/voter";
 import type { VoteChoice } from "../../types";
-import type { AGMOut } from "../../api/voter";
+import type { AGMOut, LotInfo } from "../../api/voter";
 import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
 import { CountdownTimer } from "../../components/vote/CountdownTimer";
@@ -34,10 +34,32 @@ export function VotingPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
+  const [showInArrearModal, setShowInArrearModal] = useState(false);
 
   // Current AGM metadata
   const [currentAgm, setCurrentAgm] = useState<AGMOut | null>(null);
   const [buildingName, setBuildingName] = useState("");
+
+  // In-arrear lot information
+  const [inArrearLotNumbers, setInArrearLotNumbers] = useState<string[]>([]);
+  const [hasInArrearLots, setHasInArrearLots] = useState(false);
+
+  useEffect(() => {
+    if (!agmId) return;
+    const stored = sessionStorage.getItem(`agm_lot_info_${agmId}`);
+    if (stored) {
+      try {
+        const lots = JSON.parse(stored) as LotInfo[];
+        const arrearNumbers = lots
+          .filter((l) => l.financial_position === "in_arrear")
+          .map((l) => l.lot_number);
+        setInArrearLotNumbers(arrearNumbers);
+        setHasInArrearLots(arrearNumbers.length > 0);
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }, [agmId]);
 
   // Fetch buildings to find the building for this AGM
   const { data: buildings } = useQuery({
@@ -139,12 +161,23 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
+  const handleInArrearGeneralMotionClick = () => {
+    setShowInArrearModal(true);
+  };
+
   const answeredCount = motions
-    ? motions.filter((m) => !!choices[m.id]).length
+    ? motions.filter((m) => {
+        // In-arrear general motions are auto-answered as not_eligible
+        if (hasInArrearLots && m.motion_type === "general") return true;
+        return !!choices[m.id];
+      }).length
     : 0;
 
   const unansweredMotions = motions
-    ? motions.filter((m) => !choices[m.id])
+    ? motions.filter((m) => {
+        if (hasInArrearLots && m.motion_type === "general") return false;
+        return !choices[m.id];
+      })
     : [];
 
   const handleSubmitClick = () => {
@@ -199,20 +232,36 @@ export function VotingPage() {
         </div>
       )}
 
+      {hasInArrearLots && (
+        <div role="alert" className="in-arrear-notice" data-testid="in-arrear-notice">
+          Lots [{inArrearLotNumbers.join(", ")}] are in arrear and can only vote on Special Motions.
+        </div>
+      )}
+
       {motions && (
         <>
           <ProgressBar answered={answeredCount} total={motions.length} />
-          {motions.map((motion) => (
-            <MotionCard
-              key={motion.id}
-              motion={motion}
-              agmId={agmId!}
-              choice={choices[motion.id] ?? null}
-              onChoiceChange={handleChoiceChange}
-              disabled={isClosed}
-              highlight={highlightUnanswered && !choices[motion.id]}
-            />
-          ))}
+          {motions.map((motion) => {
+            const isGeneralMotionLockedForInArrear =
+              hasInArrearLots && motion.motion_type === "general";
+            return (
+              <MotionCard
+                key={motion.id}
+                motion={motion}
+                agmId={agmId!}
+                choice={choices[motion.id] ?? null}
+                onChoiceChange={handleChoiceChange}
+                disabled={isClosed}
+                highlight={
+                  highlightUnanswered &&
+                  !choices[motion.id] &&
+                  !isGeneralMotionLockedForInArrear
+                }
+                inArrearLocked={isGeneralMotionLockedForInArrear}
+                onInArrearClick={handleInArrearGeneralMotionClick}
+              />
+            );
+          })}
           {!isClosed && (
             <div className="submit-section">
               <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
@@ -229,6 +278,30 @@ export function VotingPage() {
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />
+      )}
+
+      {showInArrearModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="in-arrear-modal-title"
+          className="dialog-overlay"
+        >
+          <div className="dialog">
+            <p id="in-arrear-modal-title" className="dialog__message">
+              Can&apos;t vote on General Motion as financial position is in arrear.
+            </p>
+            <div className="dialog__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => setShowInArrearModal(false)}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );

@@ -70,6 +70,7 @@ export interface MotionTally {
   no: TallyCategory;
   abstained: TallyCategory;
   absent: TallyCategory;
+  not_eligible: TallyCategory;
 }
 
 export interface MotionVoterLists {
@@ -77,6 +78,7 @@ export interface MotionVoterLists {
   no: VoterEntry[];
   abstained: VoterEntry[];
   absent: VoterEntry[];
+  not_eligible: VoterEntry[];
 }
 
 export interface MotionDetail {

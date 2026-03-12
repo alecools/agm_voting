@@ -4,6 +4,7 @@ interface VoteButtonProps {
   choice: VoteChoice;
   selected: boolean;
   disabled: boolean;
+  ariaDisabled?: boolean;
   onClick: () => void;
 }
 
@@ -19,13 +20,14 @@ const ICONS: Record<VoteChoice, string> = {
   abstained: "—",
 };
 
-export function VoteButton({ choice, selected, disabled, onClick }: VoteButtonProps) {
+export function VoteButton({ choice, selected, disabled, ariaDisabled = false, onClick }: VoteButtonProps) {
   return (
     <button
       type="button"
-      className={`vote-btn vote-btn--${choice}`}
+      className={`vote-btn vote-btn--${choice}${ariaDisabled ? " vote-btn--aria-disabled" : ""}`}
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={ariaDisabled || undefined}
       aria-pressed={selected}
     >
       <span className="vote-btn__icon" aria-hidden="true">

@@ -258,4 +258,93 @@ describe("MotionCard", () => {
     expect(badge).toHaveTextContent("Special");
     expect(badge).toHaveClass("motion-type-badge--special");
   });
+
+  // --- in-arrear locked tests ---
+
+  it("shows in-arrear label when inArrearLocked is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        inArrearLocked={true}
+      />
+    );
+    expect(screen.getByTestId("in-arrear-label")).toBeInTheDocument();
+    expect(screen.getByText("Not eligible (in arrear)")).toBeInTheDocument();
+  });
+
+  it("does not show in-arrear label when inArrearLocked is false (default)", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.queryByTestId("in-arrear-label")).not.toBeInTheDocument();
+  });
+
+  it("calls onInArrearClick when a vote button is clicked and inArrearLocked is true", async () => {
+    const user = userEvent.setup();
+    const onInArrearClick = vi.fn();
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        inArrearLocked={true}
+        onInArrearClick={onInArrearClick}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "For" }));
+    expect(onInArrearClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onChoiceChange when inArrearLocked is true", async () => {
+    const user = userEvent.setup();
+    const onChoiceChange = vi.fn();
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={onChoiceChange}
+        disabled={false}
+        highlight={false}
+        inArrearLocked={true}
+        onInArrearClick={() => {}}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "For" }));
+    expect(onChoiceChange).not.toHaveBeenCalled();
+  });
+
+  it("sets aria-disabled on buttons when inArrearLocked is true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        agmId="agm-1"
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        inArrearLocked={true}
+      />
+    );
+    // Buttons should have aria-disabled (not the disabled attribute) when inArrearLocked
+    const buttons = screen.getAllByRole("button", { name: /For|Against|Abstain/ });
+    buttons.forEach((btn) => {
+      expect(btn).toHaveAttribute("aria-disabled", "true");
+    });
+  });
 });

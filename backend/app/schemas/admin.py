@@ -229,6 +229,7 @@ class MotionTally(BaseModel):
     no: TallyCategory
     abstained: TallyCategory
     absent: TallyCategory
+    not_eligible: TallyCategory
 
 
 class MotionVoterLists(BaseModel):
@@ -236,6 +237,7 @@ class MotionVoterLists(BaseModel):
     no: list[VoterEntry]
     abstained: list[VoterEntry]
     absent: list[VoterEntry]
+    not_eligible: list[VoterEntry]
 
 
 class MotionDetail(BaseModel):

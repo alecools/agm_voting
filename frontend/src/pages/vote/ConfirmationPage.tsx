@@ -6,6 +6,7 @@ const CHOICE_LABELS: Record<string, string> = {
   yes: "For",
   no: "Against",
   abstained: "Abstained",
+  not_eligible: "Not eligible",
 };
 
 export function ConfirmationPage() {

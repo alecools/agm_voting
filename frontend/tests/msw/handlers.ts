@@ -97,6 +97,7 @@ export const ADMIN_AGM_DETAIL: AGMDetail = {
         no: { voter_count: 1, entitlement_sum: 100 },
         abstained: { voter_count: 0, entitlement_sum: 0 },
         absent: { voter_count: 2, entitlement_sum: 150 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
       },
       voter_lists: {
         yes: [
@@ -109,6 +110,7 @@ export const ADMIN_AGM_DETAIL: AGMDetail = {
           { voter_email: "voter4@example.com", entitlement: 100 },
           { voter_email: "voter5@example.com", entitlement: 50 },
         ],
+        not_eligible: [],
       },
     },
   ],

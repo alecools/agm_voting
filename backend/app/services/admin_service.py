@@ -1054,6 +1054,7 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
         yes_ids: set[uuid.UUID] = set()
         no_ids: set[uuid.UUID] = set()
         abstained_ids: set[uuid.UUID] = set()
+        not_eligible_ids: set[uuid.UUID] = set()
 
         for lot_id in submitted_lot_owner_ids:
             choice = motion_votes.get(lot_id, "abstained")
@@ -1061,6 +1062,8 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                 yes_ids.add(lot_id)
             elif choice == "no":
                 no_ids.add(lot_id)
+            elif choice == "not_eligible":
+                not_eligible_ids.add(lot_id)
             else:
                 abstained_ids.add(lot_id)
 
@@ -1078,12 +1081,14 @@ async def get_agm_detail(agm_id: uuid.UUID, db: AsyncSession) -> dict:
                     "no": _tally(no_ids),
                     "abstained": _tally(abstained_ids),
                     "absent": _tally(absent_ids),
+                    "not_eligible": _tally(not_eligible_ids),
                 },
                 "voter_lists": {
                     "yes": _lots(yes_ids),
                     "no": _lots(no_ids),
                     "abstained": _lots(abstained_ids),
                     "absent": _lots(absent_ids),
+                    "not_eligible": _lots(not_eligible_ids),
                 },
             }
         )

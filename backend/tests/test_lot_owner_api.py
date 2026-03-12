@@ -1583,7 +1583,7 @@ class TestInArrearVoting:
         self, transport, db_session: AsyncSession
     ):
         """In-arrear lot has a draft for a general motion; submit must delete the draft
-        and skip the general motion (voting_service.py lines 255-257)."""
+        and record not_eligible for the general motion (US-V08)."""
         b = make_building("In Arrear Submit Building")
         db_session.add(b)
         await db_session.flush()
@@ -1653,11 +1653,13 @@ class TestInArrearVoting:
         assert response.status_code == 200
         data = response.json()
         assert data["submitted"] is True
-        # Only the special motion should appear in votes (general skipped for in-arrear)
+        # Both motions appear — general motion gets not_eligible, special motion gets yes
         votes = data["lots"][0]["votes"]
-        motion_titles = [v["motion_title"] for v in votes]
-        assert "Special Motion" in motion_titles
-        assert "General Motion" not in motion_titles
+        votes_by_title = {v["motion_title"]: v for v in votes}
+        assert "Special Motion" in votes_by_title
+        assert votes_by_title["Special Motion"]["choice"] == "yes"
+        assert "General Motion" in votes_by_title
+        assert votes_by_title["General Motion"]["choice"] == "not_eligible"
 
     # --- Edge cases ---
 
@@ -1840,3 +1842,89 @@ class TestInArrearVoting:
         votes = response.json()["submitted_lots"][0]["votes"]
         assert len(votes) == 1
         assert votes[0]["choice"] == "no"
+
+    async def test_my_ballot_in_arrear_with_not_eligible_vote_in_db(
+        self, transport, db_session: AsyncSession
+    ):
+        """my-ballot for in-arrear lot reads the not_eligible choice from the DB vote row
+        (voting_service.py lines 464-466: existing not_eligible vote found in lot_vote_rows)."""
+        b = make_building("In Arrear DB Vote Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="NE-DB1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "inarrear@dbvote.com")
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m_general = Motion(
+            agm_id=agm.id,
+            title="General Motion DB",
+            order_index=1,
+            motion_type=MotionType.general,
+        )
+        m_special = Motion(
+            agm_id=agm.id,
+            title="Special Motion DB",
+            order_index=2,
+            motion_type=MotionType.special,
+        )
+        db_session.add_all([m_general, m_special])
+        await db_session.flush()
+
+        weight = AGMLotWeight(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(weight)
+        await db_session.flush()
+
+        # Seed a not_eligible vote in the DB (as would be created by the new submit logic)
+        v_not_eligible = Vote(
+            agm_id=agm.id,
+            motion_id=m_general.id,
+            voter_email="inarrear@dbvote.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.not_eligible,
+            status=VoteStatus.submitted,
+        )
+        v_special = Vote(
+            agm_id=agm.id,
+            motion_id=m_special.id,
+            voter_email="inarrear@dbvote.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add_all([v_not_eligible, v_special])
+        sub = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email="inarrear@dbvote.com",
+        )
+        db_session.add(sub)
+        token = await make_session(db_session, "inarrear@dbvote.com", b.id, agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agm/{agm.id}/my-ballot",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == 200
+        votes = response.json()["submitted_lots"][0]["votes"]
+        votes_by_title = {v["motion_title"]: v for v in votes}
+        # General motion should show not_eligible from the DB row (lines 464-466 exercised)
+        assert "General Motion DB" in votes_by_title
+        assert votes_by_title["General Motion DB"]["choice"] == "not_eligible"
+        assert votes_by_title["General Motion DB"]["eligible"] is False
+        # Special motion shows the actual vote
+        assert "Special Motion DB" in votes_by_title
+        assert votes_by_title["Special Motion DB"]["choice"] == "yes"
+        assert votes_by_title["Special Motion DB"]["eligible"] is True

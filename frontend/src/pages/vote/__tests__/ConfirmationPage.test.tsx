@@ -217,4 +217,42 @@ describe("ConfirmationPage", () => {
       expect(screen.getByText("Lot 2B")).toBeInTheDocument();
     });
   });
+
+  it("shows 'Not eligible' label for not_eligible votes in multi-lot ballot", async () => {
+    server.use(
+      http.get(`${BASE}/api/agm/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          agm_title: "Test AGM",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "in_arrear",
+              votes: [
+                { motion_id: "m1", motion_title: "General Motion", order_index: 0, choice: "not_eligible", eligible: false },
+                { motion_id: "m2", motion_title: "Special Motion", order_index: 1, choice: "yes", eligible: true },
+              ],
+            },
+            {
+              lot_owner_id: "lo2",
+              lot_number: "2B",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "General Motion", order_index: 0, choice: "yes", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Lot 1A")).toBeInTheDocument();
+      // "Not eligible" label should appear for the not_eligible vote
+      expect(screen.getByText("Not eligible")).toBeInTheDocument();
+    });
+  });
 });

@@ -70,13 +70,14 @@ export function AuthPage() {
       /* c8 ignore next */
       if (!agmId) return;
       const allSubmitted = data.lots.length > 0 && data.lots.every((l) => l.already_submitted);
-      const pendingLotIds = data.lots
-        .filter((l) => !l.already_submitted)
-        .map((l) => l.lot_owner_id);
+      const pendingLots = data.lots.filter((l) => !l.already_submitted);
+      const pendingLotIds = pendingLots.map((l) => l.lot_owner_id);
       // Persist pending lot IDs in sessionStorage so VotingPage can submit on behalf of them
       sessionStorage.setItem(`agm_lots_${agmId}`, JSON.stringify(pendingLotIds));
       // Persist full lot info (including is_proxy) for the lot selection screen
       sessionStorage.setItem(`agm_lots_info_${agmId}`, JSON.stringify(data.lots));
+      // Persist lot info (including financial_position) so VotingPage can enforce eligibility
+      sessionStorage.setItem(`agm_lot_info_${agmId}`, JSON.stringify(pendingLots));
       if (data.agm_status === "closed" || allSubmitted) {
         navigate(`/vote/${agmId}/confirmation`);
       } else {

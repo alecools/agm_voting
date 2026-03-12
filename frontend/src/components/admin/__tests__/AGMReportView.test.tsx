@@ -16,6 +16,7 @@ const motions: MotionDetail[] = [
       no: { voter_count: 1, entitlement_sum: 100 },
       abstained: { voter_count: 0, entitlement_sum: 0 },
       absent: { voter_count: 2, entitlement_sum: 150 },
+      not_eligible: { voter_count: 0, entitlement_sum: 0 },
     },
     voter_lists: {
       yes: [
@@ -28,6 +29,7 @@ const motions: MotionDetail[] = [
         { voter_email: "voter4@example.com", lot_number: "L4", entitlement: 100 },
         { voter_email: "voter5@example.com", lot_number: "L5", entitlement: 50 },
       ],
+      not_eligible: [],
     },
   },
   {
@@ -40,6 +42,7 @@ const motions: MotionDetail[] = [
       no: { voter_count: 0, entitlement_sum: 0 },
       abstained: { voter_count: 2, entitlement_sum: 200 },
       absent: { voter_count: 0, entitlement_sum: 0 },
+      not_eligible: { voter_count: 0, entitlement_sum: 0 },
     },
     voter_lists: {
       yes: [{ voter_email: "voter1@example.com", lot_number: "L1", entitlement: 50 }],
@@ -49,6 +52,7 @@ const motions: MotionDetail[] = [
         { voter_email: "voter3@example.com", lot_number: "L3", entitlement: 100 },
       ],
       absent: [],
+      not_eligible: [],
     },
   },
 ];

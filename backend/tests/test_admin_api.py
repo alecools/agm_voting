@@ -2033,6 +2033,77 @@ class TestGetAGMDetail:
         assert tally["absent"]["voter_count"] == 1
         assert tally["absent"]["entitlement_sum"] == 75
 
+    async def test_tally_not_eligible_counted_separately(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """In-arrear lots with not_eligible votes appear in the not_eligible tally
+        bucket (admin_service.py line 1018)."""
+        b = Building(name="Not Eligible Building", manager_email="ne@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo_normal = LotOwner(building_id=b.id, lot_number="NE1", unit_entitlement=100)
+        lo_arrear = LotOwner(building_id=b.id, lot_number="NE2", unit_entitlement=50)
+        db_session.add_all([lo_normal, lo_arrear])
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo_normal.id, email="normal@ne.com"))
+        db_session.add(LotOwnerEmail(lot_owner_id=lo_arrear.id, email="arrear@ne.com"))
+        await db_session.flush()
+
+        agm = AGM(
+            building_id=b.id,
+            title="NE AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="NE Motion", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        for lo in [lo_normal, lo_arrear]:
+            db_session.add(AGMLotWeight(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                unit_entitlement_snapshot=lo.unit_entitlement,
+            ))
+        await db_session.flush()
+
+        # Normal lot voted yes; in-arrear lot has not_eligible
+        db_session.add(Vote(
+            agm_id=agm.id, motion_id=motion.id,
+            voter_email="normal@ne.com", lot_owner_id=lo_normal.id,
+            choice=VoteChoice.yes, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            agm_id=agm.id, lot_owner_id=lo_normal.id, voter_email="normal@ne.com",
+        ))
+        db_session.add(Vote(
+            agm_id=agm.id, motion_id=motion.id,
+            voter_email="arrear@ne.com", lot_owner_id=lo_arrear.id,
+            choice=VoteChoice.not_eligible, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            agm_id=agm.id, lot_owner_id=lo_arrear.id, voter_email="arrear@ne.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/agms/{agm.id}")
+        assert response.status_code == 200
+        data = response.json()
+        tally = data["motions"][0]["tally"]
+        assert tally["yes"]["voter_count"] == 1
+        assert tally["yes"]["entitlement_sum"] == 100
+        assert tally["not_eligible"]["voter_count"] == 1
+        assert tally["not_eligible"]["entitlement_sum"] == 50
+        assert tally["abstained"]["voter_count"] == 0
+        voter_lists = data["motions"][0]["voter_lists"]
+        assert len(voter_lists["not_eligible"]) == 1
+
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/agms/{agm_id}/close

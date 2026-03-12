@@ -264,14 +264,17 @@ async def submit_ballot(
         drafts = {v.motion_id: v for v in drafts_result.scalars().all()}
 
         motions_needing_new_vote: list[Motion] = []
+        motions_needing_not_eligible: list[Motion] = []
         vote_items: list[VoteSummaryItem] = []
 
         for motion in motions:
-            # In-arrear lots cannot vote on General Motions
+            # In-arrear lots cannot vote on General Motions — record not_eligible
             if is_in_arrear and motion.motion_type == MotionType.general:
-                # Drop any draft for this motion and skip
+                # Delete any existing draft for this motion first
                 if motion.id in drafts:
                     await db.delete(drafts[motion.id])
+                # Defer the not_eligible insert until after the flush
+                motions_needing_not_eligible.append(motion)
                 continue
 
             draft = drafts.get(motion.id)
@@ -289,8 +292,27 @@ async def submit_ballot(
                     await db.delete(draft)
                 motions_needing_new_vote.append(motion)
 
-        # Flush deletes before inserting
+        # Flush deletes before inserting (ensures draft rows are gone before new inserts)
         await db.flush()
+
+        # Now insert not_eligible votes for in-arrear general motions
+        for motion in motions_needing_not_eligible:
+            not_eligible_vote = Vote(
+                agm_id=agm_id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lot_owner_id,
+                choice=VoteChoice.not_eligible,
+                status=VoteStatus.submitted,
+            )
+            db.add(not_eligible_vote)
+            vote_items.append(
+                VoteSummaryItem(
+                    motion_id=motion.id,
+                    motion_title=motion.title,
+                    choice=VoteChoice.not_eligible,
+                )
+            )
 
         for motion in motions_needing_new_vote:
             new_vote = Vote(
@@ -469,12 +491,18 @@ async def get_my_ballot(
 
         for motion in motions:
             if is_in_arrear and motion.motion_type == MotionType.general:
-                # Show as "not eligible"
+                # Show as "not eligible" — the DB row should have choice=not_eligible
+                # Find the actual vote for this motion if it exists
+                not_eligible_choice = VoteChoice.not_eligible
+                for vote, m in lot_vote_rows:
+                    if m.id == motion.id:
+                        not_eligible_choice = vote.choice if vote.choice is not None else VoteChoice.not_eligible
+                        break
                 lot_votes.append(BallotVoteItem(
                     motion_id=motion.id,
                     motion_title=motion.title,
                     order_index=motion.order_index,
-                    choice=VoteChoice.abstained,
+                    choice=not_eligible_choice,
                     eligible=False,
                 ))
             elif motion.id in voted_motion_ids:
