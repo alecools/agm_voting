@@ -157,6 +157,26 @@ describe("AuthPage", () => {
     expect(screen.getByText("Email address is required")).toBeInTheDocument();
   });
 
+  it("navigates to / with pendingMessage state when agm_status=pending", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "42", financial_position: "normal", already_submitted: false, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "pending",
+        })
+      )
+    );
+    mockNavigate.mockClear();
+    renderPage();
+    await fillAndSubmit("42", "owner@example.com");
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/", {
+        state: { pendingMessage: "This meeting has not started yet. Please check back later." },
+      });
+    });
+  });
+
   it("shows generic error for unexpected failure", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () => HttpResponse.error())

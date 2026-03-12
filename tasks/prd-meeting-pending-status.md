@@ -89,9 +89,9 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a voter, I want to see that a meeting is not yet open when I visit the building list so I know when to come back.
 
 **Acceptance Criteria:**
-- [ ] The voter-facing building/meeting list shows meetings with effective status `pending` with a "Not yet open" label in place of the Vote button/CTA
-- [ ] The voter frontend, upon receiving `agm_status: "pending"` from `POST /api/auth/verify`, does not navigate to the voting flow — it shows an informational message ("This meeting has not started yet") and returns the voter to the building selection page
-- [ ] Pending meetings do not show a Vote CTA
+- [x] The voter-facing building/meeting list shows meetings with effective status `pending` with a "Not yet open" label in place of the Vote button/CTA
+- [x] The voter frontend, upon receiving `agm_status: "pending"` from `POST /api/auth/verify`, does not navigate to the voting flow — it shows an informational message ("This meeting has not started yet") and returns the voter to the building selection page
+- [x] Pending meetings do not show a Vote CTA
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 

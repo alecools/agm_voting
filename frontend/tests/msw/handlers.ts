@@ -9,6 +9,7 @@ import type {
   GeneralMeetingDetail,
   GeneralMeetingOut,
   GeneralMeetingCloseOut,
+  GeneralMeetingStartOut,
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
@@ -130,6 +131,16 @@ export const ADMIN_MEETING_DETAIL_CLOSED: GeneralMeetingDetail = {
   title: "2023 AGM",
   status: "closed",
   closed_at: "2023-06-01T13:00:00Z",
+};
+
+export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-pending",
+  title: "2026 AGM",
+  status: "pending",
+  closed_at: null,
+  meeting_at: "2026-12-01T10:00:00Z",
+  voting_closes_at: "2026-12-31T12:00:00Z",
 };
 
 // Keep backward-compatible alias
@@ -310,7 +321,22 @@ export const adminHandlers = [
         email_delivery: { status: "failed", last_error: "SMTP error" },
       });
     }
+    if (params.meetingId === "agm-pending") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
+    }
     return HttpResponse.json(ADMIN_MEETING_DETAIL);
+  }),
+
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/start`, ({ params }) => {
+    if (params.meetingId === "agm-not-pending") {
+      return HttpResponse.json({ detail: "General Meeting is not in pending status" }, { status: 409 });
+    }
+    const result: GeneralMeetingStartOut = {
+      id: params.meetingId as string,
+      status: "open",
+      meeting_at: new Date().toISOString(),
+    };
+    return HttpResponse.json(result);
   }),
 
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/close`, ({ params }) => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildings, fetchGeneralMeetings } from "../../api/voter";
 import { BuildingDropdown } from "../../components/vote/BuildingDropdown";
@@ -7,6 +7,8 @@ import { GeneralMeetingList } from "../../components/vote/GeneralMeetingList";
 
 export function BuildingSelectPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const pendingMessage = (location.state as { pendingMessage?: string } | null)?.pendingMessage ?? null;
   const [selectedBuildingId, setSelectedBuildingId] = useState("");
   const [buildingError, setBuildingError] = useState("");
 
@@ -54,6 +56,11 @@ export function BuildingSelectPage() {
 
   return (
     <main className="voter-content">
+      {pendingMessage && (
+        <div role="status" className="info-banner" data-testid="pending-message">
+          {pendingMessage}
+        </div>
+      )}
       <div className="hero">
         <span className="hero__badge">Annual General Meeting</span>
         <h1 className="hero__title">Cast Your Vote</h1>

@@ -112,6 +112,12 @@ export interface GeneralMeetingCloseOut {
   closed_at: string;
 }
 
+export interface GeneralMeetingStartOut {
+  id: string;
+  status: string;
+  meeting_at: string;
+}
+
 export interface ResendReportOut {
   queued: boolean;
 }
@@ -371,6 +377,12 @@ export async function getGeneralMeetingDetail(meetingId: string): Promise<Genera
 
 export async function closeGeneralMeeting(meetingId: string): Promise<GeneralMeetingCloseOut> {
   return apiFetch<GeneralMeetingCloseOut>(`/api/admin/general-meetings/${meetingId}/close`, {
+    method: "POST",
+  });
+}
+
+export async function startGeneralMeeting(meetingId: string): Promise<GeneralMeetingStartOut> {
+  return apiFetch<GeneralMeetingStartOut>(`/api/admin/general-meetings/${meetingId}/start`, {
     method: "POST",
   });
 }

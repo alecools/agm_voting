@@ -76,6 +76,40 @@ describe("GeneralMeetingDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Close Voting" })).not.toBeInTheDocument();
   });
 
+  it("shows Start Meeting button when meeting is pending", async () => {
+    renderPage("agm-pending");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Start Meeting" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Close Voting" })).not.toBeInTheDocument();
+  });
+
+  it("does not show Start Meeting button when meeting is open", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Start Meeting" })).not.toBeInTheDocument();
+  });
+
+  it("does not show Start Meeting button when meeting is closed", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Start Meeting" })).not.toBeInTheDocument();
+  });
+
+  it("shows confirmation dialog when Start Meeting clicked for pending meeting", async () => {
+    const user = userEvent.setup();
+    renderPage("agm-pending");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Start Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Start Meeting" }));
+    expect(screen.getByText(/Are you sure you want to start this meeting/)).toBeInTheDocument();
+  });
+
   it("shows closed_at date when meeting is closed", async () => {
     renderPage("agm2");
     await waitFor(() => {

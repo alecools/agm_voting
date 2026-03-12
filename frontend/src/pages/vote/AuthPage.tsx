@@ -66,6 +66,10 @@ export function AuthPage() {
       sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
       // Persist lot info (including financial_position) so VotingPage can enforce eligibility
       sessionStorage.setItem(`meeting_lot_info_${meetingId}`, JSON.stringify(pendingLots));
+      if (data.agm_status === "pending") {
+        navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });
+        return;
+      }
       if (data.agm_status === "closed" || allSubmitted) {
         navigate(`/vote/${meetingId}/confirmation`);
       } else {

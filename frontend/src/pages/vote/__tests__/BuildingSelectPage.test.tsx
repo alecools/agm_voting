@@ -19,11 +19,11 @@ vi.mock("react-router-dom", async () => {
 
 const BASE = "http://localhost:8000";
 
-function renderPage(path = "/") {
+function renderPage(path = "/", locationState?: { pendingMessage?: string }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter initialEntries={[{ pathname: path, state: locationState }]}>
         <BuildingSelectPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -34,6 +34,22 @@ describe("BuildingSelectPage", () => {
   it("shows loading state initially", () => {
     renderPage();
     expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
+  });
+
+  it("shows pending message banner when navigated from auth with pendingMessage state", async () => {
+    renderPage("/", { pendingMessage: "This meeting has not started yet. Please check back later." });
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "This meeting has not started yet. Please check back later."
+      );
+    });
+  });
+
+  it("does not show pending message banner when no state provided", async () => {
+    renderPage("/");
+    // Wait for buildings to load so main content is rendered, then assert no status banner
+    await waitFor(() => screen.getByLabelText("Select your building"));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
 

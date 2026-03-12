@@ -4,6 +4,7 @@ import { getGeneralMeetingDetail } from "../../api/admin";
 import type { GeneralMeetingDetail } from "../../api/admin";
 import StatusBadge from "../../components/admin/StatusBadge";
 import CloseGeneralMeetingButton from "../../components/admin/CloseGeneralMeetingButton";
+import StartGeneralMeetingButton from "../../components/admin/StartGeneralMeetingButton";
 import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
@@ -56,6 +57,12 @@ export default function GeneralMeetingDetailPage() {
           <h1 style={{ margin: 0 }}>{meeting.title}</h1>
           <StatusBadge status={meeting.status} />
         </div>
+        {meeting.status === "pending" && (
+          <StartGeneralMeetingButton
+            meetingId={meetingId!}
+            onSuccess={handleCloseSuccess}
+          />
+        )}
         {meeting.status === "open" && (
           <CloseGeneralMeetingButton
             meetingId={meetingId!}
