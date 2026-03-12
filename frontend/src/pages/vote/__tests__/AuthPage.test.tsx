@@ -168,6 +168,21 @@ describe("AuthPage", () => {
     });
   });
 
+  it("renders back button", async () => {
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Lot number"));
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("back button navigates to home", async () => {
+    const user = userEvent.setup();
+    mockNavigate.mockClear();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Lot number"));
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+
   it("handles AGM fetch error during building lookup gracefully (shows Loading...)", async () => {
     // All building AGM fetches fail — building not found, form shows "Loading..."
     server.use(

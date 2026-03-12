@@ -1,15 +1,17 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import CreateAGMPage from "../CreateAGMPage";
 
+const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
-    useNavigate: () => vi.fn(),
+    useNavigate: () => mockNavigate,
   };
 });
 
@@ -36,5 +38,18 @@ describe("CreateAGMPage", () => {
     renderPage();
     expect(screen.getByLabelText("Title", { selector: "#agm-title" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
+  });
+
+  it("renders back button", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("clicking back navigates to /admin/agms", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/agms");
   });
 });

@@ -204,6 +204,9 @@ export function VotingPage() {
 
   return (
     <main className="voter-content">
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${agmId}/lot-selection`)}>
+        ← Back
+      </button>
       {isClosed && <ClosedBanner />}
       {isWarning && !isClosed && (
         <div role="alert" className="warning-banner">

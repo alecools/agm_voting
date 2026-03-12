@@ -85,6 +85,9 @@ export default function BuildingDetailPage() {
 
   return (
     <div>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/buildings")}>
+        ← Back
+      </button>
       <div className="admin-page-header">
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

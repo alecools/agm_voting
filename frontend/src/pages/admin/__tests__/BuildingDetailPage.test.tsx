@@ -325,4 +325,23 @@ describe("BuildingDetailPage", () => {
     });
     expect(screen.queryByRole("button", { name: "Archive Building" })).not.toBeInTheDocument();
   });
+
+  it("renders back button", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("clicking back navigates to /admin/buildings", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
+  });
 });

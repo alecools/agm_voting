@@ -9,11 +9,12 @@ import { server } from "../../../../tests/msw/server";
 import AGMDetailPage from "../AGMDetailPage";
 import { ADMIN_AGM_DETAIL_CLOSED } from "../../../../tests/msw/handlers";
 
+const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
-    useNavigate: () => vi.fn(),
+    useNavigate: () => mockNavigate,
   };
 });
 
@@ -198,5 +199,24 @@ describe("AGMDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to load AGM.")).toBeInTheDocument();
     });
+  });
+
+  it("renders back button", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("clicking back navigates to /admin/agms", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/agms");
   });
 });

@@ -181,6 +181,26 @@ describe("LotSelectionPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
   });
 
+  // --- Back navigation ---
+
+  it("renders back button", () => {
+    setLotsInStorage([
+      { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+    ]);
+    renderPage();
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("back button navigates to auth page for the AGM", async () => {
+    const user = userEvent.setup();
+    setLotsInStorage([
+      { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+    ]);
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}`);
+  });
+
   // --- Edge cases ---
 
   it("renders empty list when no lots in storage", () => {

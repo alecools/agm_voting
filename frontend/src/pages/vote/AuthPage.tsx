@@ -100,6 +100,9 @@ export function AuthPage() {
 
   return (
     <main className="voter-content">
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/")}>
+        ← Back
+      </button>
       <AuthForm
         agmTitle={agmTitle || "Loading..."}
         buildingName={foundBuildingName || ""}

@@ -322,6 +322,22 @@ describe("VotingPage", () => {
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
   });
 
+  // --- Back navigation ---
+
+  it("renders back button", async () => {
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+
+  it("back button navigates to lot-selection page", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/lot-selection`);
+  });
+
   // --- in-arrear lot tests ---
 
   it("shows in-arrear notice when lot info has in-arrear lots", async () => {

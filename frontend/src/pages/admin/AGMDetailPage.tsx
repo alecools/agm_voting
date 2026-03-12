@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAGMDetail } from "../../api/admin";
 import type { AGMDetail } from "../../api/admin";
@@ -10,6 +10,7 @@ import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 
 export default function AGMDetailPage() {
   const { agmId } = useParams<{ agmId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: agm, isLoading, error } = useQuery<AGMDetail>({
@@ -47,6 +48,9 @@ export default function AGMDetailPage() {
 
   return (
     <div>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/agms")}>
+        ← Back
+      </button>
       <div className="admin-page-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h1 style={{ margin: 0 }}>{agm.title}</h1>

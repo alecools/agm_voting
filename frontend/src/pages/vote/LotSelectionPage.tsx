@@ -40,6 +40,9 @@ export function LotSelectionPage() {
 
   return (
     <main className="voter-content">
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${agmId}`)}>
+        ← Back
+      </button>
       <div className="lot-selection">
         <h1 className="lot-selection__title">Your Lots</h1>
         <p className="lot-selection__subtitle">
