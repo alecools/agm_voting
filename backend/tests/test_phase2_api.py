@@ -1721,10 +1721,10 @@ class TestAuthVerifyEffectiveStatus:
         assert response.status_code == 200
         assert response.json()["agm_status"] == "closed"
 
-    async def test_verify_auth_future_closes_at_returns_open_status(
+    async def test_verify_auth_future_meeting_at_returns_pending_status(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """An open GeneralMeeting whose voting_closes_at is in the future returns agm_status=open."""
+        """A GeneralMeeting with meeting_at in the future returns agm_status=pending."""
         b = Building(name="FutStatus Auth Bldg", manager_email="futauth@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -1750,6 +1750,40 @@ class TestAuthVerifyEffectiveStatus:
                 "email": "futauth@voter.test",
                 "building_id": str(b.id),
                 "general_meeting_id": str(future_agm.id),
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["agm_status"] == "pending"
+
+    async def test_verify_auth_past_meeting_at_future_closes_at_returns_open_status(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A GeneralMeeting whose start has passed but voting is open returns agm_status=open."""
+        b = Building(name="OpenStatus Auth Bldg", manager_email="openauth@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="OA1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="openauth@voter.test"))
+
+        open_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Open GeneralMeeting Auth",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(open_agm)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": "openauth@voter.test",
+                "building_id": str(b.id),
+                "general_meeting_id": str(open_agm.id),
             },
         )
         assert response.status_code == 200
@@ -1788,9 +1822,10 @@ class TestPublicListAGMsEffectiveStatus:
         assert len(items) == 1
         assert items[0]["status"] == "closed"
 
-    async def test_public_list_agms_future_closes_at_returns_open(
+    async def test_public_list_agms_future_meeting_at_returns_pending(
         self, client: AsyncClient, db_session: AsyncSession
     ):
+        """A meeting with meeting_at in the future is effectively pending in the public list."""
         b = Building(name="PubFut Building", manager_email="pubfut@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -1803,6 +1838,30 @@ class TestPublicListAGMsEffectiveStatus:
             voting_closes_at=datetime.now(UTC) + timedelta(days=2),
         )
         db_session.add(future_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/buildings/{b.id}/general-meetings")
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["status"] == "pending"
+
+    async def test_public_list_agms_past_meeting_at_future_closes_at_returns_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A meeting whose start has passed but voting is still open shows open in the public list."""
+        b = Building(name="PubOpen Building", manager_email="pubopen@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        open_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Public Open GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(open_agm)
         await db_session.commit()
 
         response = await client.get(f"/api/buildings/{b.id}/general-meetings")

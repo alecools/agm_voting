@@ -23,10 +23,10 @@ General Meetings that have not yet reached their start time (`meeting_at`) are c
 **Description:** As a developer, I need a `pending` value in the `GeneralMeetingStatus` enum and the corresponding DB migration so the new status can be stored and queried.
 
 **Acceptance Criteria:**
-- [ ] Alembic migration adds `'pending'` to the `generalmeetingstatus` PostgreSQL enum
-- [ ] Migration also sets `status = 'pending'` for all existing meetings where `meeting_at > now()` and `status = 'open'`
-- [ ] Migration runs cleanly against dev and test DBs; existing data for meetings with `meeting_at <= now()` is unaffected
-- [ ] `GeneralMeetingStatus` Python enum updated to include `pending`
+- [x] Alembic migration adds `'pending'` to the `generalmeetingstatus` PostgreSQL enum
+- [x] Migration also sets `status = 'pending'` for all existing meetings where `meeting_at > now()` and `status = 'open'`
+- [x] Migration runs cleanly against dev and test DBs; existing data for meetings with `meeting_at <= now()` is unaffected
+- [x] `GeneralMeetingStatus` Python enum updated to include `pending`
 - [ ] Typecheck/lint passes
 
 ---

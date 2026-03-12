@@ -3822,9 +3822,10 @@ class TestAddEmailDuplicate:
 class _FakeAGM:
     """Minimal stand-in for GeneralMeeting used to unit-test get_effective_status without a DB."""
 
-    def __init__(self, status: GeneralMeetingStatus, voting_closes_at):
+    def __init__(self, status: GeneralMeetingStatus, voting_closes_at, meeting_at=None):
         self.status = status
         self.voting_closes_at = voting_closes_at
+        self.meeting_at = meeting_at
 
 
 class TestGetEffectiveStatus:
@@ -3862,6 +3863,71 @@ class TestGetEffectiveStatus:
         agm = _FakeAGM(GeneralMeetingStatus.open, datetime(2099, 12, 31, 23, 59, 59))
         assert get_effective_status(agm) == GeneralMeetingStatus.open  # type: ignore[arg-type]
 
+    # --- Pending status (US-PS01) ---
+
+    def test_pending_stored_status_with_future_meeting_at_returns_pending(self):
+        """A meeting stored as pending with future meeting_at returns pending."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.pending,
+            datetime.now(UTC) + timedelta(days=2),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
+    def test_open_stored_status_with_future_meeting_at_returns_pending(self):
+        """A meeting stored as open but with future meeting_at returns pending."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) + timedelta(days=2),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
+    def test_open_stored_status_with_past_meeting_at_future_closes_at_returns_open(self):
+        """A meeting whose start has passed but voting is still open returns open."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) + timedelta(days=1),
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.open  # type: ignore[arg-type]
+
+    def test_closed_stored_status_with_future_voting_closes_at_returns_closed(self):
+        """Manually closed meeting returns closed even if voting_closes_at is in the future."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.closed,
+            datetime.now(UTC) + timedelta(days=1),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_pending_stored_status_with_both_timestamps_past_returns_closed(self):
+        """A meeting stored as pending but both timestamps past returns closed."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.pending,
+            datetime.now(UTC) - timedelta(hours=1),
+            meeting_at=datetime.now(UTC) - timedelta(hours=2),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_future_meeting_at_but_past_voting_closes_at_returns_closed(self):
+        """voting_closes_at in the past takes priority over future meeting_at."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) - timedelta(seconds=1),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_naive_future_meeting_at_returns_pending(self):
+        """A naive (tz-unaware) meeting_at far in the future derives pending."""
+        agm = _FakeAGM(
+            GeneralMeetingStatus.open,
+            datetime(2099, 12, 31, 23, 59, 59),
+            meeting_at=datetime(2099, 12, 31, 12, 0, 0),
+        )
+        assert get_effective_status(agm) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # Admin list_agms effective status (US-CD01)
@@ -3895,9 +3961,10 @@ class TestListAGMsEffectiveStatus:
         assert match is not None
         assert match["status"] == "closed"
 
-    async def test_list_agms_future_closes_at_shows_open(
+    async def test_list_agms_future_closes_at_shows_pending(
         self, client: AsyncClient, db_session: AsyncSession
     ):
+        """A meeting with meeting_at in the future is effectively pending."""
         b = Building(name="FutureStatus Building", manager_email="fut@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -3915,6 +3982,30 @@ class TestListAGMsEffectiveStatus:
         assert response.status_code == 200
         items = response.json()
         match = next((i for i in items if i["id"] == str(future_agm.id)), None)
+        assert match is not None
+        assert match["status"] == "pending"
+
+    async def test_list_agms_past_meeting_at_future_closes_at_shows_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A meeting whose start time has passed but voting is still open is effectively open."""
+        b = Building(name="OpenStatus Building", manager_email="open@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        open_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Open GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(open_agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings")
+        assert response.status_code == 200
+        items = response.json()
+        match = next((i for i in items if i["id"] == str(open_agm.id)), None)
         assert match is not None
         assert match["status"] == "open"
 
@@ -3949,9 +4040,10 @@ class TestGetGeneralMeetingDetailEffectiveStatus:
         data = response.json()
         assert data["status"] == "closed"
 
-    async def test_detail_future_closes_at_shows_open(
+    async def test_detail_future_closes_at_shows_pending(
         self, client: AsyncClient, db_session: AsyncSession
     ):
+        """A meeting with meeting_at in the future is effectively pending."""
         b = Building(name="DetailFut Building", manager_email="df@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -3966,6 +4058,28 @@ class TestGetGeneralMeetingDetailEffectiveStatus:
         await db_session.commit()
 
         response = await client.get(f"/api/admin/general-meetings/{future_agm.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "pending"
+
+    async def test_detail_past_meeting_at_future_closes_at_shows_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A meeting whose start has passed but voting is still open is effectively open."""
+        b = Building(name="DetailOpen Building", manager_email="do@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        open_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Detail Open GeneralMeeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(open_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{open_agm.id}")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "open"

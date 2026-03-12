@@ -504,7 +504,7 @@ class TestAuthVerify:
         assert data["lots"][0]["already_submitted"] is False
 
     async def test_open_agm_returns_open_status(self, transport, db_session: AsyncSession):
-        """Open GeneralMeeting auth returns agm_status=open."""
+        """Open GeneralMeeting (meeting_at in the past, voting still open) returns agm_status=open."""
         b = make_building("Open Status Auth Building")
         db_session.add(b)
         await db_session.flush()
@@ -512,7 +512,16 @@ class TestAuthVerify:
         db_session.add(lo)
         await db_session.flush()
         await add_email(db_session, lo, "f7@auth.com")
-        agm = make_agm(b)
+        # Use a meeting whose start time has already passed but voting is still open,
+        # so get_effective_status returns "open".
+        now = utcnow()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="GeneralMeeting 2026",
+            status=GeneralMeetingStatus.open,
+            meeting_at=now - timedelta(hours=1),
+            voting_closes_at=now + timedelta(days=2),
+        )
         db_session.add(agm)
         await db_session.commit()
 

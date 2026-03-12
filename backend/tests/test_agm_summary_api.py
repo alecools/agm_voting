@@ -59,7 +59,8 @@ async def open_agm_with_motions(db_session: AsyncSession):
         building_id=b.id,
         title="Open Summary GeneralMeeting",
         status=GeneralMeetingStatus.open,
-        meeting_at=meeting_dt(),
+        # meeting_at in the past so effective status is "open" (meeting has started)
+        meeting_at=datetime.now(UTC) - timedelta(hours=1),
         voting_closes_at=closing_dt(),
     )
     db_session.add(agm)

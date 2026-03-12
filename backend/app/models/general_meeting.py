@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,24 +18,37 @@ from app.models.base import Base
 class GeneralMeetingStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
+    pending = "pending"
 
 
 def get_effective_status(meeting: "GeneralMeeting") -> GeneralMeetingStatus:
     """Return the effective status of a GeneralMeeting.
 
-    If the meeting's voting_closes_at is in the past and the stored status is
-    still ``open``, the effective status is ``closed``.  This lets the API
-    surface a closed status before the background auto-close job has run.
+    Precedence:
+    1. If stored status is ``closed`` (manually closed), return ``closed`` — stored
+       status wins regardless of timestamps.
+    2. If ``voting_closes_at`` is in the past, return ``closed``.
+    3. If ``meeting_at`` is in the future, return ``pending``.
+    4. Otherwise return ``open``.
     """
-    if meeting.status == GeneralMeetingStatus.open and meeting.voting_closes_at is not None:
-        # Make the comparison timezone-aware regardless of how the timestamp
-        # was stored (with or without tzinfo).
+    # Manually closed meetings stay closed regardless of timestamps
+    if meeting.status == GeneralMeetingStatus.closed:
+        return GeneralMeetingStatus.closed
+    # For open or pending stored status, derive from timestamps
+    now = datetime.now(timezone.utc)
+    if meeting.voting_closes_at is not None:
         closes_at = meeting.voting_closes_at
         if closes_at.tzinfo is None:
-            closes_at = closes_at.replace(tzinfo=UTC)
-        if closes_at < datetime.now(UTC):
+            closes_at = closes_at.replace(tzinfo=timezone.utc)
+        if closes_at < now:
             return GeneralMeetingStatus.closed
-    return meeting.status
+    if meeting.meeting_at is not None:
+        starts_at = meeting.meeting_at
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=timezone.utc)
+        if starts_at > now:
+            return GeneralMeetingStatus.pending
+    return GeneralMeetingStatus.open
 
 
 class GeneralMeeting(Base):

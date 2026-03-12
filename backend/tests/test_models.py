@@ -39,6 +39,7 @@ from app.models import (
     Vote,
     VoteChoice,
     VoteStatus,
+    get_effective_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -474,6 +475,120 @@ class TestAGM:
         db_session.add_all([agm1, agm2])
         await db_session.flush()  # Should succeed at DB level
         assert agm1.id != agm2.id
+
+
+# ---------------------------------------------------------------------------
+# get_effective_status unit tests (US-PS01)
+# ---------------------------------------------------------------------------
+
+
+class _FakeMeeting:
+    """Minimal stand-in for GeneralMeeting to unit-test get_effective_status without DB."""
+
+    def __init__(
+        self,
+        status: GeneralMeetingStatus,
+        voting_closes_at,
+        meeting_at=None,
+    ):
+        self.status = status
+        self.voting_closes_at = voting_closes_at
+        self.meeting_at = meeting_at
+
+
+class TestGetEffectiveStatus:
+    """Unit tests for get_effective_status helper (US-PS01)."""
+
+    def test_pending_stored_status_with_future_meeting_at_returns_pending(self):
+        """Meeting stored as pending with future meeting_at returns pending."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.pending,
+            datetime.now(UTC) + timedelta(days=2),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
+    def test_open_stored_status_with_future_meeting_at_returns_pending(self):
+        """Meeting stored as open but with future meeting_at returns pending."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) + timedelta(days=2),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
+    def test_open_stored_status_with_past_meeting_at_future_closes_at_returns_open(self):
+        """Meeting whose start has passed but voting is still open returns open."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) + timedelta(days=1),
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.open  # type: ignore[arg-type]
+
+    def test_open_stored_status_with_past_closes_at_returns_closed(self):
+        """Meeting whose voting_closes_at has passed is effectively closed."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) - timedelta(seconds=1),
+            meeting_at=datetime.now(UTC) - timedelta(hours=2),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_closed_stored_status_with_future_voting_closes_at_returns_closed(self):
+        """Manually closed meeting returns closed even if voting_closes_at is in the future."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.closed,
+            datetime.now(UTC) + timedelta(days=1),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_pending_stored_status_with_both_timestamps_past_returns_closed(self):
+        """Meeting stored as pending but both timestamps past returns closed (voting_closes_at wins)."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.pending,
+            datetime.now(UTC) - timedelta(hours=1),
+            meeting_at=datetime.now(UTC) - timedelta(hours=2),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_future_meeting_at_but_past_voting_closes_at_returns_closed(self):
+        """voting_closes_at in the past takes priority even if meeting_at is in the future."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime.now(UTC) - timedelta(seconds=1),
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
+
+    def test_open_with_none_meeting_at_and_future_closes_at_returns_open(self):
+        """Meeting with no meeting_at and future voting_closes_at returns open."""
+        m = _FakeMeeting(GeneralMeetingStatus.open, datetime.now(UTC) + timedelta(days=1))
+        assert get_effective_status(m) == GeneralMeetingStatus.open  # type: ignore[arg-type]
+
+    def test_open_with_none_closes_at_and_none_meeting_at_returns_open(self):
+        """Meeting with no timestamps at all returns open (edge case)."""
+        m = _FakeMeeting(GeneralMeetingStatus.open, None)
+        assert get_effective_status(m) == GeneralMeetingStatus.open  # type: ignore[arg-type]
+
+    def test_naive_future_meeting_at_returns_pending(self):
+        """Naive (tz-unaware) meeting_at far in the future derives pending."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime(2099, 12, 31, 23, 59, 59),
+            meeting_at=datetime(2099, 12, 31, 12, 0, 0),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.pending  # type: ignore[arg-type]
+
+    def test_naive_past_closes_at_returns_closed(self):
+        """Naive (tz-unaware) voting_closes_at in the past is treated as UTC and returns closed."""
+        m = _FakeMeeting(
+            GeneralMeetingStatus.open,
+            datetime(2000, 1, 1, 0, 0, 0),
+            meeting_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        assert get_effective_status(m) == GeneralMeetingStatus.closed  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
