@@ -37,6 +37,7 @@ from app.models import (
     VoteStatus,
 )
 from app.models.lot_owner_email import LotOwnerEmail
+from app.models.agm import get_effective_status
 
 
 # ---------------------------------------------------------------------------
@@ -1674,3 +1675,138 @@ class TestMyBallotProxyLots:
         # Proxy lot should appear in remaining
         remaining = [str(lid) for lid in data["remaining_lot_owner_ids"]]
         assert str(lo_proxy.id) in remaining
+
+
+# ---------------------------------------------------------------------------
+# verify_auth returns effective status for past-voting_closes_at AGMs (US-CD03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestAuthVerifyEffectiveStatus:
+    """verify_auth returns agm_status='closed' for past-voting_closes_at AGMs."""
+
+    async def test_verify_auth_past_closes_at_returns_closed_status(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An open AGM whose voting_closes_at is in the past returns agm_status=closed."""
+        b = Building(name="EffStatus Auth Bldg", manager_email="effauth@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="EA1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="effauth@voter.test"))
+
+        # AGM is status=open but voting_closes_at is in the past
+        past_agm = AGM(
+            building_id=b.id,
+            title="Expired AGM Auth",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=3),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(past_agm)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": "effauth@voter.test",
+                "building_id": str(b.id),
+                "agm_id": str(past_agm.id),
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["agm_status"] == "closed"
+
+    async def test_verify_auth_future_closes_at_returns_open_status(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An open AGM whose voting_closes_at is in the future returns agm_status=open."""
+        b = Building(name="FutStatus Auth Bldg", manager_email="futauth@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="FA1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="futauth@voter.test"))
+
+        future_agm = AGM(
+            building_id=b.id,
+            title="Future AGM Auth",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(future_agm)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": "futauth@voter.test",
+                "building_id": str(b.id),
+                "agm_id": str(future_agm.id),
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["agm_status"] == "open"
+
+
+# ---------------------------------------------------------------------------
+# Public list_agms effective status (US-CD03)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPublicListAGMsEffectiveStatus:
+    """Public GET /api/buildings/{id}/agms returns effective status for expired AGMs."""
+
+    async def test_public_list_agms_past_closes_at_returns_closed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="PubEff Building", manager_email="pubeff@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        past_agm = AGM(
+            building_id=b.id,
+            title="Public Expired AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=3),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(past_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/buildings/{b.id}/agms")
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["status"] == "closed"
+
+    async def test_public_list_agms_future_closes_at_returns_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="PubFut Building", manager_email="pubfut@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        future_agm = AGM(
+            building_id=b.id,
+            title="Public Future AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(future_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/buildings/{b.id}/agms")
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["status"] == "open"

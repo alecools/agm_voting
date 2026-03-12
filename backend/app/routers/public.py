@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agm import AGM
+from app.models.agm import AGM, get_effective_status
 from app.models.building import Building
 from app.models.motion import Motion
 from app.schemas.agm import AGMOut, AGMSummaryOut, MotionSummaryOut
@@ -68,7 +68,9 @@ async def list_agms(
         AGMOut(
             id=a.id,
             title=a.title,
-            status=a.status,
+            # Use effective status so past-voting_closes_at AGMs appear as closed
+            # before the auto-close background job has run.
+            status=get_effective_status(a),
             meeting_at=a.meeting_at,
             voting_closes_at=a.voting_closes_at,
         )
@@ -104,7 +106,7 @@ async def get_agm_summary(
     return AGMSummaryOut(
         agm_id=agm.id,
         title=agm.title,
-        status=agm.status.value,
+        status=get_effective_status(agm).value,
         meeting_at=agm.meeting_at,
         voting_closes_at=agm.voting_closes_at,
         building_name=building.name,

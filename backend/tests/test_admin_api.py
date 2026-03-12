@@ -40,6 +40,7 @@ from app.models import (
     Vote,
     VoteChoice,
     VoteStatus,
+    get_effective_status,
 )
 from app.models.lot_owner_email import LotOwnerEmail
 
@@ -3811,3 +3812,381 @@ class TestAddEmailDuplicate:
             json={"email": "existing@test.com"},
         )
         assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# get_effective_status helper — unit tests (US-CD01)
+# ---------------------------------------------------------------------------
+
+
+class _FakeAGM:
+    """Minimal stand-in for AGM used to unit-test get_effective_status without a DB."""
+
+    def __init__(self, status: AGMStatus, voting_closes_at):
+        self.status = status
+        self.voting_closes_at = voting_closes_at
+
+
+class TestGetEffectiveStatus:
+    """Unit tests for the get_effective_status helper."""
+
+    # --- Happy path ---
+
+    def test_open_agm_with_future_closes_at_returns_open(self):
+        """An AGM whose voting_closes_at is in the future stays open."""
+        agm = _FakeAGM(AGMStatus.open, datetime.now(UTC) + timedelta(days=1))
+        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+
+    def test_open_agm_with_past_closes_at_returns_closed(self):
+        """An AGM whose voting_closes_at has passed is effectively closed."""
+        agm = _FakeAGM(AGMStatus.open, datetime.now(UTC) - timedelta(seconds=1))
+        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+
+    def test_already_closed_agm_returns_closed_regardless_of_closes_at(self):
+        """An AGM with status=closed stays closed whether closes_at is past or future."""
+        agm = _FakeAGM(AGMStatus.closed, datetime.now(UTC) + timedelta(days=1))
+        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+
+    def test_open_agm_with_none_closes_at_returns_open(self):
+        """An AGM with no voting_closes_at set stays open (edge case)."""
+        agm = _FakeAGM(AGMStatus.open, None)
+        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+
+    def test_naive_datetime_past_returns_closed(self):
+        """A naive (tz-unaware) voting_closes_at in the past is treated as UTC."""
+        agm = _FakeAGM(AGMStatus.open, datetime(2000, 1, 1, 0, 0, 0))
+        assert get_effective_status(agm) == AGMStatus.closed  # type: ignore[arg-type]
+
+    def test_naive_datetime_future_returns_open(self):
+        """A naive (tz-unaware) voting_closes_at far in the future stays open."""
+        agm = _FakeAGM(AGMStatus.open, datetime(2099, 12, 31, 23, 59, 59))
+        assert get_effective_status(agm) == AGMStatus.open  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Admin list_agms effective status (US-CD01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestListAGMsEffectiveStatus:
+    """list_agms returns effective (closed) status for past-closes_at AGMs."""
+
+    async def test_list_agms_past_closes_at_shows_closed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="EffStatus Building", manager_email="eff@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        past_agm = AGM(
+            building_id=b.id,
+            title="Expired AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=3),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(past_agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/agms")
+        assert response.status_code == 200
+        items = response.json()
+        match = next((i for i in items if i["id"] == str(past_agm.id)), None)
+        assert match is not None
+        assert match["status"] == "closed"
+
+    async def test_list_agms_future_closes_at_shows_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="FutureStatus Building", manager_email="fut@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        future_agm = AGM(
+            building_id=b.id,
+            title="Future AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(future_agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/agms")
+        assert response.status_code == 200
+        items = response.json()
+        match = next((i for i in items if i["id"] == str(future_agm.id)), None)
+        assert match is not None
+        assert match["status"] == "open"
+
+
+# ---------------------------------------------------------------------------
+# Admin get_agm_detail effective status (US-CD01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestGetAGMDetailEffectiveStatus:
+    """get_agm_detail returns effective (closed) status for past-closes_at AGMs."""
+
+    async def test_detail_past_closes_at_shows_closed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="DetailEff Building", manager_email="de@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        past_agm = AGM(
+            building_id=b.id,
+            title="Detail Expired AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=3),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(past_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/agms/{past_agm.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "closed"
+
+    async def test_detail_future_closes_at_shows_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="DetailFut Building", manager_email="df@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        future_agm = AGM(
+            building_id=b.id,
+            title="Detail Future AGM",
+            status=AGMStatus.open,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(future_agm)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/agms/{future_agm.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "open"
+
+
+# ---------------------------------------------------------------------------
+# close_agm generates absent BallotSubmissions (US-CD02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCloseAGMAbsentRecords:
+    """Closing an AGM generates absent BallotSubmission + Vote rows for non-voters."""
+
+    async def _make_agm_with_lots(
+        self, db_session: AsyncSession, name: str, n_lots: int = 2
+    ):
+        """Create building + AGM + n lots with AGMLotWeight snapshots."""
+        b = Building(name=name, manager_email=f"absent_{name}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lots = []
+        for i in range(n_lots):
+            lo = LotOwner(
+                building_id=b.id,
+                lot_number=f"A{i+1}",
+                unit_entitlement=100,
+            )
+            db_session.add(lo)
+            await db_session.flush()
+            lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=f"voter{i+1}@{name}.test")
+            db_session.add(lo_email)
+            lots.append(lo)
+
+        agm = AGM(
+            building_id=b.id,
+            title=f"Absent Test AGM {name}",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(agm_id=agm.id, title="Motion 1", order_index=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        for lo in lots:
+            w = AGMLotWeight(
+                agm_id=agm.id,
+                lot_owner_id=lo.id,
+                unit_entitlement_snapshot=lo.unit_entitlement,
+            )
+            db_session.add(w)
+        await db_session.flush()
+
+        return b, agm, lots, [motion]
+
+    # --- Happy path ---
+
+    async def test_close_creates_absent_submissions_for_non_voters(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Lots with no BallotSubmission get an absent record on AGM close."""
+        _, agm, lots, _ = await self._make_agm_with_lots(
+            db_session, "AbsentHappy1", n_lots=2
+        )
+
+        # lot[0] already voted
+        bs = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lots[0].id,
+            voter_email=f"voter1@AbsentHappy1.test",
+        )
+        db_session.add(bs)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        # lots[1] should now have an absent BallotSubmission
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.lot_owner_id == lots[1].id,
+            )
+        )
+        absent_sub = subs_result.scalar_one_or_none()
+        assert absent_sub is not None
+
+    async def test_close_creates_absent_votes_for_each_motion(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Absent lots get one Vote row per motion when AGM is closed."""
+        _, agm, lots, motions = await self._make_agm_with_lots(
+            db_session, "AbsentVotes1", n_lots=1
+        )
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.agm_id == agm.id,
+                Vote.lot_owner_id == lots[0].id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        absent_votes = list(votes_result.scalars().all())
+        assert len(absent_votes) == len(motions)
+
+    async def test_close_does_not_duplicate_existing_submissions(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A lot that already has a BallotSubmission must not get a second one."""
+        _, agm, lots, _ = await self._make_agm_with_lots(
+            db_session, "AbsentNoDup1", n_lots=1
+        )
+        bs = BallotSubmission(
+            agm_id=agm.id,
+            lot_owner_id=lots[0].id,
+            voter_email="voter1@AbsentNoDup1.test",
+        )
+        db_session.add(bs)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.lot_owner_id == lots[0].id,
+            )
+        )
+        assert len(list(subs_result.scalars().all())) == 1
+
+    async def test_close_agm_with_no_lot_weights_no_absent_records(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Closing an AGM with no AGMLotWeight snapshot creates no absent records."""
+        b = Building(name="NoWeights Building", manager_email="nw@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="No Weights AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(BallotSubmission.agm_id == agm.id)
+        )
+        assert list(subs_result.scalars().all()) == []
+
+    async def test_close_agm_absent_voter_email_populated_from_lot_owner_email(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Absent BallotSubmission.voter_email is taken from LotOwnerEmail."""
+        _, agm, lots, _ = await self._make_agm_with_lots(
+            db_session, "AbsentEmail1", n_lots=1
+        )
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.lot_owner_id == lots[0].id,
+            )
+        )
+        sub = subs_result.scalar_one()
+        assert sub.voter_email == "voter1@AbsentEmail1.test"
+
+    async def test_close_agm_lot_with_no_email_uses_empty_string(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A lot with no LotOwnerEmail still gets an absent BallotSubmission with empty email."""
+        b = Building(name="NoEmail Building", manager_email="ne@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="NE1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.flush()
+        agm = AGM(
+            building_id=b.id,
+            title="No Email AGM",
+            status=AGMStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        w = AGMLotWeight(
+            agm_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=50,
+        )
+        db_session.add(w)
+        await db_session.commit()
+
+        response = await client.post(f"/api/admin/agms/{agm.id}/close")
+        assert response.status_code == 200
+
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.agm_id == agm.id,
+                BallotSubmission.lot_owner_id == lo.id,
+            )
+        )
+        sub = subs_result.scalar_one()
+        assert sub.voter_email == ""

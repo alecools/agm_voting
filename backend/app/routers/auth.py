@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.agm import AGM, AGMStatus
+from app.models.agm import AGM, AGMStatus, get_effective_status
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
@@ -129,5 +129,7 @@ async def verify_auth(
     return AuthVerifyResponse(
         lots=lots,
         voter_email=request.email,
-        agm_status=agm.status.value,
+        # Use effective status so past-voting_closes_at AGMs report as closed
+        # even before the auto-close job has run (US-CD03).
+        agm_status=get_effective_status(agm).value,
     )
