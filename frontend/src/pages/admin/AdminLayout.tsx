@@ -35,12 +35,12 @@ export default function AdminLayout() {
           </li>
           <li className="admin-nav__item">
             <NavLink
-              to="/admin/agms"
+              to="/admin/general-meetings"
               className={({ isActive }) =>
                 `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
               }
             >
-              AGMs
+              General Meetings
             </NavLink>
           </li>
         </ul>

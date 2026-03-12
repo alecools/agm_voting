@@ -8,7 +8,7 @@ const CHOICES: VoteChoice[] = ["yes", "no", "abstained"];
 
 interface MotionCardProps {
   motion: MotionOut;
-  agmId: string;
+  meetingId: string;
   choice: VoteChoice | null;
   onChoiceChange: (motionId: string, choice: VoteChoice | null) => void;
   disabled: boolean;
@@ -19,7 +19,7 @@ interface MotionCardProps {
 
 export function MotionCard({
   motion,
-  agmId,
+  meetingId,
   choice,
   onChoiceChange,
   disabled,
@@ -27,7 +27,7 @@ export function MotionCard({
   inArrearLocked = false,
   onInArrearClick,
 }: MotionCardProps) {
-  const { status, saveNow } = useAutoSave(agmId, motion.id, choice);
+  const { status, saveNow } = useAutoSave(meetingId, motion.id, choice);
 
   const handleClick = (c: VoteChoice) => {
     /* c8 ignore next */

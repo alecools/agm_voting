@@ -10,10 +10,10 @@ export function VoteRoutes() {
   return (
     <Routes>
       <Route path="/" element={<BuildingSelectPage />} />
-      <Route path="/vote/:agmId/auth" element={<AuthPage />} />
-      <Route path="/vote/:agmId/lot-selection" element={<LotSelectionPage />} />
-      <Route path="/vote/:agmId/voting" element={<VotingPage />} />
-      <Route path="/vote/:agmId/confirmation" element={<ConfirmationPage />} />
+      <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
+      <Route path="/vote/:meetingId/lot-selection" element={<LotSelectionPage />} />
+      <Route path="/vote/:meetingId/voting" element={<VotingPage />} />
+      <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
     </Routes>
   );
 }

@@ -10,13 +10,13 @@ const CHOICE_LABELS: Record<string, string> = {
 };
 
 export function ConfirmationPage() {
-  const { agmId } = useParams<{ agmId: string }>();
+  const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["my-ballot", agmId],
-    queryFn: () => fetchMyBallot(agmId!),
-    enabled: !!agmId,
+    queryKey: ["my-ballot", meetingId],
+    queryFn: () => fetchMyBallot(meetingId!),
+    enabled: !!meetingId,
     retry: false,
   });
 
@@ -81,7 +81,7 @@ export function ConfirmationPage() {
           </div>
           <div className="vote-meta__row">
             <span className="vote-meta__label">Meeting</span>
-            <span className="vote-meta__value">{data.agm_title}</span>
+            <span className="vote-meta__value">{data.meeting_title}</span>
           </div>
           <div className="vote-meta__row">
             <span className="vote-meta__label">Voter</span>

@@ -1,9 +1,9 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { AGMList } from "../AGMList";
+import { GeneralMeetingList } from "../GeneralMeetingList";
 
-const agms = [
+const meetings = [
   {
     id: "agm-1",
     title: "2024 AGM",
@@ -20,15 +20,15 @@ const agms = [
   },
 ];
 
-describe("AGMList", () => {
-  it("renders all AGM items", () => {
-    render(<AGMList agms={agms} onEnterVoting={() => {}} onViewSubmission={() => {}} />);
+describe("GeneralMeetingList", () => {
+  it("renders all meeting items", () => {
+    render(<GeneralMeetingList meetings={meetings} onEnterVoting={() => {}} onViewSubmission={() => {}} />);
     expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
   });
 
-  it("shows empty message when no agms", () => {
-    render(<AGMList agms={[]} onEnterVoting={() => {}} onViewSubmission={() => {}} />);
-    expect(screen.getByText("No AGMs found for this building.")).toBeInTheDocument();
+  it("shows empty message when no meetings", () => {
+    render(<GeneralMeetingList meetings={[]} onEnterVoting={() => {}} onViewSubmission={() => {}} />);
+    expect(screen.getByText("No General Meetings found for this building.")).toBeInTheDocument();
   });
 });

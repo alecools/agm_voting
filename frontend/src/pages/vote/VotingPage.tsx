@@ -5,11 +5,11 @@ import {
   fetchMotions,
   fetchDrafts,
   submitBallot,
-  fetchAGMs,
+  fetchGeneralMeetings,
   fetchBuildings,
 } from "../../api/voter";
 import type { VoteChoice } from "../../types";
-import type { AGMOut, LotInfo } from "../../api/voter";
+import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
 import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
 import { CountdownTimer } from "../../components/vote/CountdownTimer";
@@ -25,7 +25,7 @@ function formatLocalDateTime(iso: string): string {
 }
 
 export function VotingPage() {
-  const { agmId } = useParams<{ agmId: string }>();
+  const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const serverTime = useServerTime();
@@ -36,8 +36,8 @@ export function VotingPage() {
   const [isClosed, setIsClosed] = useState(false);
   const [showInArrearModal, setShowInArrearModal] = useState(false);
 
-  // Current AGM metadata
-  const [currentAgm, setCurrentAgm] = useState<AGMOut | null>(null);
+  // Current meeting metadata
+  const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingOut | null>(null);
   const [buildingName, setBuildingName] = useState("");
 
   // In-arrear lot information
@@ -45,8 +45,8 @@ export function VotingPage() {
   const [hasInArrearLots, setHasInArrearLots] = useState(false);
 
   useEffect(() => {
-    if (!agmId) return;
-    const stored = sessionStorage.getItem(`agm_lot_info_${agmId}`);
+    if (!meetingId) return;
+    const stored = sessionStorage.getItem(`meeting_lot_info_${meetingId}`);
     if (stored) {
       try {
         const lots = JSON.parse(stored) as LotInfo[];
@@ -59,25 +59,25 @@ export function VotingPage() {
         // ignore parse errors
       }
     }
-  }, [agmId]);
+  }, [meetingId]);
 
-  // Fetch buildings to find the building for this AGM
+  // Fetch buildings to find the building for this meeting
   const { data: buildings } = useQuery({
     queryKey: ["buildings"],
     queryFn: fetchBuildings,
   });
 
   useEffect(() => {
-    if (!buildings || !agmId) return;
+    if (!buildings || !meetingId) return;
 
     const findBuilding = async () => {
       for (const building of buildings) {
         try {
-          const { fetchAGMs: fetch } = await import("../../api/voter");
-          const agms = await fetch(building.id);
-          const found = agms.find((a) => a.id === agmId);
+          const { fetchGeneralMeetings: fetch } = await import("../../api/voter");
+          const meetings = await fetch(building.id);
+          const found = meetings.find((a) => a.id === meetingId);
           if (found) {
-            setCurrentAgm(found);
+            setCurrentMeeting(found);
             setBuildingName(building.name);
             return;
           }
@@ -87,19 +87,19 @@ export function VotingPage() {
       }
     };
     void findBuilding();
-  }, [buildings, agmId]);
+  }, [buildings, meetingId]);
 
   const { data: motions } = useQuery({
-    queryKey: ["motions", agmId],
-    queryFn: () => fetchMotions(agmId!),
-    enabled: !!agmId,
+    queryKey: ["motions", meetingId],
+    queryFn: () => fetchMotions(meetingId!),
+    enabled: !!meetingId,
   });
 
   // Load drafts on mount
   const { data: drafts } = useQuery({
-    queryKey: ["drafts", agmId],
-    queryFn: () => fetchDrafts(agmId!),
-    enabled: !!agmId,
+    queryKey: ["drafts", meetingId],
+    queryFn: () => fetchDrafts(meetingId!),
+    enabled: !!meetingId,
   });
 
   // Restore draft choices once loaded
@@ -113,15 +113,15 @@ export function VotingPage() {
     }
   }, [drafts]);
 
-  // Poll AGM status every 10s
+  // Poll meeting status every 10s
   useEffect(() => {
-    if (!agmId || !buildings) return;
+    if (!meetingId || !buildings) return;
 
     const poll = async () => {
       for (const building of buildings) {
         try {
-          const agms = await fetchAGMs(building.id);
-          const found = agms.find((a) => a.id === agmId);
+          const meetings = await fetchGeneralMeetings(building.id);
+          const found = meetings.find((a) => a.id === meetingId);
           if (found && found.status === "closed") {
             setIsClosed(true);
             return;
@@ -135,21 +135,21 @@ export function VotingPage() {
 
     const id = setInterval(() => void poll(), 10000);
     return () => clearInterval(id);
-  }, [agmId, buildings]);
+  }, [meetingId, buildings]);
 
   const submitMutation = useMutation({
     mutationFn: () => {
-      const storedLots = sessionStorage.getItem(`agm_lots_${agmId}`);
+      const storedLots = sessionStorage.getItem(`meeting_lots_${meetingId}`);
       const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
-      return submitBallot(agmId!, lotOwnerIds);
+      return submitBallot(meetingId!, lotOwnerIds);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["drafts", agmId] });
-      navigate(`/vote/${agmId}/confirmation`);
+      void queryClient.invalidateQueries({ queryKey: ["drafts", meetingId] });
+      navigate(`/vote/${meetingId}/confirmation`);
     },
     onError: (error: Error) => {
       if (error.message.includes("409")) {
-        navigate(`/vote/${agmId}/confirmation`);
+        navigate(`/vote/${meetingId}/confirmation`);
       } else if (error.message.includes("403")) {
         setIsClosed(true);
         setShowDialog(false);
@@ -194,9 +194,9 @@ export function VotingPage() {
     setShowDialog(false);
   };
 
-  const secsRemaining = currentAgm
+  const secsRemaining = currentMeeting
     ? Math.floor(
-        (new Date(currentAgm.voting_closes_at).getTime() - serverTime.getServerNow()) / 1000
+        (new Date(currentMeeting.voting_closes_at).getTime() - serverTime.getServerNow()) / 1000
       )
     : Infinity;
 
@@ -204,7 +204,7 @@ export function VotingPage() {
 
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${agmId}/lot-selection`)}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/lot-selection`)}>
         ← Back
       </button>
       {isClosed && <ClosedBanner />}
@@ -215,23 +215,23 @@ export function VotingPage() {
         </div>
       )}
 
-      {currentAgm && (
+      {currentMeeting && (
         <div className="agm-header">
           <p className="agm-header__building">{buildingName}</p>
-          <h1 className="agm-header__title">{currentAgm.title}</h1>
+          <h1 className="agm-header__title">{currentMeeting.title}</h1>
           <div className="agm-header__meta">
             <span>
               <strong>Meeting</strong>{" "}
-              {formatLocalDateTime(currentAgm.meeting_at)}
+              {formatLocalDateTime(currentMeeting.meeting_at)}
             </span>
             <span>
               <strong>Closes</strong>{" "}
-              {formatLocalDateTime(currentAgm.voting_closes_at)}
+              {formatLocalDateTime(currentMeeting.voting_closes_at)}
             </span>
           </div>
           <div className="agm-header__divider" />
           <span className="agm-header__timer-label">Time remaining</span>
-          <CountdownTimer closesAt={currentAgm.voting_closes_at} serverTime={serverTime} />
+          <CountdownTimer closesAt={currentMeeting.voting_closes_at} serverTime={serverTime} />
         </div>
       )}
 
@@ -251,7 +251,7 @@ export function VotingPage() {
               <MotionCard
                 key={motion.id}
                 motion={motion}
-                agmId={agmId!}
+                meetingId={meetingId!}
                 choice={choices[motion.id] ?? null}
                 onChoiceChange={handleChoiceChange}
                 disabled={isClosed}

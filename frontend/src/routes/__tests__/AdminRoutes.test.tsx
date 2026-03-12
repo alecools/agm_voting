@@ -44,7 +44,7 @@ describe("AdminRoutes", () => {
       expect(screen.getByText("Admin Portal")).toBeInTheDocument();
     });
     expect(screen.getByRole("link", { name: "Buildings" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "AGMs" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "General Meetings" })).toBeInTheDocument();
   });
 
   it("renders buildings page on /admin/buildings when authenticated", async () => {
@@ -54,17 +54,17 @@ describe("AdminRoutes", () => {
     });
   });
 
-  it("renders AGM list page on /admin/agms when authenticated", async () => {
-    renderRoutes("/admin/agms");
+  it("renders General Meeting list page on /admin/general-meetings when authenticated", async () => {
+    renderRoutes("/admin/general-meetings");
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "AGMs" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "General Meetings" })).toBeInTheDocument();
     });
   });
 
-  it("renders create AGM page on /admin/agms/new when authenticated", async () => {
-    renderRoutes("/admin/agms/new");
+  it("renders create General Meeting page on /admin/general-meetings/new when authenticated", async () => {
+    renderRoutes("/admin/general-meetings/new");
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Create AGM" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Create General Meeting" })).toBeInTheDocument();
     });
   });
 

@@ -39,9 +39,9 @@ describe("AdminLayout", () => {
     expect(screen.getByRole("link", { name: "Buildings" })).toBeInTheDocument();
   });
 
-  it("renders AGMs nav link", () => {
-    renderLayout("/admin/agms");
-    expect(screen.getByRole("link", { name: "AGMs" })).toBeInTheDocument();
+  it("renders General Meetings nav link", () => {
+    renderLayout("/admin/general-meetings");
+    expect(screen.getByRole("link", { name: "General Meetings" })).toBeInTheDocument();
   });
 
   it("renders outlet content", () => {

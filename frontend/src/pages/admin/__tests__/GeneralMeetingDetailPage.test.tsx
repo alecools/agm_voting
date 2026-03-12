@@ -6,8 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
-import AGMDetailPage from "../AGMDetailPage";
-import { ADMIN_AGM_DETAIL_CLOSED } from "../../../../tests/msw/handlers";
+import GeneralMeetingDetailPage from "../GeneralMeetingDetailPage";
+import { ADMIN_MEETING_DETAIL_CLOSED } from "../../../../tests/msw/handlers";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -18,28 +18,28 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage(agmId = "agm1") {
+function renderPage(meetingId = "agm1") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/admin/agms/${agmId}`]}>
+      <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
         <Routes>
-          <Route path="/admin/agms/:agmId" element={<AGMDetailPage />} />
+          <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe("AGMDetailPage", () => {
+describe("GeneralMeetingDetailPage", () => {
   it("shows loading state initially", () => {
     renderPage();
-    expect(screen.getByText("Loading AGM...")).toBeInTheDocument();
+    expect(screen.getByText("Loading General Meeting...")).toBeInTheDocument();
   });
 
-  it("renders AGM title and building name", async () => {
+  it("renders meeting title and building name", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
@@ -62,14 +62,14 @@ describe("AGMDetailPage", () => {
     });
   });
 
-  it("shows Close Voting button when AGM is open", async () => {
+  it("shows Close Voting button when meeting is open", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Close Voting" })).toBeInTheDocument();
     });
   });
 
-  it("does not show Close Voting button when AGM is closed", async () => {
+  it("does not show Close Voting button when meeting is closed", async () => {
     renderPage("agm2");
     await waitFor(() => {
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
@@ -77,7 +77,7 @@ describe("AGMDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Close Voting" })).not.toBeInTheDocument();
   });
 
-  it("shows closed_at date when AGM is closed", async () => {
+  it("shows closed_at date when meeting is closed", async () => {
     renderPage("agm2");
     await waitFor(() => {
       expect(screen.getByText(/Closed at/)).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe("AGMDetailPage", () => {
     expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
   });
 
-  it("closes AGM: confirm button is clickable and calls close API", async () => {
+  it("closes meeting: confirm button is clickable and calls close API", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -102,9 +102,7 @@ describe("AGMDetailPage", () => {
     });
     await user.click(screen.getByRole("button", { name: "Close Voting" }));
     expect(screen.getByRole("button", { name: "Confirm Close" })).toBeInTheDocument();
-    // Click confirm - the mutation should fire and onSuccess runs (which re-fetches)
     await user.click(screen.getByRole("button", { name: "Confirm Close" }));
-    // Dialog should close after confirmation
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Confirm Close" })).not.toBeInTheDocument();
     });
@@ -126,14 +124,14 @@ describe("AGMDetailPage", () => {
     });
   });
 
-  it("shows 'AGM not found' for 404", async () => {
+  it("shows 'General Meeting not found' for 404", async () => {
     renderPage("agm-notfound");
     await waitFor(() => {
-      expect(screen.getByText("AGM not found")).toBeInTheDocument();
+      expect(screen.getByText("General Meeting not found")).toBeInTheDocument();
     });
   });
 
-  it("renders AGM report view with motions", async () => {
+  it("renders meeting report view with motions", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Results Report")).toBeInTheDocument();
@@ -141,7 +139,7 @@ describe("AGMDetailPage", () => {
     expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
   });
 
-  it("shows 'Summary page:' section label on the AGM detail page", async () => {
+  it("shows 'Summary page:' section label on the meeting detail page", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/Summary/)).toBeInTheDocument();
@@ -151,10 +149,10 @@ describe("AGMDetailPage", () => {
   it("renders summary URL link with correct href", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /\/agm\/agm1\/summary/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /\/general-meeting\/agm1\/summary/ })).toBeInTheDocument();
     });
-    const link = screen.getByRole("link", { name: /\/agm\/agm1\/summary/ });
-    expect(link).toHaveAttribute("href", expect.stringContaining("/agm/agm1/summary"));
+    const link = screen.getByRole("link", { name: /\/general-meeting\/agm1\/summary/ });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/general-meeting/agm1/summary"));
   });
 
   it("shows Retry Send success after clicking retry", async () => {
@@ -171,10 +169,10 @@ describe("AGMDetailPage", () => {
 
   it("shows EmailStatusBanner with null lastError", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/agms/:agmId", ({ params }) => {
-        if (params.agmId === "agm-email-null-error") {
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-email-null-error") {
           return HttpResponse.json({
-            ...ADMIN_AGM_DETAIL_CLOSED,
+            ...ADMIN_MEETING_DETAIL_CLOSED,
             id: "agm-email-null-error",
             email_delivery: { status: "failed", last_error: null },
           });
@@ -191,13 +189,13 @@ describe("AGMDetailPage", () => {
 
   it("shows generic error when non-404 fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/agms/:agmId", () => {
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () => {
         return HttpResponse.json({ detail: "Server error" }, { status: 500 });
       })
     );
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Failed to load AGM.")).toBeInTheDocument();
+      expect(screen.getByText("Failed to load General Meeting.")).toBeInTheDocument();
     });
   });
 
@@ -209,7 +207,7 @@ describe("AGMDetailPage", () => {
     expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
   });
 
-  it("clicking back navigates to /admin/agms", async () => {
+  it("clicking back navigates to /admin/general-meetings", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
@@ -217,6 +215,6 @@ describe("AGMDetailPage", () => {
       expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "← Back" }));
-    expect(mockNavigate).toHaveBeenCalledWith("/admin/agms");
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings");
   });
 });

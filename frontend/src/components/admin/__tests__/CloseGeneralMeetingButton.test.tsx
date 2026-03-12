@@ -5,20 +5,20 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
-import CloseAGMButton from "../CloseAGMButton";
+import CloseGeneralMeetingButton from "../CloseGeneralMeetingButton";
 
-function renderComponent(agmId = "agm1", agmTitle = "2024 AGM", onSuccess = vi.fn()) {
+function renderComponent(meetingId = "agm1", meetingTitle = "2024 AGM", onSuccess = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <CloseAGMButton agmId={agmId} agmTitle={agmTitle} onSuccess={onSuccess} />
+      <CloseGeneralMeetingButton meetingId={meetingId} meetingTitle={meetingTitle} onSuccess={onSuccess} />
     </QueryClientProvider>
   );
 }
 
-describe("CloseAGMButton", () => {
+describe("CloseGeneralMeetingButton", () => {
   it("renders Close Voting button", () => {
     renderComponent();
     expect(screen.getByRole("button", { name: "Close Voting" })).toBeInTheDocument();
@@ -55,8 +55,8 @@ describe("CloseAGMButton", () => {
 
   it("shows error message when close fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/agms/:agmId/close", () => {
-        return HttpResponse.json({ detail: "AGM is already closed" }, { status: 409 });
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/close", () => {
+        return HttpResponse.json({ detail: "General Meeting is already closed" }, { status: 409 });
       })
     );
     const user = userEvent.setup();

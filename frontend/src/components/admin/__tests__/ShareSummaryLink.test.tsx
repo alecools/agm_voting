@@ -28,43 +28,43 @@ describe("ShareSummaryLink", () => {
   });
 
   it("renders the summary URL as an anchor link with correct href", () => {
-    render(<ShareSummaryLink agmId="agm42" />);
-    const expectedUrl = window.location.origin + "/agm/agm42/summary";
+    render(<ShareSummaryLink meetingId="agm42" />);
+    const expectedUrl = window.location.origin + "/general-meeting/agm42/summary";
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", expectedUrl);
     expect(link).toHaveTextContent(expectedUrl);
   });
 
   it("link has target=_blank and rel=noopener noreferrer", () => {
-    render(<ShareSummaryLink agmId="agm42" />);
+    render(<ShareSummaryLink meetingId="agm42" />);
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("renders 'Copy link' button initially", () => {
-    render(<ShareSummaryLink agmId="agm42" />);
+    render(<ShareSummaryLink meetingId="agm42" />);
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
   });
 
   it("shows 'Link copied' toast after clicking Copy link", async () => {
-    render(<ShareSummaryLink agmId="agm42" />);
+    render(<ShareSummaryLink meetingId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
     expect(screen.getByText("Link copied")).toBeInTheDocument();
   });
 
   it("calls navigator.clipboard.writeText with the correct URL", async () => {
-    render(<ShareSummaryLink agmId="agm42" />);
+    render(<ShareSummaryLink meetingId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
-    const expectedUrl = window.location.origin + "/agm/agm42/summary";
+    const expectedUrl = window.location.origin + "/general-meeting/agm42/summary";
     expect(writeTextMock).toHaveBeenCalledWith(expectedUrl);
   });
 
   it("still shows toast after clipboard write failure, no crash", async () => {
     writeTextMock.mockRejectedValueOnce(new Error("not allowed"));
-    render(<ShareSummaryLink agmId="agm42" />);
+    render(<ShareSummaryLink meetingId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
     // After failure, toast still appears

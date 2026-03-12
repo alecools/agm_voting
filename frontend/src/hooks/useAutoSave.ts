@@ -10,7 +10,7 @@ export interface UseAutoSaveResult {
 }
 
 export function useAutoSave(
-  agmId: string,
+  meetingId: string,
   motionId: string,
   choice: VoteChoice | null,
   _session?: string
@@ -22,14 +22,14 @@ export function useAutoSave(
 
   const doSave = useCallback(() => {
     setStatus("saving");
-    saveDraft(agmId, { motion_id: motionId, choice: latestChoice.current })
+    saveDraft(meetingId, { motion_id: motionId, choice: latestChoice.current })
       .then(() => {
         setStatus("saved");
       })
       .catch(() => {
         setStatus("error");
       });
-  }, [agmId, motionId]);
+  }, [meetingId, motionId]);
 
   useEffect(() => {
     // Don't auto-save on first mount when idle

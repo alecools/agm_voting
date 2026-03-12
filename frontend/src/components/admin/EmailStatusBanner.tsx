@@ -4,13 +4,13 @@ import { resendReport } from "../../api/admin";
 import type { ResendReportOut } from "../../api/admin";
 
 interface EmailStatusBannerProps {
-  agmId: string;
+  meetingId: string;
   lastError: string | null;
   onRetrySuccess: () => void;
 }
 
 export default function EmailStatusBanner({
-  agmId,
+  meetingId,
   lastError,
   onRetrySuccess,
 }: EmailStatusBannerProps) {
@@ -39,7 +39,7 @@ export default function EmailStatusBanner({
         <button
           className="btn btn--danger"
           style={{ fontSize: "0.8rem", padding: "7px 16px" }}
-          onClick={() => { setRetrySuccess(false); setRetryError(null); mutation.mutate(agmId); }}
+          onClick={() => { setRetrySuccess(false); setRetryError(null); mutation.mutate(meetingId); }}
           disabled={mutation.isPending}
         >
           {mutation.isPending ? "Retrying..." : "Retry Send"}

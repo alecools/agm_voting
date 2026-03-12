@@ -5,13 +5,13 @@ import type {
   LotOwnerImportResult,
   ProxyImportResult,
   FinancialPositionImportResult,
-  AGMListItem,
-  AGMDetail,
-  AGMOut,
-  AGMCloseOut,
+  GeneralMeetingListItem,
+  GeneralMeetingDetail,
+  GeneralMeetingOut,
+  GeneralMeetingCloseOut,
   ResendReportOut,
 } from "../../src/api/admin";
-import type { AGMSummaryData } from "../../src/api/public";
+import type { GeneralMeetingSummaryData } from "../../src/api/public";
 
 const BASE = "http://localhost:8000";
 
@@ -53,7 +53,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
   },
 ];
 
-export const ADMIN_AGM_LIST: AGMListItem[] = [
+export const ADMIN_MEETING_LIST: GeneralMeetingListItem[] = [
   {
     id: "agm1",
     building_id: "b1",
@@ -76,7 +76,10 @@ export const ADMIN_AGM_LIST: AGMListItem[] = [
   },
 ];
 
-export const ADMIN_AGM_DETAIL: AGMDetail = {
+// Keep backward-compatible alias
+export const ADMIN_AGM_LIST = ADMIN_MEETING_LIST;
+
+export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
   id: "agm1",
   building_name: "Alpha Tower",
   title: "2024 AGM",
@@ -117,15 +120,21 @@ export const ADMIN_AGM_DETAIL: AGMDetail = {
   ],
 };
 
-export const ADMIN_AGM_DETAIL_CLOSED: AGMDetail = {
-  ...ADMIN_AGM_DETAIL,
+// Keep backward-compatible alias
+export const ADMIN_AGM_DETAIL = ADMIN_MEETING_DETAIL;
+
+export const ADMIN_MEETING_DETAIL_CLOSED: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
   id: "agm2",
   title: "2023 AGM",
   status: "closed",
   closed_at: "2023-06-01T13:00:00Z",
 };
 
-export const ADMIN_CREATED_AGM: AGMOut = {
+// Keep backward-compatible alias
+export const ADMIN_AGM_DETAIL_CLOSED = ADMIN_MEETING_DETAIL_CLOSED;
+
+export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
   id: "agm-new",
   building_id: "b1",
   title: "New AGM",
@@ -141,6 +150,9 @@ export const ADMIN_CREATED_AGM: AGMOut = {
     },
   ],
 };
+
+// Keep backward-compatible alias
+export const ADMIN_CREATED_AGM = ADMIN_CREATED_MEETING;
 
 export const adminHandlers = [
   http.get(`${BASE}/api/admin/auth/me`, () => {
@@ -267,52 +279,52 @@ export const adminHandlers = [
     return HttpResponse.json<FinancialPositionImportResult>({ updated: 4, skipped: 0 });
   }),
 
-  http.get(`${BASE}/api/admin/agms`, () => {
-    return HttpResponse.json(ADMIN_AGM_LIST);
+  http.get(`${BASE}/api/admin/general-meetings`, () => {
+    return HttpResponse.json(ADMIN_MEETING_LIST);
   }),
 
-  http.post(`${BASE}/api/admin/agms`, async ({ request }) => {
+  http.post(`${BASE}/api/admin/general-meetings`, async ({ request }) => {
     const body = await request.json() as { building_id?: string };
     if (body?.building_id === "conflict-building") {
       return HttpResponse.json(
-        { detail: "An open AGM already exists for this building" },
+        { detail: "An open General Meeting already exists for this building" },
         { status: 409 }
       );
     }
-    return HttpResponse.json(ADMIN_CREATED_AGM, { status: 201 });
+    return HttpResponse.json(ADMIN_CREATED_MEETING, { status: 201 });
   }),
 
-  http.get(`${BASE}/api/admin/agms/:agmId`, ({ params }) => {
-    if (params.agmId === "agm2") {
-      return HttpResponse.json(ADMIN_AGM_DETAIL_CLOSED);
+  http.get(`${BASE}/api/admin/general-meetings/:meetingId`, ({ params }) => {
+    if (params.meetingId === "agm2") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_CLOSED);
     }
-    if (params.agmId === "agm-notfound") {
-      return HttpResponse.json({ detail: "AGM not found" }, { status: 404 });
+    if (params.meetingId === "agm-notfound") {
+      return HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 });
     }
-    if (params.agmId === "agm-failed-email") {
+    if (params.meetingId === "agm-failed-email") {
       return HttpResponse.json({
-        ...ADMIN_AGM_DETAIL_CLOSED,
+        ...ADMIN_MEETING_DETAIL_CLOSED,
         id: "agm-failed-email",
         email_delivery: { status: "failed", last_error: "SMTP error" },
       });
     }
-    return HttpResponse.json(ADMIN_AGM_DETAIL);
+    return HttpResponse.json(ADMIN_MEETING_DETAIL);
   }),
 
-  http.post(`${BASE}/api/admin/agms/:agmId/close`, ({ params }) => {
-    if (params.agmId === "agm-already-closed") {
-      return HttpResponse.json({ detail: "AGM is already closed" }, { status: 409 });
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/close`, ({ params }) => {
+    if (params.meetingId === "agm-already-closed") {
+      return HttpResponse.json({ detail: "General Meeting is already closed" }, { status: 409 });
     }
-    const result: AGMCloseOut = {
-      id: params.agmId as string,
+    const result: GeneralMeetingCloseOut = {
+      id: params.meetingId as string,
       status: "closed",
       closed_at: "2024-06-01T13:00:00Z",
     };
     return HttpResponse.json(result);
   }),
 
-  http.post(`${BASE}/api/admin/agms/:agmId/resend-report`, ({ params }) => {
-    if (params.agmId === "agm-resend-fail") {
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/resend-report`, ({ params }) => {
+    if (params.meetingId === "agm-resend-fail") {
       return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
     }
     const result: ResendReportOut = { queued: true };
@@ -322,8 +334,8 @@ export const adminHandlers = [
 
 export const SUMMARY_AGM_ID = "agm-summary-test-999";
 
-export const agmSummaryFixture: AGMSummaryData = {
-  agm_id: SUMMARY_AGM_ID,
+export const agmSummaryFixture: GeneralMeetingSummaryData = {
+  general_meeting_id: SUMMARY_AGM_ID,
   title: "2024 AGM",
   status: "open",
   meeting_at: "2024-06-01T10:00:00Z",
@@ -375,7 +387,7 @@ export const motionFixtures = [
 
 export const myBallotFixture = {
   voter_email: "owner@example.com",
-  agm_title: "2024 AGM",
+  meeting_title: "2024 AGM",
   building_name: "Sunset Towers",
   submitted_lots: [
     {
@@ -413,7 +425,7 @@ export const handlers = [
     HttpResponse.json([buildingFixture])
   ),
 
-  http.get(`${BASE}/api/buildings/:buildingId/agms`, () =>
+  http.get(`${BASE}/api/buildings/:buildingId/general-meetings`, () =>
     HttpResponse.json([agmOpenFixture, agmClosedFixture])
   ),
 
@@ -425,19 +437,19 @@ export const handlers = [
     })
   ),
 
-  http.get(`${BASE}/api/agm/:agmId/motions`, () =>
+  http.get(`${BASE}/api/general-meeting/:meetingId/motions`, () =>
     HttpResponse.json(motionFixtures)
   ),
 
-  http.get(`${BASE}/api/agm/:agmId/drafts`, () =>
+  http.get(`${BASE}/api/general-meeting/:meetingId/drafts`, () =>
     HttpResponse.json({ drafts: [] })
   ),
 
-  http.put(`${BASE}/api/agm/:agmId/draft`, () =>
+  http.put(`${BASE}/api/general-meeting/:meetingId/draft`, () =>
     HttpResponse.json({ saved: true })
   ),
 
-  http.post(`${BASE}/api/agm/:agmId/submit`, () =>
+  http.post(`${BASE}/api/general-meeting/:meetingId/submit`, () =>
     HttpResponse.json({
       submitted: true,
       lots: [
@@ -453,12 +465,12 @@ export const handlers = [
     })
   ),
 
-  http.get(`${BASE}/api/agm/:agmId/my-ballot`, () =>
+  http.get(`${BASE}/api/general-meeting/:meetingId/my-ballot`, () =>
     HttpResponse.json(myBallotFixture)
   ),
 
-  http.get(`${BASE}/api/agm/:agmId/summary`, ({ params }) => {
-    if (params.agmId === "agm-summary-notfound") {
+  http.get(`${BASE}/api/general-meeting/:meetingId/summary`, ({ params }) => {
+    if (params.meetingId === "agm-summary-notfound") {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
     return HttpResponse.json(agmSummaryFixture);
