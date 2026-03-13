@@ -17,6 +17,10 @@ const IGNORED_PATTERNS = [
   // the browser logs "Failed to load resource: status of 401" for intentional
   // wrong-credential submissions, which is correct app behaviour not an error.
   /status of 401/i,
+  // 404 from /api/general-meeting/{id}/summary is expected in the "invalid AGM ID
+  // shows not-found state" test — the test deliberately uses a non-existent UUID
+  // to verify that the component renders the "Meeting not found" fallback UI.
+  /status of 404/i,
 ];
 
 /**

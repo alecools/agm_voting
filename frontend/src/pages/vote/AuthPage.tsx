@@ -24,9 +24,15 @@ export function AuthPage() {
     if (!buildings || !meetingId) return;
 
     const findBuilding = async () => {
-      for (const building of buildings) {
-        try {
-          const meetings = await fetchGeneralMeetings(building.id);
+      // Fetch all buildings' meetings in parallel to avoid O(n) sequential latency.
+      const results = await Promise.allSettled(
+        buildings.map((building) =>
+          fetchGeneralMeetings(building.id).then((meetings) => ({ building, meetings }))
+        )
+      );
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          const { building, meetings } = result.value;
           const found = meetings.find((a) => a.id === meetingId);
           if (found) {
             setFoundBuildingId(building.id);
@@ -34,8 +40,6 @@ export function AuthPage() {
             setMeetingTitle(found.title);
             return;
           }
-        } catch {
-          // continue searching
         }
       }
     };

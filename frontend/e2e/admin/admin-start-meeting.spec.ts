@@ -216,7 +216,7 @@ test.describe("Admin Start Meeting button", () => {
   }, { timeout: 120000 });
 
   test("pending meeting shows 'Start Meeting' button", async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
 
     await page.goto(`/admin/general-meetings/${pendingAgmId}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
@@ -233,7 +233,7 @@ test.describe("Admin Start Meeting button", () => {
   test("clicking Start Meeting shows confirmation dialog, confirming transitions to Open", async ({
     page,
   }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
 
     // Uses startAgmId (not pendingAgmId) so this test's mutation does not
     // interfere with the read-only "pending meeting shows Start Meeting button" test.
@@ -265,7 +265,7 @@ test.describe("Admin Start Meeting button", () => {
   });
 
   test("open meeting does NOT show Start Meeting button", async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
 
     await page.goto(`/admin/general-meetings/${openAgmId}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
@@ -275,7 +275,7 @@ test.describe("Admin Start Meeting button", () => {
   });
 
   test("closed meeting does NOT show Start Meeting button", async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
 
     await page.goto(`/admin/general-meetings/${closedAgmId}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });

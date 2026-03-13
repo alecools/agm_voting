@@ -28,9 +28,9 @@ const AGM_TITLE = "E2E Pending Test AGM";
 let seededAgmId = "";
 
 test.describe("Pending AGM voter-facing behaviour", () => {
-  // Increase hook timeout: seeding requires multiple API calls against the
-  // shared Vercel Lambda which can be slow under concurrent load.
-  test.describe.configure({ timeout: 120000 });
+  // Serial mode prevents parallel workers from each running their own beforeAll,
+  // which would cause multiple concurrent Lambda cold starts and timeout races.
+  test.describe.configure({ mode: "serial" });
 
   test.beforeAll(async () => {
     // Set a generous timeout for the seeding logic which makes multiple API
@@ -159,7 +159,7 @@ test.describe("Pending AGM voter-facing behaviour", () => {
   test("pending AGM shows 'Voting Not Yet Open' button, no 'Enter Voting' button", async ({
     page,
   }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
     await page.goto("/");
 
     // Select the building
@@ -186,7 +186,7 @@ test.describe("Pending AGM voter-facing behaviour", () => {
   test("authenticating against a pending AGM redirects to home with informational message", async ({
     page,
   }) => {
-    test.setTimeout(60000);
+    test.setTimeout(120000);
 
     // Navigate directly to the auth page for the pending AGM
     await page.goto(`/vote/${seededAgmId}/auth`);
