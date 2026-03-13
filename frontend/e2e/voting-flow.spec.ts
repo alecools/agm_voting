@@ -42,11 +42,11 @@ test.describe("Lot owner voting flow", () => {
     if (page.url().includes("/voting")) {
       await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible({ timeout: 10000 });
 
-      // Vote Yes on all motions
-      const yesButtons = page.getByRole("button", { name: "Yes" });
-      const count = await yesButtons.count();
+      // Vote For on all motions (vote buttons are labelled "For" / "Against" / "Abstain")
+      const forButtons = page.getByRole("button", { name: "For" });
+      const count = await forButtons.count();
       for (let i = 0; i < count; i++) {
-        await yesButtons.nth(i).click();
+        await forButtons.nth(i).click();
       }
 
       // Submit
