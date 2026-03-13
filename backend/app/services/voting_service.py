@@ -247,6 +247,39 @@ async def submit_ballot(
         lo.id: lo for lo in lot_owners_result.scalars().all()
     }
 
+    # Fetch all draft votes for this voter ONCE before iterating over lots.
+    #
+    # The frontend saves one draft row per (voter_email, motion_id) WITHOUT a
+    # lot_owner_id (NULL).  If we filter by lot_owner_id inside the lot loop the
+    # query returns nothing and every motion is recorded as abstained — which is
+    # the root-cause bug this block fixes.
+    #
+    # Strategy:
+    #   1. Load all drafts for this voter (NULL and per-lot) up front.
+    #   2. Separate them: per-lot drafts (lot_owner_id set) vs shared (NULL lot_owner_id).
+    #   3. Per-lot drafts are promoted in-place.  Shared drafts are used to create a
+    #      new submitted Vote per lot, then the shared row is deleted at the end.
+    all_drafts_result = await db.execute(
+        select(Vote).where(
+            Vote.general_meeting_id == general_meeting_id,
+            Vote.voter_email == voter_email,
+            Vote.status == VoteStatus.draft,
+        )
+    )
+    all_draft_votes: list[Vote] = list(all_drafts_result.scalars().all())
+
+    # Shared (NULL lot_owner_id) drafts — choice keyed by motion_id
+    shared_draft_choice: dict[uuid.UUID, VoteChoice | None] = {}
+    shared_draft_rows: list[Vote] = []
+    # Per-lot drafts — keyed by (lot_owner_id, motion_id)
+    per_lot_drafts: dict[tuple[uuid.UUID, uuid.UUID], Vote] = {}
+    for v in all_draft_votes:
+        if v.lot_owner_id is None:
+            shared_draft_choice[v.motion_id] = v.choice
+            shared_draft_rows.append(v)
+        else:
+            per_lot_drafts[(v.lot_owner_id, v.motion_id)] = v
+
     lot_results: list[LotBallotResult] = []
 
     for lot_owner_id in lot_owner_ids:
@@ -258,17 +291,6 @@ async def submit_ballot(
         lo = lot_owners_by_id.get(lot_owner_id)
         lot_number = lo.lot_number if lo else str(lot_owner_id)
 
-        # Get existing draft votes for this lot
-        drafts_result = await db.execute(
-            select(Vote).where(
-                Vote.general_meeting_id == general_meeting_id,
-                Vote.voter_email == voter_email,
-                Vote.lot_owner_id == lot_owner_id,
-                Vote.status == VoteStatus.draft,
-            )
-        )
-        drafts = {v.motion_id: v for v in drafts_result.scalars().all()}
-
         motions_needing_new_vote: list[Motion] = []
         motions_needing_not_eligible: list[Motion] = []
         vote_items: list[VoteSummaryItem] = []
@@ -276,29 +298,49 @@ async def submit_ballot(
         for motion in motions:
             # In-arrear lots cannot vote on General Motions — record not_eligible
             if is_in_arrear and motion.motion_type == MotionType.general:
-                # Delete any existing draft for this motion first
-                if motion.id in drafts:
-                    await db.delete(drafts[motion.id])
-                # Defer the not_eligible insert until after the flush
+                # Clean up any per-lot draft for this motion
+                per_lot_draft = per_lot_drafts.pop((lot_owner_id, motion.id), None)
+                if per_lot_draft is not None:
+                    await db.delete(per_lot_draft)
                 motions_needing_not_eligible.append(motion)
                 continue
 
-            draft = drafts.get(motion.id)
-            if draft is not None and draft.choice is not None:
-                draft.status = VoteStatus.submitted
-                vote_items.append(
-                    VoteSummaryItem(
+            per_lot_draft = per_lot_drafts.get((lot_owner_id, motion.id))
+            if per_lot_draft is not None:
+                # Promote the per-lot draft in place (avoids a new INSERT for same PK)
+                if per_lot_draft.choice is not None:
+                    per_lot_draft.status = VoteStatus.submitted
+                    vote_items.append(VoteSummaryItem(
                         motion_id=motion.id,
                         motion_title=motion.title,
-                        choice=draft.choice,
-                    )
-                )
+                        choice=per_lot_draft.choice,
+                    ))
+                else:
+                    # Null-choice draft — treat as unanswered
+                    await db.delete(per_lot_draft)
+                    motions_needing_new_vote.append(motion)
             else:
-                if draft is not None and draft.choice is None:
-                    await db.delete(draft)
-                motions_needing_new_vote.append(motion)
+                # Check shared (NULL lot_owner_id) draft
+                shared_choice = shared_draft_choice.get(motion.id)
+                if shared_choice is not None:
+                    new_submitted = Vote(
+                        general_meeting_id=general_meeting_id,
+                        motion_id=motion.id,
+                        voter_email=voter_email,
+                        lot_owner_id=lot_owner_id,
+                        choice=shared_choice,
+                        status=VoteStatus.submitted,
+                    )
+                    db.add(new_submitted)
+                    vote_items.append(VoteSummaryItem(
+                        motion_id=motion.id,
+                        motion_title=motion.title,
+                        choice=shared_choice,
+                    ))
+                else:
+                    motions_needing_new_vote.append(motion)
 
-        # Flush deletes before inserting (ensures draft rows are gone before new inserts)
+        # Flush before inserting not_eligible / abstained rows
         await db.flush()
 
         # Now insert not_eligible votes for in-arrear general motions
@@ -358,6 +400,12 @@ async def submit_ballot(
             lot_number=lot_number,
             votes=vote_items,
         ))
+
+    # Delete shared (NULL lot_owner_id) draft rows now that submitted Vote rows
+    # have been created for every lot from those choices.
+    for draft in shared_draft_rows:
+        await db.delete(draft)
+    await db.flush()
 
     return SubmitResponse(submitted=True, lots=lot_results)
 
