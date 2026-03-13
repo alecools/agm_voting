@@ -8,6 +8,7 @@ export interface GeneralMeetingSummaryMotion {
 
 export interface GeneralMeetingSummaryData {
   general_meeting_id: string;
+  building_id: string;
   title: string;
   status: string;
   meeting_at: string;

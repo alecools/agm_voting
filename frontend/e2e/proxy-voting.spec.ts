@@ -67,9 +67,11 @@ test.describe("Proxy voter journey", () => {
   // which would cause multiple concurrent Lambda cold starts and timeout races.
   test.describe.configure({ mode: "serial" });
 
-  // Shared lot-owner IDs populated in beforeAll
+  // Shared IDs populated in beforeAll
   let proxyBuildingId = "";
   let mixedBuildingId = "";
+  let proxyAgmId = "";
+  let mixedAgmId = "";
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -199,6 +201,7 @@ test.describe("Proxy voter journey", () => {
         },
       });
       const newAgm = (await createRes.json()) as { id: string };
+      proxyAgmId = newAgm.id;
       await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
     }
 
@@ -320,6 +323,7 @@ test.describe("Proxy voter journey", () => {
         },
       });
       const newAgm = (await createRes.json()) as { id: string };
+      mixedAgmId = newAgm.id;
       await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
     }
 
@@ -331,6 +335,19 @@ test.describe("Proxy voter journey", () => {
     "proxy-only voter: sees proxy lot with badge, votes, reaches confirmation",
     async ({ page }) => {
       test.setTimeout(120000);
+
+      // Clear any stale ballots from previous runs so auth always lands on lot-selection
+      if (proxyAgmId) {
+        const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+        const api = await playwrightRequest.newContext({
+          baseURL,
+          ignoreHTTPSErrors: true,
+          storageState: path.join(__dirname, ".auth", "admin.json"),
+        });
+        await api.delete(`/api/admin/general-meetings/${proxyAgmId}/ballots`);
+        await api.dispose();
+      }
+
       await page.goto("/");
 
       // Select the proxy test building
@@ -421,6 +438,19 @@ test.describe("Proxy voter journey", () => {
     "mixed voter: sees own lot (no proxy badge) and proxied lot (proxy badge), votes both",
     async ({ page }) => {
       test.setTimeout(120000);
+
+      // Clear any stale ballots from previous runs so auth always lands on lot-selection
+      if (mixedAgmId) {
+        const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+        const api = await playwrightRequest.newContext({
+          baseURL,
+          ignoreHTTPSErrors: true,
+          storageState: path.join(__dirname, ".auth", "admin.json"),
+        });
+        await api.delete(`/api/admin/general-meetings/${mixedAgmId}/ballots`);
+        await api.dispose();
+      }
+
       await page.goto("/");
 
       // Select the mixed-proxy building

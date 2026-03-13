@@ -105,6 +105,7 @@ async def get_general_meeting_summary(
 
     return GeneralMeetingSummaryOut(
         general_meeting_id=meeting.id,
+        building_id=meeting.building_id,
         title=meeting.title,
         status=get_effective_status(meeting).value,
         meeting_at=meeting.meeting_at,

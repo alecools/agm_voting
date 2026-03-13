@@ -169,6 +169,15 @@ class TestAGMSummary:
         data = response.json()
         assert data["general_meeting_id"] == str(agm.id)
 
+    async def test_open_agm_returns_building_id(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        building = open_agm_with_motions["building"]
+        response = await client.get(f"/api/general-meeting/{agm.id}/summary")
+        data = response.json()
+        assert data["building_id"] == str(building.id)
+
     async def test_open_agm_returns_correct_title(
         self, client: AsyncClient, open_agm_with_motions: dict
     ):

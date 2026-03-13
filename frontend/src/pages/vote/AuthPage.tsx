@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchBuildings, fetchGeneralMeetings, verifyAuth } from "../../api/voter";
+import { verifyAuth } from "../../api/voter";
+import { getGeneralMeetingSummary } from "../../api/public";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
@@ -9,43 +10,19 @@ export function AuthPage() {
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
 
-  // We need building info — fetch all buildings then find the one for this meeting
-  const { data: buildings } = useQuery({
-    queryKey: ["buildings"],
-    queryFn: fetchBuildings,
+  // Fetch meeting summary directly — single API call to get building_id and building_name.
+  // This replaces the previous O(n) parallel scan across all buildings' meeting lists,
+  // which was slow and caused race conditions where the form was submitted before
+  // foundBuildingId was populated.
+  const { data: meetingSummary } = useQuery({
+    queryKey: ["meeting-summary", meetingId],
+    queryFn: () => getGeneralMeetingSummary(meetingId!),
+    enabled: !!meetingId,
   });
 
-  // Find which building has this meeting
-  const [foundBuildingId, setFoundBuildingId] = useState<string | null>(null);
-  const [foundBuildingName, setFoundBuildingName] = useState<string>("");
-  const [meetingTitle, setMeetingTitle] = useState<string>("");
-
-  useEffect(() => {
-    if (!buildings || !meetingId) return;
-
-    const findBuilding = async () => {
-      // Fetch all buildings' meetings in parallel to avoid O(n) sequential latency.
-      const results = await Promise.allSettled(
-        buildings.map((building) =>
-          fetchGeneralMeetings(building.id).then((meetings) => ({ building, meetings }))
-        )
-      );
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          const { building, meetings } = result.value;
-          const found = meetings.find((a) => a.id === meetingId);
-          if (found) {
-            setFoundBuildingId(building.id);
-            setFoundBuildingName(building.name);
-            setMeetingTitle(found.title);
-            return;
-          }
-        }
-      }
-    };
-
-    void findBuilding();
-  }, [buildings, meetingId]);
+  const foundBuildingId = meetingSummary?.building_id ?? null;
+  const foundBuildingName = meetingSummary?.building_name ?? "";
+  const meetingTitle = meetingSummary?.title ?? "";
 
   const mutation = useMutation({
     mutationFn: ({ email }: { email: string }) => {

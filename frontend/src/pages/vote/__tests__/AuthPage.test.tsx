@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { AuthPage } from "../AuthPage";
-import { AGM_ID, BUILDING_ID } from "../../../../tests/msw/handlers";
+import { AGM_ID } from "../../../../tests/msw/handlers";
 
 const BASE = "http://localhost:8000";
 
@@ -203,25 +203,25 @@ describe("AuthPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 
-  it("handles AGM fetch error during building lookup gracefully (shows Loading...)", async () => {
-    // All building AGM fetches fail — building not found, form shows "Loading..."
+  it("handles meeting summary fetch error gracefully (shows Loading...)", async () => {
+    // Meeting summary fetch fails — building not found, form shows "Loading..."
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () => HttpResponse.error())
     );
     renderPage();
     await waitFor(() => {
-      // After buildings load but all AGM fetches fail, title stays "Loading..."
+      // After summary fetch fails, title stays "Loading..."
       expect(screen.getByText("Loading...")).toBeInTheDocument();
     });
   });
 
   it("shows error when submitted before building is found (missing context)", async () => {
-    // All building AGM fetches fail so foundBuildingId stays null
+    // Meeting summary fetch fails so foundBuildingId stays null
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () => HttpResponse.error())
     );
     renderPage();
-    // Wait for buildings to load
+    // Wait for form to render
     await waitFor(() => screen.getByLabelText("Lot number"));
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Lot number"), "1");

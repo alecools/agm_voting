@@ -28,6 +28,7 @@ class MotionSummaryOut(BaseModel):
 
 class GeneralMeetingSummaryOut(BaseModel):
     general_meeting_id: uuid.UUID
+    building_id: uuid.UUID
     title: str
     status: str
     meeting_at: datetime

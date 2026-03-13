@@ -364,6 +364,7 @@ export const SUMMARY_AGM_ID = "agm-summary-test-999";
 
 export const agmSummaryFixture: GeneralMeetingSummaryData = {
   general_meeting_id: SUMMARY_AGM_ID,
+  building_id: "bld-summary-999",
   title: "2024 AGM",
   status: "open",
   meeting_at: "2024-06-01T10:00:00Z",
@@ -377,6 +378,18 @@ export const agmSummaryFixture: GeneralMeetingSummaryData = {
 
 export const AGM_ID = "agm-111";
 export const BUILDING_ID = "bld-222";
+
+// Summary fixture for AGM_ID — used by AuthPage tests (building_id must match BUILDING_ID)
+export const agmAuthSummaryFixture: GeneralMeetingSummaryData = {
+  general_meeting_id: AGM_ID,
+  building_id: BUILDING_ID,
+  title: "2024 AGM",
+  status: "open",
+  meeting_at: "2024-06-01T10:00:00Z",
+  voting_closes_at: "2024-06-01T12:00:00Z",
+  building_name: "Sunset Towers",
+  motions: [],
+};
 export const MOTION_ID_1 = "mot-001";
 export const MOTION_ID_2 = "mot-002";
 
@@ -500,6 +513,9 @@ export const handlers = [
   http.get(`${BASE}/api/general-meeting/:meetingId/summary`, ({ params }) => {
     if (params.meetingId === "agm-summary-notfound") {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    if (params.meetingId === AGM_ID) {
+      return HttpResponse.json(agmAuthSummaryFixture);
     }
     return HttpResponse.json(agmSummaryFixture);
   }),
