@@ -6,7 +6,6 @@ from pydantic import BaseModel, field_validator
 
 class AuthVerifyRequest(BaseModel):
     email: str
-    building_id: uuid.UUID
     general_meeting_id: uuid.UUID
 
     @field_validator("email")
@@ -29,3 +28,5 @@ class AuthVerifyResponse(BaseModel):
     lots: list[LotInfo]
     voter_email: str
     agm_status: str
+    building_name: str
+    meeting_title: str

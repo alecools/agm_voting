@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.building import Building
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
@@ -27,36 +28,49 @@ async def verify_auth(
     db: AsyncSession = Depends(get_db),
 ) -> AuthVerifyResponse:
     """
-    Authenticate a voter by email + building_id.
+    Authenticate a voter by email + general_meeting_id.
+    Derives building_id from the GeneralMeeting record.
     Looks up all lot owners for this building that have the given email (direct ownership)
     AND lots where this email is a nominated proxy.
     Returns the merged list of lots along with their submission status.
     """
-    # 1. Find all LotOwnerEmail records matching email for this building (direct owners)
+    # 1. Fetch the GeneralMeeting to derive building_id
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(
+            GeneralMeeting.id == request.general_meeting_id,
+        )
+    )
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+
+    building_id = meeting.building_id
+
+    # 2. Find all LotOwnerEmail records matching email for this building (direct owners)
     emails_result = await db.execute(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
             LotOwnerEmail.email == request.email,
-            LotOwner.building_id == request.building_id,
+            LotOwner.building_id == building_id,
         )
     )
     email_records = list(emails_result.scalars().all())
     direct_lot_owner_ids: set[uuid.UUID] = {er.lot_owner_id for er in email_records}
 
-    # 2. Find all LotProxy records where proxy_email matches and lot is in this building
+    # 3. Find all LotProxy records where proxy_email matches and lot is in this building
     proxy_result = await db.execute(
         select(LotProxy)
         .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
         .where(
             LotProxy.proxy_email == request.email,
-            LotOwner.building_id == request.building_id,
+            LotOwner.building_id == building_id,
         )
     )
     proxy_records = list(proxy_result.scalars().all())
     proxy_lot_owner_ids: set[uuid.UUID] = {pr.lot_owner_id for pr in proxy_records}
 
-    # 3. Merge: union of direct and proxy lots
+    # 4. Merge: union of direct and proxy lots
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
 
     if not all_lot_owner_ids:
@@ -65,24 +79,19 @@ async def verify_auth(
             detail="Email address not found for this building",
         )
 
-    # 4. Verify General Meeting belongs to building_id
-    meeting_result = await db.execute(
-        select(GeneralMeeting).where(
-            GeneralMeeting.id == request.general_meeting_id,
-            GeneralMeeting.building_id == request.building_id,
-        )
+    # 5. Fetch the Building to get building_name
+    building_result = await db.execute(
+        select(Building).where(Building.id == building_id)
     )
-    meeting = meeting_result.scalar_one_or_none()
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="General Meeting not found for this building")
+    building = building_result.scalar_one()
 
-    # 5. Fetch all relevant LotOwner records
+    # 6. Fetch all relevant LotOwner records
     lots_result = await db.execute(
         select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
     )
     lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
 
-    # 6. Check submissions per lot owner
+    # 7. Check submissions per lot owner
     submissions_result = await db.execute(
         select(BallotSubmission).where(
             BallotSubmission.general_meeting_id == request.general_meeting_id,
@@ -110,11 +119,11 @@ async def verify_auth(
     # Sort by lot_number for consistent ordering
     lots.sort(key=lambda l: l.lot_number)
 
-    # 7. Create session
+    # 8. Create session
     token = await create_session(
         db=db,
         voter_email=request.email,
-        building_id=request.building_id,
+        building_id=building_id,
         general_meeting_id=request.general_meeting_id,
     )
     await db.commit()
@@ -132,4 +141,6 @@ async def verify_auth(
         # Use effective status so past-voting_closes_at meetings report as closed
         # even before the auto-close job has run (US-CD03).
         agm_status=get_effective_status(meeting).value,
+        building_name=building.name,
+        meeting_title=meeting.title,
     )
