@@ -10,7 +10,12 @@ import type { LotInfo } from "../../api/voter";
  * and "In Arrear" badge for lots with in_arrear financial position.
  * Already-submitted lots are shown greyed out and non-interactive.
  *
- * The voter clicks "Start Voting" to proceed.
+ * Multi-lot voters see checkboxes and can select which lots to vote for in this
+ * session. All pending lots are checked by default. Single-lot voters see no
+ * checkboxes — the existing UX is preserved unchanged.
+ *
+ * On "Start Voting", the selected lot_owner_ids are written to
+ * sessionStorage['meeting_lots_${meetingId}'] and navigation proceeds.
  */
 export function LotSelectionPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -27,10 +32,49 @@ export function LotSelectionPage() {
     }
   }, [meetingId]);
 
-  const pendingLots = lots.filter((l) => !l.already_submitted);
+  const isMultiLot = lots.length > 1;
+
+  // Initialise selectedIds to all pending lot IDs
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => {
+    const pending = lots
+      .filter((l) => !l.already_submitted)
+      .map((l) => l.lot_owner_id);
+    return new Set(pending);
+  });
+
+  const [showNoSelectionError, setShowNoSelectionError] = React.useState(false);
+
   const allSubmitted = lots.length > 0 && lots.every((l) => l.already_submitted);
 
+  // For the subtitle: single-lot shows fixed pending count; multi-lot shows dynamic selected count
+  const pendingLots = lots.filter((l) => !l.already_submitted);
+  const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
+
+  const handleToggle = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    // Clear the error as soon as the user interacts
+    setShowNoSelectionError(false);
+  };
+
   const handleStartVoting = () => {
+    if (isMultiLot && selectedIds.size === 0) {
+      setShowNoSelectionError(true);
+      return;
+    }
+    if (isMultiLot) {
+      sessionStorage.setItem(
+        `meeting_lots_${meetingId}`,
+        JSON.stringify([...selectedIds])
+      );
+    }
     navigate(`/vote/${meetingId}/voting`);
   };
 
@@ -48,7 +92,7 @@ export function LotSelectionPage() {
         <p className="lot-selection__subtitle">
           {allSubmitted
             ? "All lots have been submitted."
-            : `You are voting for ${pendingLots.length} lot${pendingLots.length !== 1 ? "s" : ""}.`}
+            : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
         </p>
 
         <ul className="lot-selection__list" role="list">
@@ -58,6 +102,18 @@ export function LotSelectionPage() {
               className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
               aria-disabled={lot.already_submitted ? "true" : undefined}
             >
+              {isMultiLot && (
+                <input
+                  type="checkbox"
+                  id={`lot-checkbox-${lot.lot_owner_id}`}
+                  className="lot-selection__checkbox"
+                  checked={selectedIds.has(lot.lot_owner_id)}
+                  disabled={lot.already_submitted}
+                  onChange={() => handleToggle(lot.lot_owner_id)}
+                  aria-label={`Select Lot ${lot.lot_number}`}
+                />
+              )}
+
               <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
 
               {lot.is_proxy && (
@@ -81,6 +137,10 @@ export function LotSelectionPage() {
           ))}
         </ul>
 
+        {showNoSelectionError && (
+          <p role="alert">Please select at least one lot</p>
+        )}
+
         {allSubmitted ? (
           <button
             type="button"
@@ -92,7 +152,8 @@ export function LotSelectionPage() {
         ) : (
           <button
             type="button"
-            className="btn btn--primary"
+            className={`btn btn--primary${isMultiLot && selectedIds.size === 0 ? " btn--disabled" : ""}`}
+            aria-disabled={isMultiLot && selectedIds.size === 0 ? "true" : undefined}
             onClick={handleStartVoting}
           >
             Start Voting

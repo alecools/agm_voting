@@ -109,13 +109,17 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 **Description:** As a lot owner, I want to see a list of lots associated with my email and choose which ones to cast votes for, so I can vote for multiple lots at once or split them across sessions.
 
 **Acceptance Criteria:**
-- [ ] After successful authentication, the frontend shows a "Select lots to vote for" screen
-- [ ] Each lot is shown with: lot number, financial position badge (Normal / In Arrear), and status (Not yet voted / Already submitted)
-- [ ] Lots that have already been submitted show as checked/selected but greyed out and non-interactive; they link to the confirmation screen for that lot
-- [ ] Lots not yet submitted are shown as checkboxes, defaulting to all checked
-- [ ] If all lots have already been submitted, a "Review All Submissions" button is shown and the selection UI is not displayed
-- [ ] User must select at least one not-yet-submitted lot before proceeding; if none are selected, an inline validation error is shown
-- [ ] A "Continue to Vote" button proceeds to the voting page for the selected lots
+- [ ] After successful authentication, the frontend shows a lot selection screen titled "Your Lots"
+- [ ] Each lot is shown with: lot number, financial position badge ("In Arrear" when applicable), proxy badge ("Proxy for Lot N" when applicable), and "Already submitted" badge when applicable
+- [ ] **Multi-lot voters (2+ lots):** Each lot row renders a checkbox; voters can select which lots to include in the current vote session
+  - [ ] All pending (not-yet-submitted) lots are checked by default on mount
+  - [ ] Already-submitted lots render a disabled, unchecked checkbox — they cannot be re-selected
+  - [ ] "Start Voting" is disabled when no checkboxes are selected (i.e. `selectedIds.size === 0`)
+  - [ ] If the user somehow triggers "Start Voting" with nothing selected, an inline validation alert (`<p role="alert">Please select at least one lot</p>`) is displayed
+  - [ ] On submit, `sessionStorage['meeting_lots_${meetingId}']` is written with only the `lot_owner_id` values of the checked lots (as a JSON array); this is the list the voting page will use
+- [ ] **Single-lot voters (exactly 1 lot):** No checkbox is rendered — existing UX is preserved unchanged
+- [ ] Subtitle shows "You are voting for N lot(s)" where N is the count of currently-selected (checked) lots, updating dynamically as checkboxes change; for single-lot it shows the fixed pending count
+- [ ] If all lots have already been submitted, a "View Submission" button is shown and no "Start Voting" button is rendered
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
