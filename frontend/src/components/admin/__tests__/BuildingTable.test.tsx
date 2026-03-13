@@ -86,4 +86,41 @@ describe("BuildingTable", () => {
     renderBuildingTable({ buildings });
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
+
+  it("resets to page 1 when buildings list length changes", async () => {
+    const user = userEvent.setup();
+    // Build 21 buildings so page 2 exists (PAGE_SIZE = 20)
+    const manyBuildings: Building[] = Array.from({ length: 21 }, (_, i) => ({
+      id: `b${i + 1}`,
+      name: `Building ${i + 1}`,
+      manager_email: `mgr${i + 1}@example.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <BuildingTable buildings={manyBuildings} />
+      </MemoryRouter>
+    );
+
+    // Navigate to page 2
+    await user.click(screen.getByRole("button", { name: "2" }));
+    // Confirm we're on page 2 (Building 21 is visible, Building 1 is not)
+    expect(screen.getByText("Building 21")).toBeInTheDocument();
+    expect(screen.queryByText("Building 1")).not.toBeInTheDocument();
+
+    // Re-render with a shorter list (only 1 page worth)
+    const fewBuildings: Building[] = manyBuildings.slice(0, 5);
+    rerender(
+      <MemoryRouter>
+        <BuildingTable buildings={fewBuildings} />
+      </MemoryRouter>
+    );
+
+    // Page should have reset to 1 — Building 1 is now visible
+    expect(screen.getByText("Building 1")).toBeInTheDocument();
+    // Pagination controls should be gone (only 1 page)
+    expect(screen.queryByRole("button", { name: "2" })).not.toBeInTheDocument();
+  });
 });

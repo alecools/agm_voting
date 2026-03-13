@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Building } from "../../types";
 import Pagination from "./Pagination";
@@ -12,6 +12,10 @@ interface BuildingTableProps {
 export default function BuildingTable({ buildings }: BuildingTableProps) {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [buildings.length]);
 
   const totalPages = Math.max(1, Math.ceil(buildings.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);

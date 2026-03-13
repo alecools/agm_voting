@@ -148,4 +148,50 @@ describe("BuildingsPage", () => {
     expect(screen.getByText("Old Tower")).toBeInTheDocument();
     expect(screen.getByText("Active Tower")).toBeInTheDocument();
   });
+
+  it("resets table to page 1 when Show archived filter is toggled", async () => {
+    // 21 active buildings + 1 archived — enough for 2 pages when only active shown (21 active)
+    // and also enough for 2 pages when all shown (22 total)
+    const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
+      id: `active-${i + 1}`,
+      name: `Active Building ${i + 1}`,
+      manager_email: `a${i + 1}@test.com`,
+      is_archived: false,
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+    const archivedBuilding = {
+      id: "archived-1",
+      name: "Archived Building 1",
+      manager_email: "arch@test.com",
+      is_archived: true,
+      created_at: "2023-01-01T00:00:00Z",
+    };
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([...activeBuildings, archivedBuilding]);
+      })
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Wait for page to load — Active Building 1 should be visible on page 1
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+
+    // Navigate to page 2 (Active Building 21 is on page 2)
+    await user.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
+
+    // Toggle "Show archived" — visibleBuildings length changes (21 → 22)
+    await user.click(screen.getByLabelText("Show archived"));
+
+    // Table should have reset to page 1
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Active Building 21")).not.toBeInTheDocument();
+  });
 });
