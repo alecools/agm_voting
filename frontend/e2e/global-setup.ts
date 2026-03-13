@@ -48,7 +48,12 @@ export default async function globalSetup(_config: FullConfig) {
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
   const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+  const context = await browser.newContext({
+    baseURL,
+    ignoreHTTPSErrors: true,
+    // 90s navigation timeout to survive Lambda cold starts (default is 30s)
+  });
+  context.setDefaultNavigationTimeout(90000);
   const page = await context.newPage();
 
   // Bypass Vercel Deployment Protection when running against a deployed URL.
