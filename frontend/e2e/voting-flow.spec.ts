@@ -18,12 +18,11 @@ test.describe("Lot owner voting flow", () => {
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-    // Auth page — wait for building lookup to complete before submitting
+    // Auth page — form is immediately usable (no upfront API call)
     await expect(page.getByLabel("Lot number")).toBeVisible();
-    await expect(page.getByText(E2E_BUILDING_NAME)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
     await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Wait for auth to complete and navigate away from /auth.
@@ -31,8 +30,9 @@ test.describe("Lot owner voting flow", () => {
     // or AGM closed, which goes directly to /confirmation).
     await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, { timeout: 20000 });
 
-    // If landed on lot-selection, click "Start Voting" to proceed to /voting.
+    // If landed on lot-selection, building name and meeting title should be visible in header
     if (page.url().includes("/lot-selection")) {
+      await expect(page.getByText(E2E_BUILDING_NAME)).toBeVisible({ timeout: 10000 });
       await expect(page.getByRole("button", { name: "Start Voting" })).toBeVisible();
       await page.getByRole("button", { name: "Start Voting" }).click();
       await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });
@@ -72,13 +72,13 @@ test.describe("Lot owner voting flow", () => {
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-    // Wait for building lookup to complete before submitting
-    await expect(page.getByText(E2E_BUILDING_NAME)).toBeVisible({ timeout: 15000 });
+    // Auth page — form is immediately usable
+    await expect(page.getByLabel("Lot number")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
 
     // Wrong credentials
     await page.getByLabel("Lot number").fill("NONEXISTENT-9999");
     await page.getByLabel("Email address").fill("wrong@example.com");
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(
@@ -90,7 +90,6 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").clear();
     await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Correct credentials should advance past the auth page — to lot-selection
