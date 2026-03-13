@@ -184,8 +184,8 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
 
-    // Navigate to page 2 (Active Building 21 is on page 2)
-    await user.click(screen.getByRole("button", { name: "2" }));
+    // Navigate to page 2 (Active Building 21 is on page 2) — two "2" buttons exist (top + bottom)
+    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
     expect(screen.getByText("Active Building 21")).toBeInTheDocument();
     expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
 

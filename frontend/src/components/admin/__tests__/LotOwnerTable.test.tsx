@@ -89,4 +89,52 @@ describe("LotOwnerTable", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("None")).toBeInTheDocument();
   });
+
+  // --- Pagination top + bottom ---
+
+  it("does not show pagination controls when lot owners fit on one page", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+  });
+
+  it("shows pagination controls at both top and bottom when there are more than 25 lot owners", () => {
+    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+      id: `lo${i + 1}`,
+      building_id: "b1",
+      lot_number: `${i + 1}`,
+      emails: [`owner${i + 1}@example.com`],
+      unit_entitlement: 100,
+      financial_position: "normal" as const,
+      proxy_email: null,
+    }));
+    render(<LotOwnerTable lotOwners={manyLotOwners} onEdit={() => {}} />);
+    const prevButtons = screen.getAllByRole("button", { name: "Previous page" });
+    const nextButtons = screen.getAllByRole("button", { name: "Next page" });
+    expect(prevButtons).toHaveLength(2);
+    expect(nextButtons).toHaveLength(2);
+  });
+
+  it("navigating to page 2 via top Next button shows lot owner 26", async () => {
+    const user = userEvent.setup();
+    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+      id: `lo${i + 1}`,
+      building_id: "b1",
+      lot_number: `lot-${i + 1}`,
+      emails: [`owner${i + 1}@example.com`],
+      unit_entitlement: 100,
+      financial_position: "normal" as const,
+      proxy_email: null,
+    }));
+    const { container } = render(<LotOwnerTable lotOwners={manyLotOwners} onEdit={() => {}} />);
+    // Page 1 shows 25 rows
+    const tbody = container.querySelector("tbody")!;
+    expect(tbody.querySelectorAll("tr")).toHaveLength(25);
+    // Use the first (top) Next page button
+    await user.click(screen.getAllByRole("button", { name: "Next page" })[0]);
+    // Page 2 shows only the 26th lot owner
+    expect(tbody.querySelectorAll("tr")).toHaveLength(1);
+    expect(screen.getByText("lot-26")).toBeInTheDocument();
+    expect(screen.queryByText("lot-1")).not.toBeInTheDocument();
+  });
 });

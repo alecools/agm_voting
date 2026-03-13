@@ -22,8 +22,19 @@ export default function BuildingTable({ buildings, isLoading }: BuildingTablePro
   const safePage = Math.min(page, totalPages);
   const visible = buildings.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
+  const paginationControls = totalPages > 1 ? (
+    <Pagination
+      page={safePage}
+      totalPages={totalPages}
+      totalItems={buildings.length}
+      pageSize={PAGE_SIZE}
+      onPageChange={setPage}
+    />
+  ) : null;
+
   return (
     <div>
+      {paginationControls}
       <table className="admin-table">
         <thead>
           <tr>
@@ -80,13 +91,7 @@ export default function BuildingTable({ buildings, isLoading }: BuildingTablePro
           )}
         </tbody>
       </table>
-      <Pagination
-        page={safePage}
-        totalPages={totalPages}
-        totalItems={buildings.length}
-        pageSize={PAGE_SIZE}
-        onPageChange={setPage}
-      />
+      {paginationControls}
     </div>
   );
 }
