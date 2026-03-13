@@ -475,6 +475,8 @@ export const handlers = [
       lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
       voter_email: "owner@example.com",
       agm_status: "open",
+      building_name: "Sunset Towers",
+      meeting_title: "2024 AGM",
     })
   ),
 

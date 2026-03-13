@@ -16,7 +16,6 @@ export interface GeneralMeetingOut {
 
 export interface AuthVerifyRequest {
   email: string;
-  building_id: string;
   general_meeting_id: string;
 }
 
@@ -32,6 +31,8 @@ export interface AuthVerifyResponse {
   lots: LotInfo[];
   voter_email: string;
   agm_status: string;
+  building_name: string;
+  meeting_title: string;
 }
 
 export interface MotionOut {

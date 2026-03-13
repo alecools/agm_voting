@@ -1,21 +1,14 @@
 import React, { useState } from "react";
 
 interface AuthFormProps {
-  agmTitle: string;
-  buildingName: string;
   onSubmit: (lotNumber: string, email: string) => void;
   isLoading: boolean;
-  /** True while the meeting context (building_id) is still being fetched. Disables the button without showing "Verifying..." */
-  isContextLoading?: boolean;
   error?: string;
 }
 
 export function AuthForm({
-  agmTitle,
-  buildingName,
   onSubmit,
   isLoading,
-  isContextLoading = false,
   error,
 }: AuthFormProps) {
   const [lotNumber, setLotNumber] = useState("");
@@ -50,10 +43,7 @@ export function AuthForm({
     <div className="auth-card">
       <div className="card">
         <div className="auth-card__header">
-          {buildingName && (
-            <p className="auth-card__building">{buildingName}</p>
-          )}
-          <h1 className="auth-card__title">{agmTitle}</h1>
+          <h1 className="auth-card__title">Verify your identity</h1>
           <p className="auth-card__hint">
             Enter your lot number and registered email to continue.
           </p>
@@ -104,7 +94,7 @@ export function AuthForm({
             </p>
           )}
 
-          <button className="btn btn--primary btn--full mt-16" type="submit" disabled={isLoading || isContextLoading}>
+          <button className="btn btn--primary btn--full mt-16" type="submit" disabled={isLoading}>
             {isLoading ? "Verifying..." : "Continue"}
           </button>
         </form>

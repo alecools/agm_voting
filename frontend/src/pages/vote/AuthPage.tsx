@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { verifyAuth } from "../../api/voter";
-import { getGeneralMeetingSummary } from "../../api/public";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
@@ -10,28 +9,13 @@ export function AuthPage() {
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
 
-  // Fetch meeting summary directly — single API call to get building_id and building_name.
-  // This replaces the previous O(n) parallel scan across all buildings' meeting lists,
-  // which was slow and caused race conditions where the form was submitted before
-  // foundBuildingId was populated.
-  const { data: meetingSummary, isLoading: isSummaryLoading } = useQuery({
-    queryKey: ["meeting-summary", meetingId],
-    queryFn: () => getGeneralMeetingSummary(meetingId!),
-    enabled: !!meetingId,
-  });
-
-  const foundBuildingId = meetingSummary?.building_id ?? null;
-  const foundBuildingName = meetingSummary?.building_name ?? "";
-  const meetingTitle = meetingSummary?.title ?? "";
-
   const mutation = useMutation({
     mutationFn: ({ email }: { email: string }) => {
-      if (!foundBuildingId || !meetingId) {
-        return Promise.reject(new Error("Missing building or meeting context"));
-      }
+      /* c8 ignore next */
+      if (!meetingId) return Promise.reject(new Error("Missing meeting context"));
+
       return verifyAuth({
         email,
-        building_id: foundBuildingId,
         general_meeting_id: meetingId,
       });
     },
@@ -47,6 +31,9 @@ export function AuthPage() {
       sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
       // Persist lot info (including financial_position) so VotingPage can enforce eligibility
       sessionStorage.setItem(`meeting_lot_info_${meetingId}`, JSON.stringify(pendingLots));
+      // Persist building name and meeting title for the lot selection page header
+      sessionStorage.setItem(`meeting_building_name_${meetingId}`, data.building_name);
+      sessionStorage.setItem(`meeting_title_${meetingId}`, data.meeting_title);
       if (data.agm_status === "pending") {
         navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });
         return;
@@ -77,14 +64,10 @@ export function AuthPage() {
         ← Back
       </button>
       <AuthForm
-        agmTitle={meetingTitle || "Loading..."}
-        buildingName={foundBuildingName || ""}
         onSubmit={handleSubmit}
         isLoading={mutation.isPending}
-        isContextLoading={isSummaryLoading}
         error={authError}
       />
     </main>
   );
 }
-
