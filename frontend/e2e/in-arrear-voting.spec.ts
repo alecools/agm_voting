@@ -156,6 +156,7 @@ test.describe("In-arrear lot owner voting", () => {
     await expect(page.getByText(BUILDING_NAME)).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Lot number").fill(LOT_NUMBER);
     await page.getByLabel("Email address").fill(LOT_EMAIL);
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Should land on lot-selection or confirmation

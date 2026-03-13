@@ -5,6 +5,8 @@ interface AuthFormProps {
   buildingName: string;
   onSubmit: (lotNumber: string, email: string) => void;
   isLoading: boolean;
+  /** True while the meeting context (building_id) is still being fetched. Disables the button without showing "Verifying..." */
+  isContextLoading?: boolean;
   error?: string;
 }
 
@@ -13,6 +15,7 @@ export function AuthForm({
   buildingName,
   onSubmit,
   isLoading,
+  isContextLoading = false,
   error,
 }: AuthFormProps) {
   const [lotNumber, setLotNumber] = useState("");
@@ -101,7 +104,7 @@ export function AuthForm({
             </p>
           )}
 
-          <button className="btn btn--primary btn--full mt-16" type="submit" disabled={isLoading}>
+          <button className="btn btn--primary btn--full mt-16" type="submit" disabled={isLoading || isContextLoading}>
             {isLoading ? "Verifying..." : "Continue"}
           </button>
         </form>

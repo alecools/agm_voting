@@ -369,6 +369,7 @@ test.describe("Proxy voter journey", () => {
       // The auth page asks for lot number + email. Proxy voters enter the proxied lot's number.
       await page.getByLabel("Lot number").fill(LOT_B_NUMBER);
       await page.getByLabel("Email address").fill(PROXY_VOTER_EMAIL);
+      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
       // Should land on lot-selection or confirmation
@@ -470,6 +471,7 @@ test.describe("Proxy voter journey", () => {
       });
       await page.getByLabel("Lot number").fill(MIXED_LOT_A_NUMBER);
       await page.getByLabel("Email address").fill(MIXED_LOT_A_OWNER_EMAIL);
+      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
       await expect(page).toHaveURL(/vote\/.*\/(lot-selection|confirmation)/, {
@@ -564,6 +566,7 @@ test.describe("Proxy voter journey", () => {
       // Attempt to authenticate as proxy voter entering LOT-B (their proxied lot)
       await page.getByLabel("Lot number").fill(LOT_B_NUMBER);
       await page.getByLabel("Email address").fill(PROXY_VOTER_EMAIL);
+      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
       await page.getByRole("button", { name: "Continue" }).click();
 
       // Should be redirected to lot-selection or confirmation (not stuck on auth page with error)

@@ -38,6 +38,11 @@ async function fillAndSubmit(lotNumber: string, email: string) {
   await waitFor(() => screen.getByLabelText("Lot number"));
   await user.type(screen.getByLabelText("Lot number"), lotNumber);
   await user.type(screen.getByLabelText("Email address"), email);
+  // Wait for Continue to be enabled — it is disabled while the meeting summary is loading
+  await waitFor(() => {
+    const btn = screen.getByRole("button", { name: "Continue" });
+    expect(btn).toBeEnabled();
+  });
   await user.click(screen.getByRole("button", { name: "Continue" }));
 }
 
@@ -132,6 +137,8 @@ describe("AuthPage", () => {
     await waitFor(() => screen.getByLabelText("Lot number"));
     await user.type(screen.getByLabelText("Lot number"), "1");
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Verifying..." })).toBeDisabled();
@@ -144,6 +151,8 @@ describe("AuthPage", () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("Email address"));
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("Lot number is required")).toBeInTheDocument();
   });
@@ -153,6 +162,8 @@ describe("AuthPage", () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("Lot number"));
     await user.type(screen.getByLabelText("Lot number"), "42");
+    // Wait for Continue to be enabled (summary query must finish first)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("Email address is required")).toBeInTheDocument();
   });
@@ -185,6 +196,36 @@ describe("AuthPage", () => {
     await fillAndSubmit("42", "owner@example.com");
     await waitFor(() => {
       expect(screen.getByText("An error occurred. Please try again.")).toBeInTheDocument();
+    });
+  });
+
+  it("disables Continue button while meeting summary is still loading", async () => {
+    let resolveSummary!: () => void;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/summary`, () =>
+        new Promise<Response>((res) => {
+          resolveSummary = () =>
+            res(HttpResponse.json({
+              general_meeting_id: AGM_ID,
+              building_id: "b1",
+              title: "Test AGM",
+              status: "open",
+              meeting_at: "2024-01-01T00:00:00Z",
+              voting_closes_at: "2024-01-01T02:00:00Z",
+              building_name: "Test Building",
+              motions: [],
+            }) as Response);
+        })
+      )
+    );
+    renderPage();
+    // Form renders but Continue is disabled while summary is in-flight
+    await waitFor(() => screen.getByLabelText("Lot number"));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    resolveSummary();
+    // After summary resolves, Continue becomes enabled
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
     });
   });
 
@@ -226,6 +267,8 @@ describe("AuthPage", () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Lot number"), "1");
     await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    // Wait for Continue to be enabled — summary fetch errored so isSummaryLoading is false
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByText("An error occurred. Please try again.")).toBeInTheDocument();

@@ -194,6 +194,9 @@ test.describe("Multi-lot voter journey", () => {
     // even though the backend is now email-only.  Fill it with a placeholder.
     await page.getByLabel("Lot number").fill(LOT_NUMBER_1);
     await page.getByLabel("Email address").fill(LOT_EMAIL);
+    // Wait for Continue to be enabled — it is disabled while the meeting summary
+    // (which supplies building_id) is still loading.
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
   }
 

@@ -229,6 +229,7 @@ test.describe("Closed meeting voter journey", () => {
     await expect(page.getByText(BUILDING_NAME)).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Lot number").fill(VOTED_LOT_NUMBER);
     await page.getByLabel("Email address").fill(VOTED_LOT_EMAIL);
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Auth returns agm_status:"closed" — should be routed directly to confirmation
@@ -271,6 +272,7 @@ test.describe("Closed meeting voter journey", () => {
     await expect(page.getByText(BUILDING_NAME)).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Lot number").fill(UNVOTED_LOT_NUMBER);
     await page.getByLabel("Email address").fill(UNVOTED_LOT_EMAIL);
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Auth returns agm_status:"closed" → navigates to confirmation

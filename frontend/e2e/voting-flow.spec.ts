@@ -23,6 +23,7 @@ test.describe("Lot owner voting flow", () => {
     await expect(page.getByText(E2E_BUILDING_NAME)).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Wait for auth to complete and navigate away from /auth.
@@ -77,6 +78,7 @@ test.describe("Lot owner voting flow", () => {
     // Wrong credentials
     await page.getByLabel("Lot number").fill("NONEXISTENT-9999");
     await page.getByLabel("Email address").fill("wrong@example.com");
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(
@@ -88,6 +90,7 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").clear();
     await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Correct credentials should advance past the auth page — to lot-selection

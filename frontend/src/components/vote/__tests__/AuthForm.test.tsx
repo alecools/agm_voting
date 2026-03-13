@@ -89,6 +89,22 @@ describe("AuthForm", () => {
     expect(screen.getByRole("button", { name: "Verifying..." })).toBeDisabled();
   });
 
+  it("shows Continue but disables button when isContextLoading=true", () => {
+    render(
+      <AuthForm
+        agmTitle="AGM"
+        buildingName="Building"
+        onSubmit={() => {}}
+        isLoading={false}
+        isContextLoading={true}
+      />
+    );
+    const btn = screen.getByRole("button", { name: "Continue" });
+    expect(btn).toBeDisabled();
+    // Still shows "Continue" (not "Verifying...") — context loading is silent
+    expect(btn).toHaveTextContent("Continue");
+  });
+
   it("does not call onSubmit when loading and submitted again", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();

@@ -14,7 +14,7 @@ export function AuthPage() {
   // This replaces the previous O(n) parallel scan across all buildings' meeting lists,
   // which was slow and caused race conditions where the form was submitted before
   // foundBuildingId was populated.
-  const { data: meetingSummary } = useQuery({
+  const { data: meetingSummary, isLoading: isSummaryLoading } = useQuery({
     queryKey: ["meeting-summary", meetingId],
     queryFn: () => getGeneralMeetingSummary(meetingId!),
     enabled: !!meetingId,
@@ -81,6 +81,7 @@ export function AuthPage() {
         buildingName={foundBuildingName || ""}
         onSubmit={handleSubmit}
         isLoading={mutation.isPending}
+        isContextLoading={isSummaryLoading}
         error={authError}
       />
     </main>
