@@ -30,8 +30,12 @@ function renderPage() {
 }
 
 describe("BuildingsPage", () => {
-  it("shows loading state initially", () => {
+  it("shows loading state inline in table while page header remains visible", () => {
     renderPage();
+    // Page structure renders immediately
+    expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    // Loading message is inside the table body
     expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
   });
 

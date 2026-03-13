@@ -12,7 +12,6 @@ export default function GeneralMeetingListPage() {
     queryFn: listGeneralMeetings,
   });
 
-  if (isLoading) return <p className="state-message">Loading General Meetings...</p>;
   if (error) return <p className="state-message state-message--error">Failed to load General Meetings.</p>;
 
   return (
@@ -24,7 +23,7 @@ export default function GeneralMeetingListPage() {
         </button>
       </div>
       <div className="admin-card">
-        <GeneralMeetingTable meetings={meetings} />
+        <GeneralMeetingTable meetings={meetings} isLoading={isLoading} />
       </div>
     </div>
   );

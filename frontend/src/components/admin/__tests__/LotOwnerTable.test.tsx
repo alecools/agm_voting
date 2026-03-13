@@ -39,6 +39,18 @@ describe("LotOwnerTable", () => {
     expect(screen.getByText("No lot owners found.")).toBeInTheDocument();
   });
 
+  it("shows loading row in table body when isLoading and no data yet", () => {
+    render(<LotOwnerTable lotOwners={[]} onEdit={() => {}} isLoading={true} />);
+    expect(screen.getByText("Loading lot owners...")).toBeInTheDocument();
+    expect(screen.queryByText("No lot owners found.")).not.toBeInTheDocument();
+  });
+
+  it("does not show loading row when isLoading but data is already present", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} isLoading={true} />);
+    expect(screen.queryByText("Loading lot owners...")).not.toBeInTheDocument();
+    expect(screen.getByText("1A")).toBeInTheDocument();
+  });
+
   it("calls onEdit with correct lot owner when Edit clicked", async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();

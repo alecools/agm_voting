@@ -31,7 +31,7 @@ const buildings: Building[] = [
   },
 ];
 
-function renderBuildingTable(props: { buildings: Building[] }) {
+function renderBuildingTable(props: { buildings: Building[]; isLoading?: boolean }) {
   return render(
     <MemoryRouter>
       <BuildingTable {...props} />
@@ -51,6 +51,18 @@ describe("BuildingTable", () => {
   it("shows empty message when no buildings", () => {
     renderBuildingTable({ buildings: [] });
     expect(screen.getByText("No buildings found.")).toBeInTheDocument();
+  });
+
+  it("shows loading row in table body when isLoading and no data yet", () => {
+    renderBuildingTable({ buildings: [], isLoading: true });
+    expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
+    expect(screen.queryByText("No buildings found.")).not.toBeInTheDocument();
+  });
+
+  it("does not show loading row when isLoading but data is already present", () => {
+    renderBuildingTable({ buildings, isLoading: true });
+    expect(screen.queryByText("Loading buildings...")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
   });
 
   it("navigates to building detail on name click", async () => {

@@ -50,7 +50,7 @@ function makeMeetings(count: number): GeneralMeetingListItem[] {
   }));
 }
 
-function renderTable(props: { meetings: GeneralMeetingListItem[] }) {
+function renderTable(props: { meetings: GeneralMeetingListItem[]; isLoading?: boolean }) {
   return render(
     <MemoryRouter>
       <GeneralMeetingTable {...props} />
@@ -87,6 +87,18 @@ describe("GeneralMeetingTable", () => {
   it("shows empty message when no meetings", () => {
     renderTable({ meetings: [] });
     expect(screen.getByText("No General Meetings found.")).toBeInTheDocument();
+  });
+
+  it("shows loading row in table body when isLoading and no data yet", () => {
+    renderTable({ meetings: [], isLoading: true });
+    expect(screen.getByText("Loading General Meetings...")).toBeInTheDocument();
+    expect(screen.queryByText("No General Meetings found.")).not.toBeInTheDocument();
+  });
+
+  it("does not show loading row when isLoading but data is already present", () => {
+    renderTable({ meetings, isLoading: true });
+    expect(screen.queryByText("Loading General Meetings...")).not.toBeInTheDocument();
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
   });
 
   it("renders table headers", () => {

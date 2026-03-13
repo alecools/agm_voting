@@ -28,6 +28,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] A separate web route (e.g. `/admin`) serves the host portal; it is distinct from the lot owner flow
 - [ ] The portal provides navigation to: Buildings, AGMs, and Lot Owners sections
 - [ ] Admin portal login is required (see US-020)
+- [ ] List pages (Buildings, Lot Owners, General Meetings) render the page structure immediately; data loading is indicated inline within the table body, not by replacing the entire page
 - [ ] Typecheck/lint passes
 
 ---
@@ -128,13 +129,18 @@ A web application for body corporates to run voting during Annual General Meetin
 
 **Acceptance Criteria:**
 
-- [ ] Lot owner enters lot number and email address
+- [ ] The authentication page shows only two fields: lot number and email address. No building name or meeting title is displayed on this screen.
+- [ ] The "Continue" button is enabled immediately on page load — no upfront API call is made before the user submits the form.
+- [ ] On form submission the frontend sends `POST /api/auth/verify` with the lot number, email, and meeting ID (from the URL). The response includes `building_name` and `meeting_title` in addition to the lot list and AGM status (see backend change below).
 - [ ] System checks that the lot number + email combination exists in the database for the selected building
 - [ ] On match: system identifies all lots in that building registered to the same email; a session is created scoped to that email + building + AGM
+- [ ] Building name and meeting title returned in the auth response are stored in `sessionStorage` and displayed on the lot-selection page header (and subsequent pages in the flow), so voters always see context after they authenticate.
 - [ ] If the lot owner has already submitted a ballot for this AGM, they are taken directly to the confirmation screen (US-009)
 - [ ] If the lot owner has previously saved draft votes (but not submitted), they are taken to the voting page with their saved selections restored
 - [ ] On no match: a clear error message is shown ("Lot number and email address do not match our records")
 - [ ] No account creation or password required
+- [ ] `POST /api/auth/verify` response includes two new fields: `building_name: str` and `meeting_title: str`, populated from the building and meeting records looked up during auth. No additional DB query is required — the meeting and its building are already fetched by the auth endpoint.
+- [ ] The frontend no longer calls `GET /api/general-meeting/{id}/summary` from the auth page. The summary endpoint remains available and is still used by the public `GeneralMeetingSummaryPage`.
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 

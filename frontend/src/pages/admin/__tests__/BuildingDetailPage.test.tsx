@@ -32,8 +32,12 @@ function renderPage(buildingId = "b1") {
 }
 
 describe("BuildingDetailPage", () => {
-  it("shows loading state initially", () => {
+  it("shows loading state inline in table while page header remains visible", () => {
     renderPage();
+    // Page structure renders immediately
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Lot Owner" })).toBeInTheDocument();
+    // Loading message is inside the table body
     expect(screen.getByText("Loading lot owners...")).toBeInTheDocument();
   });
 

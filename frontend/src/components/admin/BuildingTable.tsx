@@ -7,9 +7,10 @@ const PAGE_SIZE = 20;
 
 interface BuildingTableProps {
   buildings: Building[];
+  isLoading?: boolean;
 }
 
-export default function BuildingTable({ buildings }: BuildingTableProps) {
+export default function BuildingTable({ buildings, isLoading }: BuildingTableProps) {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
 
@@ -33,44 +34,49 @@ export default function BuildingTable({ buildings }: BuildingTableProps) {
           </tr>
         </thead>
         <tbody>
-          {visible.map((b) => (
-            <tr key={b.id} style={b.is_archived ? { opacity: 0.6 } : undefined}>
-              <td>
-                <button
-                  className="admin-table__link"
-                  onClick={() => navigate(`/admin/buildings/${b.id}`)}
-                >
-                  {b.name}
-                </button>
-              </td>
-              <td>{b.manager_email}</td>
-              <td>
-                {b.is_archived && (
-                  <span
-                    className="status-badge status-badge--archived"
-                    style={{
-                      fontSize: "0.75rem",
-                      padding: "2px 8px",
-                      borderRadius: "12px",
-                      background: "var(--text-muted, #888)",
-                      color: "#fff",
-                    }}
-                  >
-                    Archived
-                  </span>
-                )}
-              </td>
-              <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                {new Date(b.created_at).toLocaleString()}
-              </td>
+          {isLoading && !buildings.length ? (
+            <tr>
+              <td colSpan={4} className="state-message">Loading buildings...</td>
             </tr>
-          ))}
-          {buildings.length === 0 && (
+          ) : buildings.length === 0 ? (
             <tr>
               <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 14px" }}>
                 No buildings found.
               </td>
             </tr>
+          ) : (
+            visible.map((b) => (
+              <tr key={b.id} style={b.is_archived ? { opacity: 0.6 } : undefined}>
+                <td>
+                  <button
+                    className="admin-table__link"
+                    onClick={() => navigate(`/admin/buildings/${b.id}`)}
+                  >
+                    {b.name}
+                  </button>
+                </td>
+                <td>{b.manager_email}</td>
+                <td>
+                  {b.is_archived && (
+                    <span
+                      className="status-badge status-badge--archived"
+                      style={{
+                        fontSize: "0.75rem",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        background: "var(--text-muted, #888)",
+                        color: "#fff",
+                      }}
+                    >
+                      Archived
+                    </span>
+                  )}
+                </td>
+                <td style={{ color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                  {new Date(b.created_at).toLocaleString()}
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>
