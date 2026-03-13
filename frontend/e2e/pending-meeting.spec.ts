@@ -28,9 +28,9 @@ const AGM_TITLE = "E2E Pending Test AGM";
 let seededAgmId = "";
 
 test.describe("Pending AGM voter-facing behaviour", () => {
-  // Increase hook timeout: seeding requires multiple API calls against the
-  // shared Vercel Lambda which can be slow under concurrent load.
-  test.describe.configure({ timeout: 120000 });
+  // Serial mode prevents parallel workers from each running their own beforeAll,
+  // which would cause multiple concurrent Lambda cold starts and timeout races.
+  test.describe.configure({ mode: "serial" });
 
   test.beforeAll(async () => {
     // Set a generous timeout for the seeding logic which makes multiple API

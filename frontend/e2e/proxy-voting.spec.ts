@@ -324,7 +324,7 @@ test.describe("Proxy voter journey", () => {
     }
 
     await api.dispose();
-  }, 60000); // 60s timeout for API setup
+  }, { timeout: 60000 }); // 60s timeout for API setup
 
   // ── Test 1: proxy-only voter journey ───────────────────────────────────────
   test(

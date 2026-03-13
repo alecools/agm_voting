@@ -120,7 +120,7 @@ test.describe("Public AGM summary page", () => {
     seededAgmId = newAgm.id;
 
     await api.dispose();
-  }, 60000);
+  }, { timeout: 60000 });
 
   test("summary page loads and displays AGM details without authentication", async ({ page }) => {
     test.setTimeout(120000);

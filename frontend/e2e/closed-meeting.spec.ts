@@ -204,7 +204,7 @@ test.describe("Closed meeting voter journey", () => {
     }
 
     await api.dispose();
-  }, 60000);
+  }, { timeout: 60000 });
 
   test("full closed meeting journey: voter who voted is routed to confirmation with their ballot", async ({
     page,

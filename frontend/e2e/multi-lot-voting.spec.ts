@@ -173,7 +173,7 @@ test.describe("Multi-lot voter journey", () => {
     await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
 
     await api.dispose();
-  }, 60000); // 60s timeout for API setup
+  }, { timeout: 60000 }); // 60s timeout for API setup
 
   // ── Helper: navigate to the auth page for this AGM ──────────────────────────
   async function goToAuthPage(page: import("@playwright/test").Page) {

@@ -132,7 +132,7 @@ test.describe("In-arrear lot owner voting", () => {
     await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
 
     await api.dispose();
-  }, 60000); // 60s timeout for API setup
+  }, { timeout: 60000 }); // 60s timeout for API setup
 
   test("in-arrear lot: general motion blocked, special motion votable, not_eligible recorded", async ({
     page,
