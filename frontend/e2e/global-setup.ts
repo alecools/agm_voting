@@ -185,7 +185,7 @@ export default async function globalSetup(_config: FullConfig) {
     // so any silent API failure surfaces here rather than as a mysterious 401 in
     // the voting-flow tests.
     const lotOwnersRes = await retryGet(`/api/admin/buildings/${building.id}/lot-owners`);
-    const lotOwners = ((await lotOwnersRes.json()) as { items: { id: string; lot_number: string; emails: string[] }[]; total: number; page: number }).items;
+    const lotOwners = (await lotOwnersRes.json()) as { id: string; lot_number: string; emails: string[] }[];
     const existingLotOwner = lotOwners.find((l) => l.lot_number === E2E_LOT_NUMBER);
     if (!existingLotOwner) {
       const createRes = await api.post(`/api/admin/buildings/${building.id}/lot-owners`, {
@@ -214,7 +214,7 @@ export default async function globalSetup(_config: FullConfig) {
 
     // Final assertion: lot owner must exist with the correct email before tests run.
     const verifyRes = await retryGet(`/api/admin/buildings/${building.id}/lot-owners`);
-    const verifiedOwners = ((await verifyRes.json()) as { items: { id: string; lot_number: string; emails: string[] }[]; total: number; page: number }).items;
+    const verifiedOwners = (await verifyRes.json()) as { id: string; lot_number: string; emails: string[] }[];
     const verified = verifiedOwners.find(
       (l) => l.lot_number === E2E_LOT_NUMBER && l.emails?.includes(E2E_LOT_EMAIL)
     );
@@ -295,7 +295,7 @@ export default async function globalSetup(_config: FullConfig) {
 
     // Add a placeholder lot owner so the building has at least one voter
     const adminLotOwnersRes = await retryGet(`/api/admin/buildings/${adminBuilding.id}/lot-owners`);
-    const adminLotOwners = ((await adminLotOwnersRes.json()) as { items: { lot_number: string }[]; total: number; page: number }).items;
+    const adminLotOwners = (await adminLotOwnersRes.json()) as { lot_number: string }[];
     if (!adminLotOwners.find((l) => l.lot_number === "ADMIN-1")) {
       await api.post(`/api/admin/buildings/${adminBuilding.id}/lot-owners`, {
         data: { lot_number: "ADMIN-1", emails: ["admin-voter@test.com"], unit_entitlement: 1 },
