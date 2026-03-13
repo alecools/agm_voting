@@ -59,10 +59,21 @@ export default async function globalSetup(_config: FullConfig) {
   // Bypass Vercel Deployment Protection when running against a deployed URL.
   // Visiting this URL sets a _vercel_jwt cookie that allows all subsequent
   // same-origin requests through without Vercel's SSO wall.
+  // Use waitUntil:'commit' so we only wait for the first byte (cookie gets set
+  // immediately), not the full page load — critical for cold Vercel deployments.
   if (BYPASS_TOKEN) {
-    await page.goto(
-      `${baseURL}/?x-vercel-set-bypass-cookie=true&x-vercel-protection-bypass=${BYPASS_TOKEN}`
-    );
+    const bypassUrl = `${baseURL}/?x-vercel-set-bypass-cookie=true&x-vercel-protection-bypass=${BYPASS_TOKEN}`;
+    let bypassOk = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await page.goto(bypassUrl, { waitUntil: "commit", timeout: 30000 });
+        bypassOk = true;
+        break;
+      } catch {
+        if (attempt < 4) await new Promise((r) => setTimeout(r, 10000));
+      }
+    }
+    if (!bypassOk) throw new Error("Failed to set Vercel bypass cookie after 5 attempts");
   }
 
   // Save bypass cookie (only) as the "public" storageState — used by public
@@ -70,7 +81,7 @@ export default async function globalSetup(_config: FullConfig) {
   // still need to bypass Vercel Deployment Protection on preview URLs.
   await context.storageState({ path: path.join(authDir, "public.json") });
 
-  await page.goto("/admin/login");
+  await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
   await page.getByLabel("Username").fill(ADMIN_USERNAME);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
