@@ -86,6 +86,8 @@ export default async function globalSetup(_config: FullConfig) {
     baseURL,
     ignoreHTTPSErrors: true,
     storageState: path.join(authDir, "admin.json"),
+    // 90s timeout to survive Lambda cold starts (default is 30s)
+    timeout: 90000,
   });
 
   // Ensure E2E building exists

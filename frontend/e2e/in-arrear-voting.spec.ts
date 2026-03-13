@@ -37,6 +37,8 @@ test.describe("In-arrear lot owner voting", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: path.join(__dirname, ".auth", "admin.json"),
+      // 90s timeout to survive Lambda cold starts (default is 30s)
+      timeout: 90000,
     });
 
     // Create or find the building
