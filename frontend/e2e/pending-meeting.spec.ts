@@ -33,6 +33,10 @@ test.describe("Pending AGM voter-facing behaviour", () => {
   test.describe.configure({ timeout: 120000 });
 
   test.beforeAll(async () => {
+    // Set a generous timeout for the seeding logic which makes multiple API
+    // calls against the shared Vercel Lambda (can be slow on cold start).
+    test.setTimeout(120000);
+
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
     const api = await playwrightRequest.newContext({
