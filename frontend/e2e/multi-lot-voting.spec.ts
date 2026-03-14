@@ -280,15 +280,11 @@ test.describe("Multi-lot voter journey", () => {
     // Both lots should be pending
     await expect(page.getByText("You are voting for 2 lots.")).toBeVisible();
 
-    // ── Step 3: Restrict sessionStorage to only ML-1 before voting ──────────
-    // The lot-selection page votes for all IDs stored in meeting_lots_<id>.
-    // We override that key to only include lot ML-1 so only ML-1 is submitted.
-    await page.evaluate(
-      ({ mId, id1 }) => {
-        sessionStorage.setItem(`meeting_lots_${mId}`, JSON.stringify([id1]));
-      },
-      { mId: meetingId, id1: lotOwnerId1 }
-    );
+    // ── Step 3: Deselect ML-2 so only ML-1 is voted in this session ─────────
+    // Uncheck ML-2 via the UI; LotSelectionPage writes only selected IDs to
+    // sessionStorage when "Start Voting" is clicked.
+    await page.getByRole("checkbox", { name: `Select Lot ${LOT_NUMBER_2}` }).uncheck();
+    await expect(page.getByText("You are voting for 1 lot.")).toBeVisible();
 
     await page.getByRole("button", { name: "Start Voting" }).click();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 10000 });

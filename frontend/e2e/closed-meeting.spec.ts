@@ -10,7 +10,9 @@
  *
  * 2. Voter who never submitted, accessing a closed AGM:
  *    auth → agm_status:"closed" → redirected to confirmation →
- *    confirmation shows "You did not submit a ballot for this meeting."
+ *    confirmation shows "Ballot submitted" with "Abstained" votes.
+ *    (The backend creates an absent BallotSubmission at close time for
+ *    every lot that never voted, recording all choices as Abstained.)
  *
  * Self-contained — seeds its own building, lot owners, AGM, and ballots via
  * the admin/voter API so it does not interfere with other E2E tests.
@@ -21,7 +23,8 @@
  *       navigate(`/vote/${meetingId}/confirmation`)
  *   - ConfirmationPage fetches GET /api/general-meeting/{id}/my-ballot
  *     (requires session cookie set by auth/verify)
- *   - If no ballot found → renders "You did not submit a ballot for this meeting."
+ *   - Absent lots have a BallotSubmission created at close time →
+ *       renders "Ballot submitted" heading with Abstained votes
  *   - If ballot found → renders "Ballot submitted" heading with recorded votes
  *
  * No submit button should be present on either confirmation path because
@@ -249,7 +252,7 @@ test.describe("Closed meeting voter journey", () => {
     await expect(page.getByRole("button", { name: "Against" })).not.toBeVisible();
   });
 
-  test("voter who never submitted, closed AGM: confirmation shows no ballot message", async ({
+  test("voter who never submitted, closed AGM: confirmation shows absent ballot", async ({
     page,
   }) => {
     test.setTimeout(120000);
@@ -277,11 +280,11 @@ test.describe("Closed meeting voter journey", () => {
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
 
     // ConfirmationPage calls GET /api/general-meeting/{id}/my-ballot.
-    // No ballot was submitted for this lot owner, so the API returns 404 and
-    // the component renders the no-ballot message.
-    await expect(
-      page.getByText("You did not submit a ballot for this meeting.")
-    ).toBeVisible({ timeout: 15000 });
+    // When a meeting is closed, the backend creates an absent BallotSubmission
+    // (with Abstained votes) for all lots that never voted. So CLO-2 will have
+    // an absent ballot showing "Abstained" — not a 404.
+    await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("Abstained")).toBeVisible({ timeout: 10000 });
 
     // No voting buttons — the meeting is closed and there is nothing to vote on
     await expect(page.getByRole("button", { name: "Submit ballot" })).not.toBeVisible();
