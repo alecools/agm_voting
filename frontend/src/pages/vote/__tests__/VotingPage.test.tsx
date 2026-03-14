@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { VotingPage } from "../VotingPage";
 import { AGM_ID, BUILDING_ID, MOTION_ID_1, MOTION_ID_2 } from "../../../../tests/msw/handlers";
+import * as voterApi from "../../../api/voter";
 
 const BASE = "http://localhost:8000";
 
@@ -423,5 +424,132 @@ describe("VotingPage", () => {
     });
     expect(screen.queryByTestId("in-arrear-notice")).not.toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lot_info_${AGM_ID}`);
+  });
+
+  // --- Draft flush before submit ---
+
+  it("calls saveDraft for each pending choice before submitBallot on confirm", async () => {
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockResolvedValue({ saved: true });
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+
+    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    await user.click(yesButtons[0]);
+    await user.click(yesButtons[1]);
+
+    // Clear spy call history accumulated from the debounced auto-saves
+    saveDraftSpy.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      // saveDraft called once per answered motion before submitBallot
+      expect(saveDraftSpy).toHaveBeenCalledTimes(2);
+      expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_1, choice: "yes" });
+      expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_2, choice: "yes" });
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    saveDraftSpy.mockRestore();
+    submitSpy.mockRestore();
+  });
+
+  it("waits for draft flush to complete before calling submitBallot", async () => {
+    let resolveFlush!: () => void;
+    const flushPromise = new Promise<{ saved: boolean }>((resolve) => {
+      resolveFlush = () => resolve({ saved: true });
+    });
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockReturnValue(flushPromise);
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+
+    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    // submitBallot must NOT have been called yet — flush is still pending
+    await waitFor(() => expect(saveDraftSpy).toHaveBeenCalled());
+    expect(submitSpy).not.toHaveBeenCalled();
+
+    // Resolve the flush — now submitBallot should fire
+    resolveFlush();
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    saveDraftSpy.mockRestore();
+    submitSpy.mockRestore();
+  });
+
+  it("proceeds with submitBallot even if draft flush fails", async () => {
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockRejectedValue(new Error("network error"));
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+
+    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    // Even though saveDraft rejected, submitBallot must still be called
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    saveDraftSpy.mockRestore();
+    submitSpy.mockRestore();
+  });
+
+  it("skips saveDraft for motions with no choice (null/undefined)", async () => {
+    const saveDraftSpy = vi.spyOn(voterApi, "saveDraft").mockResolvedValue({ saved: true });
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+
+    // Only answer one of two motions
+    await user.click(screen.getAllByRole("button", { name: "For" })[0]);
+
+    saveDraftSpy.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => expect(submitSpy).toHaveBeenCalled());
+
+    // Only one saveDraft call — only the answered motion
+    expect(saveDraftSpy).toHaveBeenCalledTimes(1);
+    expect(saveDraftSpy).toHaveBeenCalledWith(AGM_ID, { motion_id: MOTION_ID_1, choice: "yes" });
+
+    saveDraftSpy.mockRestore();
+    submitSpy.mockRestore();
   });
 });

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchMotions,
   fetchDrafts,
+  saveDraft,
   submitBallot,
   fetchGeneralMeetings,
   fetchBuildings,
@@ -186,7 +187,19 @@ export function VotingPage() {
 
   const handleConfirm = () => {
     setShowDialog(false);
-    submitMutation.mutate();
+    // Flush all pending draft saves before submitting so the debounce in
+    // useAutoSave cannot leave choices unpersisted when the backend processes
+    // the submission. Errors are swallowed — if a draft save fails we still
+    // submit (backend treats missing drafts as abstained, matching existing
+    // behaviour for unvoted motions).
+    const flushPromises = Object.entries(choices)
+      .filter(([, choice]) => choice !== null && choice !== undefined)
+      .map(([motionId, choice]) =>
+        saveDraft(meetingId!, { motion_id: motionId, choice }).catch(() => undefined)
+      );
+    void Promise.all(flushPromises).then(() => {
+      submitMutation.mutate();
+    });
   };
 
   const handleCancel = () => {
