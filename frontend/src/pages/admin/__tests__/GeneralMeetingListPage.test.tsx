@@ -16,13 +16,13 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage() {
+function renderPage(initialSearch = "") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[`/admin/general-meetings${initialSearch}`]}>
         <GeneralMeetingListPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -30,6 +30,8 @@ function renderPage() {
 }
 
 describe("GeneralMeetingListPage", () => {
+  // --- Happy path ---
+
   it("shows loading state inline in table while page header remains visible", () => {
     renderPage();
     // Page structure renders immediately
@@ -91,6 +93,96 @@ describe("GeneralMeetingListPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Failed to load General Meetings.")).toBeInTheDocument();
+    });
+  });
+
+  // --- Building filter ---
+
+  it("renders building filter dropdown with All buildings default", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Building:")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(screen.getByRole("option", { name: "All buildings" })).toBeInTheDocument();
+  });
+
+  it("renders building options from the buildings API", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("option", { name: "Beta Court" })).toBeInTheDocument();
+  });
+
+  it("filters meetings when a building is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Building:");
+    await user.selectOptions(select, "b1");
+    // Only Alpha Tower meeting (agm1 / 2024 AGM) should show
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+  });
+
+  it("selecting the other building shows only that building's meetings", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Building:");
+    await user.selectOptions(select, "b2");
+    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+  });
+
+  it("selecting All buildings after filtering shows all meetings", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Building:");
+    await user.selectOptions(select, "b1");
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    await user.selectOptions(select, "");
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+  });
+
+  it("reads building URL param on mount and pre-selects the building", async () => {
+    renderPage("?building=b2");
+    await waitFor(() => {
+      // Should show only Beta Court meeting
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    expect(select.value).toBe("b2");
+  });
+
+  it("pre-selects b1 from URL param and shows only Alpha Tower meetings", async () => {
+    renderPage("?building=b1");
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Building:") as HTMLSelectElement;
+    expect(select.value).toBe("b1");
+  });
+
+  it("shows all meetings when URL param building id does not match any building", async () => {
+    renderPage("?building=nonexistent");
+    await waitFor(() => {
+      // No match → filteredMeetings is empty — table shows no rows for either meeting
+      expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+      expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
     });
   });
 });
