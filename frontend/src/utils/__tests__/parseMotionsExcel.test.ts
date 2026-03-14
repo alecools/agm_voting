@@ -35,9 +35,9 @@ beforeEach(() => {
 });
 
 describe("parseMotionsExcel", () => {
-  // --- Happy path ---
+  // --- Happy path (old 2-column format — backwards compatibility) ---
 
-  it("returns sorted MotionFormEntry array for valid file with 2 motions", async () => {
+  it("returns sorted MotionFormEntry array for valid file with 2 motions (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [2, "Second motion text"],
@@ -53,7 +53,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("returns single MotionFormEntry for a single valid row", async () => {
+  it("returns single MotionFormEntry for a single valid row (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, "Only motion"],
@@ -65,7 +65,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("sorts motions by Motion number ascending even if file is out of order", async () => {
+  it("sorts motions by Motion number ascending even if file is out of order (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [3, "Third"],
@@ -83,7 +83,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("skips completely blank rows without error", async () => {
+  it("skips completely blank rows without error (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, "Valid motion"],
@@ -102,7 +102,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("handles case-insensitive column headers", async () => {
+  it("handles case-insensitive column headers (old format)", async () => {
     setupMockSheetData([
       ["MOTION", "DESCRIPTION"],
       [1, "Motion content"],
@@ -114,7 +114,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("handles lowercase column headers", async () => {
+  it("handles lowercase column headers (old format)", async () => {
     setupMockSheetData([
       ["motion", "description"],
       [1, "Motion content"],
@@ -139,9 +139,148 @@ describe("parseMotionsExcel", () => {
     });
   });
 
+  // --- New 4-column format ---
+
+  it("parses all 4 columns correctly (new format)", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "Sample Motion Title", "general", "Full description text shown to voters"],
+      [2, "Another Motion", "special", "Description for a special resolution"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "Sample Motion Title", description: "Full description text shown to voters", motion_type: "general" },
+        { title: "Another Motion", description: "Description for a special resolution", motion_type: "special" },
+      ],
+    });
+  });
+
+  it("uses Title as title and Description as description when both columns present", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "My Title", "general", "My full description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "My Title", description: "My full description", motion_type: "general" }],
+    });
+  });
+
+  it("sorts motions ascending by Motion number in new 4-column format", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [3, "Third", "general", "Third desc"],
+      [1, "First", "general", "First desc"],
+      [2, "Second", "special", "Second desc"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "First", description: "First desc", motion_type: "general" },
+        { title: "Second", description: "Second desc", motion_type: "special" },
+        { title: "Third", description: "Third desc", motion_type: "general" },
+      ],
+    });
+  });
+
+  it("handles case-insensitive column headers in new 4-column format", async () => {
+    setupMockSheetData([
+      ["MOTION", "TITLE", "MOTION TYPE", "DESCRIPTION"],
+      [1, "My Title", "SPECIAL", "My desc"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "My Title", description: "My desc", motion_type: "special" }],
+    });
+  });
+
+  it("skips completely blank rows in new 4-column format", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "First", "general", "First desc"],
+      [null, null, null, null],
+      [2, "Second", "special", "Second desc"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [
+        { title: "First", description: "First desc", motion_type: "general" },
+        { title: "Second", description: "Second desc", motion_type: "special" },
+      ],
+    });
+  });
+
+  // --- Partial columns (Title present, Motion Type absent) ---
+
+  it("defaults motion_type to 'general' when Title present but Motion Type column absent", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Description"],
+      [1, "My Title", "My desc"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "My Title", description: "My desc", motion_type: "general" }],
+    });
+  });
+
+  // --- Blank Title fallback to Description ---
+
+  it("falls back to Description as title when Title cell is blank (null)", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, null, "general", "Fallback description used as title"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Fallback description used as title", description: "Fallback description used as title", motion_type: "general" }],
+    });
+  });
+
+  it("falls back to Description as title when Title cell is empty string", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "", "general", "Fallback description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Fallback description", description: "Fallback description", motion_type: "general" }],
+    });
+  });
+
+  it("falls back to Description as title when Title cell is whitespace-only", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "   ", "general", "Fallback description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Fallback description", description: "Fallback description", motion_type: "general" }],
+    });
+  });
+
+  it("returns error when both Title and Description are blank (4-column format)", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, null, "general", null],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({ errors: ["Row 1: Description is empty"] });
+  });
+
   // --- Motion Type column ---
 
-  it("defaults to 'general' when Motion Type column is absent", async () => {
+  it("defaults to 'general' when Motion Type column is absent (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, "Motion A"],
@@ -152,7 +291,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("reads 'Special' from Motion Type column (case-insensitive)", async () => {
+  it("reads 'Special' from Motion Type column (case-insensitive, old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "Special Motion", "Special"],
@@ -163,7 +302,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("reads 'SPECIAL' (all-caps) from Motion Type column", async () => {
+  it("reads 'SPECIAL' (all-caps) from Motion Type column (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "Special Motion", "SPECIAL"],
@@ -174,7 +313,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("reads 'General' from Motion Type column", async () => {
+  it("reads 'General' from Motion Type column (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "General Motion", "General"],
@@ -185,7 +324,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("defaults to 'general' when Motion Type cell is blank", async () => {
+  it("defaults to 'general' when Motion Type cell is blank (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "Motion A", null],
@@ -196,7 +335,7 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("defaults to 'general' when Motion Type cell is empty string", async () => {
+  it("defaults to 'general' when Motion Type cell is empty string (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "Motion A", ""],
@@ -207,7 +346,18 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  it("handles mixed motion types in same file", async () => {
+  it("defaults to 'general' for unrecognised Motion Type value", async () => {
+    setupMockSheetData([
+      ["Motion", "Description", "Motion Type"],
+      [1, "Motion A", "ordinary"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Motion A", description: "", motion_type: "general" }],
+    });
+  });
+
+  it("handles mixed motion types in same file (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description", "Motion Type"],
       [1, "General M", "General"],
@@ -221,6 +371,28 @@ describe("parseMotionsExcel", () => {
         { title: "Special M", description: "", motion_type: "special" },
         { title: "Default M", description: "", motion_type: "general" },
       ],
+    });
+  });
+
+  it("reads 'special' (lowercase) from Motion Type column (new 4-column format)", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "Special Motion", "special", "Special desc"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "Special Motion", description: "Special desc", motion_type: "special" }],
+    });
+  });
+
+  it("defaults to 'general' when Motion Type cell is blank (new 4-column format)", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "My Title", null, "My desc"],
+    ]);
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({
+      motions: [{ title: "My Title", description: "My desc", motion_type: "general" }],
     });
   });
 
@@ -246,7 +418,7 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({ errors: ["Missing required column: Description"] });
   });
 
-  it("returns both errors when both columns are missing", async () => {
+  it("returns both errors when both Motion and Description columns are missing", async () => {
     setupMockSheetData([
       ["OtherColumn"],
       [1, "text"],
@@ -295,7 +467,7 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({ errors: ["Row 1: Motion must be a number"] });
   });
 
-  it("returns error for row with empty Description", async () => {
+  it("returns error for row with empty Description (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, ""],
@@ -305,7 +477,7 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({ errors: ["Row 1: Description is empty"] });
   });
 
-  it("returns error for row with null Description", async () => {
+  it("returns error for row with null Description (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, null],
@@ -315,10 +487,20 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({ errors: ["Row 1: Description is empty"] });
   });
 
-  it("returns error for row with whitespace-only Description", async () => {
+  it("returns error for row with whitespace-only Description (old format)", async () => {
     setupMockSheetData([
       ["Motion", "Description"],
       [1, "   "],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({ errors: ["Row 1: Description is empty"] });
+  });
+
+  it("returns error for row with empty Description in new 4-column format when Title is also blank", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "", "general", ""],
     ]);
 
     const result = await parseMotionsExcel(makeMockFile());
@@ -374,6 +556,17 @@ describe("parseMotionsExcel", () => {
     });
   });
 
+  it("returns error for duplicate Motion numbers in new 4-column format", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "Title A", "general", "Desc A"],
+      [1, "Title B", "special", "Desc B"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockFile());
+    expect(result).toEqual({ errors: ["Duplicate Motion number: 1"] });
+  });
+
   // --- CSV file support ---
 
   it("parses a CSV file using the same XLSX.read call (type: 'array')", async () => {
@@ -388,6 +581,18 @@ describe("parseMotionsExcel", () => {
     });
     // Verify XLSX.read was called with type: 'array' — the same call that handles both CSV and Excel
     expect(mockedXLSX.read).toHaveBeenCalledWith(expect.any(ArrayBuffer), { type: "array" });
+  });
+
+  it("parses a CSV file in new 4-column format", async () => {
+    setupMockSheetData([
+      ["Motion", "Title", "Motion Type", "Description"],
+      [1, "CSV Title", "special", "CSV full description"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockCsvFile());
+    expect(result).toEqual({
+      motions: [{ title: "CSV Title", description: "CSV full description", motion_type: "special" }],
+    });
   });
 
   it("returns errors for an invalid CSV file just like an invalid Excel file", async () => {

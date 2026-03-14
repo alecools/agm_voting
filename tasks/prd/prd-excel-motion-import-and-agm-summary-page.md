@@ -20,25 +20,30 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 ## User Stories
 
-### US-013: Download Excel template for motion import
-**Description:** As a meeting host, I want to download a pre-formatted Excel template so I know exactly how to structure my motions file before uploading.
+### US-013: Download CSV/Excel template for motion import
+**Description:** As a meeting host, I want to download a pre-formatted template so I know exactly how to structure my motions file before uploading.
 
 **Acceptance Criteria:**
 - [ ] A "Download template" link is visible on the AGM creation form
-- [ ] Clicking the link downloads an `.xlsx` file named `agm_motions_template.xlsx`
-- [ ] The downloaded file contains one header row with columns: `order_number` and `motion_description`
-- [ ] The file contains one example data row to illustrate the expected format
+- [ ] Clicking the link downloads a file named `agm_motions_template.csv`
+- [ ] The downloaded file contains one header row with columns: `Motion`, `Title`, `Motion Type`, `Description`
+- [ ] The file contains two example data rows (one general, one special) to illustrate the expected format
 - [ ] Typecheck/lint passes
 
-### US-014: Upload Excel file to pre-fill motions on AGM creation form
-**Description:** As a meeting host, I want to upload an Excel file during AGM creation so that the motions list is pre-filled without manual entry.
+### US-014: Upload CSV/Excel file to pre-fill motions on AGM creation form
+**Description:** As a meeting host, I want to upload a CSV or Excel file during AGM creation so that the motions list is pre-filled without manual entry.
 
 **Acceptance Criteria:**
-- [ ] The AGM creation form includes a file input labelled "Upload motions (Excel)"
-- [ ] The file input accepts `.xlsx` and `.xls` files only
+- [ ] The AGM creation form includes a file input labelled "Upload motions (CSV or Excel)"
+- [ ] The file input accepts `.csv`, `.xlsx`, and `.xls` files
 - [ ] After a valid file is selected, the motions list on the form is populated with rows parsed from the file
-- [ ] Each row in the file becomes one motion entry: `order_number` maps to the motion's order field; `motion_description` maps to the motion's title/description field
-- [ ] Motions are displayed in ascending `order_number` order
+- [ ] Each row in the file becomes one motion entry using the following column mapping (all column names are case-insensitive):
+  - `Motion` (required) → motion order index
+  - `Description` (required) → motion description when `Title` column is present; used as the motion title when `Title` column is absent (backwards-compatible 2-column format)
+  - `Title` (optional) → motion title; if blank, falls back to `Description` as title
+  - `Motion Type` (optional) → `"general"` or `"special"` (case-insensitive); defaults to `"general"` when absent or unrecognised
+- [ ] Files with only `Motion` + `Description` columns (old 2-column format) continue to work without errors
+- [ ] Motions are displayed in ascending `Motion` order
 - [ ] The host can edit, reorder, add, or delete any pre-filled motion before saving
 - [ ] No data is saved to the database until the host submits the form
 - [ ] Typecheck/lint passes
@@ -102,7 +107,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 - **FR-16:** The AGM creation form must include a file input that accepts `.xlsx` and `.xls` files only.
 - **FR-17:** When a valid Excel file is uploaded, the frontend parses it client-side (no server round-trip for parsing) and pre-fills the motion rows on the form.
-- **FR-18:** The Excel file must contain at minimum two columns: `order_number` (integer) and `motion_description` (non-empty string). Column names are case-insensitive.
+- **FR-18:** The import file must contain at minimum two columns: `Motion` (integer) and `Description` (non-empty string). Column names are case-insensitive. Two additional optional columns are supported: `Title` (string) and `Motion Type` (`"general"` or `"special"`). When `Title` is present it is used as the motion title and `Description` becomes the full description text. When `Title` is absent the file is treated as the old 2-column format: `Description` is used as the motion title and `description` is set to an empty string. `Motion Type` defaults to `"general"` when absent or unrecognised.
 - **FR-19:** If any validation error is found in the uploaded file, display all errors in a summary at the top of the upload section. Do not partially pre-fill the form.
 - **FR-20:** Completely blank rows in the Excel file are silently skipped during parsing.
 - **FR-21:** After pre-filling, the host retains full ability to edit, add, or remove motions before saving the AGM.

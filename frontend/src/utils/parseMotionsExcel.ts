@@ -21,7 +21,16 @@ function parseMotionType(raw: unknown): MotionType {
  * special handling is required to support CSV — `XLSX.read` handles both.
  *
  * Required columns (case-insensitive): Motion, Description
- * Optional column: Motion Type ("General" or "Special"; defaults to "general")
+ * Optional columns:
+ *   - Title: when present, used as the motion title; Description becomes the
+ *     full description text. When absent, Description is used as the title
+ *     (backwards-compatible with the old 2-column format).
+ *   - Motion Type: "General" or "Special" (case-insensitive); defaults to
+ *     "general" when absent or unrecognised.
+ *
+ * Backwards compatibility: files with only Motion + Description columns
+ * (old 2-column format) continue to work — Description is used as the title
+ * and description is set to empty string.
  */
 export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
@@ -46,6 +55,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
   const motionColIdx = headers.findIndex((h) => h === "motion");
   const descColIdx = headers.findIndex((h) => h === "description");
+  const titleColIdx = headers.findIndex((h) => h === "title");
   const motionTypeColIdx = headers.findIndex((h) => h === "motion type");
 
   const missingErrors: string[] = [];
@@ -53,9 +63,17 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   if (descColIdx === -1) missingErrors.push("Missing required column: Description");
   if (missingErrors.length > 0) return { errors: missingErrors };
 
+  // Whether file uses new 4-column format (Title column present) or old 2-column format
+  const hasTitleColumn = titleColIdx !== -1;
+
   const rowErrors: string[] = [];
   const motionNumbers: number[] = [];
-  const motionEntries: Array<{ order: number; title: string; motion_type: MotionType }> = [];
+  const motionEntries: Array<{
+    order: number;
+    title: string;
+    description: string;
+    motion_type: MotionType;
+  }> = [];
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i] as unknown[];
@@ -63,6 +81,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
 
     const motionCell = row[motionColIdx];
     const descCell = row[descColIdx];
+    const titleCell = hasTitleColumn ? row[titleColIdx] : null;
     const motionTypeCell = motionTypeColIdx !== -1 ? row[motionTypeColIdx] : null;
 
     // Skip completely blank rows
@@ -79,16 +98,42 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
       rowErrors.push(`Row ${rowNum}: Motion must be a number`);
     } else {
       motionNumbers.push(motionValue);
-      const descIsEmpty =
-        descCell === null || descCell === undefined || String(descCell).trim() === "";
-      if (descIsEmpty) {
-        rowErrors.push(`Row ${rowNum}: Description is empty`);
+
+      if (hasTitleColumn) {
+        // New 4-column format: Title column present
+        // Determine title: use Title cell if non-blank, else fall back to Description
+        const titleIsEmpty =
+          titleCell === null || titleCell === undefined || String(titleCell).trim() === "";
+        const descIsEmpty =
+          descCell === null || descCell === undefined || String(descCell).trim() === "";
+
+        const resolvedTitle = !titleIsEmpty ? String(titleCell) : (!descIsEmpty ? String(descCell) : null);
+        const resolvedDescription = !descIsEmpty ? String(descCell) : "";
+
+        if (resolvedTitle === null) {
+          rowErrors.push(`Row ${rowNum}: Description is empty`);
+        } else {
+          motionEntries.push({
+            order: motionValue,
+            title: resolvedTitle,
+            description: resolvedDescription,
+            motion_type: parseMotionType(motionTypeCell),
+          });
+        }
       } else {
-        motionEntries.push({
-          order: motionValue,
-          title: String(descCell),
-          motion_type: parseMotionType(motionTypeCell),
-        });
+        // Old 2-column format: no Title column — Description becomes the title
+        const descIsEmpty =
+          descCell === null || descCell === undefined || String(descCell).trim() === "";
+        if (descIsEmpty) {
+          rowErrors.push(`Row ${rowNum}: Description is empty`);
+        } else {
+          motionEntries.push({
+            order: motionValue,
+            title: String(descCell),
+            description: "",
+            motion_type: parseMotionType(motionTypeCell),
+          });
+        }
       }
     }
 
@@ -110,7 +155,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   motionEntries.sort((a, b) => a.order - b.order);
   const motions: MotionFormEntry[] = motionEntries.map((e) => ({
     title: e.title,
-    description: "",
+    description: e.description,
     motion_type: e.motion_type,
   }));
 

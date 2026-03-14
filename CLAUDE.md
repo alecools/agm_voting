@@ -85,18 +85,18 @@ Use this for features that touch only one side (backend only or frontend only), 
 3. Run local tests — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both at 100%
 4. Signal orchestrator: "Ready for push slot — awaiting orchestrator grant." **Do not push yourself.**
 5. After slot is granted: `git push -u origin <branch>` — Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
-6. Wait for Vercel to deploy, then run the **full E2E suite to completion** — never stop early, record ALL failures:
+6. **Immediately raise a PR to `preview`** (for visibility — do not merge yet; merge waits for E2E to pass)
+7. Wait for Vercel to deploy, then run the **full E2E suite to completion** — never stop early, record ALL failures:
    ```bash
    cd frontend && PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
      VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
      npx playwright test
    ```
    > **Run exactly once. Never re-run or self-fix.** If tests fail, record every failure and report to the orchestrator. Do not decide a failure is "flaky" or "infrastructure noise" — the orchestrator decides.
-7. Release the push slot — report results to orchestrator (pass or fail)
-8. Fix any recorded failures (slot is now free; another agent may hold it)
-9. If fixes needed: re-queue (back to step 4, rejoins the **back** of the queue)
-10. Once all E2E pass: raise a PR to `preview`
-11. Merge the PR (orchestrator delegates to a sub-agent; no user approval needed for `preview`)
+8. Release the push slot — report results to orchestrator (pass or fail)
+9. Fix any recorded failures (slot is now free; another agent may hold it)
+10. If fixes needed: re-queue (back to step 4, rejoins the **back** of the queue)
+11. Once all E2E pass: merge the PR (orchestrator delegates to a sub-agent; no user approval needed for `preview`)
 12. **Post-merge cleanup — REQUIRED, do not skip:**
     - Remove the git worktree: `git worktree remove /Users/stevensun/personal/agm_survey-<branch> --force`
     - Delete the local branch: `git branch -d <branch>`
