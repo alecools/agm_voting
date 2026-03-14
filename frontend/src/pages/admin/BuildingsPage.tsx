@@ -25,7 +25,6 @@ export default function BuildingsPage() {
     setShowCreateForm(false);
   }
 
-  if (isLoading) return <p className="state-message">Loading buildings...</p>;
   if (error) return <p className="state-message state-message--error">Failed to load buildings.</p>;
 
   return (
@@ -52,7 +51,7 @@ export default function BuildingsPage() {
         <BuildingForm onSuccess={handleSuccess} onCancel={() => setShowCreateForm(false)} />
       )}
       <div className="admin-card">
-        <BuildingTable buildings={visibleBuildings} />
+        <BuildingTable buildings={visibleBuildings} isLoading={isLoading} />
       </div>
       <BuildingCSVUpload onSuccess={handleSuccess} />
     </div>

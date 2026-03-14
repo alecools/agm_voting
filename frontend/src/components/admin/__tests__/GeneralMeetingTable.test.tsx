@@ -50,7 +50,7 @@ function makeMeetings(count: number): GeneralMeetingListItem[] {
   }));
 }
 
-function renderTable(props: { meetings: GeneralMeetingListItem[] }) {
+function renderTable(props: { meetings: GeneralMeetingListItem[]; isLoading?: boolean }) {
   return render(
     <MemoryRouter>
       <GeneralMeetingTable {...props} />
@@ -89,6 +89,18 @@ describe("GeneralMeetingTable", () => {
     expect(screen.getByText("No General Meetings found.")).toBeInTheDocument();
   });
 
+  it("shows loading row in table body when isLoading and no data yet", () => {
+    renderTable({ meetings: [], isLoading: true });
+    expect(screen.getByText("Loading General Meetings...")).toBeInTheDocument();
+    expect(screen.queryByText("No General Meetings found.")).not.toBeInTheDocument();
+  });
+
+  it("does not show loading row when isLoading but data is already present", () => {
+    renderTable({ meetings, isLoading: true });
+    expect(screen.queryByText("Loading General Meetings...")).not.toBeInTheDocument();
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+  });
+
   it("renders table headers", () => {
     renderTable({ meetings });
     expect(screen.getByText("Building")).toBeInTheDocument();
@@ -106,10 +118,12 @@ describe("GeneralMeetingTable", () => {
     expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
   });
 
-  it("shows pagination controls when there are more than 20 meetings", () => {
+  it("shows pagination controls at both top and bottom when there are more than 20 meetings", () => {
     renderTable({ meetings: makeMeetings(21) });
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next page" })).toBeInTheDocument();
+    const prevButtons = screen.getAllByRole("button", { name: "Previous page" });
+    const nextButtons = screen.getAllByRole("button", { name: "Next page" });
+    expect(prevButtons).toHaveLength(2);
+    expect(nextButtons).toHaveLength(2);
   });
 
   it("renders only the first 20 rows on page 1 of a 21-item list", () => {
@@ -125,7 +139,8 @@ describe("GeneralMeetingTable", () => {
   it("navigating to page 2 shows row 21", async () => {
     const user = userEvent.setup();
     renderTable({ meetings: makeMeetings(21) });
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    // Use the first (top) Next page button
+    await user.click(screen.getAllByRole("button", { name: "Next page" })[0]);
     expect(screen.getByText("Meeting 21")).toBeInTheDocument();
     expect(screen.queryByText("Meeting 1")).not.toBeInTheDocument();
   });
@@ -133,8 +148,8 @@ describe("GeneralMeetingTable", () => {
   it("resets to page 1 when meetings prop length changes to fewer items", async () => {
     const user = userEvent.setup();
     const { rerender } = renderTable({ meetings: makeMeetings(21) });
-    // Navigate to page 2
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    // Navigate to page 2 via top Next page button
+    await user.click(screen.getAllByRole("button", { name: "Next page" })[0]);
     expect(screen.getByText("Meeting 21")).toBeInTheDocument();
     // Shrink the list below page threshold — page should reset to 1
     rerender(

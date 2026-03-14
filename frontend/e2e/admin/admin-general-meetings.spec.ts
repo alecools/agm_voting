@@ -144,8 +144,13 @@ test.describe("Admin General Meetings", () => {
 
   test("clicking General Meeting row in list navigates to detail", async ({ page }) => {
     await page.goto("/admin/general-meetings");
-    const firstRow = page.getByRole("row").nth(1);
-    await firstRow.click();
+    // Wait for at least one data row to be visible (not the loading skeleton row)
+    // before clicking, so we don't race against the inline table loading state.
+    const table = page.getByRole("table");
+    await expect(table).toBeVisible({ timeout: 15000 });
+    const firstDataRow = table.getByRole("row").nth(1);
+    await expect(firstDataRow).toBeVisible({ timeout: 15000 });
+    await firstDataRow.click();
     await expect(page).toHaveURL(/\/admin\/general-meetings\/[^/]+$/);
   });
 });

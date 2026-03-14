@@ -30,8 +30,12 @@ function renderPage() {
 }
 
 describe("BuildingsPage", () => {
-  it("shows loading state initially", () => {
+  it("shows loading state inline in table while page header remains visible", () => {
     renderPage();
+    // Page structure renders immediately
+    expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    // Loading message is inside the table body
     expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
   });
 
@@ -180,8 +184,8 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
 
-    // Navigate to page 2 (Active Building 21 is on page 2)
-    await user.click(screen.getByRole("button", { name: "2" }));
+    // Navigate to page 2 (Active Building 21 is on page 2) — two "2" buttons exist (top + bottom)
+    await user.click(screen.getAllByRole("button", { name: "2" })[0]);
     expect(screen.getByText("Active Building 21")).toBeInTheDocument();
     expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
 

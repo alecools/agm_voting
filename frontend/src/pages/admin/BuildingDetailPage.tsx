@@ -80,7 +80,6 @@ export default function BuildingDetailPage() {
     }
   }
 
-  if (isLoading) return <p className="state-message">Loading lot owners...</p>;
   if (error) return <p className="state-message state-message--error">Failed to load lot owners.</p>;
 
   return (
@@ -141,7 +140,7 @@ export default function BuildingDetailPage() {
       )}
 
       <div className="admin-card">
-        <LotOwnerTable lotOwners={lotOwners} onEdit={handleEdit} />
+        <LotOwnerTable lotOwners={lotOwners} onEdit={handleEdit} isLoading={isLoading} />
       </div>
 
       <LotOwnerCSVUpload

@@ -31,8 +31,11 @@ function renderPage(path = "/", locationState?: { pendingMessage?: string }) {
 }
 
 describe("BuildingSelectPage", () => {
-  it("shows loading state initially", () => {
+  it("shows loading state inside card while page hero remains visible", () => {
     renderPage();
+    // Hero renders immediately
+    expect(screen.getByText("Cast Your Vote")).toBeInTheDocument();
+    // Loading message appears inside the card (not replacing the full page)
     expect(screen.getByText("Loading buildings...")).toBeInTheDocument();
   });
 

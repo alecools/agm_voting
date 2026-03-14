@@ -36,14 +36,6 @@ export function BuildingSelectPage() {
     navigate(`/vote/${meetingId}/auth?view=submission`);
   };
 
-  if (buildingsLoading) {
-    return (
-      <main className="voter-content">
-        <p className="state-message">Loading buildings...</p>
-      </main>
-    );
-  }
-
   if (buildingsError) {
     return (
       <main className="voter-content">
@@ -76,13 +68,16 @@ export function BuildingSelectPage() {
       </div>
 
       <div className="card">
-        <BuildingDropdown
-          /* c8 ignore next */
-          buildings={buildings ?? []}
-          value={selectedBuildingId}
-          onChange={handleBuildingChange}
-          error={buildingError}
-        />
+        {buildingsLoading ? (
+          <p className="state-message">Loading buildings...</p>
+        ) : (
+          <BuildingDropdown
+            buildings={buildings ?? []}
+            value={selectedBuildingId}
+            onChange={handleBuildingChange}
+            error={buildingError}
+          />
+        )}
         {meetingsLoading && (
           <p className="state-message" style={{ padding: "24px 0 8px" }}>
             Loading General Meetings...

@@ -39,6 +39,18 @@ describe("LotOwnerTable", () => {
     expect(screen.getByText("No lot owners found.")).toBeInTheDocument();
   });
 
+  it("shows loading row in table body when isLoading and no data yet", () => {
+    render(<LotOwnerTable lotOwners={[]} onEdit={() => {}} isLoading={true} />);
+    expect(screen.getByText("Loading lot owners...")).toBeInTheDocument();
+    expect(screen.queryByText("No lot owners found.")).not.toBeInTheDocument();
+  });
+
+  it("does not show loading row when isLoading but data is already present", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} isLoading={true} />);
+    expect(screen.queryByText("Loading lot owners...")).not.toBeInTheDocument();
+    expect(screen.getByText("1A")).toBeInTheDocument();
+  });
+
   it("calls onEdit with correct lot owner when Edit clicked", async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();
@@ -76,5 +88,53 @@ describe("LotOwnerTable", () => {
   it("shows None when no proxy is nominated", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByText("None")).toBeInTheDocument();
+  });
+
+  // --- Pagination top + bottom ---
+
+  it("does not show pagination controls when lot owners fit on one page", () => {
+    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+  });
+
+  it("shows pagination controls at both top and bottom when there are more than 25 lot owners", () => {
+    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+      id: `lo${i + 1}`,
+      building_id: "b1",
+      lot_number: `${i + 1}`,
+      emails: [`owner${i + 1}@example.com`],
+      unit_entitlement: 100,
+      financial_position: "normal" as const,
+      proxy_email: null,
+    }));
+    render(<LotOwnerTable lotOwners={manyLotOwners} onEdit={() => {}} />);
+    const prevButtons = screen.getAllByRole("button", { name: "Previous page" });
+    const nextButtons = screen.getAllByRole("button", { name: "Next page" });
+    expect(prevButtons).toHaveLength(2);
+    expect(nextButtons).toHaveLength(2);
+  });
+
+  it("navigating to page 2 via top Next button shows lot owner 26", async () => {
+    const user = userEvent.setup();
+    const manyLotOwners: typeof lotOwners = Array.from({ length: 26 }, (_, i) => ({
+      id: `lo${i + 1}`,
+      building_id: "b1",
+      lot_number: `lot-${i + 1}`,
+      emails: [`owner${i + 1}@example.com`],
+      unit_entitlement: 100,
+      financial_position: "normal" as const,
+      proxy_email: null,
+    }));
+    const { container } = render(<LotOwnerTable lotOwners={manyLotOwners} onEdit={() => {}} />);
+    // Page 1 shows 25 rows
+    const tbody = container.querySelector("tbody")!;
+    expect(tbody.querySelectorAll("tr")).toHaveLength(25);
+    // Use the first (top) Next page button
+    await user.click(screen.getAllByRole("button", { name: "Next page" })[0]);
+    // Page 2 shows only the 26th lot owner
+    expect(tbody.querySelectorAll("tr")).toHaveLength(1);
+    expect(screen.getByText("lot-26")).toBeInTheDocument();
+    expect(screen.queryByText("lot-1")).not.toBeInTheDocument();
   });
 });
