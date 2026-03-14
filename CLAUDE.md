@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AGM Voting App — a web application for body corporates to run weighted voting during Annual General Meetings. See `tasks/prd-agm-voting-app.md` for the full PRD.
+AGM Voting App — a web application for body corporates to run weighted voting during Annual General Meetings. See `tasks/prd/prd-agm-voting-app.md` for the full PRD.
+
+**Task folder structure:**
+- `tasks/prd/` — product requirements documents
+- `tasks/design/` — technical design docs (one per feature, written by design agents before implementation)
 
 **Stack:** React (Vite) frontend · FastAPI backend · PostgreSQL · SQLAlchemy + Alembic · Resend (email)
 
@@ -20,8 +24,8 @@ Key decisions that must not be inadvertently reversed:
 - **`AGMLotWeight` is a snapshot** — entitlements are captured at AGM creation time and never updated by subsequent lot owner edits or imports.
 - **Auth on closed AGMs** — `POST /api/auth/verify` returns 200 (not 403) for closed AGMs. The response includes `agm_status: str` so the frontend can route to the confirmation page instead of blocking entry.
 - **`voter_email` is case-sensitive** — `AGMLotWeight.voter_email` and `BallotSubmission.voter_email` must match exactly. Auth enforces this via `LotOwner.email == request.email` in SQL.
-- **Alembic auto-migrates on Lambda cold start** — `api/index.py` runs `alembic upgrade head` on startup. No manual migration step is needed after deploying a branch. Do not add a second auto-migrate call.
-- **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. `api/index.py` does this automatically at runtime.
+- **Migrations run during Vercel build (`buildCommand`)** — `vercel.json`'s `buildCommand` runs `alembic upgrade head` once before the Lambda goes live. The Lambda cold start performs no DB operations. If the migration step fails, the Vercel build fails and the deploy is blocked (desirable).
+- **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. The build script does this transformation; `api/index.py` does it for the runtime `DATABASE_URL` used by the app.
 
 ---
 
@@ -29,126 +33,120 @@ Key decisions that must not be inadvertently reversed:
 
 > See user-level `~/.claude/CLAUDE.md` for: PRD-before-code rule and design-first decomposition process.
 
+### Task folder structure
+
+| Folder | Contents |
+|---|---|
+| `tasks/prd/` | Product requirements documents (`prd-*.md`) |
+| `tasks/design/` | Technical design docs (`design-<feature>.md`) — one per feature, written by the design agent before implementation begins |
+
+**Design agents must write their output to `tasks/design/design-<feature>.md`** before reporting back to the orchestrator. Implementation agents must read this file before writing any code. Both files (PRD update + design doc) must be committed and included in the PR.
+
 ### Orchestrator role
 
-The orchestrator's only job is to **plan, coordinate, and communicate with the user**. It must not use tools directly (no bash, git, gh, file reads/edits). All tool use — code changes, test runs, git operations, CI monitoring, PR merges, file edits — must be delegated to sub-agents. The orchestrator interacts with the user to report status, ask questions, and present results from sub-agents.
+The orchestrator's only job is to **plan, coordinate, and communicate with the user**. It must not use tools directly (no bash, git, gh, file reads/edits). All tool use — code changes, test runs, git operations, PR merges, file edits — must be delegated to sub-agents.
 
-**User approval is required for any merge into `master` (production).** The orchestrator may merge PRs into `preview` autonomously once CI is green.
+- **User approval is required for any merge into `master` (production).** The orchestrator may merge PRs into `preview` autonomously once E2E passes.
+- **Agent duration tracking (required):** Record every sub-agent's task name and duration in `memory/agent-durations.md` using the `duration_ms` from the task completion notification.
+- **Agent communication:** Agents must not poll for other agents. When an agent finishes work another agent is waiting on, it completes and reports to the orchestrator. The orchestrator then resumes the waiting agent via the `resume` parameter with the new information.
 
-**Agent duration tracking (required):** Every time a sub-agent completes, record its task name and duration in `memory/agent-durations.md`. Use the `duration_ms` value from the task completion notification. When the user asks for a duration summary, present the full log as a markdown table.
+---
 
-### Agent communication
+### Worktrees — MANDATORY FOR ALL AGENTS
 
-Agents must not poll for changes from other agents. Instead:
+Every agent MUST create a git worktree before doing any work. Never check out a branch in the main working directory — it corrupts state for concurrent agents.
 
-- When an agent finishes work that another agent is waiting on (e.g. a feature agent raises a PR that a merge queue agent needs), it **completes and reports the result to the orchestrator** in its completion message.
-- The **orchestrator receives the completion notification** and then **resumes the waiting agent** using the `resume` parameter, passing the new information (e.g. the PR number) in the resumed prompt.
-- The waiting agent should stop after finishing its current work and wait — it should not poll `gh pr list` or sleep-loop waiting for an external event.
+```bash
+cd /Users/stevensun/personal/agm_survey
+git checkout preview && git pull origin preview
+git checkout -b feat/my-feature
+git worktree add /Users/stevensun/personal/agm_survey-feat-my-feature feat/my-feature
+# do ALL work inside the worktree
+```
 
-This keeps agents decoupled and event-driven rather than tightly coupled through shared state or polling.
+The main directory (`/Users/stevensun/personal/agm_survey`) is reserved for orchestrator-level operations only.
 
-### Branch workflow (required for all feature dev and bugfixes)
+---
 
-Every feature or bugfix must follow this process, executed by a sub-agent:
+### Single-agent branch workflow
 
-1. **Pull the latest** from the base branch before branching: `git checkout preview && git pull origin preview`, then **create a new branch and worktree** (e.g. `git checkout -b feat/my-feature && git worktree add /Users/stevensun/personal/agm_survey-feat-my-feature feat/my-feature`). All subsequent work must be done inside the worktree directory — never in the main working directory.
-2. **Do all work on that branch** — multiple commits are fine and encouraged
-3. **Run local tests** — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both must pass at 100%
-4. **Signal the orchestrator** — report local test results and send one message: "Ready for push slot — awaiting orchestrator grant." Do not push yourself.
-5. **Push the branch** (only after orchestrator grants the slot) — `git push -u origin <branch>`. Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
-6. **Wait for Vercel to finish deploying**, then run the **full E2E suite to completion** — never stop early, record ALL failures:
+Use this for features that touch only one side (backend only or frontend only), or small full-stack changes.
+
+1. Create branch + worktree (see Worktrees section above)
+2. Implement all changes; multiple commits are fine
+3. Run local tests — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both at 100%
+4. Signal orchestrator: "Ready for push slot — awaiting orchestrator grant." **Do not push yourself.**
+5. After slot is granted: `git push -u origin <branch>` — Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
+6. Wait for Vercel to deploy, then run the **full E2E suite to completion** — never stop early, record ALL failures:
    ```bash
    cd frontend && PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
      VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
      npx playwright test
    ```
+   > **Run exactly once. Never re-run or self-fix.** If tests fail, record every failure and report to the orchestrator. Do not decide a failure is "flaky" or "infrastructure noise" — the orchestrator decides.
+7. Release the push slot — report results to orchestrator (pass or fail)
+8. Fix any recorded failures (slot is now free; another agent may hold it)
+9. If fixes needed: re-queue (back to step 4, rejoins the **back** of the queue)
+10. Once all E2E pass: raise a PR to `preview`
+11. Merge the PR (orchestrator delegates to a sub-agent; no user approval needed for `preview`)
+12. **Post-merge cleanup — REQUIRED, do not skip:**
+    - Remove the git worktree: `git worktree remove /Users/stevensun/personal/agm_survey-<branch> --force`
+    - Delete the local branch: `git branch -d <branch>`
+    - Delete the remote branch: `git push origin --delete <branch> && git remote prune origin`
+    - **Delete the Neon DB branch** (if one was created for this feature) — see Post-merge cleanup section for the API commands
+    - **Delete the Vercel branch-scoped env vars** (`DATABASE_URL` + `DATABASE_URL_UNPOOLED`) if set for this branch
 
-   > **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
-   > - Re-run failing tests to check if they are "flaky"
-   > - Fix code and re-run
-   > - Decide independently that a failure is infrastructure noise
-   >
-   > The orchestrator decides whether to retry or fix based on the full failure report.
+---
 
-7. **Release the push slot** — notify the orchestrator the slot is free (pass or fail)
-8. **Fix all recorded failures** — while the next agent may be using the slot. Do not push during this phase
-9. If fixes were needed: **re-queue** (back to step 4) for another push + test cycle
-10. Once all E2E tests pass: **raise a PR** to merge into `preview`
-11. **Monitor the GitHub Actions post-deploy workflow** — it runs automatically after the PR is raised. Fix any failures and re-queue if needed
-12. When all tests pass including CI: **merge the PR** (orchestrator delegates merge to a sub-agent; no user approval needed)
+### Parallel-agent branch workflow (backend + frontend split)
 
-### Orchestrator push slot queue
+Use this when a feature touches both `backend/` and `frontend/` with independent changes.
 
-The shared preview environment supports only one deployment at a time to avoid test interference. **Both branch pushes and PR merges** require a push slot:
+**Agent 1 — Backend** (`feat/X-backend` branch + worktree):
+- Implement backend changes (schema, routes, tests) + run `pytest --cov` at 100%
+- Signal orchestrator: "Backend ready." Do NOT push.
 
-- Grant the push slot to one action at a time — FIFO by default; reprioritise by urgency or risk if needed
-- **Branch push slot**: released after the agent's E2E run completes (pass or fail)
-- **PR merge slot**: released after the GitHub Actions post-merge CI run completes (no E2E needed — just wait for CI green)
-- An agent returning after fixing issues rejoins the **back** of the queue
-- If only one agent is running, grant the slot immediately when it signals readiness
+**Agent 2 — Frontend** (`feat/X-frontend` branch + worktree):
+- Implement frontend changes using MSW mocks + run `npm run test:coverage` at 100%
+- Signal orchestrator: "Frontend ready." Do NOT push.
 
-**Orchestrator merge authority:** The orchestrator may authorise PR merges, but must delegate the actual merge (and all CI monitoring) to a sub-agent. The orchestrator only interacts with the user directly — all tool use (git, gh, bash, file edits) is done by sub-agents.
+**Agent 3 — Merge/test/push** (spawned after both signal ready):
+1. Create combined branch + worktree: `git checkout -b feat/X && git worktree add .../agm_survey-feat-X feat/X`
+2. Merge both branches: `git merge feat/X-backend && git merge feat/X-frontend`
+3. Run the **full local test suite** — `pytest --cov` + `npm run test:coverage` — both at 100%
+4. Fix any integration issues (API contract mismatches, merge conflicts); commit if needed
+5. Signal orchestrator: "Ready for push slot — awaiting orchestrator grant."
+6. After slot is granted: push, run full E2E, release slot
+7. Raise PR → merge
+8. **Post-merge cleanup — REQUIRED, do not skip:** remove worktrees + local/remote branches for all three branches (`feat/X-backend`, `feat/X-frontend`, `feat/X`). Delete Neon DB branch and Vercel branch-scoped env vars if created. See Post-merge cleanup section for commands.
 
-**Full E2E after all slices merged:** When all PRs for a PRD implementation are merged into `preview`, run the full Playwright E2E suite once against the `preview` deployment URL to confirm end-to-end correctness.
+---
 
-### Agent isolation (worktrees) — MANDATORY FOR ALL AGENTS
+### Push slot queue
 
-**Every agent working on a specific branch MUST create a git worktree.** Never check out a branch in the main working directory (`/Users/stevensun/personal/agm_survey`) — it will corrupt the state for other concurrent agents. This applies to all agents regardless of task length: feature work, bug fixes, documentation edits, and one-line commits all require a worktree.
+One slot governs all actions that trigger a Vercel deployment. **Both pushes and PR merges require the slot.**
 
-```bash
-git worktree add /Users/stevensun/personal/agm_survey-<branch-slug> <branch-name>
-cd /Users/stevensun/personal/agm_survey-<branch-slug>
-# do all work here
-```
+- Grant FIFO; reprioritise by urgency or risk if needed
+- **Branch push**: hold from `git push` until E2E run completes (pass or fail)
+- **PR merge**: hold from merge until Vercel post-merge deployment completes (no E2E needed)
+- Agent with fixes rejoins the **back** of the queue
+- If only one agent is running, grant immediately
 
-The main working directory is reserved for orchestrator-level operations only (e.g. `git worktree list`, `git remote prune origin`).
+**After all slices are merged to `preview`:** run the full E2E suite once against the `preview` URL to confirm end-to-end correctness.
 
-### Parallel agents (multiple features at once)
-
-Use **git worktrees** so each agent has its own isolated working directory:
-```bash
-git worktree add /Users/stevensun/personal/agm_survey-feat-foo feat/foo
-git worktree add /Users/stevensun/personal/agm_survey-feat-bar feat/bar
-```
-
-**Clean up immediately after each PR is merged** (delegate to a sub-agent):
-
-```bash
-# 1. Remove the git worktree
-git worktree remove ../agm_survey-feat-foo --force
-
-# 2. Delete the local branch
-git branch -d feat/foo
-
-# 3. Delete the GitHub remote branch
-git push origin --delete feat/foo
-git remote prune origin
-
-# 4. Delete the Neon DB branch (if a branch-scoped DB was created)
-NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w 2>/dev/null)
-# List branches to find the ID:
-curl -s -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
-  | python3 -c "import sys,json; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
-# Then delete by ID:
-curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches/<branch_id>"
-
-# 5. Delete the Vercel branch-scoped env vars (DATABASE_URL and DATABASE_URL_UNPOOLED)
-# Use the Vercel dashboard or the REST API (see "Isolated DB" section above for the API pattern)
-```
+---
 
 ### Isolated DB for schema-migration branches
 
-Every feature branch that includes schema migrations MUST have its own Neon DB branch to prevent migration conflicts on the shared preview DB.
+Every branch with schema migrations MUST have its own Neon DB branch to avoid migration conflicts on the shared preview DB.
 
-**Neon API key:** stored in the macOS keychain under service `agm-survey`, account `neon-api-key`. Retrieve with: `security find-generic-password -s "agm-survey" -a "neon-api-key" -w 2>/dev/null`
+**Neon API key:** `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
 
-**Steps (run once when creating the feature branch):**
+**Setup (once, when creating the branch):**
 
-1. **Create a Neon branch** in the [Neon dashboard](https://console.neon.tech) — branch off `preview`. Name it after the feature.
-2. **Note the pooled and unpooled connection strings** from the Neon dashboard.
-3. **Set branch-scoped env vars in Vercel** using the REST API:
+1. Create a Neon branch off `preview` (named after the feature) via the Neon dashboard
+2. Note the pooled + unpooled connection strings
+3. Set branch-scoped Vercel env vars:
 
    ```bash
    PROJECT_ID=$(cat .vercel/project.json | python3 -c "import sys,json; print(json.load(sys.stdin)['projectId'])")
@@ -171,22 +169,46 @@ Every feature branch that includes schema migrations MUST have its own Neon DB b
    EOF
    ```
 
-4. **Push the branch** — the Lambda auto-runs `alembic upgrade head` on first cold start.
-5. **Tear down after merge** — delete the Neon branch and remove the branch-scoped Vercel env vars.
+4. Push the branch — Vercel build runs `alembic upgrade head` against the branch-scoped Neon DB before the Lambda goes live
+5. After merge: delete the Neon branch and remove branch-scoped Vercel env vars
 
-> **Note on the shared preview DB:** When a feature PR is merged to `preview`, the Lambda auto-migrates the shared preview DB on its next cold start.
+> When a PR merges to `preview`, the Vercel build runs `alembic upgrade head` against the shared preview DB as part of the build step.
+
+---
+
+### Post-merge cleanup
+
+Run immediately after each PR merges (delegate to a sub-agent):
+
+```bash
+# Remove worktree + local branch
+git worktree remove /Users/stevensun/personal/agm_survey-<branch> --force
+git branch -d <branch>
+
+# Delete remote branch
+git push origin --delete <branch>
+git remote prune origin
+
+# Delete Neon DB branch (if created) — list then delete by ID
+NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w 2>/dev/null)
+curl -s -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
+  | python3 -c "import sys,json; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
+curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches/<branch_id>"
+
+# Delete Vercel branch-scoped env vars (DATABASE_URL + DATABASE_URL_UNPOOLED)
+# Use the Vercel dashboard or REST API
+```
+
+---
 
 ### Definition of Done
 
-A change is only complete when all of the following are true:
-
-1. All local tests pass (`npm run test:coverage` and backend pytest with 100% coverage)
-2. Branch pushed, Vercel preview deployed, full E2E suite passes against the branch preview URL
-3. PR raised to `preview`, GitHub Actions post-deploy workflow passes
-4. Orchestrator delegates the merge to a sub-agent; sub-agent merges the PR and waits for post-merge CI to pass
-5. **Post-merge cleanup:**
-   - Delete Neon feature branch (if created) and its branch-scoped Vercel env vars
-   - Remove git worktree: `git worktree remove ../agm_survey-<branch> --force && git branch -d <branch>`
+1. All local tests pass at 100% coverage (backend pytest + frontend vitest)
+2. Branch pushed, Vercel deployed, full E2E passes against the branch preview URL
+3. PR raised and merged into `preview`
+4. Post-merge cleanup complete (Neon branch, Vercel env vars, worktree, local + remote git branch)
 
 ---
 
@@ -212,15 +234,6 @@ A change is only complete when all of the following are true:
 ## Testing Standards
 
 > See user-level `~/.claude/CLAUDE.md` for coverage targets, backend/frontend/Playwright standards. Project-specific requirements are below.
-
-### E2E run discipline
-
-> **Never re-run tests or fix failures mid-suite.** Run the full E2E suite exactly once. If any tests fail, record every failure and report back to the orchestrator. Do NOT:
-> - Re-run failing tests to check if they are "flaky"
-> - Fix code and re-run
-> - Decide independently that a failure is infrastructure noise
->
-> The orchestrator decides whether to retry or fix based on the full failure report.
 
 ### Scope review before writing tests
 

@@ -49,20 +49,18 @@ export default async function globalSetup(_config: FullConfig) {
 
   // ── Pre-warm the Lambda before any browser navigation ─────────────────────
   // All routes are rewritten to the Lambda (vercel.json), so every page load
-  // goes through it. A fresh deployment cold start runs alembic migrations and
-  // can take 60-120s — too long for Playwright's default navigation timeout.
-  // Use a direct HTTP fetch loop to warm up the Lambda before opening a browser
-  // page; this avoids browser navigation timeouts on the first page load.
+  // goes through it. Migrations now run during the Vercel build step, so cold
+  // starts are fast — but a brief warmup still avoids timeout on the very first
+  // browser navigation while the Lambda instance initialises.
   if (BYPASS_TOKEN) {
     // Pre-warm the Lambda using native fetch (Node 18+). All routes pass
-    // through the Lambda so we must wait for it to finish its cold-start
-    // alembic migration before opening a browser page.
+    // through the Lambda so we wait for it to be ready before opening a browser page.
     const warmupEndpoint = `${baseURL}/api/admin/buildings`;
     let warmedUp = false;
-    for (let attempt = 0; attempt < 20; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
         const res = await fetch(warmupEndpoint, {
           headers: { "x-vercel-protection-bypass": BYPASS_TOKEN },
           signal: controller.signal,
@@ -77,9 +75,9 @@ export default async function globalSetup(_config: FullConfig) {
       } catch {
         // network error or abort — retry
       }
-      await new Promise((r) => setTimeout(r, 6000));
+      await new Promise((r) => setTimeout(r, 3000));
     }
-    if (!warmedUp) console.warn("Lambda warmup did not confirm ready after 20 attempts — proceeding anyway");
+    if (!warmedUp) console.warn("Lambda warmup did not confirm ready after 5 attempts — proceeding anyway");
   }
 
   const browser = await chromium.launch();
@@ -87,9 +85,9 @@ export default async function globalSetup(_config: FullConfig) {
     baseURL,
     ignoreHTTPSErrors: true,
   });
-  // 180s navigation timeout: Lambda cold starts (migration on first request)
-  // can take up to 120s for fresh Vercel deployments.
-  context.setDefaultNavigationTimeout(180000);
+  // 60s navigation timeout: Lambda cold starts are migration-free; only app
+  // startup is needed now that migrations run in the Vercel build step.
+  context.setDefaultNavigationTimeout(60000);
   const page = await context.newPage();
 
   // Bypass Vercel Deployment Protection when running against a deployed URL.
@@ -138,8 +136,8 @@ export default async function globalSetup(_config: FullConfig) {
     baseURL,
     ignoreHTTPSErrors: true,
     storageState: path.join(authDir, "admin.json"),
-    // 90s timeout to survive Lambda cold starts (default is 30s)
-    timeout: 90000,
+    // 30s timeout — Lambda cold starts are migration-free (migrations run at build time)
+    timeout: 30000,
   });
 
   // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200
@@ -147,7 +145,7 @@ export default async function globalSetup(_config: FullConfig) {
   // Lambda instances concurrently — a warmup against one endpoint does not
   // guarantee other endpoints on other instances are ready. We therefore retry
   // each seeding step individually using a shared helper.
-  const retryGet = async (url: string, maxAttempts = 12): Promise<Awaited<ReturnType<typeof api.get>>> => {
+  const retryGet = async (url: string, maxAttempts = 5): Promise<Awaited<ReturnType<typeof api.get>>> => {
     let lastErr: unknown;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -158,7 +156,7 @@ export default async function globalSetup(_config: FullConfig) {
       } catch (err) {
         lastErr = err;
       }
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 3000));
     }
     throw new Error(`${url} did not return 200 after ${maxAttempts} attempts. Last error: ${lastErr}`);
   };

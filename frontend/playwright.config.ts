@@ -16,9 +16,9 @@ export default defineConfig({
   // Increase default expect/action timeout for deployed Lambda targets: API
   // calls can take up to 10s on cold start; the Playwright default of 5s is
   // too short and causes flaky failures on the first assertion after page load.
-  timeout: isDeployed ? 120000 : 30000,
+  timeout: isDeployed ? 60000 : 30000,
   expect: {
-    timeout: isDeployed ? 15000 : 5000,
+    timeout: isDeployed ? 10000 : 5000,
   },
   use: {
     baseURL: BASE_URL,
