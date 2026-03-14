@@ -163,9 +163,9 @@ describe("CreateGeneralMeetingForm", () => {
     expect(link).toHaveAttribute("href", "/agm_motions_template.xlsx");
   });
 
-  it("renders the Upload motions (Excel) input in the form", () => {
+  it("renders the Upload motions (CSV or Excel) input in the form", () => {
     renderComponent();
-    expect(screen.getByLabelText("Upload motions (Excel)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Upload motions (CSV or Excel)")).toBeInTheDocument();
   });
 
   it("pre-populates motions after successful Excel parse", async () => {
@@ -181,7 +181,7 @@ describe("CreateGeneralMeetingForm", () => {
     const file = new File([""], "motions.xlsx", {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
-    await user.upload(screen.getByLabelText("Upload motions (Excel)"), file);
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("Imported Motion 1")).toBeInTheDocument();

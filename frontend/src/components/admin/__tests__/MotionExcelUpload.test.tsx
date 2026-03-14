@@ -28,9 +28,9 @@ describe("MotionExcelUpload", () => {
 
   it("renders file input with correct label and accept attribute", () => {
     renderComponent();
-    const input = screen.getByLabelText("Upload motions (Excel)");
+    const input = screen.getByLabelText("Upload motions (CSV or Excel)");
     expect(input).toBeInTheDocument();
-    expect(input).toHaveAttribute("accept", ".xlsx,.xls");
+    expect(input).toHaveAttribute("accept", ".csv,text/csv,.xlsx,.xls");
   });
 
   it("shows loading state while parsing", async () => {
@@ -45,7 +45,7 @@ describe("MotionExcelUpload", () => {
     renderComponent();
 
     const file = new File([""], "motions.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    await user.upload(screen.getByLabelText("Upload motions (Excel)"), file);
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
 
     expect(screen.getByText("Parsing...")).toBeInTheDocument();
 
@@ -68,7 +68,7 @@ describe("MotionExcelUpload", () => {
     renderComponent(onMotionsLoaded);
 
     const file = new File([""], "motions.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    await user.upload(screen.getByLabelText("Upload motions (Excel)"), file);
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
 
     await waitFor(() => {
       expect(onMotionsLoaded).toHaveBeenCalledWith(motions);
@@ -83,7 +83,7 @@ describe("MotionExcelUpload", () => {
     renderComponent();
 
     const file = new File([""], "bad.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    await user.upload(screen.getByLabelText("Upload motions (Excel)"), file);
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe("MotionExcelUpload", () => {
     renderComponent();
 
     const file = new File([""], "bad.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    await user.upload(screen.getByLabelText("Upload motions (Excel)"), file);
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -113,11 +113,35 @@ describe("MotionExcelUpload", () => {
     });
   });
 
+  it("renders button with 'Import motions from CSV or Excel' label", () => {
+    renderComponent();
+    expect(screen.getByRole("button", { name: "Import motions from CSV or Excel" })).toBeInTheDocument();
+  });
+
+  it("accepts a CSV file and calls onMotionsLoaded with parsed motions", async () => {
+    const motions = [
+      { title: "CSV Motion", description: "", motion_type: "general" as const },
+    ];
+    mockParse.mockResolvedValue({ motions });
+
+    const onMotionsLoaded = vi.fn();
+    const user = userEvent.setup();
+    renderComponent(onMotionsLoaded);
+
+    const csvFile = new File(["Motion,Description\n1,CSV Motion"], "motions.csv", { type: "text/csv" });
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), csvFile);
+
+    await waitFor(() => {
+      expect(onMotionsLoaded).toHaveBeenCalledWith(motions);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("does nothing when change event fires with no file selected", async () => {
     const onMotionsLoaded = vi.fn();
     renderComponent(onMotionsLoaded);
 
-    const input = screen.getByLabelText("Upload motions (Excel)");
+    const input = screen.getByLabelText("Upload motions (CSV or Excel)");
     // Fire change with an empty FileList (no file)
     fireEvent.change(input, { target: { files: [] } });
 
@@ -135,7 +159,7 @@ describe("MotionExcelUpload", () => {
     const user = userEvent.setup();
     renderComponent(onMotionsLoaded);
 
-    const input = screen.getByLabelText("Upload motions (Excel)");
+    const input = screen.getByLabelText("Upload motions (CSV or Excel)");
 
     const badFile = new File([""], "bad.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     await user.upload(input, badFile);

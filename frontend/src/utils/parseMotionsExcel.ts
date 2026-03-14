@@ -13,6 +13,16 @@ function parseMotionType(raw: unknown): MotionType {
   return "general";
 }
 
+/**
+ * Parse motions from an uploaded file.
+ *
+ * Accepts CSV (.csv) and Excel (.xlsx / .xls) files. The xlsx library
+ * (SheetJS) auto-detects the file format from the buffer contents, so no
+ * special handling is required to support CSV — `XLSX.read` handles both.
+ *
+ * Required columns (case-insensitive): Motion, Description
+ * Optional column: Motion Type ("General" or "Special"; defaults to "general")
+ */
 export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });

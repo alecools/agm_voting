@@ -37,8 +37,8 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
         <input
           id="motion-excel-upload"
           type="file"
-          accept=".xlsx,.xls"
-          aria-label="Upload motions (Excel)"
+          accept=".csv,text/csv,.xlsx,.xls"
+          aria-label="Upload motions (CSV or Excel)"
           ref={fileRef}
           onChange={handleChange}
           disabled={parsing}
@@ -51,7 +51,7 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
           onClick={() => fileRef.current?.click()}
           disabled={parsing}
         >
-          {parsing ? "Parsing..." : "Import motions from Excel"}
+          {parsing ? "Parsing..." : "Import motions from CSV or Excel"}
         </button>
         {selectedFile && !parsing && (
           <span style={{ fontSize: "0.8125rem", color: "var(--text-muted)" }}>

@@ -6,13 +6,15 @@ vi.mock("xlsx");
 
 const mockedXLSX = vi.mocked(XLSX);
 
-function makeMockFile(): File {
-  const file = new File(["dummy"], "test.xlsx", {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+function makeMockFile(name = "test.xlsx", type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"): File {
+  const file = new File(["dummy"], name, { type });
   // jsdom does not implement arrayBuffer on File; provide a stub
   file.arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0));
   return file;
+}
+
+function makeMockCsvFile(): File {
+  return makeMockFile("test.csv", "text/csv");
 }
 
 function setupMockSheetData(rows: unknown[][]) {
@@ -369,6 +371,37 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       errors: ["Duplicate Motion number: 1", "Duplicate Motion number: 2"],
+    });
+  });
+
+  // --- CSV file support ---
+
+  it("parses a CSV file using the same XLSX.read call (type: 'array')", async () => {
+    setupMockSheetData([
+      ["Motion", "Description"],
+      [1, "CSV motion text"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockCsvFile());
+    expect(result).toEqual({
+      motions: [{ title: "CSV motion text", description: "", motion_type: "general" }],
+    });
+    // Verify XLSX.read was called with type: 'array' — the same call that handles both CSV and Excel
+    expect(mockedXLSX.read).toHaveBeenCalledWith(expect.any(ArrayBuffer), { type: "array" });
+  });
+
+  it("returns errors for an invalid CSV file just like an invalid Excel file", async () => {
+    setupMockSheetData([
+      ["OtherColumn"],
+      [1, "text"],
+    ]);
+
+    const result = await parseMotionsExcel(makeMockCsvFile());
+    expect(result).toEqual({
+      errors: [
+        "Missing required column: Motion",
+        "Missing required column: Description",
+      ],
     });
   });
 });

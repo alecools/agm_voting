@@ -1,10 +1,10 @@
-# PRD: Excel Motion Import and Public AGM Summary Page
+# PRD: CSV/Excel Motion Import and Public AGM Summary Page
 
 ## Introduction
 
 Meeting hosts currently enter AGM motions manually one by one during AGM creation. This feature adds two capabilities:
 
-1. **Excel motion import:** At AGM creation time, the host can upload an Excel file to pre-fill the motion list. The host can review and edit the pre-filled motions before saving the AGM.
+1. **CSV/Excel motion import:** At AGM creation time, the host can upload a CSV or Excel file to pre-fill the motion list. The host can review and edit the pre-filled motions before saving the AGM.
 2. **Public AGM summary page:** Each AGM has a dedicated, publicly accessible page showing the meeting title, date, and list of motions. This page is printable and shareable — no login required, no voting functionality.
 
 ---
@@ -12,7 +12,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 ## Goals
 
 - Reduce data-entry effort for hosts creating AGMs with many motions
-- Provide a standard Excel template so hosts know the expected format
+- Provide a standard CSV/Excel template so hosts know the expected format
 - Show all import errors upfront so the host can fix the file before retrying
 - Give lot owners (and the general public) a clean, printable page summarising what will be voted on
 
@@ -20,7 +20,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 ## User Stories
 
-### US-013: Download Excel template for motion import
+### US-013: Download CSV/Excel template for motion import
 **Description:** As a meeting host, I want to download a pre-formatted Excel template so I know exactly how to structure my motions file before uploading.
 
 **Acceptance Criteria:**
@@ -30,12 +30,12 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] The file contains one example data row to illustrate the expected format
 - [ ] Typecheck/lint passes
 
-### US-014: Upload Excel file to pre-fill motions on AGM creation form
-**Description:** As a meeting host, I want to upload an Excel file during AGM creation so that the motions list is pre-filled without manual entry.
+### US-014: Upload CSV or Excel file to pre-fill motions on AGM creation form
+**Description:** As a meeting host, I want to upload a CSV or Excel file during AGM creation so that the motions list is pre-filled without manual entry.
 
 **Acceptance Criteria:**
-- [ ] The AGM creation form includes a file input labelled "Upload motions (Excel)"
-- [ ] The file input accepts `.xlsx` and `.xls` files only
+- [ ] The AGM creation form includes a file input labelled "Upload motions (CSV or Excel)"
+- [ ] The file input accepts `.csv`, `.xlsx`, and `.xls` files
 - [ ] After a valid file is selected, the motions list on the form is populated with rows parsed from the file
 - [ ] Each row in the file becomes one motion entry: `order_number` maps to the motion's order field; `motion_description` maps to the motion's title/description field
 - [ ] Motions are displayed in ascending `order_number` order
@@ -100,9 +100,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 ## Functional Requirements
 
-- **FR-16:** The AGM creation form must include a file input that accepts `.xlsx` and `.xls` files only.
-- **FR-17:** When a valid Excel file is uploaded, the frontend parses it client-side (no server round-trip for parsing) and pre-fills the motion rows on the form.
-- **FR-18:** The Excel file must contain at minimum two columns: `order_number` (integer) and `motion_description` (non-empty string). Column names are case-insensitive.
+- **FR-16:** The AGM creation form must include a file input that accepts `.csv`, `.xlsx`, and `.xls` files.
+- **FR-17:** When a valid CSV or Excel file is uploaded, the frontend parses it client-side (no server round-trip for parsing) and pre-fills the motion rows on the form.
+- **FR-18:** The CSV or Excel file must contain at minimum two columns: `order_number` (integer) and `motion_description` (non-empty string). Column names are case-insensitive.
 - **FR-19:** If any validation error is found in the uploaded file, display all errors in a summary at the top of the upload section. Do not partially pre-fill the form.
 - **FR-20:** Completely blank rows in the Excel file are silently skipped during parsing.
 - **FR-21:** After pre-filling, the host retains full ability to edit, add, or remove motions before saving the AGM.
@@ -118,7 +118,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 - No server-side Excel parsing — parsing is performed entirely in the browser
 - No Excel export of existing motions from the database
-- No support for file formats other than `.xlsx` and `.xls`
+- No support for file formats other than `.csv`, `.xlsx`, and `.xls`
 - No voting or vote submission on the public summary page
 - No authentication or access control on the public summary page
 - No editing of motions after the AGM has been saved (AGM immutability rule, FR-11, still applies)
@@ -139,7 +139,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 
 ## Technical Considerations
 
-- Use the `xlsx` (SheetJS) npm package for client-side Excel parsing — it is MIT-licensed and handles both `.xlsx` and `.xls`
+- Use the `xlsx` (SheetJS) npm package for client-side CSV and Excel parsing — it is MIT-licensed and handles `.csv`, `.xlsx`, and `.xls` via auto-format detection
 - The downloadable template is a static file served from the frontend's `public/` directory, generated once with SheetJS during build or committed as a binary
 - `GET /api/agm/:agmId/summary` is added to `backend/app/routers/public.py` alongside the existing public endpoints
 - The endpoint performs a JOIN between `AGM`, `Building`, and `Motion` tables to return all required fields in one query
