@@ -30,9 +30,9 @@ export default function AdminLoginPage() {
     <div className="admin-login-page">
       <div className="admin-login-card">
         <div className="admin-login-card__header">
-          <img src="/logo.png" alt="AGM Vote" className="admin-login-card__logo" />
+          <img src="/logo.png" alt="General Meeting Vote" className="admin-login-card__logo" />
           <h1 className="admin-login-card__title">Admin Portal</h1>
-          <p className="admin-login-card__subtitle">Sign in to manage buildings and AGMs</p>
+          <p className="admin-login-card__subtitle">Sign in to manage buildings and General Meetings</p>
         </div>
 
         <form onSubmit={(e) => { void handleSubmit(e); }} className="admin-login-card__form">

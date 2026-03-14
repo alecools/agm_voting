@@ -122,7 +122,7 @@ export default function BuildingDetailPage() {
             </button>
           )}
           <button className="btn btn--secondary" onClick={handleAddNew}>Add Lot Owner</button>
-          <button className="btn btn--primary" onClick={() => navigate("/admin/general-meetings/new")}>Create AGM</button>
+          <button className="btn btn--primary" onClick={() => navigate("/admin/general-meetings/new")}>Create General Meeting</button>
         </div>
       </div>
 

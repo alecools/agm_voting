@@ -19,7 +19,7 @@ export default function AdminLayout() {
     <div className="admin-layout">
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
-          <img src="/logo.png" alt="AGM Vote" className="admin-sidebar__logo" />
+          <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <ul className="admin-nav">

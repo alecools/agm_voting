@@ -163,21 +163,21 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("shows Create AGM button", async () => {
+  it("shows Create General Meeting button", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Create General Meeting" })).toBeInTheDocument();
     });
   });
 
-  it("navigates to /admin/general-meetings/new when Create AGM clicked", async () => {
+  it("navigates to /admin/general-meetings/new when Create General Meeting clicked", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Create AGM" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Create General Meeting" })).toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: "Create AGM" }));
+    await user.click(screen.getByRole("button", { name: "Create General Meeting" }));
     expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings/new");
   });
 

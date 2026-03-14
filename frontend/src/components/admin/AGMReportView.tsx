@@ -43,7 +43,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = agmTitle ? `${agmTitle.replace(/[^a-z0-9]/gi, "_")}_results.csv` : "agm_results.csv";
+    a.download = agmTitle ? `${agmTitle.replace(/[^a-z0-9]/gi, "_")}_results.csv` : "general_meeting_results.csv";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
