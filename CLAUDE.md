@@ -44,7 +44,15 @@ Key decisions that must not be inadvertently reversed:
 
 ### Orchestrator role
 
-The orchestrator's only job is to **plan, coordinate, and communicate with the user**. It must not use tools directly (no bash, git, gh, file reads/edits). All tool use — code changes, test runs, git operations, PR merges, file edits — must be delegated to sub-agents.
+The orchestrator's only job is to **plan, coordinate, and communicate with the user**. It must never call tools directly — not even once, not even for a "quick fix".
+
+**Banned tools in the orchestrator session (no exceptions):**
+- `Bash` — no shell commands, git, gh, curl, or any CLI
+- `Edit`, `Write` — no file modifications
+- `Read`, `Glob`, `Grep` — no file reads or searches
+- Using `Agent` to *delegate work to a sub-agent* is fine; calling the above tools directly is not
+
+Every code change, file edit, test run, git operation, CI check, log read, and search must be delegated to a sub-agent. If the fix is "just one line", it still goes through an agent.
 
 - **User approval is required for any merge into `master` (production).** The orchestrator may merge PRs into `preview` autonomously once E2E passes.
 - **Agent duration tracking (required):** Record every sub-agent's task name and duration in `memory/agent-durations.md` using the `duration_ms` from the task completion notification.
@@ -177,6 +185,8 @@ Every branch with schema migrations MUST have its own Neon DB branch to avoid mi
 ---
 
 ### Post-merge cleanup
+
+**Spawn a dedicated cleanup agent** immediately after the merge agent completes. Never bundle cleanup into the same long-running push+E2E+merge agent — it consistently gets skipped. The cleanup agent is a separate, short-lived agent whose only job is the steps below.
 
 Run immediately after each PR merges (delegate to a sub-agent):
 
