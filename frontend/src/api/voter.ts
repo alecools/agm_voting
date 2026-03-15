@@ -94,6 +94,7 @@ export interface MyBallotResponse {
 
 export interface SubmitBallotRequest {
   lot_owner_ids: string[];
+  votes: Array<{ motion_id: string; choice: string }>;
 }
 
 export interface ServerTimeResponse {
@@ -130,10 +131,10 @@ export function saveDraft(meetingId: string, req: DraftSaveRequest): Promise<Dra
   });
 }
 
-export function submitBallot(meetingId: string, lotOwnerIds: string[]): Promise<SubmitResponse> {
+export function submitBallot(meetingId: string, request: SubmitBallotRequest): Promise<SubmitResponse> {
   return apiFetch<SubmitResponse>(`/api/general-meeting/${meetingId}/submit`, {
     method: "POST",
-    body: JSON.stringify({ lot_owner_ids: lotOwnerIds }),
+    body: JSON.stringify(request),
   });
 }
 

@@ -1050,24 +1050,17 @@ class TestSubmitBallot:
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
 
-        # Save drafts for both motions
-        for i, motion in enumerate(motions):
-            vote = Vote(
-                general_meeting_id=agm.id,
-                motion_id=motion.id,
-                voter_email=voter_email,
-                lot_owner_id=lo.id,
-                choice=VoteChoice.yes if i == 0 else VoteChoice.no,
-                status=VoteStatus.draft,
-            )
-            db_session.add(vote)
-        await db_session.flush()
-
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
         response = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
-            json={"lot_owner_ids": [str(lo.id)]},
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(motions[0].id), "choice": "yes"},
+                    {"motion_id": str(motions[1].id), "choice": "no"},
+                ],
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1085,23 +1078,15 @@ class TestSubmitBallot:
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
 
-        # Save draft only for first motion
-        vote = Vote(
-            general_meeting_id=agm.id,
-            motion_id=motions[0].id,
-            voter_email=voter_email,
-            lot_owner_id=lo.id,
-            choice=VoteChoice.yes,
-            status=VoteStatus.draft,
-        )
-        db_session.add(vote)
-        await db_session.flush()
-
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
+        # Only supply a vote for the first motion — second is unanswered → abstained
         response = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
-            json={"lot_owner_ids": [str(lo.id)]},
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1131,47 +1116,37 @@ class TestSubmitBallot:
         data = response.json()
         assert all(v["choice"] == "abstained" for v in data["lots"][0]["votes"])
 
-    async def test_submit_with_null_choice_draft_gets_abstained(
+    async def test_submit_with_no_inline_choice_gets_abstained(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """A draft with null choice should be treated as abstained on submit."""
+        """A motion not included in the inline votes list should be recorded as abstained."""
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
 
-        # Save draft with null choice
-        vote = Vote(
-            general_meeting_id=agm.id,
-            motion_id=motions[0].id,
-            voter_email=voter_email,
-            lot_owner_id=lo.id,
-            choice=None,
-            status=VoteStatus.draft,
-        )
-        db_session.add(vote)
-        await db_session.flush()
-
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
+        # Submit with no votes for any motion — both should be abstained
         response = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
-            json={"lot_owner_ids": [str(lo.id)]},
+            json={"lot_owner_ids": [str(lo.id)], "votes": []},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         votes = response.json()["lots"][0]["votes"]
         choices = {v["motion_id"]: v["choice"] for v in votes}
         assert choices[str(motions[0].id)] == "abstained"
+        assert choices[str(motions[1].id)] == "abstained"
 
-    async def test_submit_uses_draft_without_lot_owner_id(
+    async def test_submit_inline_votes_yes_no_not_abstained(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         """
-        Regression: drafts saved by the frontend omit lot_owner_id (NULL).
-        submit_ballot must still find and use those drafts instead of recording
-        all votes as abstained.
+        Regression: after draft auto-save was removed, all submitted votes were
+        recorded as abstained because choices were read from (non-existent) draft rows.
+        Inline votes in the submit request must be persisted correctly — not abstained.
         """
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
@@ -1179,40 +1154,34 @@ class TestSubmitBallot:
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
 
-        # Save drafts WITHOUT lot_owner_id — this is what the frontend actually sends
-        for i, motion in enumerate(motions):
-            vote = Vote(
-                general_meeting_id=agm.id,
-                motion_id=motion.id,
-                voter_email=voter_email,
-                lot_owner_id=None,  # frontend never sends lot_owner_id
-                choice=VoteChoice.yes if i == 0 else VoteChoice.no,
-                status=VoteStatus.draft,
-            )
-            db_session.add(vote)
-        await db_session.flush()
-
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
+        # Voter selects Yes for motion 1 and No for motion 2 — inline in the request
         response = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
-            json={"lot_owner_ids": [str(lo.id)]},
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(motions[0].id), "choice": "yes"},
+                    {"motion_id": str(motions[1].id), "choice": "no"},
+                ],
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         data = response.json()
         votes = data["lots"][0]["votes"]
         choices = {v["motion_id"]: v["choice"] for v in votes}
+        # Must NOT be abstained — choices must match what was sent
         assert choices[str(motions[0].id)] == "yes"
         assert choices[str(motions[1].id)] == "no"
 
-    async def test_submit_multi_lot_with_shared_null_lot_owner_id_drafts(
+    async def test_submit_multi_lot_with_inline_votes(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         """
-        Multi-lot voter: a single NULL-lot_owner_id draft should apply to every lot
-        being submitted.  Both lots must receive the voter's actual choice, not
-        abstained.
+        Multi-lot voter: inline votes in the submit request are applied to every lot
+        being submitted.  Both lots must receive the voter's actual choice, not abstained.
         """
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
@@ -1234,24 +1203,17 @@ class TestSubmitBallot:
         db_session.add(agm_weight2)
         await db_session.flush()
 
-        # Save shared drafts (NULL lot_owner_id) — one per motion
-        for motion in motions:
-            vote = Vote(
-                general_meeting_id=agm.id,
-                motion_id=motion.id,
-                voter_email=voter_email,
-                lot_owner_id=None,
-                choice=VoteChoice.yes,
-                status=VoteStatus.draft,
-            )
-            db_session.add(vote)
-        await db_session.flush()
-
         token = await create_session(db_session, voter_email, building.id, agm.id)
 
+        # Inline votes apply to all lots being submitted
         response = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
-            json={"lot_owner_ids": [str(lo.id), str(lo2.id)]},
+            json={
+                "lot_owner_ids": [str(lo.id), str(lo2.id)],
+                "votes": [
+                    {"motion_id": str(m.id), "choice": "yes"} for m in motions
+                ],
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200

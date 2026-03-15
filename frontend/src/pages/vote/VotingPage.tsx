@@ -121,7 +121,10 @@ export function VotingPage() {
       // when Submit is clicked). For single-lot voters: fall back to stored lots.
       const storedLots = sessionStorage.getItem(`meeting_lots_${meetingId}`);
       const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
-      return submitBallot(meetingId!, lotOwnerIds);
+      const votes = Object.entries(choices)
+        .filter(([, choice]) => choice !== null)
+        .map(([motion_id, choice]) => ({ motion_id, choice: choice as string }));
+      return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });

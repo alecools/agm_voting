@@ -18,6 +18,7 @@ from app.database import get_db
 from app.models.general_meeting import GeneralMeeting
 from app.models.motion import Motion
 from app.models.session_record import SessionRecord
+from app.models.vote import VoteChoice
 from app.schemas.voting import (
     DraftSaveRequest,
     DraftSaveResponse,
@@ -37,8 +38,14 @@ from app.services.voting_service import (
 router = APIRouter()
 
 
+class VoteInlineItem(BaseModel):
+    motion_id: uuid.UUID
+    choice: VoteChoice
+
+
 class SubmitBallotRequest(BaseModel):
     lot_owner_ids: list[uuid.UUID]
+    votes: list[VoteInlineItem] = []
 
 
 @router.get("/general-meeting/{general_meeting_id}/motions", response_model=list[MotionOut])
@@ -134,6 +141,7 @@ async def submit_ballot_endpoint(
         general_meeting_id=general_meeting_id,
         voter_email=session.voter_email,
         lot_owner_ids=body.lot_owner_ids,
+        inline_votes={item.motion_id: item.choice for item in body.votes},
     )
     await db.commit()
     return result

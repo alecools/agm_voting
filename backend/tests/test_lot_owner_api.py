@@ -1112,17 +1112,19 @@ class TestSubmitBallot:
     async def test_all_motions_answered_submitted(self, transport, db_session: AsyncSession):
         b, lo, agm, m1, m2, email = await self._setup(db_session, "SA1", "submit@all.com")
 
-        # Save draft votes
-        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
-        v2 = Vote(general_meeting_id=agm.id, motion_id=m2.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.no, status=VoteStatus.draft)
-        db_session.add_all([v1, v2])
         token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
-                json={"lot_owner_ids": [str(lo.id)]},
+                json={
+                    "lot_owner_ids": [str(lo.id)],
+                    "votes": [
+                        {"motion_id": str(m1.id), "choice": "yes"},
+                        {"motion_id": str(m2.id), "choice": "no"},
+                    ],
+                },
                 headers={"Authorization": f"Bearer {token}"},
             )
 
@@ -1139,16 +1141,17 @@ class TestSubmitBallot:
     async def test_partial_motions_unanswered_become_abstained(self, transport, db_session: AsyncSession):
         b, lo, agm, m1, m2, email = await self._setup(db_session, "SP1", "submit@partial.com")
 
-        # Only m1 has a draft
-        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email=email, lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.draft)
-        db_session.add(v1)
         token = await make_session(db_session, email, b.id, agm.id)
         await db_session.commit()
 
+        # Only m1 has an inline vote — m2 is unanswered and becomes abstained
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
-                json={"lot_owner_ids": [str(lo.id)]},
+                json={
+                    "lot_owner_ids": [str(lo.id)],
+                    "votes": [{"motion_id": str(m1.id), "choice": "yes"}],
+                },
                 headers={"Authorization": f"Bearer {token}"},
             )
 
@@ -1256,9 +1259,6 @@ class TestSubmitBallot:
         m = Motion(general_meeting_id=agm.id, title="NM", order_index=1)
         db_session.add(m)
         await db_session.flush()
-
-        v = Vote(general_meeting_id=agm.id, motion_id=m.id, voter_email="null@choice.com", lot_owner_id=lo_mine.id, choice=None, status=VoteStatus.draft)
-        db_session.add(v)
 
         token = await make_session(db_session, "null@choice.com", b.id, agm.id)
         await db_session.commit()
@@ -1546,10 +1546,15 @@ class TestFullJourney:
             assert drafts_resp.status_code == 200
             assert len(drafts_resp.json()["drafts"]) == 2
 
-            # 5. Submit ballot
+            # 5. Submit ballot — pass choices inline (draft API is only for persistence,
+            # choices must be included in the submit request)
+            motion_ids = [m["id"] for m in motions_resp.json()]
             submit_resp = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
-                json={"lot_owner_ids": [lot_owner_id]},
+                json={
+                    "lot_owner_ids": [lot_owner_id],
+                    "votes": [{"motion_id": mid, "choice": "yes"} for mid in motion_ids],
+                },
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert submit_resp.status_code == 200
@@ -1577,11 +1582,11 @@ class TestInArrearVoting:
 
     # --- Happy path ---
 
-    async def test_in_arrear_general_motion_draft_deleted_on_submit(
+    async def test_in_arrear_general_motion_not_eligible_on_submit(
         self, transport, db_session: AsyncSession
     ):
-        """In-arrear lot has a draft for a general motion; submit must delete the draft
-        and record not_eligible for the general motion (US-V08)."""
+        """In-arrear lot: submit with inline votes must record not_eligible for general
+        motions and use the inline choice for special motions (US-V08)."""
         b = make_building("In Arrear Submit Building")
         db_session.add(b)
         await db_session.flush()
@@ -1620,31 +1625,21 @@ class TestInArrearVoting:
         db_session.add(weight)
         await db_session.flush()
 
-        # Draft votes for BOTH motions (general draft should be deleted on submit)
-        v_gen_draft = Vote(
-            general_meeting_id=agm.id,
-            motion_id=m_general.id,
-            voter_email="inarrear@submit.com",
-            lot_owner_id=lo.id,
-            choice=VoteChoice.yes,
-            status=VoteStatus.draft,
-        )
-        v_spec_draft = Vote(
-            general_meeting_id=agm.id,
-            motion_id=m_special.id,
-            voter_email="inarrear@submit.com",
-            lot_owner_id=lo.id,
-            choice=VoteChoice.yes,
-            status=VoteStatus.draft,
-        )
-        db_session.add_all([v_gen_draft, v_spec_draft])
         token = await make_session(db_session, "inarrear@submit.com", b.id, agm.id)
         await db_session.commit()
 
+        # Voter provides inline choices for both motions — general motion choice is
+        # ignored (overridden by not_eligible), special motion choice is recorded.
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 f"/api/general-meeting/{agm.id}/submit",
-                json={"lot_owner_ids": [str(lo.id)]},
+                json={
+                    "lot_owner_ids": [str(lo.id)],
+                    "votes": [
+                        {"motion_id": str(m_general.id), "choice": "yes"},
+                        {"motion_id": str(m_special.id), "choice": "yes"},
+                    ],
+                },
                 headers={"Authorization": f"Bearer {token}"},
             )
 

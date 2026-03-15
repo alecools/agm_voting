@@ -703,6 +703,66 @@ describe("VotingPage", () => {
     submitSpy.mockRestore();
   });
 
+  // --- Regression: inline votes are passed in submit request ---
+
+  it("regression: submit request includes inline votes with actual choices (not abstained)", async () => {
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+
+    // Select Yes on motion 1, No on motion 2
+    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    const noButtons = screen.getAllByRole("button", { name: "Against" });
+    await user.click(yesButtons[0]); // motion 1 → yes
+    await user.click(noButtons[1]);  // motion 2 → no
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    const callArg = submitSpy.mock.calls[0][1];
+    const votesMap = Object.fromEntries(callArg.votes.map((v) => [v.motion_id, v.choice]));
+    expect(votesMap[MOTION_ID_1]).toBe("yes");
+    expect(votesMap[MOTION_ID_2]).toBe("no");
+
+    submitSpy.mockRestore();
+  });
+
+  it("regression: submit request with no choices sends empty votes array (results in abstained)", async () => {
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+
+    // Submit without selecting any choice
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    const callArg = submitSpy.mock.calls[0][1];
+    // No choices selected → empty votes array
+    expect(callArg.votes).toHaveLength(0);
+
+    submitSpy.mockRestore();
+  });
+
   // --- In-arrear warning banner ---
 
   it("arrear banner not shown when no lots are in arrear", async () => {
