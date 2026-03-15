@@ -1,3 +1,4 @@
-Motion,Title,Motion Type,Description
-1,Sample Motion Title,general,Full description text shown to voters
-2,Another Motion,special,Description for a special resolution
+Motion,Agenda Item,Motion Type,Description
+1,Appointment of AGM Chairperson,general,This motion appoints the chairperson to oversee the AGM proceedings.
+2,Confirmation of Previous AGM Minutes,general,This motion confirms the minutes of the previous Annual General Meeting.
+3,Special Resolution — Bylaw Amendment,special,This motion proposes an amendment to the building bylaws as detailed in the attached schedule.

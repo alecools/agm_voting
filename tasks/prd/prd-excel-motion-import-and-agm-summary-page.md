@@ -26,8 +26,8 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 **Acceptance Criteria:**
 - [ ] A "Download template" link is visible on the AGM creation form
 - [ ] Clicking the link downloads a file named `agm_motions_template.csv`
-- [ ] The downloaded file contains one header row with columns: `Motion`, `Title`, `Motion Type`, `Description`
-- [ ] The file contains two example data rows (one general, one special) to illustrate the expected format
+- [ ] The downloaded file contains one header row with columns: `Motion`, `Agenda Item`, `Motion Type`, `Description` (`Title` is also accepted as an alias for `Agenda Item` when parsing)
+- [ ] The file contains three example data rows (two general, one special) to illustrate the expected format
 - [ ] Typecheck/lint passes
 
 ### US-014: Upload CSV/Excel file to pre-fill motions on AGM creation form
