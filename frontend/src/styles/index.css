@@ -112,10 +112,16 @@ button, input, select, textarea {
 /* === VOTER CONTENT WRAPPER === */
 .voter-content {
   flex: 1;
-  max-width: 660px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 36px 20px 80px;
+  padding: 36px 24px 80px;
   width: 100%;
+}
+
+@media (max-width: 640px) {
+  .voter-content {
+    padding: 20px 16px 60px;
+  }
 }
 
 /* === CARD === */
@@ -1770,12 +1776,85 @@ button, input, select, textarea {
   flex: 1;
   min-width: 0;
 }
+
+/* === SIDEBAR TOGGLE (mobile collapsible) === */
+.voting-layout__sidebar-toggle {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .voting-layout {
     flex-direction: column;
   }
   .voting-layout__sidebar {
-    width: auto;
+    width: 100%;
+  }
+  .voting-layout__sidebar-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 10px 0;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    width: 100%;
+    text-align: left;
+    color: var(--text-primary);
+  }
+  .voting-layout__sidebar-toggle:hover {
+    color: var(--navy);
+  }
+  .voting-layout__sidebar-list--collapsed {
+    display: none;
+  }
+}
+
+@media (min-width: 641px) {
+  .voting-layout__sidebar-toggle {
+    display: none;
+  }
+  .voting-layout__sidebar-list--collapsed {
+    display: block !important;
+  }
+}
+
+/* === LOT SHORTCUT BUTTONS === */
+.lot-shortcut-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lot-shortcut-buttons .btn {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+}
+
+/* === RESPONSIVE: ADMIN TABLES === */
+.admin-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .admin-main {
+    padding: 16px;
+  }
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .field__input,
+  .field__select {
+    max-width: 100%;
+    box-sizing: border-box;
   }
 }
 

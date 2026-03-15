@@ -284,6 +284,31 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-030: Responsive voting layout and lot selection shortcuts
+
+**Description:** As a lot owner on any device, I want the voting page to make good use of screen space and allow quick lot selection so I can vote efficiently.
+
+**Acceptance Criteria:**
+
+- [ ] The voter content wrapper (`voter-content`) has a max-width of 1280px on desktop (up from 660px), giving more room for the two-column voting layout; a sensible padding (24px) is maintained on wide screens
+- [ ] On mobile (≤640px) the voter content wrapper uses 16px left/right padding
+- [ ] In the lot sidebar, four shortcut buttons appear above the lot list for multi-lot voters:
+  - **Select All** — always shown; selects all pending (not-yet-submitted) lots and clears the no-selection validation error
+  - **Deselect All** — always shown; unchecks all lots
+  - **Select Proxy Lots** — only shown when the voter has at least one proxy lot; selects only pending proxy lots and clears the no-selection error
+  - **Select Owned Lots** — only shown when the voter has at least one proxy lot; selects only pending directly-owned lots and clears the no-selection error
+- [ ] Shortcut buttons use `.btn.btn--secondary` style with `font-size: 0.75rem; padding: 3px 10px`
+- [ ] Shortcut buttons are arranged in a flex row with `flex-wrap: wrap` and `gap: 6px`
+- [ ] Submitted lots are excluded from all shortcut button selections (a submitted lot's checkbox remains disabled and its `already_submitted` state is preserved)
+- [ ] On mobile (≤640px) the lot sidebar is collapsible via a toggle button showing `"Your Lots (N selected) ▾/▴"` (or `"Your Lots — all submitted"` when all submitted); default state is **collapsed**
+- [ ] The toggle button has `aria-expanded` attribute reflecting current state
+- [ ] On desktop (≥641px) the sidebar list is always expanded and the toggle button is hidden
+- [ ] Admin pages (`admin-main`) use 16px padding on mobile; the `admin-page-header` stacks vertically on mobile
+- [ ] Admin tables are wrapped in a scrollable container (`overflow-x: auto`) so they do not cause horizontal scroll on narrow viewports
+- [ ] Typecheck/lint passes
+
+---
+
 ## Functional Requirements
 
 - FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form (POST /api/admin/buildings) or bulk-created/updated via CSV or Excel upload (US-012). Building names must be globally unique (case-insensitive).

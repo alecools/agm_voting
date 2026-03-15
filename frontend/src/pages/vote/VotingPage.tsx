@@ -33,6 +33,7 @@ export function VotingPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   // Current meeting metadata
   const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingOut | null>(null);
@@ -170,6 +171,30 @@ export function VotingPage() {
     setShowNoSelectionError(false);
   };
 
+  const handleSelectAll = () => {
+    const pendingIds = allLots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
+    setSelectedIds(new Set(pendingIds));
+    setShowNoSelectionError(false);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleSelectProxy = () => {
+    const proxyIds = allLots.filter((l) => l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    setSelectedIds(new Set(proxyIds));
+    setShowNoSelectionError(false);
+  };
+
+  const handleSelectOwned = () => {
+    const ownedIds = allLots.filter((l) => !l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    setSelectedIds(new Set(ownedIds));
+    setShowNoSelectionError(false);
+  };
+
+  const hasProxyLot = allLots.some((l) => l.is_proxy);
+
   const handleViewSubmission = () => {
     navigate(`/vote/${meetingId}/confirmation`);
   };
@@ -219,69 +244,125 @@ export function VotingPage() {
   // Sidebar is only rendered for multi-lot voters (single-lot voters see motions full-width)
   const showSidebar = isMultiLot && allLots.length > 0;
 
+  const selectedCount = allLots.filter((l) => selectedIds.has(l.lot_owner_id)).length;
+  const sidebarSummaryLabel = allSubmitted
+    ? "Your Lots — all submitted"
+    : `Your Lots (${selectedCount} selected)`;
+
   const sidebarContent = showSidebar ? (
     <div className="voting-layout__sidebar">
       <div className="lot-selection">
-        <h2 className="lot-selection__title">Your Lots</h2>
-        <p className="lot-selection__subtitle">
-          {allSubmitted
-            ? "All lots have been submitted."
-            : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
-        </p>
+        <button
+          type="button"
+          className="voting-layout__sidebar-toggle"
+          aria-expanded={isSidebarExpanded}
+          onClick={() => setIsSidebarExpanded((prev) => !prev)}
+        >
+          <span>{sidebarSummaryLabel}</span>
+          <span aria-hidden="true">{isSidebarExpanded ? "▴" : "▾"}</span>
+        </button>
 
-        <ul className="lot-selection__list" role="list">
-          {allLots.map((lot) => (
-            <li
-              key={lot.lot_owner_id}
-              className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
-              aria-disabled={lot.already_submitted ? "true" : undefined}
+        <div className={`voting-layout__sidebar-list${isSidebarExpanded ? "" : " voting-layout__sidebar-list--collapsed"}`}>
+          <h2 className="lot-selection__title">Your Lots</h2>
+          <p className="lot-selection__subtitle">
+            {allSubmitted
+              ? "All lots have been submitted."
+              : `You are voting for ${votingCount} lot${votingCount !== 1 ? "s" : ""}.`}
+          </p>
+
+          <div className="lot-shortcut-buttons">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={handleSelectAll}
+              aria-label="Select all lots"
             >
-              <input
-                type="checkbox"
-                id={`lot-checkbox-${lot.lot_owner_id}`}
-                className="lot-selection__checkbox"
-                checked={selectedIds.has(lot.lot_owner_id)}
-                disabled={lot.already_submitted}
-                onChange={() => handleToggle(lot.lot_owner_id)}
-                aria-label={`Select Lot ${lot.lot_number}`}
-              />
+              Select All
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={handleDeselectAll}
+              aria-label="Deselect all lots"
+            >
+              Deselect All
+            </button>
+            {hasProxyLot && (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={handleSelectProxy}
+                aria-label="Select proxy lots only"
+              >
+                Select Proxy Lots
+              </button>
+            )}
+            {hasProxyLot && (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={handleSelectOwned}
+                aria-label="Select owned lots only"
+              >
+                Select Owned Lots
+              </button>
+            )}
+          </div>
 
-              <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
+          <ul className="lot-selection__list" role="list">
+            {allLots.map((lot) => (
+              <li
+                key={lot.lot_owner_id}
+                className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
+                aria-disabled={lot.already_submitted ? "true" : undefined}
+              >
+                <input
+                  type="checkbox"
+                  id={`lot-checkbox-${lot.lot_owner_id}`}
+                  className="lot-selection__checkbox"
+                  checked={selectedIds.has(lot.lot_owner_id)}
+                  disabled={lot.already_submitted}
+                  onChange={() => handleToggle(lot.lot_owner_id)}
+                  aria-label={`Select Lot ${lot.lot_number}`}
+                />
 
-              {lot.is_proxy && (
-                <span className="lot-selection__badge lot-selection__badge--proxy">
-                  via Proxy
-                </span>
-              )}
+                <span className="lot-selection__lot-number">Lot {lot.lot_number}</span>
 
-              {lot.financial_position === "in_arrear" && (
-                <span className="lot-selection__badge lot-selection__badge--arrear">
-                  In Arrear
-                </span>
-              )}
+                {lot.is_proxy && (
+                  <span className="lot-selection__badge lot-selection__badge--proxy">
+                    via Proxy
+                  </span>
+                )}
 
-              {lot.already_submitted && (
-                <span className="lot-selection__badge lot-selection__badge--submitted">
-                  Already submitted
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+                {lot.financial_position === "in_arrear" && (
+                  <span className="lot-selection__badge lot-selection__badge--arrear">
+                    In Arrear
+                  </span>
+                )}
 
-        {showNoSelectionError && (
-          <p role="alert">Please select at least one lot</p>
-        )}
+                {lot.already_submitted && (
+                  <span className="lot-selection__badge lot-selection__badge--submitted">
+                    Already submitted
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
 
-        {allSubmitted && (
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={handleViewSubmission}
-          >
-            View Submission
-          </button>
-        )}
+          {showNoSelectionError && (
+            <p role="alert">Please select at least one lot</p>
+          )}
+
+          {allSubmitted && (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={handleViewSubmission}
+            >
+              View Submission
+            </button>
+          )}
+        </div>
       </div>
     </div>
   ) : null;

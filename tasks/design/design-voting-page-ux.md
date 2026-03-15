@@ -127,3 +127,78 @@ All six changes are frontend-only. The backend `POST /api/general-meeting/{id}/s
 - 403 on closed meeting
 
 The `PUT /api/general-meeting/{id}/draft` endpoint remains in the backend (not removed) in case it is used elsewhere, but the frontend no longer calls it.
+
+---
+
+## Phase 2: Responsive layout and lot selection shortcuts (US-030)
+
+### 7. Full-width desktop layout
+
+**Before:** `voter-content` had `max-width: 660px`, limiting the two-column voting layout on wide screens.
+
+**After:** `voter-content` has `max-width: 1280px` with `padding: 36px 24px 80px` on desktop and `padding: 20px 16px 60px` on mobile (≤640px).
+
+**Files changed:**
+- `src/styles/index.css` — updated `.voter-content` max-width and padding; added mobile media query
+
+### 8. Collapsible lot sidebar on mobile
+
+**Before:** On mobile the sidebar stacked above the motions, always fully expanded.
+
+**After:** On mobile (≤640px) the lot sidebar shows a toggle button with summary text `"Your Lots (N selected) ▾"`. Default state is collapsed. Clicking expands/collapses. On desktop the toggle is `display: none` and the list is always visible.
+
+Implementation:
+- `isSidebarExpanded` state (starts `false`)
+- Toggle button uses `aria-expanded` attribute
+- The list container gets class `voting-layout__sidebar-list--collapsed` when `!isSidebarExpanded`; CSS hides it on mobile via `.voting-layout__sidebar-list--collapsed { display: none; }` scoped inside the `@media (max-width: 640px)` block
+- The `@media (min-width: 641px)` block overrides: `display: block !important`
+
+**Files changed:**
+- `src/pages/vote/VotingPage.tsx` — added `isSidebarExpanded` state, toggle button JSX, `selectedCount` derived value, `sidebarSummaryLabel`
+- `src/styles/index.css` — added `.voting-layout__sidebar-toggle`, `.voting-layout__sidebar-list--collapsed` CSS
+
+### 9. Lot selection shortcut buttons
+
+**Before:** No shortcut buttons in the lot sidebar.
+
+**After:** Four compact secondary buttons above the lot list for multi-lot voters:
+- **Select All** — selects all pending lots, clears no-selection error
+- **Deselect All** — unchecks all lots
+- **Select Proxy Lots** — only rendered when `hasProxyLot`; selects only pending proxy lots, clears no-selection error
+- **Select Owned Lots** — only rendered when `hasProxyLot`; selects only pending non-proxy lots, clears no-selection error
+
+Already-submitted lots are always excluded from shortcut selections (their `disabled` checkbox state is preserved).
+
+`hasProxyLot = allLots.some((l) => l.is_proxy)` — controls whether proxy/owned buttons render.
+
+**Files changed:**
+- `src/pages/vote/VotingPage.tsx` — added `handleSelectAll`, `handleDeselectAll`, `handleSelectProxy`, `handleSelectOwned`, `hasProxyLot`; added shortcut button JSX inside sidebar
+- `src/styles/index.css` — added `.lot-shortcut-buttons` flex container and compact button sizing
+
+### 10. Basic responsive improvements for admin pages
+
+**After:** Mobile improvements to admin pages (no changes to functionality):
+- `.admin-main` uses `padding: 16px` on mobile
+- `.admin-page-header` stacks vertically (`flex-direction: column`) on mobile
+- `.admin-table-wrapper` class provides `overflow-x: auto` for table containers to prevent horizontal scroll
+
+**Files changed:**
+- `src/styles/index.css` — added `@media (max-width: 640px)` block for `.admin-main`, `.admin-page-header`, `.field__input`, `.field__select`; added `.admin-table-wrapper`
+
+### Testing additions (Phase 2)
+
+14 new unit tests added to `VotingPage.test.tsx`:
+- `Select All button selects all pending lots`
+- `Select All clears the no-selection error`
+- `Deselect All button unchecks all lots`
+- `Select Proxy Lots button only shown when there is a proxy lot and selects only proxy lots`
+- `Select Proxy Lots clears the no-selection error`
+- `Select Owned Lots button only shown when there is a proxy lot and selects only owned lots`
+- `Select Owned Lots clears the no-selection error`
+- `Select Proxy/Owned Lots buttons NOT shown when there are no proxy lots`
+- `Select Proxy Lots ignores already-submitted lots`
+- `Select Owned Lots ignores already-submitted lots`
+- `sidebar toggle button renders in multi-lot view`
+- `sidebar toggle expands and collapses the list`
+- `sidebar toggle summary shows selected count`
+- `sidebar toggle summary says 'all submitted' when all lots are submitted`
