@@ -205,7 +205,7 @@ test.describe("WF2: Meeting creation and motion management", () => {
 
   // Motions CSV for upload test
   const MOTIONS_CSV = [
-    "Motion,Title,Motion Type,Description",
+    "Motion,Agenda Item,Motion Type,Description",
     "1,Budget Approval,General,Do you approve the annual budget?",
     "2,Bylaw Amendment,Special,Do you approve the bylaw amendment?",
     "3,Maintenance Plan,General,Do you approve the maintenance plan?",
