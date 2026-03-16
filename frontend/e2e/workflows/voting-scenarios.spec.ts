@@ -439,8 +439,9 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     await authenticateVoter(page, LOT_B, VOTER_EMAIL);
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // WF5-A shows "Already submitted" and is disabled
-    const lotAItem = page.locator(".lot-selection__item").filter({ hasText: `Lot ${LOT_A}` });
+    // WF5-A shows "Already submitted" and is disabled (scoped to sidebar)
+    const sidebar = page.locator(".voting-layout__sidebar");
+    const lotAItem = sidebar.locator(".lot-selection__item").filter({ hasText: `Lot ${LOT_A}` });
     await expect(lotAItem.getByText("Already submitted")).toBeVisible({ timeout: 10000 });
     await expect(lotAItem).toHaveAttribute("aria-disabled", "true");
 
@@ -565,9 +566,8 @@ test.describe("WF6: Proxy voting with tally verification", () => {
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
-      // Lot sidebar: WF6-X with "via Proxy" badge
-      const lotItems = page.locator(".lot-selection__item");
-      const lotXItem = lotItems.filter({ hasText: `Lot ${LOT_X}` });
+      // Lot sidebar: WF6-X with "via Proxy" badge (scoped to sidebar to avoid mobile drawer duplicate)
+      const lotXItem = page.locator(".voting-layout__sidebar .lot-selection__item").filter({ hasText: `Lot ${LOT_X}` });
       await expect(lotXItem).toBeVisible();
       const proxyBadge = lotXItem.locator(".lot-selection__badge--proxy");
       await expect(proxyBadge).toBeVisible();
@@ -715,8 +715,8 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
     await expect(arrearBanner).toBeVisible({ timeout: 10000 });
     await expect(arrearBanner).toContainText(/in.?arrear/i);
 
-    // WF7-B shows "In Arrear" badge in lot panel
-    const lotBItem = page.locator(".lot-selection__item").filter({ hasText: `Lot ${LOT_B}` });
+    // WF7-B shows "In Arrear" badge in lot panel (scoped to sidebar to avoid mobile drawer duplicate)
+    const lotBItem = page.locator(".voting-layout__sidebar .lot-selection__item").filter({ hasText: `Lot ${LOT_B}` });
     await expect(lotBItem).toBeVisible();
 
     // Vote buttons are ENABLED for both motions (frontend does not block in-arrear lots)

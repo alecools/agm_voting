@@ -371,8 +371,8 @@ test.describe("Proxy voter journey", () => {
       if (page.url().includes("/voting") && !page.url().includes("/confirmation")) {
         // ── Lot panel assertions (top of VotingPage for proxy/multi-lot voters) ──
 
-        // Both lots must be listed
-        const lotItems = page.locator(".lot-selection__item");
+        // Both lots must be listed (scoped to sidebar to avoid mobile drawer duplicate)
+        const lotItems = page.locator(".voting-layout__sidebar .lot-selection__item");
         await expect(lotItems).toHaveCount(2);
 
         // MX-A: own lot — no proxy badge
