@@ -566,8 +566,9 @@ test.describe("WF6: Proxy voting with tally verification", () => {
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
-      // Lot sidebar: WF6-X with "via Proxy" badge (scoped to sidebar to avoid mobile drawer duplicate)
-      const lotXItem = page.locator(".voting-layout__sidebar .lot-selection__item").filter({ hasText: `Lot ${LOT_X}` });
+      // Lot sidebar: WF6-X with "via Proxy" badge
+      // Single-lot proxy renders in the inline section (not .voting-layout__sidebar), so no scoping needed
+      const lotXItem = page.locator(".lot-selection__item").filter({ hasText: `Lot ${LOT_X}` });
       await expect(lotXItem).toBeVisible();
       const proxyBadge = lotXItem.locator(".lot-selection__badge--proxy");
       await expect(proxyBadge).toBeVisible();
