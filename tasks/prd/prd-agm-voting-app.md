@@ -144,19 +144,105 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-003: Lot owner authentication
 
-**Description:** As a lot owner, I want to enter my lot number and email so the system can verify I am eligible to vote.
+**Description:** As a lot owner, I want to verify my identity via a one-time email code so the system can confirm I am eligible to vote without requiring a password or lot number.
+
+> **Supersedes the original lot-number + email flow.** Authentication is now a two-step OTP flow (see US-OTP-01 through US-OTP-05 below). The lot number field is removed from the auth form entirely.
 
 **Acceptance Criteria:**
 
-- [ ] Lot owner enters lot number and email address
-- [ ] System checks that the lot number + email combination exists in the database for the selected building
-- [ ] On match: system identifies all lots in that building registered to the same email; a session is created scoped to that email + building + AGM
+- [ ] Lot owner enters only their email address on the auth form (no lot number field)
+- [ ] Clicking "Send Verification Code" triggers `POST /api/auth/request-otp`; a 6-digit code is emailed to the address
+- [ ] The form transitions to a code-entry step showing "We sent a 6-digit code to {email}"
+- [ ] Lot owner enters the 6-digit code and clicks "Verify"; the frontend calls `POST /api/auth/verify` with `{email, code, general_meeting_id}`
+- [ ] On valid code: system identifies all lots in that building registered to the same email (direct or proxy); a session is created scoped to that email + building + AGM
 - [ ] If the lot owner has already submitted a ballot for this AGM, they are taken directly to the confirmation screen (US-009)
 - [ ] If the lot owner has not yet submitted, they are taken to the voting page with a fresh ballot (no server-side draft restoration)
-- [ ] On no match: a clear error message is shown ("Lot number and email address do not match our records")
+- [ ] On invalid or expired code: a clear inline error is shown ("Invalid or expired code. Please try again."); the code input is cleared
 - [ ] No account creation or password required
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-OTP-01: Email OTP request
+
+**Description:** As a lot owner, I want to enter my email and receive a one-time verification code so I can begin the authentication process without a password.
+
+**Acceptance Criteria:**
+
+- [ ] The auth form shows a single "Email address" field and a "Send Verification Code" button on the first step
+- [ ] Submitting with an empty email shows an inline validation error; the API is not called
+- [ ] `POST /api/auth/request-otp` accepts `{email, general_meeting_id}` and:
+  - [ ] Returns 200 `{"sent": true}` if the meeting exists, regardless of whether the email matches any lot owner (user-enumeration protection)
+  - [ ] Generates a cryptographically random 6-digit code (`secrets.randbelow(1_000_000)` zero-padded) and stores it in `auth_otps` with `expires_at = now() + 5 minutes`
+  - [ ] Sends an OTP email to the address with subject `"Your AGM Voting Code — {meeting_title}"` containing the code and a note that it expires in 5 minutes
+  - [ ] Deletes any previous OTP rows for the same `(email, meeting_id)` pair before inserting the new one (lazy cleanup)
+  - [ ] Returns 404 if `general_meeting_id` does not exist
+  - [ ] Returns 422 if the email field is empty or missing
+- [ ] The "Send Verification Code" button is disabled and shows "Sending…" while the request is in flight
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-02: OTP verification (success)
+
+**Description:** As a lot owner, I want to enter my verification code and be authenticated so I can proceed to vote.
+
+**Acceptance Criteria:**
+
+- [ ] After `request-otp` succeeds, the form shows a "Verification code" input (`type="text"`, `inputMode="numeric"`, `autoComplete="one-time-code"`, `maxLength=6`) and a "Verify" button
+- [ ] Submitting with an empty code shows an inline validation error; the API is not called
+- [ ] `POST /api/auth/verify` accepts `{email, code, general_meeting_id}` and:
+  - [ ] Looks up the most recent unused, unexpired `AuthOtp` row for `(email, meeting_id)`
+  - [ ] If the code matches: marks the OTP as `used = TRUE`, then proceeds with lot lookup, session creation, and returns the existing `AuthVerifyResponse` (unchanged shape)
+  - [ ] Sets a `meeting_session` cookie on success (unchanged behaviour)
+- [ ] The "Verify" button is disabled and shows "Verifying…" while the request is in flight
+- [ ] On success, the page navigates as per existing logic (voting page, confirmation page, or pending message)
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-03: OTP expiry (5-minute window)
+
+**Description:** As a lot owner, I want the system to reject codes older than 5 minutes so that stale codes cannot be used to authenticate.
+
+**Acceptance Criteria:**
+
+- [ ] OTP codes expire exactly 5 minutes after generation (`expires_at = created_at + 5 minutes`, stored in UTC)
+- [ ] `POST /api/auth/verify` called with an expired code returns 401 `{"detail": "Invalid or expired verification code"}`
+- [ ] The frontend shows the error message "Invalid or expired code. Please try again." and clears the code input
+- [ ] Expiry is checked server-side against the database `expires_at` column using `now()` (UTC); client clock is not trusted
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-04: Invalid OTP error handling
+
+**Description:** As a lot owner, I want clear feedback when I enter the wrong code so I know to try again or request a new one.
+
+**Acceptance Criteria:**
+
+- [ ] `POST /api/auth/verify` with a code that does not match the stored value returns 401 `{"detail": "Invalid or expired verification code"}` (same message as expiry — no oracle)
+- [ ] `POST /api/auth/verify` with a code that has already been used (`used = TRUE`) returns 401 with the same message
+- [ ] `POST /api/auth/verify` with no OTP row at all for the `(email, meeting_id)` pair returns 401 with the same message
+- [ ] The frontend shows the inline error and clears the code input field so the user cannot accidentally re-submit the same wrong code
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-05: Resend code
+
+**Description:** As a lot owner, I want to request a new code if I did not receive the first one or it has expired, so I am not locked out.
+
+**Acceptance Criteria:**
+
+- [ ] A "Resend code" button/link is shown below the code input on step 2 of the auth form
+- [ ] Clicking "Resend code" calls `POST /api/auth/request-otp` again with the same email and meeting ID
+- [ ] A new code is generated, the previous OTP row(s) for `(email, meeting_id)` are deleted, and a new email is sent
+- [ ] The backend enforces a 60-second minimum interval between OTP requests for the same `(email, meeting_id)` pair; requests within that window return 429 `{"detail": "Please wait before requesting another code"}`
+- [ ] The code input is cleared when a resend is triggered so the user starts fresh
+- [ ] The previously issued code is no longer valid after a resend (it was deleted)
+- [ ] Typecheck/lint passes
 
 ---
 
@@ -314,7 +400,7 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form (POST /api/admin/buildings) or bulk-created/updated via CSV or Excel upload (US-012). Building names must be globally unique (case-insensitive).
 - FR-2: An AGM belongs to one building, has a status (`open` | `closed`), a title, a meeting date/time (`meeting_at`), and a scheduled voting close date/time (`voting_closes_at`). `voting_closes_at` must be after `meeting_at`. Both fields are stored in UTC and are immutable after creation.
 - FR-3: A lot owner record contains: building ID, lot number (string), email address, and unit entitlement (non-negative integer). Lot number must be unique per building. Multiple lots may share the same email address within a building (multi-lot owners). Lot owner records cannot be deleted — only created or edited.
-- FR-4: Authentication is session-based — after verifying lot number + email, the system identifies all lot owner records in that building sharing the same email, and a server-side session is created scoped to that email + building + AGM. Session data is persisted in the database to support draft vote resumption across session restarts. No JWT or OAuth required for MVP.
+- FR-4: Authentication is a two-step email OTP flow. The voter submits their email to `POST /api/auth/request-otp`; the system generates a cryptographically random 6-digit code, stores it in `auth_otps` with a 5-minute expiry, and emails it to the voter. The voter then calls `POST /api/auth/verify` with the code; on success the system identifies all lot owner records in that building sharing the same email (direct ownership and proxy nominations), and a server-side session is created scoped to that email + building + AGM. Session data is persisted in the database to support vote resumption across session restarts. No JWT, OAuth, or lot number entry required for MVP. The OTP is single-use (`used` flag) and expires after 5 minutes. A 60-second rate limit applies to `request-otp` per `(email, meeting_id)` pair.
 - FR-5: A **ballot** represents one formal submission per voter (unique email) per AGM. A ballot contains one vote record per motion with values `yes`, `no`, or `abstained`. Ballots are immutable once submitted — no updates or deletions allowed under any circumstances. A second submission attempt for the same voter and AGM is rejected with a 409 error.
 - FR-5a: When a lot owner submits their ballot, any motion without an explicit selection is automatically recorded as `abstained`.
 - FR-5b: Vote tallies use four categories per motion: **Yes**, **No**, **Abstained** (submitted with no or explicit abstain selection), and **Absent** (voter never submitted; draft discarded on close). Tallies are the sum of snapshotted ballot weights in each category.

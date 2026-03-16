@@ -1,5 +1,11 @@
 import { test, expect } from "./fixtures";
-import { E2E_BUILDING_NAME, E2E_LOT_NUMBER, E2E_LOT_EMAIL } from "./global-setup";
+import { E2E_BUILDING_NAME, E2E_LOT_EMAIL } from "./global-setup";
+import { request as playwrightRequest } from "@playwright/test";
+import path from "path";
+import { fileURLToPath } from "url";
+import { getTestOtp } from "./workflows/helpers";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Voting-flow tests rely on data seeded by global-setup.ts:
 //   - Building "E2E Test Building"
@@ -8,6 +14,9 @@ import { E2E_BUILDING_NAME, E2E_LOT_NUMBER, E2E_LOT_EMAIL } from "./global-setup
 
 test.describe("Lot owner voting flow", () => {
   test("full lot owner journey: select building → auth → vote → confirmation", async ({ page }) => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+
     await page.goto("/");
 
     const select = page.getByLabel("Select your building");
@@ -18,12 +27,23 @@ test.describe("Lot owner voting flow", () => {
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-    // Auth page — form is immediately usable (no upfront API call)
-    await expect(page.getByLabel("Lot number")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
-    await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
+    // Auth page — email step
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
+
+    // Extract meeting ID from URL (/vote/<meeting_id>/auth)
+    const meetingIdMatch = page.url().match(/\/vote\/([^/]+)\//);
+    const meetingId = meetingIdMatch ? meetingIdMatch[1] : "";
+
+    // Step 1: enter email, request OTP
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+
+    // Step 2: retrieve OTP and verify
+    const code = await getTestOtp(api, E2E_LOT_EMAIL, meetingId);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await api.dispose();
 
     // Wait for auth to complete and navigate away from /auth.
     // Auth now routes directly to /voting (or /confirmation if already submitted).
@@ -56,6 +76,9 @@ test.describe("Lot owner voting flow", () => {
   });
 
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+
     await page.goto("/");
 
     const select = page.getByLabel("Select your building");
@@ -63,26 +86,37 @@ test.describe("Lot owner voting flow", () => {
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-    // Auth page — form is immediately usable
-    await expect(page.getByLabel("Lot number")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+    // Auth page — email step
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
+    // Extract meeting ID from URL (/vote/<meeting_id>/auth)
+    const meetingIdMatch = page.url().match(/\/vote\/([^/]+)\//);
+    const meetingId = meetingIdMatch ? meetingIdMatch[1] : "";
 
-    // Wrong credentials
-    await page.getByLabel("Lot number").fill("NONEXISTENT-9999");
+    // Wrong email — request-otp always returns 200 (enumeration protection);
+    // the error surfaces only after submitting an invalid OTP code.
     await page.getByLabel("Email address").fill("wrong@example.com");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+    await page.getByLabel("Verification code").fill("00000000");
+    await page.getByRole("button", { name: "Verify" }).click();
 
     await expect(
-      page.getByText("Lot number and email address do not match our records")
-    ).toBeVisible();
+      page.getByText(/invalid or expired code/i)
+    ).toBeVisible({ timeout: 10000 });
 
-    // Correct credentials
-    await page.getByLabel("Lot number").clear();
-    await page.getByLabel("Email address").clear();
-    await page.getByLabel("Lot number").fill(E2E_LOT_NUMBER);
+    // Correct credentials — resend OTP to the correct email via "Resend code"
+    // (re-clicking "Resend code" uses the same email; we need to go back to email step)
+    // Navigate back to the auth page to start fresh with correct email
+    await page.goto(page.url());
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+    const code = await getTestOtp(api, E2E_LOT_EMAIL, meetingId);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await api.dispose();
 
     // Correct credentials should advance past the auth page — to /voting
     // (or /confirmation if E2E-1 already submitted a ballot in an earlier test).

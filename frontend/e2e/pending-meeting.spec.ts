@@ -16,6 +16,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getTestOtp } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -188,18 +189,27 @@ test.describe("Pending AGM voter-facing behaviour", () => {
   }) => {
     test.setTimeout(120000);
 
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+
     // Navigate directly to the auth page for the pending AGM
     await page.goto(`/vote/${seededAgmId}/auth`);
 
-    // Wait for the form to load.
-    await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
+    // Wait for the email step to load.
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
-    // Submit valid credentials
-    await page.getByLabel("Lot number").fill(LOT_NUMBER);
+    // Step 1: enter valid email and request OTP
     await page.getByLabel("Email address").fill(LOT_EMAIL);
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
 
-    // Should be redirected back to the home page
+    // Step 2: retrieve OTP and verify
+    const code = await getTestOtp(api, LOT_EMAIL, seededAgmId);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await api.dispose();
+
+    // Should be redirected back to the home page (agm_status: "pending")
     await expect(page).toHaveURL("/", { timeout: 20000 });
 
     // An informational message about the meeting not having started must be shown

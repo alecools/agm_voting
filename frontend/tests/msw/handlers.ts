@@ -516,6 +516,10 @@ export const handlers = [
     HttpResponse.json([agmOpenFixture, agmClosedFixture])
   ),
 
+  http.post(`${BASE}/api/auth/request-otp`, () =>
+    HttpResponse.json({ sent: true })
+  ),
+
   http.post(`${BASE}/api/auth/verify`, () =>
     HttpResponse.json({
       lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],

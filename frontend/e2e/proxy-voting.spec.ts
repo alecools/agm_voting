@@ -21,6 +21,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getTestOtp } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -357,12 +358,19 @@ test.describe("Proxy voter journey", () => {
       ).toBeVisible({ timeout: 15000 });
       await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-      // Auth as mixed-voter (owns MX-A, also proxied for MX-C)
-      await expect(page.getByLabel("Lot number")).toBeVisible();
-      await page.getByLabel("Lot number").fill(MIXED_LOT_A_NUMBER);
-      await page.getByLabel("Email address").fill(MIXED_LOT_A_OWNER_EMAIL);
-      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
-      await page.getByRole("button", { name: "Continue" }).click();
+      // Auth as mixed-voter (owns MX-A, also proxied for MX-C) — OTP flow
+      {
+        const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+        const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+        await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
+        await page.getByLabel("Email address").fill(MIXED_LOT_A_OWNER_EMAIL);
+        await page.getByRole("button", { name: "Send Verification Code" }).click();
+        await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+        const code = await getTestOtp(api, MIXED_LOT_A_OWNER_EMAIL, mixedAgmId);
+        await page.getByLabel("Verification code").fill(code);
+        await page.getByRole("button", { name: "Verify" }).click();
+        await api.dispose();
+      }
 
       await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, {
         timeout: 20000,
@@ -452,12 +460,19 @@ test.describe("Proxy voter journey", () => {
       ).toBeVisible({ timeout: 15000 });
       await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
-      await expect(page.getByLabel("Lot number")).toBeVisible();
-      // Attempt to authenticate as proxy voter entering LOT-B (their proxied lot)
-      await page.getByLabel("Lot number").fill(LOT_B_NUMBER);
-      await page.getByLabel("Email address").fill(PROXY_VOTER_EMAIL);
-      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
-      await page.getByRole("button", { name: "Continue" }).click();
+      // Authenticate as proxy voter — OTP flow
+      {
+        const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+        const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+        await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
+        await page.getByLabel("Email address").fill(PROXY_VOTER_EMAIL);
+        await page.getByRole("button", { name: "Send Verification Code" }).click();
+        await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+        const code = await getTestOtp(api, PROXY_VOTER_EMAIL, proxyAgmId);
+        await page.getByLabel("Verification code").fill(code);
+        await page.getByRole("button", { name: "Verify" }).click();
+        await api.dispose();
+      }
 
       // Should be redirected to voting page (lot panel shown for proxy voters) or confirmation
       await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, {

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     session_secret: str = "change_me_to_a_random_secret"
     admin_username: str = "admin"
     admin_password: str = "admin"
+    testing_mode: bool = False
+    email_override: str = ""
 
 
 settings = Settings()

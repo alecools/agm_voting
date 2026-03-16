@@ -22,6 +22,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getTestOtp } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -175,14 +176,17 @@ test.describe("Multi-lot voter journey", () => {
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
   }
 
-  // ── Helper: authenticate with the shared email ──────────────────────────────
+  // ── Helper: authenticate with the shared email via OTP flow ─────────────────
   async function authenticate(page: import("@playwright/test").Page) {
-    // The auth form still shows a "Lot number" field for frontend validation
-    // even though the backend is now email-only.  Fill it with a placeholder.
-    await page.getByLabel("Lot number").fill(LOT_NUMBER_1);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
     await page.getByLabel("Email address").fill(LOT_EMAIL);
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+    const code = await getTestOtp(api, LOT_EMAIL, meetingId);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await api.dispose();
   }
 
   // ────────────────────────────────────────────────────────────────────────────

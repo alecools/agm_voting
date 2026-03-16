@@ -27,6 +27,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AuthOtp,
     GeneralMeeting,
     GeneralMeetingLotWeight,
     GeneralMeetingStatus,
@@ -88,6 +89,20 @@ async def add_email(db: AsyncSession, lo: LotOwner, email: str) -> LotOwnerEmail
 
 def make_motion(agm: GeneralMeeting, title: str = "Motion 1", order_index: int = 1) -> Motion:
     return Motion(general_meeting_id=agm.id, title=title, order_index=order_index)
+
+
+async def make_otp(db: AsyncSession, email: str, meeting_id: uuid.UUID) -> str:
+    """Insert a valid AuthOtp row and return the code."""
+    code = "TESTCODE"
+    otp = AuthOtp(
+        email=email,
+        meeting_id=meeting_id,
+        code=code,
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    db.add(otp)
+    await db.flush()
+    return code
 
 
 async def make_session(
@@ -305,12 +320,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "voter@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "voter@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "voter@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 200
@@ -330,12 +348,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "cookie@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "cookie@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "cookie@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert "meeting_session" in response.cookies
@@ -355,12 +376,14 @@ class TestAuthVerify:
         # Pre-existing ballot submission
         sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="submitted@auth.com")
         db_session.add(sub)
+        code = await make_otp(db_session, "submitted@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "submitted@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 200
@@ -378,12 +401,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "lotinfo@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "lotinfo@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "lotinfo@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         lot = response.json()["lots"][0]
@@ -404,12 +430,16 @@ class TestAuthVerify:
         await add_email(db_session, lo, "correct@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        # Insert OTP for wrong email — will pass OTP check but fail lot lookup
+        code = await make_otp(db_session, "wrong@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "wrong@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 401
@@ -426,6 +456,7 @@ class TestAuthVerify:
             response = await client.post("/api/auth/verify", json={
                 "email": "  ",
                 "general_meeting_id": str(agm.id),
+                "code": "TESTCODE",
             })
 
         assert response.status_code == 422
@@ -435,6 +466,7 @@ class TestAuthVerify:
             response = await client.post("/api/auth/verify", json={
                 "email": "x@y.com",
                 "general_meeting_id": "not-a-uuid",
+                "code": "TESTCODE",
             })
         assert response.status_code == 422
 
@@ -461,12 +493,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "e5@auth.com")
         agm_b2 = make_agm(b2)  # GeneralMeeting belongs to b2
         db_session.add(agm_b2)
+        await db_session.flush()
+        code = await make_otp(db_session, "e5@auth.com", agm_b2.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "e5@auth.com",
                 "general_meeting_id": str(agm_b2.id),   # GeneralMeeting is in b2
+                "code": code,
             })
 
         # Email exists only in b1; meeting is in b2 → email not found in b2 → 401
@@ -484,12 +519,15 @@ class TestAuthVerify:
         agm = make_agm(b, status=GeneralMeetingStatus.closed)
         agm.closed_at = utcnow()
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "f6@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "f6@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 200
@@ -517,12 +555,15 @@ class TestAuthVerify:
             voting_closes_at=now + timedelta(days=2),
         )
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "f7@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "f7@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 200
@@ -541,12 +582,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "g7@auth.com")
         agm = make_agm(b2)  # GeneralMeeting in b2
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "g7@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "g7@auth.com",
                 "general_meeting_id": str(agm.id),  # GeneralMeeting is in b2; email only in b1
+                "code": code,
             })
 
         assert response.status_code == 401
@@ -567,12 +611,15 @@ class TestAuthVerify:
         await add_email(db_session, lo2, "multi@auth.com")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "multi@auth.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             r = await client.post("/api/auth/verify", json={
                 "email": "multi@auth.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
         assert r.status_code == 200
         data = r.json()
@@ -591,12 +638,15 @@ class TestAuthVerify:
         await add_email(db_session, lo, "user+tag@domain.co")
         agm = make_agm(b)
         db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "user+tag@domain.co", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/auth/verify", json={
                 "email": "user+tag@domain.co",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             })
 
         assert response.status_code == 200
@@ -1506,6 +1556,8 @@ class TestFullJourney:
         m1 = Motion(general_meeting_id=agm.id, title="Motion Alpha", order_index=1)
         m2 = Motion(general_meeting_id=agm.id, title="Motion Beta", order_index=2)
         db_session.add_all([m1, m2])
+        await db_session.flush()
+        otp_code = await make_otp(db_session, "journey@full.com", agm.id)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -1513,6 +1565,7 @@ class TestFullJourney:
             auth_resp = await client.post("/api/auth/verify", json={
                 "email": "journey@full.com",
                 "general_meeting_id": str(agm.id),
+                "code": otp_code,
             })
             assert auth_resp.status_code == 200
             auth_data = auth_resp.json()

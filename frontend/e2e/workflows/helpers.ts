@@ -4,11 +4,6 @@
  * These helpers handle the repetitive API seeding and assertion patterns used
  * across all workflow specs. They are plain async functions (not Playwright
  * fixtures) so they can be called from `beforeAll` blocks.
- *
- * NOTE: The auth form currently shows a "Lot number" field for frontend
- * validation even though the backend is now email-only. All workflow tests fill
- * it with a valid lot number for the email being used. If the auth form is later
- * changed to email-only, all callers of `authenticateVoter` will need updating.
  */
 
 import { expect } from "@playwright/test";
@@ -372,6 +367,25 @@ export async function makeAdminApi(
 // ── Voter UI helpers ──────────────────────────────────────────────────────────
 
 /**
+ * Retrieve the most recent unused OTP for (email, meetingId) from the test-only
+ * backend endpoint. Requires the backend to be running with TESTING_MODE=true.
+ */
+export async function getTestOtp(
+  api: APIRequestContext,
+  email: string,
+  meetingId: string
+): Promise<string> {
+  const res = await api.get(
+    `/api/test/latest-otp?email=${encodeURIComponent(email)}&meeting_id=${meetingId}`
+  );
+  if (!res.ok()) {
+    throw new Error(`Failed to get test OTP for ${email} (${res.status()}): ${await res.text()}`);
+  }
+  const data = (await res.json()) as { code: string };
+  return data.code;
+}
+
+/**
  * Navigate to the home page, select a building, and click "Enter Voting"
  * to reach the auth form for that building.
  */
@@ -388,22 +402,25 @@ export async function goToAuthPage(page: Page, buildingName: string): Promise<vo
 }
 
 /**
- * Fill and submit the auth form with the given lot number and email.
+ * Fill and submit the auth form via the two-step OTP flow.
  *
- * NOTE: The auth form still shows a "Lot number" field even though the backend
- * is now email-only. This function fills it with `lotNumber` for frontend
- * validation. If the auth form is later changed to email-only, remove the
- * lot number fill.
+ * Step 1: fill email, click "Send Verification Code".
+ * Step 2: retrieve OTP via `getOtp` callback, fill code field, click "Verify".
+ *
+ * The `getOtp` callback is typically `() => getTestOtp(api, email, meetingId)`.
+ * The test-only endpoint is guarded by TESTING_MODE=true on the backend.
  */
 export async function authenticateVoter(
   page: Page,
-  lotNumber: string,
-  email: string
+  email: string,
+  getOtp: () => Promise<string>
 ): Promise<void> {
-  await page.getByLabel("Lot number").fill(lotNumber);
   await page.getByLabel("Email address").fill(email);
-  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Send Verification Code" }).click();
+  await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+  const code = await getOtp();
+  await page.getByLabel("Verification code").fill(code);
+  await page.getByRole("button", { name: "Verify" }).click();
 }
 
 /**

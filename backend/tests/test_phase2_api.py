@@ -24,6 +24,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AuthOtp,
     GeneralMeeting,
     GeneralMeetingStatus,
     BallotSubmission,
@@ -123,6 +124,24 @@ async def create_session(
     db_session.add(session)
     await db_session.flush()
     return token
+
+
+async def make_otp(
+    db_session: AsyncSession,
+    email: str,
+    meeting_id: uuid.UUID,
+) -> str:
+    """Helper to insert a valid AuthOtp row and return the code."""
+    code = "TESTCODE"
+    otp = AuthOtp(
+        email=email,
+        meeting_id=meeting_id,
+        code=code,
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    db_session.add(otp)
+    await db_session.flush()
+    return code
 
 
 # ---------------------------------------------------------------------------
@@ -233,17 +252,19 @@ class TestAuthVerify:
     # --- Happy path ---
 
     async def test_valid_auth_returns_200(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -270,12 +291,14 @@ class TestAuthVerify:
         )
         db_session.add(bs)
         await db_session.flush()
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -283,33 +306,37 @@ class TestAuthVerify:
         assert data["lots"][0]["already_submitted"] is True
 
     async def test_sets_session_cookie(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
         assert "meeting_session" in response.cookies
 
     async def test_lots_contain_lot_info(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -334,6 +361,23 @@ class TestAuthVerify:
             json={
                 "email": "",
                 "general_meeting_id": str(agm.id),
+                "code": "TESTCODE",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_code_returns_422(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": "",
             },
         )
         assert response.status_code == 422
@@ -341,15 +385,18 @@ class TestAuthVerify:
     # --- State / precondition errors ---
 
     async def test_wrong_email_returns_401(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         agm = building_with_agm["agm"]
+        # Insert OTP for wrong email (no lots found, so verify returns 401 at lot lookup)
+        code = await make_otp(db_session, "wrong@email.com", agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "wrong@email.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 401
@@ -364,23 +411,162 @@ class TestAuthVerify:
             json={
                 "email": voter_email,
                 "general_meeting_id": str(uuid.uuid4()),
+                "code": "TESTCODE",
             },
         )
         assert response.status_code == 404
 
-    async def test_building_id_derived_from_meeting(
-        self, client: AsyncClient, building_with_agm: dict
+    async def test_invalid_otp_code_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Backend derives building_id from GeneralMeeting; response includes building_name and meeting_title."""
+        """Wrong OTP code returns 401 before lot lookup."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
-        building = building_with_agm["building"]
+        await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": "WRONGCOD",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    async def test_expired_otp_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Expired OTP returns 401."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        expired_otp = AuthOtp(
+            email=voter_email,
+            meeting_id=agm.id,
+            code="EXPCODE1",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+        db_session.add(expired_otp)
+        await db_session.flush()
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": "EXPCODE1",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    async def test_used_otp_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Already-used OTP returns 401."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        used_otp = AuthOtp(
+            email=voter_email,
+            meeting_id=agm.id,
+            code="USEDCODE",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            used=True,
+        )
+        db_session.add(used_otp)
+        await db_session.flush()
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": "USEDCODE",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    async def test_no_otp_row_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """No OTP row at all → 401."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": "NOCODE12",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired verification code"
+
+    async def test_otp_marked_used_after_successful_verify(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """OTP.used is set to True after a successful verify call."""
+        from sqlalchemy import select as sa_select
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+        )
+        result = await db_session.execute(
+            sa_select(AuthOtp).where(
+                AuthOtp.email == voter_email,
+                AuthOtp.meeting_id == agm.id,
+                AuthOtp.code == code,
+            )
+        )
+        otp = result.scalar_one_or_none()
+        assert otp is not None
+        assert otp.used is True
+
+    async def test_used_otp_cannot_be_replayed(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """After a successful verify, the same code returns 401 on second attempt."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        # First call succeeds
+        r1 = await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+        )
+        assert r1.status_code == 200
+
+        # Second call with same code → 401
+        r2 = await client.post(
+            "/api/auth/verify",
+            json={"email": voter_email, "general_meeting_id": str(agm.id), "code": code},
+        )
+        assert r2.status_code == 401
+
+    async def test_building_id_derived_from_meeting(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Backend derives building_id from GeneralMeeting; response includes building_name and meeting_title."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -406,12 +592,14 @@ class TestAuthVerify:
         )
         db_session.add(closed_agm)
         await db_session.flush()
+        code = await make_otp(db_session, voter_email, closed_agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(closed_agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -434,12 +622,15 @@ class TestAuthVerify:
         )
         db_session.add(agm2)
         await db_session.flush()
+        # Insert OTP for voter email in the other meeting
+        code = await make_otp(db_session, "voter@p2test.com", agm2.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "voter@p2test.com",
                 "general_meeting_id": str(agm2.id),
+                "code": code,
             },
         )
         assert response.status_code == 401
@@ -1496,12 +1687,14 @@ class TestProxyAuth:
         lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
         db_session.add(lp)
         await db_session.flush()
+        code = await make_otp(db_session, proxy_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": proxy_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1511,17 +1704,19 @@ class TestProxyAuth:
         assert data["lots"][0]["is_proxy"] is True
 
     async def test_direct_owner_has_is_proxy_false(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         """A direct lot owner gets is_proxy=False."""
         agm = building_with_agm["agm"]
         voter_email = building_with_agm["voter_email"]
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1545,12 +1740,14 @@ class TestProxyAuth:
         lp = LotProxy(lot_owner_id=lo2.id, proxy_email=voter_email)
         db_session.add(lp)
         await db_session.flush()
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1573,12 +1770,14 @@ class TestProxyAuth:
         lp = LotProxy(lot_owner_id=lo.id, proxy_email=voter_email)
         db_session.add(lp)
         await db_session.flush()
+        code = await make_otp(db_session, voter_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": voter_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1601,12 +1800,14 @@ class TestProxyAuth:
         bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=proxy_email)
         db_session.add(bs)
         await db_session.flush()
+        code = await make_otp(db_session, proxy_email, agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": proxy_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1617,16 +1818,18 @@ class TestProxyAuth:
     # --- State / precondition errors ---
 
     async def test_proxy_voter_no_proxy_records_returns_401(
-        self, client: AsyncClient, building_with_agm: dict
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Email not in any owner or proxy list → 401."""
+        """Email not in any owner or proxy list → 401 after OTP check passes."""
         agm = building_with_agm["agm"]
+        code = await make_otp(db_session, "notaproxy@test.com", agm.id)
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "notaproxy@test.com",
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 401
@@ -1650,6 +1853,7 @@ class TestProxyAuth:
         lp = LotProxy(lot_owner_id=lo2.id, proxy_email=proxy_email)
         db_session.add(lp)
         await db_session.flush()
+        code = await make_otp(db_session, proxy_email, agm.id)
 
         building = building_with_agm["building"]
         response = await client.post(
@@ -1657,6 +1861,7 @@ class TestProxyAuth:
             json={
                 "email": proxy_email,
                 "general_meeting_id": str(agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 401
@@ -1916,12 +2121,15 @@ class TestAuthVerifyEffectiveStatus:
         )
         db_session.add(past_agm)
         await db_session.commit()
+        code = await make_otp(db_session, "effauth@voter.test", past_agm.id)
+        await db_session.commit()
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "effauth@voter.test",
                 "general_meeting_id": str(past_agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1949,12 +2157,15 @@ class TestAuthVerifyEffectiveStatus:
         )
         db_session.add(future_agm)
         await db_session.commit()
+        code = await make_otp(db_session, "futauth@voter.test", future_agm.id)
+        await db_session.commit()
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "futauth@voter.test",
                 "general_meeting_id": str(future_agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200
@@ -1982,12 +2193,15 @@ class TestAuthVerifyEffectiveStatus:
         )
         db_session.add(open_agm)
         await db_session.commit()
+        code = await make_otp(db_session, "openauth@voter.test", open_agm.id)
+        await db_session.commit()
 
         response = await client.post(
             "/api/auth/verify",
             json={
                 "email": "openauth@voter.test",
                 "general_meeting_id": str(open_agm.id),
+                "code": code,
             },
         )
         assert response.status_code == 200

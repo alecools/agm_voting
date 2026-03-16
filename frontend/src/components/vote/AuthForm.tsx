@@ -1,103 +1,166 @@
 import React, { useState } from "react";
 
 interface AuthFormProps {
-  onSubmit: (lotNumber: string, email: string) => void;
-  isLoading: boolean;
+  onRequestOtp: (email: string) => void;
+  onVerify: (email: string, code: string) => void;
+  isRequestingOtp: boolean;
+  isVerifying: boolean;
+  step: "email" | "code";
+  otpEmail: string;
   error?: string;
 }
 
 export function AuthForm({
-  onSubmit,
-  isLoading,
+  onRequestOtp,
+  onVerify,
+  isRequestingOtp,
+  isVerifying,
+  step,
+  otpEmail,
   error,
 }: AuthFormProps) {
-  const [lotNumber, setLotNumber] = useState("");
   const [email, setEmail] = useState("");
-  const [lotError, setLotError] = useState("");
+  const [code, setCode] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [codeError, setCodeError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleRequestOtp = (e: React.FormEvent) => {
     e.preventDefault();
-    let valid = true;
-
-    if (!lotNumber.trim()) {
-      setLotError("Lot number is required");
-      valid = false;
-    } else {
-      setLotError("");
-    }
-
     if (!email.trim()) {
       setEmailError("Email address is required");
-      valid = false;
-    } else {
-      setEmailError("");
+      return;
     }
-
-    if (!valid) return;
-
-    onSubmit(lotNumber.trim(), email.trim());
+    setEmailError("");
+    onRequestOtp(email.trim());
   };
+
+  const handleVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!code.trim()) {
+      setCodeError("Verification code is required");
+      return;
+    }
+    setCodeError("");
+    onVerify(otpEmail, code.trim());
+  };
+
+  const handleResend = () => {
+    setCode("");
+    setCodeError("");
+    onRequestOtp(otpEmail);
+  };
+
+  // When an error arrives on step "code", clear the code input
+  const prevError = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    if (step === "code" && error && error !== prevError.current) {
+      setCode("");
+    }
+    prevError.current = error;
+  }, [error, step]);
 
   return (
     <div className="auth-card">
       <div className="card">
         <div className="auth-card__header">
           <h1 className="auth-card__title">Verify your identity</h1>
-          <p className="auth-card__hint">
-            Enter your lot number and registered email to continue.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} noValidate>
-          <div className="field">
-            <label className="field__label" htmlFor="lot-number">Lot number</label>
-            <input
-              id="lot-number"
-              className="field__input"
-              type="text"
-              value={lotNumber}
-              onChange={(e) => setLotNumber(e.target.value)}
-              aria-invalid={!!lotError}
-              aria-describedby={lotError ? "lot-number-error" : undefined}
-              placeholder="e.g. 12"
-            />
-            {lotError && (
-              <span id="lot-number-error" className="field__error" role="alert">
-                {lotError}
-              </span>
-            )}
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor="email">Email address</label>
-            <input
-              id="email"
-              className="field__input"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={!!emailError}
-              aria-describedby={emailError ? "email-error" : undefined}
-              placeholder="your@email.com"
-            />
-            {emailError && (
-              <span id="email-error" className="field__error" role="alert">
-                {emailError}
-              </span>
-            )}
-          </div>
-
-          {error && (
-            <p className="field__error mt-8" role="alert" style={{ marginBottom: "16px" }}>
-              {error}
+          {step === "email" && (
+            <p className="auth-card__hint">
+              Enter your registered email address to receive a verification code.
             </p>
           )}
+          {step === "code" && (
+            <p className="auth-card__hint">
+              We sent a verification code to {otpEmail}
+            </p>
+          )}
+        </div>
 
-          <button className="btn btn--primary btn--full mt-16" type="submit" disabled={isLoading}>
-            {isLoading ? "Verifying..." : "Continue"}
-          </button>
-        </form>
+        {step === "email" && (
+          <form onSubmit={handleRequestOtp} noValidate>
+            <div className="field">
+              <label className="field__label" htmlFor="email">Email address</label>
+              <input
+                id="email"
+                className="field__input"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                aria-invalid={!!emailError}
+                aria-describedby={emailError ? "email-error" : undefined}
+                placeholder="your@email.com"
+              />
+              {emailError && (
+                <span id="email-error" className="field__error" role="alert">
+                  {emailError}
+                </span>
+              )}
+            </div>
+
+            {error && (
+              <p className="field__error mt-8" role="alert" style={{ marginBottom: "16px" }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              className="btn btn--primary btn--full mt-16"
+              type="submit"
+              disabled={isRequestingOtp}
+            >
+              {isRequestingOtp ? "Sending..." : "Send Verification Code"}
+            </button>
+          </form>
+        )}
+
+        {step === "code" && (
+          <form onSubmit={handleVerify} noValidate>
+            <div className="field">
+              <label className="field__label" htmlFor="otp-code">Verification code</label>
+              <input
+                id="otp-code"
+                className="field__input"
+                type="text"
+                inputMode="text"
+                maxLength={20}
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                aria-invalid={!!codeError}
+                aria-describedby={codeError ? "otp-code-error" : undefined}
+                placeholder="e.g. ABCD1234"
+              />
+              {codeError && (
+                <span id="otp-code-error" className="field__error" role="alert">
+                  {codeError}
+                </span>
+              )}
+            </div>
+
+            {error && (
+              <p className="field__error mt-8" role="alert" style={{ marginBottom: "16px" }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              className="btn btn--primary btn--full mt-16"
+              type="submit"
+              disabled={isVerifying}
+            >
+              {isVerifying ? "Verifying..." : "Verify"}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn--ghost btn--full mt-8"
+              onClick={handleResend}
+              disabled={isRequestingOtp}
+            >
+              {isRequestingOtp ? "Sending..." : "Resend code"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

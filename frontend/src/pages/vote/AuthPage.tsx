@@ -1,23 +1,36 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import { verifyAuth } from "../../api/voter";
+import { requestOtp, verifyAuth } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 
 export function AuthPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const [authError, setAuthError] = useState("");
+  const [authStep, setAuthStep] = useState<"email" | "code">("email");
+  const [otpEmail, setOtpEmail] = useState("");
 
-  const mutation = useMutation({
+  const requestOtpMutation = useMutation({
     mutationFn: ({ email }: { email: string }) => {
       /* c8 ignore next */
       if (!meetingId) return Promise.reject(new Error("Missing meeting context"));
+      return requestOtp({ email, general_meeting_id: meetingId });
+    },
+    onSuccess: () => {
+      setAuthError("");
+      setAuthStep("code");
+    },
+    onError: () => {
+      setAuthError("Failed to send code. Please try again.");
+    },
+  });
 
-      return verifyAuth({
-        email,
-        general_meeting_id: meetingId,
-      });
+  const verifyMutation = useMutation({
+    mutationFn: ({ email, code }: { email: string; code: string }) => {
+      /* c8 ignore next */
+      if (!meetingId) return Promise.reject(new Error("Missing meeting context"));
+      return verifyAuth({ email, code, general_meeting_id: meetingId });
     },
     onSuccess: (data) => {
       /* c8 ignore next */
@@ -46,16 +59,22 @@ export function AuthPage() {
     },
     onError: (error: Error) => {
       if (error.message.includes("401")) {
-        setAuthError("Lot number and email address do not match our records");
+        setAuthError("Invalid or expired code. Please try again.");
       } else {
         setAuthError("An error occurred. Please try again.");
       }
     },
   });
 
-  const handleSubmit = (_lotNumber: string, email: string) => {
+  const handleRequestOtp = (email: string) => {
     setAuthError("");
-    mutation.mutate({ email });
+    setOtpEmail(email);
+    requestOtpMutation.mutate({ email });
+  };
+
+  const handleVerify = (email: string, code: string) => {
+    setAuthError("");
+    verifyMutation.mutate({ email, code });
   };
 
   return (
@@ -64,8 +83,12 @@ export function AuthPage() {
         ← Back
       </button>
       <AuthForm
-        onSubmit={handleSubmit}
-        isLoading={mutation.isPending}
+        onRequestOtp={handleRequestOtp}
+        onVerify={handleVerify}
+        isRequestingOtp={requestOtpMutation.isPending}
+        isVerifying={verifyMutation.isPending}
+        step={authStep}
+        otpEmail={otpEmail}
         error={authError}
       />
     </main>

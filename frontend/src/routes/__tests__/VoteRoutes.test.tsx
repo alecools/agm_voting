@@ -27,7 +27,7 @@ describe("VoteRoutes", () => {
   it("renders AuthPage at /vote/:meetingId/auth", async () => {
     renderRoutes(`/vote/${AGM_ID}/auth`);
     await waitFor(() => {
-      expect(screen.getByLabelText("Lot number")).toBeInTheDocument();
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
     });
   });
 

@@ -61,6 +61,45 @@ def _make_session_factory() -> async_sessionmaker:
     return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
+async def send_otp_email(to_email: str, meeting_title: str, code: str) -> None:
+    """
+    Send an OTP verification email to the given address.
+    Respects settings.email_override: if set, all emails go to the override address
+    and the original recipient is preserved in X-Original-To header.
+
+    When settings.testing_mode is True the SMTP send is skipped — the OTP is already
+    stored in the database and accessible via GET /api/test/latest-otp, so no email
+    delivery is needed for automated test runs.
+    """
+    if settings.testing_mode:
+        logger.info("otp_email_skipped_testing_mode", to=to_email, meeting_title=meeting_title)
+        return
+
+    env = _get_jinja_env()
+    template = env.get_template("otp_email.html")
+    html_body = template.render(meeting_title=meeting_title, code=code)
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Your AGM Voting Code — {meeting_title}"
+    msg["From"] = settings.smtp_from_email
+    to_addr = settings.email_override if settings.email_override else to_email
+    msg["To"] = to_addr
+    if settings.email_override:
+        msg["X-Original-To"] = to_email
+    msg.attach(MIMEText(html_body, "html"))
+
+    await aiosmtplib.send(
+        msg,
+        hostname=settings.smtp_host,
+        port=settings.smtp_port,
+        username=settings.smtp_username,
+        password=settings.smtp_password,
+        start_tls=True,
+    )
+
+    logger.info("otp_email_sent", to=to_addr, meeting_title=meeting_title)
+
+
 class EmailService:
     async def send_report(self, agm_id: uuid.UUID, db: AsyncSession) -> None:
         """
@@ -114,7 +153,10 @@ class EmailService:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"General Meeting Results Report: {agm_title}"
         msg["From"] = settings.smtp_from_email
-        msg["To"] = manager_email
+        to_addr = settings.email_override if settings.email_override else manager_email
+        msg["To"] = to_addr
+        if settings.email_override:
+            msg["X-Original-To"] = manager_email
         msg.attach(MIMEText(html_body, "html"))
 
         await aiosmtplib.send(
@@ -126,7 +168,7 @@ class EmailService:
             start_tls=True,
         )
 
-        log.info("email_sent", to=manager_email, subject=f"General Meeting Results Report: {agm_title}")
+        log.info("email_sent", to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
 
     async def trigger_with_retry(self, agm_id: uuid.UUID) -> None:
         """

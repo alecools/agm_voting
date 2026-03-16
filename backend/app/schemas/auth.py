@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 
-class AuthVerifyRequest(BaseModel):
+class OtpRequestBody(BaseModel):
     email: str
     general_meeting_id: uuid.UUID
 
@@ -14,6 +14,30 @@ class AuthVerifyRequest(BaseModel):
         if not v.strip():
             raise ValueError("email must not be empty")
         return v
+
+
+class OtpRequestResponse(BaseModel):
+    sent: bool
+
+
+class AuthVerifyRequest(BaseModel):
+    email: str
+    general_meeting_id: uuid.UUID
+    code: str
+
+    @field_validator("email")
+    @classmethod
+    def email_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("email must not be empty")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def code_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("code must not be empty")
+        return v.strip()
 
 
 class LotInfo(BaseModel):

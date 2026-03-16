@@ -30,6 +30,7 @@ import {
   assertTally,
   goToAuthPage,
   authenticateVoter,
+  getTestOtp,
   submitBallot,
 } from "./helpers";
 
@@ -104,9 +105,12 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
   // WF3.2: Voter 1 votes For on both motions
   test("WF3.2: voter 1 votes For on both motions", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, VOTER1_LOT, VOTER1_EMAIL);
+    await authenticateVoter(page, VOTER1_EMAIL, () => getTestOtp(api, VOTER1_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     const motionCards = page.locator(".motion-card");
@@ -123,9 +127,12 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
   // WF3.3: Voter 2 votes Against on Motion 1, For on Motion 2
   test("WF3.3: voter 2 votes Against on Motion 1, For on Motion 2", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, VOTER2_LOT, VOTER2_EMAIL);
+    await authenticateVoter(page, VOTER2_EMAIL, () => getTestOtp(api, VOTER2_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     const motionCards = page.locator(".motion-card");
@@ -268,9 +275,12 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
   // WF4.2: Vote both lots in one submission
   test("WF4.2: voter sees both lots pre-selected, votes For on both motions", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_A, VOTER_EMAIL);
+    await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     // Both lots visible and checked (scoped to sidebar to avoid duplicate in mobile drawer)
@@ -403,9 +413,12 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
   // WF5.2: Session 1 — vote WF5-A only (uncheck WF5-B)
   test("WF5.2: session 1 — votes For/Against for WF5-A only, WF5-B excluded", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_A, VOTER_EMAIL);
+    await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     // Both lots visible; uncheck LOT_B (scoped to sidebar to avoid duplicate in mobile drawer)
@@ -432,11 +445,14 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
   // WF5.3: Session 2 — re-authenticate, WF5-A disabled, vote WF5-B
   test("WF5.3: session 2 — WF5-A shows Already submitted, votes Abstain/For for WF5-B", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     // Return to home and re-authenticate
     await page.goto("/");
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_B, VOTER_EMAIL);
+    await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     // WF5-A shows "Already submitted" and is disabled (scoped to sidebar)
@@ -560,9 +576,12 @@ test.describe("WF6: Proxy voting with tally verification", () => {
   // WF6.2: Proxy voter authenticates and votes For
   test("WF6.2: proxy voter sees via Proxy badge, votes For on Motion 1", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_X, PROXY_EMAIL);
+    await authenticateVoter(page, PROXY_EMAIL, () => getTestOtp(api, PROXY_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
@@ -592,9 +611,12 @@ test.describe("WF6: Proxy voting with tally verification", () => {
   // WF6.3: Direct owner of WF6-Y votes Against
   test("WF6.3: WF6-Y direct owner votes Against on Motion 1", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_Y, LOT_Y_EMAIL);
+    await authenticateVoter(page, LOT_Y_EMAIL, () => getTestOtp(api, LOT_Y_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {
@@ -701,9 +723,12 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
   // WF7.2: Voter authenticates and sees in-arrear banner
   test("WF7.2: voter sees amber in-arrear banner and In Arrear badge on WF7-B", async ({ page }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_A, VOTER_EMAIL);
+    await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     // Both lots visible (scoped to sidebar to avoid duplicate in mobile drawer)
@@ -736,9 +761,12 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
     page,
   }) => {
     test.setTimeout(120000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT_A, VOTER_EMAIL);
+    await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
+    await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
 
     if (page.url().includes("/voting")) {

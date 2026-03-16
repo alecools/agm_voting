@@ -27,6 +27,7 @@ import {
   clearBallots,
   goToAuthPage,
   authenticateVoter,
+  getTestOtp,
   submitBallot,
 } from "./helpers";
 
@@ -92,17 +93,16 @@ test.describe("WF8: Edge cases", () => {
 
     // Clear ballots so we start fresh
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-    });
-    await clearBallots(api, openMeetingId);
-    await api.dispose();
+    {
+      const adminApi = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
+      await clearBallots(adminApi, openMeetingId);
+      await adminApi.dispose();
+    }
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
 
     // First session: authenticate and vote
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT1, LOT1_EMAIL);
+    await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, openMeetingId));
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
     const motionCards = page.locator(".motion-card");
@@ -118,7 +118,8 @@ test.describe("WF8: Edge cases", () => {
 
     // Second session: re-authenticate
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT1, LOT1_EMAIL);
+    await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, openMeetingId));
+    await api.dispose();
 
     // All lots submitted → AuthPage redirects directly to confirmation
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
@@ -136,8 +137,11 @@ test.describe("WF8: Edge cases", () => {
 
     // WF8.1 already submitted a ballot for LOT1_EMAIL. Navigate to home and
     // re-auth to trigger the "all submitted" direct-to-confirmation path.
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
     await goToAuthPage(page, BUILDING);
-    await authenticateVoter(page, LOT1, LOT1_EMAIL);
+    await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, openMeetingId));
+    await api.dispose();
 
     // Should land directly on confirmation (not voting)
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
@@ -159,14 +163,14 @@ test.describe("WF8: Edge cases", () => {
       storageState: ADMIN_AUTH_PATH,
     });
     await closeMeeting(api, openMeetingId);
-    await api.dispose();
-
+    // Keep api alive for OTP retrieval
     // Navigate to the closed meeting's auth page directly
     await page.goto(`/vote/${openMeetingId}/auth`);
-    await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
     // Auth as the voter who never voted
-    await authenticateVoter(page, LOT2, LOT2_EMAIL);
+    await authenticateVoter(page, LOT2_EMAIL, () => getTestOtp(api, LOT2_EMAIL, openMeetingId));
+    await api.dispose();
 
     // Should be routed to confirmation (closed meeting)
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
@@ -202,16 +206,20 @@ test.describe("WF8: Edge cases", () => {
     await api.dispose();
 
     await page.goto(`/vote/${newMeetingId}/auth`);
-    await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
-    // Submit wrong credentials
-    await page.getByLabel("Lot number").fill("NONEXISTENT-999");
+    // Step 1: enter unknown email — request-otp always returns 200 (enumeration protection)
     await page.getByLabel("Email address").fill("nobody@test.com");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
 
-    // Error message appears
+    // Step 2 appears — enter a wrong OTP code
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 10000 });
+    await page.getByLabel("Verification code").fill("BADCODE1");
+    await page.getByRole("button", { name: "Verify" }).click();
+
+    // Error message appears (invalid OTP)
     await expect(
-      page.getByText("Lot number and email address do not match our records")
+      page.getByText("Invalid or expired code. Please try again.")
     ).toBeVisible({ timeout: 10000 });
 
     // URL remains on the auth page
@@ -266,8 +274,7 @@ test.describe("WF8: Edge cases", () => {
         },
       ]
     );
-    await api.dispose();
-
+    // Keep api alive for OTP retrieval after pending meeting navigation
     // On home page, select WF8 building — pending meeting shows disabled button
     await page.goto("/");
     await page.getByLabel("Select your building").selectOption({ label: BUILDING });
@@ -284,10 +291,11 @@ test.describe("WF8: Edge cases", () => {
 
     // Navigate directly to the auth page for the pending meeting
     await page.goto(`/vote/${pendingMeetingId}/auth`);
-    await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
-    // Submit valid credentials
-    await authenticateVoter(page, LOT1, LOT1_EMAIL);
+    // Submit valid credentials via OTP flow
+    await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, pendingMeetingId));
+    await api.dispose();
 
     // Should be redirected back to the home page
     await expect(page).toHaveURL("/", { timeout: 20000 });

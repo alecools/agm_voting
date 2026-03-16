@@ -60,7 +60,7 @@ describe("Voting Flow Integration", () => {
   it("auth page renders after navigating to /vote/:meetingId/auth", async () => {
     renderApp(`/vote/${AGM_ID}/auth`);
     await waitFor(() => {
-      expect(screen.getByLabelText("Lot number")).toBeInTheDocument();
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
     });
   });
 

@@ -14,9 +14,19 @@ export interface GeneralMeetingOut {
   voting_closes_at: string;
 }
 
+export interface OtpRequestBody {
+  email: string;
+  general_meeting_id: string;
+}
+
+export interface OtpRequestResponse {
+  sent: boolean;
+}
+
 export interface AuthVerifyRequest {
   email: string;
   general_meeting_id: string;
+  code: string;
 }
 
 export interface LotInfo {
@@ -111,6 +121,13 @@ export function fetchBuildings(): Promise<BuildingOut[]> {
 
 export function fetchGeneralMeetings(buildingId: string): Promise<GeneralMeetingOut[]> {
   return apiFetch<GeneralMeetingOut[]>(`/api/buildings/${buildingId}/general-meetings`);
+}
+
+export function requestOtp(req: OtpRequestBody): Promise<OtpRequestResponse> {
+  return apiFetch<OtpRequestResponse>("/api/auth/request-otp", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
 }
 
 export function verifyAuth(req: AuthVerifyRequest): Promise<AuthVerifyResponse> {

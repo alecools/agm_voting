@@ -21,7 +21,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 function renderPage(meetingId = AGM_ID) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/vote/${meetingId}/auth`]}>
@@ -33,30 +33,49 @@ function renderPage(meetingId = AGM_ID) {
   );
 }
 
-async function fillAndSubmit(lotNumber: string, email: string) {
+/**
+ * Complete the full two-step auth flow:
+ * 1. Fill email + click "Send Verification Code"
+ * 2. Wait for step 2 to appear
+ * 3. Fill code + click "Verify"
+ */
+async function fillAndSubmit(email: string, code = "TESTCODE") {
   const user = userEvent.setup();
-  await waitFor(() => screen.getByLabelText("Lot number"));
-  await user.type(screen.getByLabelText("Lot number"), lotNumber);
+  await waitFor(() => screen.getByLabelText("Email address"));
   await user.type(screen.getByLabelText("Email address"), email);
-  // Continue is always enabled immediately — no loading gate
-  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+  // Wait for step 2
+  await waitFor(() => screen.getByLabelText("Verification code"));
+  await user.type(screen.getByLabelText("Verification code"), code);
+  await user.click(screen.getByRole("button", { name: "Verify" }));
+}
+
+/**
+ * Only complete step 1 (request OTP).
+ */
+async function fillStep1(email: string) {
+  const user = userEvent.setup();
+  await waitFor(() => screen.getByLabelText("Email address"));
+  await user.type(screen.getByLabelText("Email address"), email);
+  await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
 }
 
 describe("AuthPage", () => {
+  // --- Happy path ---
   it("renders 'Verify your identity' heading immediately", () => {
     renderPage();
     expect(screen.getByRole("heading", { name: "Verify your identity" })).toBeInTheDocument();
   });
 
-  it("Continue button is enabled immediately on render", () => {
+  it("'Send Verification Code' button is enabled immediately on render", () => {
     renderPage();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send Verification Code" })).toBeEnabled();
   });
 
   it("navigates to voting page on success (not already submitted)", async () => {
     mockNavigate.mockClear();
     renderPage();
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
@@ -65,7 +84,7 @@ describe("AuthPage", () => {
   it("stores building_name and meeting_title in sessionStorage on success", async () => {
     mockNavigate.mockClear();
     renderPage();
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(sessionStorage.getItem(`meeting_building_name_${AGM_ID}`)).toBe("Sunset Towers");
       expect(sessionStorage.getItem(`meeting_title_${AGM_ID}`)).toBe("2024 AGM");
@@ -86,7 +105,7 @@ describe("AuthPage", () => {
     );
     mockNavigate.mockClear();
     renderPage();
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
@@ -106,66 +125,10 @@ describe("AuthPage", () => {
     );
     mockNavigate.mockClear();
     renderPage(AGM_ID);
-
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
-  });
-
-  it("shows 401 error message", async () => {
-    server.use(
-      http.post(`${BASE}/api/auth/verify`, () =>
-        HttpResponse.json({ detail: "not found" }, { status: 401 })
-      )
-    );
-    renderPage();
-    await fillAndSubmit("99", "wrong@example.com");
-    await waitFor(() => {
-      expect(
-        screen.getByText("Lot number and email address do not match our records")
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("shows loading state while verifying", async () => {
-    let resolve!: () => void;
-    server.use(
-      http.post(`${BASE}/api/auth/verify`, () =>
-        new Promise<Response>((res) => {
-          resolve = () =>
-            res(HttpResponse.json({ lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }], voter_email: "x@y.com", agm_status: "open", building_name: "B", meeting_title: "T" }) as Response);
-        })
-      )
-    );
-    renderPage();
-    const user = userEvent.setup();
-    await waitFor(() => screen.getByLabelText("Lot number"));
-    await user.type(screen.getByLabelText("Lot number"), "1");
-    await user.type(screen.getByLabelText("Email address"), "a@b.com");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Verifying..." })).toBeDisabled();
-    });
-    resolve();
-  });
-
-  it("shows empty lot number validation error", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => screen.getByLabelText("Email address"));
-    await user.type(screen.getByLabelText("Email address"), "a@b.com");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByText("Lot number is required")).toBeInTheDocument();
-  });
-
-  it("shows empty email validation error", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => screen.getByLabelText("Lot number"));
-    await user.type(screen.getByLabelText("Lot number"), "42");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByText("Email address is required")).toBeInTheDocument();
   });
 
   it("navigates to / with pendingMessage state when agm_status=pending", async () => {
@@ -182,7 +145,7 @@ describe("AuthPage", () => {
     );
     mockNavigate.mockClear();
     renderPage();
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/", {
         state: { pendingMessage: "This meeting has not started yet. Please check back later." },
@@ -190,17 +153,102 @@ describe("AuthPage", () => {
     });
   });
 
-  it("shows generic error for unexpected failure", async () => {
+  // --- Error handling ---
+  it("shows 401 error message (invalid/expired code)", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        HttpResponse.json({ detail: "Invalid or expired verification code" }, { status: 401 })
+      )
+    );
+    renderPage();
+    await fillAndSubmit("wrong@example.com");
+    await waitFor(() => {
+      expect(
+        screen.getByText("Invalid or expired code. Please try again.")
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("shows generic error for unexpected verify failure", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () => HttpResponse.error())
     );
     renderPage();
-    await fillAndSubmit("42", "owner@example.com");
+    await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(screen.getByText("An error occurred. Please try again.")).toBeInTheDocument();
     });
   });
 
+  it("shows error when request-otp fails", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => HttpResponse.error())
+    );
+    renderPage();
+    await fillStep1("owner@example.com");
+    await waitFor(() => {
+      expect(screen.getByText("Failed to send code. Please try again.")).toBeInTheDocument();
+    });
+  });
+
+  // --- Loading states ---
+  it("shows loading state on 'Sending...' while request-otp is in flight", async () => {
+    let resolve!: () => void;
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        new Promise<Response>((res) => {
+          resolve = () => res(HttpResponse.json({ sent: true }) as Response);
+        })
+      )
+    );
+    renderPage();
+    const user = userEvent.setup();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Sending..." })).toBeDisabled();
+    });
+    resolve();
+  });
+
+  it("shows loading state 'Verifying...' while verify is in flight", async () => {
+    let resolve!: () => void;
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        new Promise<Response>((res) => {
+          resolve = () =>
+            res(HttpResponse.json({
+              lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+              voter_email: "x@y.com", agm_status: "open", building_name: "B", meeting_title: "T",
+            }) as Response);
+        })
+      )
+    );
+    renderPage();
+    const user = userEvent.setup();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    await user.type(screen.getByLabelText("Verification code"), "ABCD1234");
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Verifying..." })).toBeDisabled();
+    });
+    resolve();
+  });
+
+  // --- Input validation ---
+  it("shows empty email validation error when email is blank", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    expect(screen.getByText("Email address is required")).toBeInTheDocument();
+  });
+
+  // --- UI structure ---
   it("renders back button", () => {
     renderPage();
     expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
@@ -210,8 +258,39 @@ describe("AuthPage", () => {
     const user = userEvent.setup();
     mockNavigate.mockClear();
     renderPage();
-    await waitFor(() => screen.getByLabelText("Lot number"));
+    await waitFor(() => screen.getByLabelText("Email address"));
     await user.click(screen.getByRole("button", { name: "← Back" }));
     expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+
+  // --- Two-step flow ---
+  it("shows step 2 code input after successful OTP request", async () => {
+    renderPage();
+    await fillStep1("owner@example.com");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Verification code")).toBeInTheDocument();
+    });
+  });
+
+  it("clears authError on new requestOtp call", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => HttpResponse.error())
+    );
+    renderPage();
+    await fillStep1("owner@example.com");
+    await waitFor(() => {
+      expect(screen.getByText("Failed to send code. Please try again.")).toBeInTheDocument();
+    });
+    // Now fix the handler so next call succeeds
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => HttpResponse.json({ sent: true }))
+    );
+    // Resend is not visible since step 2 never loaded — click "Send Verification Code" again
+    // by clicking the now-visible button (error state keeps us on step 1)
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Failed to send code. Please try again.")).not.toBeInTheDocument();
+    });
   });
 });

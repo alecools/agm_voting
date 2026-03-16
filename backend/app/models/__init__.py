@@ -1,4 +1,5 @@
 from app.models.base import Base, TimestampMixin
+from app.models.auth_otp import AuthOtp
 from app.models.building import Building
 from app.models.lot_owner import LotOwner, FinancialPosition
 from app.models.lot_owner_email import LotOwnerEmail
@@ -13,6 +14,7 @@ from app.models.email_delivery import EmailDelivery, EmailDeliveryStatus
 
 __all__ = [
     "Base",
+    "AuthOtp",
     "TimestampMixin",
     "Building",
     "LotOwner",

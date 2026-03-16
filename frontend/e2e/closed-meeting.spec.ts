@@ -31,6 +31,7 @@ import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getTestOtp } from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -163,12 +164,36 @@ test.describe("Closed meeting voter journey", () => {
     await api.delete(`/api/admin/general-meetings/${seededAgmId}/ballots`);
 
     // ── Submit ballot for voter 1 via the voter API ───────────────────────────
-    // Step 1: authenticate as voter 1 to obtain a session cookie
+    // Step 1a: request an OTP for voter 1 (TESTING_MODE stores OTP in DB)
+    const otpReqRes = await api.post("/api/auth/request-otp", {
+      data: {
+        email: VOTED_LOT_EMAIL,
+        general_meeting_id: seededAgmId,
+      },
+    });
+    if (!otpReqRes.ok()) {
+      throw new Error(
+        `OTP request failed during setup — status ${otpReqRes.status()}: ${await otpReqRes.text()}`
+      );
+    }
+
+    // Step 1b: retrieve OTP via test-only endpoint (requires TESTING_MODE=true)
+    const otpFetchRes = await api.get(
+      `/api/test/latest-otp?email=${encodeURIComponent(VOTED_LOT_EMAIL)}&meeting_id=${seededAgmId}`
+    );
+    if (!otpFetchRes.ok()) {
+      throw new Error(
+        `Failed to fetch test OTP — status ${otpFetchRes.status()}: ${await otpFetchRes.text()}`
+      );
+    }
+    const { code: otpCode } = (await otpFetchRes.json()) as { code: string };
+
+    // Step 1c: authenticate as voter 1 to obtain a session cookie
     const authRes = await api.post("/api/auth/verify", {
       data: {
         email: VOTED_LOT_EMAIL,
-        building_id: seededBuildingId,
         general_meeting_id: seededAgmId,
+        code: otpCode,
       },
     });
     if (!authRes.ok()) {
@@ -223,12 +248,24 @@ test.describe("Closed meeting voter journey", () => {
     ).toBeVisible({ timeout: 20000 });
     await page.getByRole("button", { name: "View My Submission" }).first().click();
 
-    // Auth page
-    await expect(page.getByLabel("Lot number")).toBeVisible({ timeout: 15000 });
-    await page.getByLabel("Lot number").fill(VOTED_LOT_NUMBER);
+    // Auth page — OTP flow
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
+
+    // Extract meeting ID from URL for OTP lookup
+    const meetingIdMatch = page.url().match(/\/vote\/([^/]+)\//);
+    const meetingId = meetingIdMatch ? meetingIdMatch[1] : seededAgmId;
+
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+
     await page.getByLabel("Email address").fill(VOTED_LOT_EMAIL);
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled({ timeout: 10000 });
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Send Verification Code" }).click();
+    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
+
+    const code = await getTestOtp(api, VOTED_LOT_EMAIL, meetingId);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Verify" }).click();
+    await api.dispose();
 
     // Auth returns agm_status:"closed" — should be routed directly to confirmation
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
