@@ -9,6 +9,7 @@ export default function GeneralMeetingListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedBuildingId = searchParams.get("building") ?? "";
+  const selectedStatus = searchParams.get("status") ?? "";
 
   const { data: meetings = [], isLoading, error } = useQuery<GeneralMeetingListItem[]>({
     queryKey: ["admin", "general-meetings"],
@@ -20,17 +21,30 @@ export default function GeneralMeetingListPage() {
     queryFn: listBuildings,
   });
 
-  const filteredMeetings = selectedBuildingId
-    ? meetings.filter((m) => m.building_id === selectedBuildingId)
-    : meetings;
+  const filteredMeetings = meetings
+    .filter((m) => !selectedBuildingId || m.building_id === selectedBuildingId)
+    .filter((m) => !selectedStatus || m.status === selectedStatus);
 
   function handleBuildingChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
+    const next = new URLSearchParams(searchParams);
     if (value) {
-      setSearchParams({ building: value });
+      next.set("building", value);
     } else {
-      setSearchParams({});
+      next.delete("building");
     }
+    setSearchParams(next);
+  }
+
+  function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    const next = new URLSearchParams(searchParams);
+    if (value) {
+      next.set("status", value);
+    } else {
+      next.delete("status");
+    }
+    setSearchParams(next);
   }
 
   if (error) return <p className="state-message state-message--error">Failed to load General Meetings.</p>;
@@ -59,6 +73,20 @@ export default function GeneralMeetingListPage() {
                   {b.name}
                 </option>
               ))}
+            </select>
+          </div>
+          <div style={{ maxWidth: 280 }}>
+            <label className="field__label" htmlFor="status-filter">Status</label>
+            <select
+              id="status-filter"
+              className="field__select"
+              value={selectedStatus}
+              onChange={handleStatusChange}
+            >
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="closed">Closed</option>
             </select>
           </div>
         </div>

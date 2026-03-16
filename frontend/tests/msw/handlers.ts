@@ -75,6 +75,16 @@ export const ADMIN_MEETING_LIST: GeneralMeetingListItem[] = [
     voting_closes_at: "2023-06-01T12:00:00Z",
     created_at: "2023-01-01T00:00:00Z",
   },
+  {
+    id: "agm3",
+    building_id: "b1",
+    building_name: "Alpha Tower",
+    title: "2026 AGM",
+    status: "pending",
+    meeting_at: "2026-12-01T10:00:00Z",
+    voting_closes_at: "2026-12-31T12:00:00Z",
+    created_at: "2025-01-01T00:00:00Z",
+  },
 ];
 
 // Keep backward-compatible alias

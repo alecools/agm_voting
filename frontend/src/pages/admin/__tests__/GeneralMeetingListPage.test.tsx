@@ -47,6 +47,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
   });
 
   it("renders Create General Meeting button", async () => {
@@ -76,11 +77,12 @@ describe("GeneralMeetingListPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings/agm1");
   });
 
-  it("shows Open and Closed status badges", async () => {
+  it("shows Open, Pending and Closed status badges", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Open")).toBeInTheDocument();
       expect(screen.getByText("Closed")).toBeInTheDocument();
+      expect(screen.getByText("Pending")).toBeInTheDocument();
     });
   });
 
@@ -122,11 +124,13 @@ describe("GeneralMeetingListPage", () => {
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
     });
     const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b1");
-    // Only Alpha Tower meeting (agm1 / 2024 AGM) should show
+    // Only Alpha Tower meetings (agm1 / 2024 AGM, agm3 / 2026 AGM) should show
     expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
   });
 
@@ -140,6 +144,7 @@ describe("GeneralMeetingListPage", () => {
     await user.selectOptions(select, "b2");
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
   });
 
   it("selecting All buildings after filtering shows all meetings", async () => {
@@ -149,11 +154,12 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     const select = screen.getByLabelText("Building");
-    await user.selectOptions(select, "b1");
-    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    await user.selectOptions(select, "b2");
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
     await user.selectOptions(select, "");
     expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
   });
 
   it("reads building URL param on mount and pre-selects the building", async () => {
@@ -163,6 +169,7 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
     const select = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(select.value).toBe("b2");
   });
@@ -172,6 +179,7 @@ describe("GeneralMeetingListPage", () => {
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
     const select = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(select.value).toBe("b1");
@@ -180,9 +188,167 @@ describe("GeneralMeetingListPage", () => {
   it("shows all meetings when URL param building id does not match any building", async () => {
     renderPage("?building=nonexistent");
     await waitFor(() => {
-      // No match → filteredMeetings is empty — table shows no rows for either meeting
+      // No match → filteredMeetings is empty — table shows no rows for any meeting
       expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
       expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+      expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
     });
+  });
+
+  // --- Status filter ---
+
+  it("renders status filter dropdown with All statuses default", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Status")).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(screen.getByRole("option", { name: "All statuses" })).toBeInTheDocument();
+  });
+
+  it("renders all three status options in the dropdown", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Status")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("option", { name: "Open" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Pending" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Closed" })).toBeInTheDocument();
+  });
+
+  it("filters to open meetings only when Open is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "open");
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+  });
+
+  it("filters to pending meetings only when Pending is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "pending");
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+  });
+
+  it("filters to closed meetings only when Closed is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "closed");
+    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+  });
+
+  it("selecting All statuses after filtering shows all meetings", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "open");
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Status"), "");
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+  });
+
+  it("reads status URL param on mount and pre-selects the status", async () => {
+    renderPage("?status=closed");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(select.value).toBe("closed");
+  });
+
+  it("reads pending status URL param on mount", async () => {
+    renderPage("?status=pending");
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(select.value).toBe("pending");
+  });
+
+  it("reads open status URL param on mount", async () => {
+    renderPage("?status=open");
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(select.value).toBe("open");
+  });
+
+  it("shows no meetings when status URL param does not match any status", async () => {
+    renderPage("?status=nonexistent");
+    await waitFor(() => {
+      expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+      expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+      expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+    });
+  });
+
+  // --- Combined building + status filter ---
+
+  it("applies both building and status filters simultaneously", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    // b1 has open (2024 AGM) and pending (2026 AGM); filter to b1 + open
+    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    await user.selectOptions(screen.getByLabelText("Status"), "open");
+    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+  });
+
+  it("changing building filter preserves the status filter in URL", async () => {
+    const user = userEvent.setup();
+    renderPage("?status=open");
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Building"), "b1");
+    // Status filter should still be "open" after changing building
+    const statusSelect = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(statusSelect.value).toBe("open");
+  });
+
+  it("changing status filter preserves the building filter in URL", async () => {
+    const user = userEvent.setup();
+    renderPage("?building=b1");
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "pending");
+    // Building filter should still be "b1" after changing status
+    const buildingSelect = screen.getByLabelText("Building") as HTMLSelectElement;
+    expect(buildingSelect.value).toBe("b1");
+    // Only the pending b1 meeting should show
+    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
   });
 });
