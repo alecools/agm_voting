@@ -74,6 +74,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               {motion.description}
             </p>
           )}
+          <div className="admin-table-wrapper">
           <table className="admin-table">
             <thead>
               <tr>
@@ -112,6 +113,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ))}
     </div>

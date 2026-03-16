@@ -35,6 +35,7 @@ export default function BuildingTable({ buildings, isLoading }: BuildingTablePro
   return (
     <div>
       {paginationControls}
+      <div className="admin-table-wrapper">
       <table className="admin-table">
         <thead>
           <tr>
@@ -91,6 +92,7 @@ export default function BuildingTable({ buildings, isLoading }: BuildingTablePro
           )}
         </tbody>
       </table>
+      </div>
       {paginationControls}
     </div>
   );

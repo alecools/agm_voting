@@ -51,6 +51,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
   return (
     <div>
       {paginationControls}
+      <div className="admin-table-wrapper">
       <table className="admin-table">
         <thead>
           <tr>
@@ -99,6 +100,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
           )}
         </tbody>
       </table>
+      </div>
       {paginationControls}
     </div>
   );

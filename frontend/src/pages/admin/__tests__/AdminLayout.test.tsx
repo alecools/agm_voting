@@ -28,19 +28,20 @@ function renderLayout(path = "/admin/buildings") {
 }
 
 describe("AdminLayout", () => {
+  // --- Happy path ---
   it("renders Admin Portal heading", () => {
     renderLayout();
-    expect(screen.getByText("Admin Portal")).toBeInTheDocument();
+    expect(screen.getAllByText("Admin Portal").length).toBeGreaterThan(0);
   });
 
   it("renders Buildings nav link", () => {
     renderLayout();
-    expect(screen.getByRole("link", { name: "Buildings" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Buildings" }).length).toBeGreaterThan(0);
   });
 
   it("renders General Meetings nav link", () => {
     renderLayout("/admin/general-meetings");
-    expect(screen.getByRole("link", { name: "General Meetings" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "General Meetings" }).length).toBeGreaterThan(0);
   });
 
   it("renders outlet content", () => {
@@ -51,16 +52,71 @@ describe("AdminLayout", () => {
 
   it("renders Sign out button", () => {
     renderLayout();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    // Both sidebar and drawer have Sign out buttons
+    expect(screen.getAllByRole("button", { name: "Sign out" }).length).toBeGreaterThan(0);
   });
 
   it("calls logout and navigates to login on Sign out click", async () => {
     const user = userEvent.setup();
     mockNavigate.mockClear();
     renderLayout();
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    // Click the first Sign out button (sidebar)
+    await user.click(screen.getAllByRole("button", { name: "Sign out" })[0]);
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/login", { replace: true });
     });
+  });
+
+  // --- Mobile drawer ---
+  it("renders open navigation button", () => {
+    renderLayout();
+    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
+  });
+
+  it("drawer is closed by default (aria-hidden)", () => {
+    renderLayout();
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("clicking open button opens the drawer", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    const openBtn = screen.getByRole("button", { name: "Open navigation" });
+    await user.click(openBtn);
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "false");
+  });
+
+  it("clicking close button closes the drawer", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    await user.click(screen.getByRole("button", { name: "Close navigation" }));
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("clicking backdrop closes the drawer", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    const backdrop = document.querySelector(".admin-nav-drawer__backdrop") as HTMLElement;
+    expect(backdrop).toBeTruthy();
+    await user.click(backdrop);
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("clicking a nav link inside the drawer closes it", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    // Drawer is open — click the Buildings link inside it
+    const drawerLinks = screen.getAllByRole("link", { name: "Buildings" });
+    // The drawer link is the last one (sidebar links appear first in DOM)
+    await user.click(drawerLinks[drawerLinks.length - 1]);
+    const drawer = screen.getByTestId("admin-nav-drawer");
+    expect(drawer).toHaveAttribute("aria-hidden", "true");
   });
 });

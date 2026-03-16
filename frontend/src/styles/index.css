@@ -1182,6 +1182,80 @@ button, input, select, textarea {
   overflow-y: auto;
 }
 
+/* === ADMIN MOBILE NAV DRAWER === */
+.admin-nav-open-btn {
+  display: none;
+}
+.admin-nav-drawer {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .admin-sidebar {
+    display: none;
+  }
+  .admin-nav-open-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 8px 14px;
+    background: var(--navy);
+    color: white;
+    border: none;
+    border-radius: var(--r-md);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .admin-nav-drawer__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 200;
+  }
+  .admin-nav-drawer {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 85vw;
+    max-width: 280px;
+    background: var(--navy);
+    z-index: 201;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .admin-nav-drawer--open {
+    transform: translateX(0);
+  }
+  .admin-nav-drawer__close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: rgba(255,255,255,0.7);
+    line-height: 1;
+    padding: 4px;
+  }
+  .admin-nav-drawer__close:hover {
+    color: white;
+  }
+}
+
+@media (min-width: 641px) {
+  .admin-nav-open-btn,
+  .admin-nav-drawer,
+  .admin-nav-drawer__backdrop {
+    display: none !important;
+  }
+}
+
 /* === STATE MESSAGES === */
 .state-message {
   text-align: center;

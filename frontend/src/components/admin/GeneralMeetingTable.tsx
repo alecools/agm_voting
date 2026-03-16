@@ -36,6 +36,7 @@ export default function GeneralMeetingTable({ meetings, isLoading }: GeneralMeet
   return (
     <div>
       {paginationControls}
+      <div className="admin-table-wrapper">
       <table className="admin-table">
         <thead>
           <tr>
@@ -78,6 +79,7 @@ export default function GeneralMeetingTable({ meetings, isLoading }: GeneralMeet
           )}
         </tbody>
       </table>
+      </div>
       {paginationControls}
     </div>
   );

@@ -40,10 +40,10 @@ describe("AdminRoutes", () => {
   it("renders admin layout with nav when authenticated", async () => {
     renderRoutes("/admin/buildings");
     await waitFor(() => {
-      expect(screen.getByText("Admin Portal")).toBeInTheDocument();
+      expect(screen.getAllByText("Admin Portal").length).toBeGreaterThan(0);
     });
-    expect(screen.getByRole("link", { name: "Buildings" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "General Meetings" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Buildings" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "General Meetings" }).length).toBeGreaterThan(0);
   });
 
   it("renders buildings page on /admin/buildings when authenticated", async () => {
