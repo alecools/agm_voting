@@ -559,6 +559,7 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+            mock_settings.testing_mode = False
             mock_settings.email_override = "override@test.com"
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -586,6 +587,7 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+            mock_settings.testing_mode = False
             mock_settings.email_override = "override@test.com"
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -612,6 +614,7 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+            mock_settings.testing_mode = False
             mock_settings.email_override = ""
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -638,6 +641,7 @@ class TestEmailOverride:
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+            mock_settings.testing_mode = False
             mock_settings.email_override = ""
             mock_settings.smtp_from_email = "noreply@test.com"
             mock_settings.smtp_host = "smtp.test.com"
@@ -654,6 +658,27 @@ class TestEmailOverride:
 
         msg = sent_messages[0]
         assert msg["X-Original-To"] is None
+
+    async def test_send_otp_email_skips_smtp_in_testing_mode(self):
+        """When testing_mode is True, SMTP is not called — OTP is in DB only."""
+        sent_messages = []
+
+        async def mock_send(message, **kwargs):
+            sent_messages.append(message)
+
+        with patch("app.services.email_service.settings") as mock_settings, \
+             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+            mock_settings.testing_mode = True
+
+            from app.services.email_service import send_otp_email
+            await send_otp_email(
+                to_email="real@voter.com",
+                meeting_title="Test Meeting",
+                code="ABCD1234",
+            )
+
+        # No email should have been sent
+        assert len(sent_messages) == 0
 
     async def test_send_report_uses_override_address(self):
         """send_report also uses email_override when set."""
