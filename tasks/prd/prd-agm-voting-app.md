@@ -172,10 +172,12 @@ A web application for body corporates to run voting during Annual General Meetin
 
 - [ ] The auth form shows a single "Email address" field and a "Send Verification Code" button on the first step
 - [ ] Submitting with an empty email shows an inline validation error; the API is not called
-- [ ] `POST /api/auth/request-otp` accepts `{email, general_meeting_id}` and:
+- [ ] `POST /api/auth/request-otp` accepts `{email, general_meeting_id, skip_email?}` and:
   - [ ] Returns 200 `{"sent": true}` if the meeting exists, regardless of whether the email matches any lot owner (user-enumeration protection)
   - [ ] Generates a cryptographically random 6-digit code (`secrets.randbelow(1_000_000)` zero-padded) and stores it in `auth_otps` with `expires_at = now() + 5 minutes`
-  - [ ] Sends an OTP email to the address with subject `"Your AGM Voting Code — {meeting_title}"` containing the code and a note that it expires in 5 minutes
+  - [ ] Sends an OTP email to the address with subject `"Your AGM Voting Code — {meeting_title}"` containing the code and a note that it expires in 5 minutes — unless `skip_email: true` is passed, in which case the OTP is stored but no email is sent (SMTP call is skipped)
+  - [ ] `skip_email` defaults to `false`; the UI never passes this parameter; it is only used by E2E test helpers to avoid sending real emails during automated runs
+  - [ ] If SMTP fails (and `skip_email` is not set), the error is logged but the endpoint still returns 200 (OTP is already in DB; caller can retry)
   - [ ] Deletes any previous OTP rows for the same `(email, meeting_id)` pair before inserting the new one (lazy cleanup)
   - [ ] Returns 404 if `general_meeting_id` does not exist
   - [ ] Returns 422 if the email field is empty or missing

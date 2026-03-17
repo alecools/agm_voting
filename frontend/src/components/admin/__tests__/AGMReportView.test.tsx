@@ -115,6 +115,20 @@ describe("AGMReportView", () => {
     expect(screen.queryByText("First motion description")).not.toBeInTheDocument();
   });
 
+  it("shows General badge for general motion", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    const badge = screen.getByLabelText("Motion type: General");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass("motion-type-badge--general");
+  });
+
+  it("shows Special badge for special motion", () => {
+    render(<AGMReportView motions={[motions[1]]} />);
+    const badge = screen.getByLabelText("Motion type: Special");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass("motion-type-badge--special");
+  });
+
   it("renders export CSV button", () => {
     render(<AGMReportView motions={motions} />);
     expect(screen.getByRole("button", { name: /Export voter lists/ })).toBeInTheDocument();

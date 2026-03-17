@@ -198,6 +198,18 @@ This PRD redesigns authentication to be email-only, moves to per-lot ballot subm
 
 ---
 
+### US-V12: Show motion type indicator on admin results page
+
+**Description:** As a meeting host, I want to see a "General" or "Special" badge on each motion in the admin results/report view so I can easily distinguish motion types when reviewing tallies — consistent with the voter-facing voting page.
+
+**Acceptance Criteria:**
+- [ ] Each motion row in the admin results report (`AGMReportView` component) shows a "General" or "Special" badge next to the motion title, using the same `motion-type-badge` / `motion-type-badge--general` / `motion-type-badge--special` CSS classes as the voter voting page (`MotionCard`)
+- [ ] `motion_type` is already returned in the admin meeting detail API response (`GET /api/admin/general-meetings/{id}`) — no backend changes required
+- [ ] The badge is visible for both open and closed meetings
+- [ ] Typecheck/lint passes
+
+---
+
 ### US-V11: Show emails list on admin lot owner detail page
 
 **Description:** As a meeting host, I want to see all email addresses associated with each lot in the admin portal so I can verify and manage contact details.

@@ -68,6 +68,12 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
             <h3 className="admin-card__title">
               {motion.order_index + 1}. {motion.title}
             </h3>
+            <span
+              className={`motion-type-badge${motion.motion_type === "special" ? " motion-type-badge--special" : " motion-type-badge--general"}`}
+              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
+            >
+              {motion.motion_type === "special" ? "Special" : "General"}
+            </span>
           </div>
           {motion.description && (
             <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem" }}>

@@ -144,6 +144,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - [ ] The new auto-close task (US-CD01) calls the same absent-record generation logic after setting status to `closed`
 - [ ] A lot that already has a `BallotSubmission` is not given a second absent record
 - [ ] After auto-close, `GET /api/admin/general-meetings/:id` tally shows the correct absent count (total lots minus submitted lots)
+- [ ] **Absent count is only computed and shown for closed meetings.** For open or pending meetings the absent count is 0 and is not displayed in the admin tally — absent is undefined until the meeting closes
 - [ ] Typecheck/lint passes
 
 ---
@@ -175,6 +176,24 @@ A set of UI improvements and correctness fixes for the voting application:
 - [ ] The voter-facing building list does not show a "Vote" CTA for meetings that are past their close date
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-DM01: Delete a closed or pending meeting
+
+**Description:** As a building manager, I want to delete a meeting that is in a closed or pending state so I can remove test meetings or incorrectly created meetings without leaving clutter.
+
+**Acceptance Criteria:**
+- [ ] A "Delete Meeting" button is visible on the General Meeting detail page when the meeting status is `closed` or `pending`
+- [ ] The button is not shown for meetings with status `open` — open meetings cannot be deleted
+- [ ] Clicking "Delete Meeting" shows a browser confirmation dialog before proceeding
+- [ ] On confirmation, `DELETE /api/admin/general-meetings/{id}` is called
+  - [ ] Returns 204 on success; the meeting and all associated data (ballot submissions, lot weights, motions, OTP records) are cascade-deleted
+  - [ ] Returns 404 if the meeting does not exist
+  - [ ] Returns 409 if the meeting status is `open`
+- [ ] On successful deletion, the admin is navigated to the General Meetings list page
+- [ ] The button is disabled and shows "Deleting…" while the request is in flight
+- [ ] Typecheck/lint passes
 
 ---
 
