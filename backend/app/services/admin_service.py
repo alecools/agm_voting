@@ -1700,8 +1700,107 @@ def _parse_financial_position_csv_rows(content: bytes) -> list[dict]:
         return _parse_tocs_financial_position_csv_rows(content)
 
 
+def _parse_closing_balance_numeric(val: int | float) -> FinancialPosition:
+    """Classify a numeric closing balance cell value from an xlsx file.
+
+    xlsx files exported from TOCS store Closing Balance as Python int/float, not
+    currency strings.  The rule mirrors _parse_closing_balance for strings:
+
+    - val <= 0  → normal (zero = paid up; negative = credit/overpaid)
+    - val > 0   → in_arrear
+    """
+    return FinancialPosition.in_arrear if val > 0 else FinancialPosition.normal
+
+
+def _parse_tocs_financial_position_excel_rows(all_rows: list[tuple]) -> list[dict]:
+    """Parse a TOCS Lot Positions Report from already-loaded openpyxl rows.
+
+    Mirrors _parse_tocs_financial_position_csv_rows but works on tuples of cell
+    values rather than CSV text rows.  Each tuple element may be None (blank cell).
+
+    The TOCS format has:
+    - Header rows at the top (company name, address, etc.)
+    - Multiple fund sections, each starting with a row whose first non-empty cell is 'Lot#'
+    - 9 columns per section: Lot#, Unit#, Owner Name, Opening Balance, Levied,
+      Special Levy, Paid, Closing Balance, Interest Paid
+    - Totals/Arrears/Advances summary rows at the end of each section
+
+    Closing Balance cells may be numeric (int/float from xlsx) or string-formatted
+    currency (e.g. '$-', '$(190.77)', '$1,882.06' from CSV-sourced xlsx).  Both
+    representations are handled.
+
+    Uses worst-case logic: if a lot is in_arrear in ANY fund section → in_arrear.
+    """
+
+    def _str(val: object) -> str:
+        return str(val).strip() if val is not None else ""
+
+    # Find section header rows (rows whose first non-empty cell is 'lot#')
+    section_starts: list[int] = []
+    for i, row in enumerate(all_rows):
+        first_cell = next((_str(c) for c in row if _str(c)), "")
+        if first_cell.lower() == "lot#":
+            section_starts.append(i)
+
+    result: dict[str, FinancialPosition] = {}
+    _stop_keywords = ("total", "arrear", "advance")
+
+    for header_idx in section_starts:
+        header_row = all_rows[header_idx]
+        # Determine Lot# and Closing Balance column indices from this section header
+        lot_col = 0
+        closing_col = 7
+        for col_i, cell in enumerate(header_row):
+            cell_lower = _str(cell).lower()
+            if cell_lower == "lot#":
+                lot_col = col_i
+            elif cell_lower == "closing balance":
+                closing_col = col_i
+
+        for row in all_rows[header_idx + 1:]:
+            # Blank row → end of section
+            if not any(_str(c) for c in row):
+                break
+
+            first_cell = _str(row[lot_col]) if lot_col < len(row) else ""
+
+            # Summary rows (Totals/Arrears/Advances)
+            if any(kw in first_cell.lower() for kw in _stop_keywords):
+                break
+
+            # Another Lot# header → end of section
+            if first_cell.lower() == "lot#":
+                break
+
+            # Skip rows with empty lot# values
+            if not first_cell:
+                continue
+
+            # Closing Balance may be numeric (xlsx native) or currency string (CSV-style)
+            raw_closing = row[closing_col] if closing_col < len(row) else None
+            if isinstance(raw_closing, (int, float)):
+                position = _parse_closing_balance_numeric(raw_closing)
+            else:
+                position = _parse_closing_balance(_str(raw_closing) if raw_closing is not None else "")
+
+            existing = result.get(first_cell)
+            if existing is None or position == FinancialPosition.in_arrear:
+                result[first_cell] = position
+
+    return [
+        {"lot_number": lot_number, "financial_position_raw": fp.value}
+        for lot_number, fp in result.items()
+    ]
+
+
 def _parse_financial_position_excel_rows(content: bytes) -> list[dict]:
     """Parse Excel bytes into list of {lot_number, financial_position_raw} dicts.
+
+    Auto-detects simple template vs TOCS Lot Positions Report format:
+    - Simple format: first non-empty cell of first row is 'Lot#' AND the row also
+      contains a 'Financial Position' column.
+    - TOCS format: first row contains company/report header text — the Lot# rows
+      appear later as section headers within multiple fund sections.
 
     Raises HTTPException 422 on invalid file or missing headers.
     """
@@ -1711,40 +1810,43 @@ def _parse_financial_position_excel_rows(content: bytes) -> list[dict]:
         raise HTTPException(status_code=422, detail=f"Invalid Excel file: {exc}") from exc
 
     ws = wb.worksheets[0]
-    rows_iter = ws.iter_rows(values_only=True)
+    all_rows = list(ws.iter_rows(values_only=True))
+    wb.close()
 
-    try:
-        header_row = next(rows_iter)
-    except StopIteration:
+    if not all_rows:
         raise HTTPException(status_code=422, detail="Excel file has no headers")
 
-    if header_row is None or all(v is None for v in header_row):  # pragma: no cover
+    first_row = all_rows[0]
+    if first_row is None or all(v is None for v in first_row):  # pragma: no cover
         raise HTTPException(status_code=422, detail="Excel file has no headers")
 
-    headers = [str(h).strip().lower() if h is not None else "" for h in header_row]
+    first_row_headers = [str(h).strip().lower() if h is not None else "" for h in first_row]
+    first_non_empty = next((h for h in first_row_headers if h), "")
 
+    # TOCS format detection: first row's first non-empty cell is NOT 'lot#'
+    if first_non_empty != "lot#":
+        return _parse_tocs_financial_position_excel_rows(all_rows)
+
+    # Simple template format: require both 'lot#' and 'financial position' columns
     required = {"lot#", "financial position"}
-    missing = required - set(headers)
+    missing = required - set(first_row_headers)
     if missing:
         raise HTTPException(
             status_code=422,
             detail=f"Missing required Excel headers: {sorted(missing)}",
         )
 
-    lot_idx = headers.index("lot#")
-    fp_idx = headers.index("financial position")
-
-    data_rows = list(rows_iter)
-    wb.close()
+    lot_idx = first_row_headers.index("lot#")
+    fp_idx = first_row_headers.index("financial position")
 
     rows = []
-    for raw_row in data_rows:
+    for raw_row in all_rows[1:]:
         if all(v is None or str(v).strip() == "" for v in raw_row):
             continue
 
-        def _cell(idx: int) -> str:
-            if idx < len(raw_row) and raw_row[idx] is not None:
-                return str(raw_row[idx]).strip()
+        def _cell(idx: int, row: tuple = raw_row) -> str:
+            if idx < len(row) and row[idx] is not None:
+                return str(row[idx]).strip()
             return ""
 
         rows.append({
