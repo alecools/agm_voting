@@ -22,7 +22,7 @@ describe("MotionExcelUpload", () => {
     renderComponent();
     const link = screen.getByRole("link", { name: "Download template" });
     expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/agm_motions_template.xlsx");
+    expect(link).toHaveAttribute("href", "/agm_motions_template.csv");
     expect(link).toHaveAttribute("download");
   });
 

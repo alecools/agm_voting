@@ -59,7 +59,7 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
           </span>
         )}
         <a
-          href="/agm_motions_template.xlsx"
+          href="/agm_motions_template.csv"
           download
           style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginLeft: "auto" }}
         >
