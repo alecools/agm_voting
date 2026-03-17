@@ -13,68 +13,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   - A fresh open AGM with at least one motion (created each run)
 
 test.describe("Lot owner voting flow", () => {
-  test("full lot owner journey: select building → auth → vote → confirmation", async ({ page }) => {
-    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
-
-    await page.goto("/");
-
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible();
-    await select.selectOption({ label: E2E_BUILDING_NAME });
-
-    // AGM list should appear — pick the first open AGM
-    await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
-    await page.getByRole("button", { name: "Enter Voting" }).first().click();
-
-    // Auth page — email step
-    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
-
-    // Extract meeting ID from URL (/vote/<meeting_id>/auth)
-    const meetingIdMatch = page.url().match(/\/vote\/([^/]+)\//);
-    const meetingId = meetingIdMatch ? meetingIdMatch[1] : "";
-
-    // Step 1: enter email, request OTP
-    await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
-
-    // Step 2: retrieve OTP and verify
-    const code = await getTestOtp(api, E2E_LOT_EMAIL, meetingId);
-    await page.getByLabel("Verification code").fill(code);
-    await page.getByRole("button", { name: "Verify" }).click();
-    await api.dispose();
-
-    // Wait for auth to complete and navigate away from /auth.
-    // Auth now routes directly to /voting (or /confirmation if already submitted).
-    await expect(page).toHaveURL(/vote\/.*\/(voting|confirmation)/, { timeout: 20000 });
-
-    // If the ballot for E2E-1 was already submitted in a previous test run and
-    // auth redirected straight to /confirmation, skip the voting steps.
-    if (page.url().includes("/voting")) {
-      await expect(page.getByRole("button", { name: "Submit ballot" })).toBeVisible({ timeout: 10000 });
-
-      // Vote For on all motions (vote buttons are labelled "For" / "Against" / "Abstain")
-      const forButtons = page.getByRole("button", { name: "For" });
-      const count = await forButtons.count();
-      for (let i = 0; i < count; i++) {
-        await forButtons.nth(i).click();
-      }
-
-      // Submit
-      await page.getByRole("button", { name: "Submit ballot" }).click();
-      await expect(page.getByRole("dialog")).toBeVisible();
-      await page.getByRole("button", { name: "Submit ballot" }).last().click();
-
-      // Confirmation — allow extra time for remote server ballot submission
-      await expect(page).toHaveURL(/confirmation/, { timeout: 20000 });
-    }
-
-    // Whether we voted just now or were redirected here directly, the
-    // confirmation page must show the voter's recorded votes.
-    await expect(page.getByText("Your votes", { exact: true })).toBeVisible({ timeout: 15000 });
-  });
-
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });

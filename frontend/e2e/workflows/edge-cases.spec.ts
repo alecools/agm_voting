@@ -5,9 +5,11 @@
  *   WF8.1 — Re-submission blocked after all lots submitted
  *   WF8.2 — All lots submitted → direct to confirmation from home
  *   WF8.3 — Voting after meeting closes → read-only confirmation with absent ballot
- *   WF8.4 — Wrong credentials → clear error message
  *   WF8.5 — Building dropdown requires selection before meeting list appears
  *   WF8.6 — Pending meeting → "Voting Not Yet Open" disabled, auth redirects home
+ *
+ * WF8.4 (wrong credentials error) was removed — covered more thoroughly by
+ * voting-flow.spec.ts "failed authentication" test.
  *
  * Uses a shared building seeded in beforeAll; each sub-test seeds its own
  * meeting as needed via API to remain independent.
@@ -182,48 +184,6 @@ test.describe("WF8: Edge cases", () => {
     await expect(page.getByRole("button", { name: "Submit ballot" })).not.toBeVisible();
     await expect(page.getByRole("button", { name: "For" })).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Against" })).not.toBeVisible();
-  });
-
-  // ── WF8.4: Wrong credentials → clear error ────────────────────────────────
-  test("WF8.4: wrong credentials show error, URL stays on auth page", async ({ page }) => {
-    test.setTimeout(60000);
-
-    // Create a new open meeting for this test (previous one was closed)
-    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-    });
-    const newMeetingId = await createOpenMeeting(api, buildingId, `WF8 Auth Test Meeting-${RUN_SUFFIX}`, [
-      {
-        title: "WF8.4 Test Motion",
-        description: "A motion for the wrong credentials test.",
-        orderIndex: 1,
-        motionType: "general",
-      },
-    ]);
-    await api.dispose();
-
-    await page.goto(`/vote/${newMeetingId}/auth`);
-    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
-
-    // Step 1: enter unknown email — request-otp always returns 200 (enumeration protection)
-    await page.getByLabel("Email address").fill("nobody@test.com");
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-
-    // Step 2 appears — enter a wrong OTP code
-    await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 10000 });
-    await page.getByLabel("Verification code").fill("BADCODE1");
-    await page.getByRole("button", { name: "Verify" }).click();
-
-    // Error message appears (invalid OTP)
-    await expect(
-      page.getByText("Invalid or expired code. Please try again.")
-    ).toBeVisible({ timeout: 10000 });
-
-    // URL remains on the auth page
-    await expect(page).toHaveURL(/\/auth$/, { timeout: 5000 });
   });
 
   // ── WF8.5: Building dropdown requires selection ────────────────────────────
