@@ -154,6 +154,29 @@ export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {
   voting_closes_at: "2026-12-31T12:00:00Z",
 };
 
+export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-hidden-motion",
+  motions: [
+    {
+      id: "m-hidden",
+      title: "Hidden Motion",
+      description: "Hidden desc",
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
+
 // Keep backward-compatible alias
 export const ADMIN_AGM_DETAIL_CLOSED = ADMIN_MEETING_DETAIL_CLOSED;
 
@@ -372,6 +395,9 @@ export const adminHandlers = [
     if (params.meetingId === "agm-pending") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
     }
+    if (params.meetingId === "agm-hidden-motion") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_HIDDEN_MOTION);
+    }
     return HttpResponse.json(ADMIN_MEETING_DETAIL);
   }),
 
@@ -448,6 +474,52 @@ export const adminHandlers = [
       id: params.motionId as string,
       is_visible: body.is_visible,
     });
+  }),
+
+  // Add motion
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    if (body?.title === "add-fail") {
+      return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
+    }
+    return HttpResponse.json({
+      id: "motion-new",
+      title: body?.title ?? "New Motion",
+      description: body?.description ?? null,
+      order_index: 3,
+      motion_type: body?.motion_type ?? "general",
+      is_visible: false,
+    }, { status: 201 });
+  }),
+
+  // Update motion
+  http.patch(`${BASE}/api/admin/motions/:motionId`, async ({ params, request }) => {
+    if (params.motionId === "motion-visible-edit") {
+      return HttpResponse.json({ detail: "Cannot edit a visible motion. Hide it first." }, { status: 409 });
+    }
+    if (params.motionId === "motion-edit-fail") {
+      return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+    }
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    const motion = ADMIN_MEETING_DETAIL.motions[0];
+    return HttpResponse.json({
+      ...motion,
+      id: params.motionId as string,
+      title: body?.title ?? motion.title,
+      description: body?.description ?? motion.description,
+      motion_type: body?.motion_type ?? motion.motion_type,
+    });
+  }),
+
+  // Delete motion
+  http.delete(`${BASE}/api/admin/motions/:motionId`, ({ params }) => {
+    if (params.motionId === "motion-visible-delete") {
+      return HttpResponse.json({ detail: "Cannot delete a visible motion. Hide it first." }, { status: 409 });
+    }
+    if (params.motionId === "motion-delete-fail") {
+      return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
 ];
 

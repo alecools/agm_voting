@@ -198,6 +198,49 @@ class MotionVisibilityRequest(BaseModel):
     is_visible: bool
 
 
+class MotionVisibilityOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str | None
+    order_index: int
+    motion_type: MotionType
+    is_visible: bool
+
+    model_config = {"from_attributes": True}
+
+
+class MotionAddRequest(BaseModel):
+    title: str
+    description: str | None = None
+    motion_type: MotionType = MotionType.general
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("title must not be empty")
+        return v
+
+
+class MotionUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    motion_type: MotionType | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "MotionUpdateRequest":
+        if self.title is None and self.description is None and self.motion_type is None:
+            raise ValueError("At least one field must be provided")
+        return self
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("title must not be empty")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # General Meeting schemas
 # ---------------------------------------------------------------------------

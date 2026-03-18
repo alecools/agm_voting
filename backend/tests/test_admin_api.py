@@ -5506,3 +5506,497 @@ class TestToggleMotionVisibility:
         assert response.status_code == 200
         motions = response.json()["motions"]
         assert motions[0]["is_visible"] is False
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/general-meetings/{id}/motions
+# PATCH /api/admin/motions/{id}
+# DELETE /api/admin/motions/{id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestMotionManagement:
+    """Tests for add, update, and delete motion endpoints."""
+
+    async def _create_meeting(
+        self,
+        db_session: AsyncSession,
+        label: str,
+        status: GeneralMeetingStatus = GeneralMeetingStatus.open,
+    ) -> GeneralMeeting:
+        b = Building(name=f"MgmtBldg_{label}", manager_email=f"mgmt_{label}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"Mgmt Meeting {label}",
+            status=status,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        return agm
+
+    async def _create_meeting_with_motion(
+        self,
+        db_session: AsyncSession,
+        label: str,
+        status: GeneralMeetingStatus = GeneralMeetingStatus.open,
+        is_visible: bool = False,
+        order_index: int = 0,
+    ) -> tuple[GeneralMeeting, Motion]:
+        agm = await self._create_meeting(db_session, label, status)
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title=f"Motion {label}",
+            description=f"Desc {label}",
+            order_index=order_index,
+            motion_type=MotionType.general,
+            is_visible=is_visible,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+        await db_session.refresh(motion)
+        return agm, motion
+
+    # --- Happy path (add) ---
+
+    async def test_add_motion_to_open_meeting_returns_201(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST adds a motion; returns 201 with is_visible=False and correct fields."""
+        agm = await self._create_meeting(db_session, "AddOpen")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "New Motion", "description": "Some desc", "motion_type": "general"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["title"] == "New Motion"
+        assert data["description"] == "Some desc"
+        assert data["motion_type"] == "general"
+        assert data["is_visible"] is False
+        assert "id" in data
+        assert "order_index" in data
+
+    async def test_add_motion_to_pending_meeting_returns_201(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST to a pending meeting also returns 201."""
+        agm = await self._create_meeting(db_session, "AddPending", GeneralMeetingStatus.pending)
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Pending Motion"},
+        )
+        assert response.status_code == 201
+        assert response.json()["is_visible"] is False
+
+    async def test_add_motion_first_motion_order_index_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """First motion on a meeting with no existing motions gets order_index=0."""
+        agm = await self._create_meeting(db_session, "FirstMotion")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "First"},
+        )
+        assert response.status_code == 201
+        assert response.json()["order_index"] == 0
+
+    async def test_add_motion_order_index_increments(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Second motion gets order_index = max + 1."""
+        agm, _motion = await self._create_meeting_with_motion(db_session, "IncrOrder", order_index=0)
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Second Motion"},
+        )
+        assert response.status_code == 201
+        assert response.json()["order_index"] == 1
+
+    async def test_add_multiple_motions_sequential_order_indexes(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding 3 motions results in order_indexes 0, 1, 2 with no constraint violations."""
+        agm = await self._create_meeting(db_session, "SeqOrder")
+        indexes = []
+        for i in range(3):
+            r = await client.post(
+                f"/api/admin/general-meetings/{agm.id}/motions",
+                json={"title": f"Motion {i}"},
+            )
+            assert r.status_code == 201
+            indexes.append(r.json()["order_index"])
+        assert indexes == [0, 1, 2]
+
+    async def test_add_motion_motion_type_defaults_to_general(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When motion_type is omitted it defaults to 'general'."""
+        agm = await self._create_meeting(db_session, "DefaultType")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Default type motion"},
+        )
+        assert response.status_code == 201
+        assert response.json()["motion_type"] == "general"
+
+    async def test_add_special_motion_returns_special_type(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Specifying motion_type=special returns motion with motion_type='special'."""
+        agm = await self._create_meeting(db_session, "SpecialAdd")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Special", "motion_type": "special"},
+        )
+        assert response.status_code == 201
+        assert response.json()["motion_type"] == "special"
+
+    async def test_add_motion_description_null_when_omitted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Description is null when not provided."""
+        agm = await self._create_meeting(db_session, "NullDesc")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "No Desc"},
+        )
+        assert response.status_code == 201
+        assert response.json()["description"] is None
+
+    async def test_add_motion_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Added motion row appears in DB with correct fields."""
+        agm = await self._create_meeting(db_session, "PersistAdd")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Persist Check"},
+        )
+        assert response.status_code == 201
+        motion_id = uuid.UUID(response.json()["id"])
+        result = await db_session.execute(select(Motion).where(Motion.id == motion_id))
+        motion = result.scalar_one_or_none()
+        assert motion is not None
+        assert motion.title == "Persist Check"
+        assert motion.is_visible is False
+
+    # --- Input validation (add) ---
+
+    async def test_add_motion_missing_title_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Missing title in body returns 422."""
+        agm = await self._create_meeting(db_session, "MissingTitle")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"description": "No title"},
+        )
+        assert response.status_code == 422
+
+    async def test_add_motion_empty_title_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Empty (whitespace-only) title returns 422."""
+        agm = await self._create_meeting(db_session, "EmptyTitle")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "   "},
+        )
+        assert response.status_code == 422
+
+    async def test_add_motion_unknown_motion_type_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Unknown motion_type value returns 422."""
+        agm = await self._create_meeting(db_session, "BadType")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Bad", "motion_type": "invalid"},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors (add) ---
+
+    async def test_add_motion_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding a motion to a closed meeting returns 409."""
+        agm = await self._create_meeting(db_session, "AddClosed", GeneralMeetingStatus.closed)
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Blocked"},
+        )
+        assert response.status_code == 409
+        assert "closed" in response.json()["detail"].lower()
+
+    async def test_add_motion_meeting_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding to a non-existent meeting returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.post(
+            f"/api/admin/general-meetings/{fake_id}/motions",
+            json={"title": "Ghost meeting"},
+        )
+        assert response.status_code == 404
+        assert "General Meeting not found" in response.json()["detail"]
+
+    async def test_add_motion_requires_admin_returns_403(
+        self, db_session: AsyncSession
+    ):
+        """POST without admin auth returns 401."""
+        from app.main import app as fastapi_app
+        agm = await self._create_meeting(db_session, "AddUnauth")
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test"
+        ) as unauthenticated_client:
+            response = await unauthenticated_client.post(
+                f"/api/admin/general-meetings/{agm.id}/motions",
+                json={"title": "Unauth"},
+            )
+            assert response.status_code == 401
+
+    # --- Happy path (update) ---
+
+    async def test_update_motion_all_fields_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with all fields returns 200 and updated values."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "UpdateAll")
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "Updated Title", "description": "Updated Desc", "motion_type": "special"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Updated Title"
+        assert data["description"] == "Updated Desc"
+        assert data["motion_type"] == "special"
+        assert data["is_visible"] is False
+
+    async def test_update_motion_partial_title_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with only title updates title; other fields unchanged."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "PartialTitle")
+        original_type = motion.motion_type
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "New Title Only"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "New Title Only"
+        assert data["motion_type"] == original_type.value if hasattr(original_type, "value") else original_type
+
+    async def test_update_motion_partial_description_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with only description updates description; other fields unchanged."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "PartialDesc")
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"description": "Only desc changed"},
+        )
+        assert response.status_code == 200
+        assert response.json()["description"] == "Only desc changed"
+        assert response.json()["title"] == motion.title
+
+    async def test_update_motion_partial_motion_type_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with only motion_type updates type; other fields unchanged."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "PartialType")
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"motion_type": "special"},
+        )
+        assert response.status_code == 200
+        assert response.json()["motion_type"] == "special"
+        assert response.json()["title"] == motion.title
+
+    async def test_update_motion_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Updated fields are persisted in the DB."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "PersistUpdate")
+        await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "DB Persisted"},
+        )
+        await db_session.refresh(motion)
+        assert motion.title == "DB Persisted"
+
+    # --- Input validation (update) ---
+
+    async def test_update_motion_no_fields_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with empty body returns 422."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "NoFields")
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_update_motion_empty_title_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with empty title returns 422."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "EmptyTitleUpdate")
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "   "},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors (update) ---
+
+    async def test_update_motion_visible_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a visible motion returns 409."""
+        _agm, motion = await self._create_meeting_with_motion(
+            db_session, "UpdateVisible", is_visible=True
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "Try update visible"},
+        )
+        assert response.status_code == 409
+        assert "Cannot edit a visible motion" in response.json()["detail"]
+
+    async def test_update_motion_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a motion in a closed meeting returns 409."""
+        _agm, motion = await self._create_meeting_with_motion(
+            db_session, "UpdateClosed", status=GeneralMeetingStatus.closed, is_visible=False
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}",
+            json={"title": "Try update closed"},
+        )
+        assert response.status_code == 409
+        assert "closed" in response.json()["detail"].lower()
+
+    async def test_update_motion_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on a non-existent motion returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.patch(
+            f"/api/admin/motions/{fake_id}",
+            json={"title": "Ghost"},
+        )
+        assert response.status_code == 404
+        assert "Motion not found" in response.json()["detail"]
+
+    async def test_update_motion_requires_admin_returns_401(
+        self, db_session: AsyncSession
+    ):
+        """PATCH without admin auth returns 401."""
+        from app.main import app as fastapi_app
+        _agm, motion = await self._create_meeting_with_motion(db_session, "UpdateUnauth")
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test"
+        ) as unauthenticated_client:
+            response = await unauthenticated_client.patch(
+                f"/api/admin/motions/{motion.id}",
+                json={"title": "Unauth"},
+            )
+            assert response.status_code == 401
+
+    # --- Happy path (delete) ---
+
+    async def test_delete_motion_returns_204(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a hidden motion returns 204."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "DeleteOK")
+        response = await client.delete(f"/api/admin/motions/{motion.id}")
+        assert response.status_code == 204
+
+    async def test_delete_motion_removes_from_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """After DELETE the motion row is absent from the DB."""
+        _agm, motion = await self._create_meeting_with_motion(db_session, "DeleteDB")
+        motion_id = motion.id
+        await client.delete(f"/api/admin/motions/{motion_id}")
+        result = await db_session.execute(select(Motion).where(Motion.id == motion_id))
+        assert result.scalar_one_or_none() is None
+
+    async def test_delete_motion_other_motions_unaffected(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Deleting one motion does not affect remaining motions (no renumbering)."""
+        agm, motion_a = await self._create_meeting_with_motion(db_session, "DeleteOther", order_index=0)
+        motion_b = Motion(
+            general_meeting_id=agm.id,
+            title="Motion B",
+            order_index=1,
+            is_visible=False,
+        )
+        db_session.add(motion_b)
+        await db_session.commit()
+        await db_session.refresh(motion_b)
+
+        await client.delete(f"/api/admin/motions/{motion_a.id}")
+
+        result = await db_session.execute(select(Motion).where(Motion.id == motion_b.id))
+        surviving = result.scalar_one_or_none()
+        assert surviving is not None
+        assert surviving.order_index == 1  # Not renumbered
+
+    # --- State / precondition errors (delete) ---
+
+    async def test_delete_motion_visible_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a visible motion returns 409."""
+        _agm, motion = await self._create_meeting_with_motion(
+            db_session, "DeleteVisible", is_visible=True
+        )
+        response = await client.delete(f"/api/admin/motions/{motion.id}")
+        assert response.status_code == 409
+        assert "Cannot delete a visible motion" in response.json()["detail"]
+
+    async def test_delete_motion_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a motion in a closed meeting returns 409."""
+        _agm, motion = await self._create_meeting_with_motion(
+            db_session, "DeleteClosed", status=GeneralMeetingStatus.closed, is_visible=False
+        )
+        response = await client.delete(f"/api/admin/motions/{motion.id}")
+        assert response.status_code == 409
+        assert "closed" in response.json()["detail"].lower()
+
+    async def test_delete_motion_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """DELETE on a non-existent motion returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.delete(f"/api/admin/motions/{fake_id}")
+        assert response.status_code == 404
+        assert "Motion not found" in response.json()["detail"]
+
+    async def test_delete_motion_requires_admin_returns_401(
+        self, db_session: AsyncSession
+    ):
+        """DELETE without admin auth returns 401."""
+        from app.main import app as fastapi_app
+        _agm, motion = await self._create_meeting_with_motion(db_session, "DeleteUnauth")
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test"
+        ) as unauthenticated_client:
+            response = await unauthenticated_client.delete(f"/api/admin/motions/{motion.id}")
+            assert response.status_code == 401
