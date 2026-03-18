@@ -37,6 +37,7 @@ from app.models import (
     LotOwner,
     LotProxy,
     Motion,
+    MotionType,
     Vote,
     VoteChoice,
     VoteStatus,
@@ -5110,3 +5111,398 @@ class TestDeleteGeneralMeeting:
             agm = await self._create_meeting(db_session, "DeleteUnauth", GeneralMeetingStatus.closed)
             response = await unauthenticated_client.delete(f"/api/admin/general-meetings/{agm.id}")
             assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/admin/motions/{motion_id}/visibility
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestToggleMotionVisibility:
+    """Tests for the motion visibility toggle endpoint."""
+
+    async def _create_open_meeting_with_motion(
+        self,
+        db_session: AsyncSession,
+        label: str,
+        motion_type: MotionType = MotionType.general,
+        is_visible: bool = True,
+        status: GeneralMeetingStatus = GeneralMeetingStatus.open,
+    ) -> tuple[GeneralMeeting, Motion]:
+        b = Building(name=f"VisBldg_{label}", manager_email=f"vis_{label}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"Vis Meeting {label}",
+            status=status,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title=f"Vis Motion {label}",
+            order_index=1,
+            motion_type=motion_type,
+            is_visible=is_visible,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(motion)
+        return agm, motion
+
+    # --- Happy path ---
+
+    async def test_hide_motion_no_votes_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH is_visible=false on a visible motion with no votes returns 200."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "HideNoVotes", is_visible=True
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(motion.id)
+        assert data["is_visible"] is False
+
+    async def test_show_hidden_motion_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH is_visible=true on a hidden motion returns 200."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "ShowHidden", is_visible=False
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": True},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_visible"] is True
+
+    async def test_toggle_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """After toggling to hidden the DB row reflects is_visible=False."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "PersistDB", is_visible=True
+        )
+        await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        await db_session.refresh(motion)
+        assert motion.is_visible is False
+
+    async def test_toggle_response_includes_tally_structure(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Response includes the expected tally and voter_lists structure."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "TallyStruct", is_visible=True
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "tally" in data
+        assert "voter_lists" in data
+        for cat in ("yes", "no", "abstained", "absent", "not_eligible"):
+            assert cat in data["tally"]
+            assert cat in data["voter_lists"]
+
+    async def test_hide_motion_on_pending_meeting_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Hiding a motion on a pending meeting (not yet open/closed) succeeds."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "PendingHide", is_visible=True, status=GeneralMeetingStatus.pending
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 200
+        assert response.json()["is_visible"] is False
+
+    async def test_hide_motion_with_only_draft_votes_returns_200(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Hiding a motion that only has draft (not submitted) votes succeeds."""
+        b = Building(name="VisBldg_DraftVotes", manager_email="vis_draft@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Vis Meeting DraftVotes",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="DV1", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="Vis Motion DraftVotes",
+            order_index=1,
+            is_visible=True,
+        )
+        db_session.add(motion)
+        await db_session.flush()
+        # Add a draft vote (status != submitted) — should NOT block hiding
+        draft_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motion.id,
+            voter_email="draftvoter@test.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.draft,
+        )
+        db_session.add(draft_vote)
+        await db_session.commit()
+        await db_session.refresh(motion)
+
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 200
+        assert response.json()["is_visible"] is False
+
+    # --- Input validation ---
+
+    async def test_missing_is_visible_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with missing body returns 422."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "MissingBody"
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_invalid_is_visible_type_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH with a dict value for is_visible (non-coercible) returns 422."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "InvalidType"
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": {"nested": "object"}},
+        )
+        assert response.status_code == 422
+
+    # --- State / precondition errors ---
+
+    async def test_hide_motion_with_submitted_votes_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Hiding a motion that has submitted votes returns 409."""
+        b = Building(name="VisBldg_VotedHide", manager_email="vis_voted@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Vis Meeting VotedHide",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="VH1", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="Vis Motion VotedHide",
+            order_index=1,
+            is_visible=True,
+        )
+        db_session.add(motion)
+        await db_session.flush()
+        # Add a submitted vote — should BLOCK hiding
+        submitted_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motion.id,
+            voter_email="voted@test.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(submitted_vote)
+        await db_session.commit()
+        await db_session.refresh(motion)
+
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 409
+        assert "Cannot hide a motion that has received votes" in response.json()["detail"]
+
+    async def test_toggle_on_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Toggling visibility on a closed meeting returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "ClosedToggle", is_visible=True, status=GeneralMeetingStatus.closed
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 409
+        assert "Cannot change visibility on a closed meeting" in response.json()["detail"]
+
+    async def test_show_on_closed_meeting_also_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Showing a hidden motion on a closed meeting also returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "ClosedShow", is_visible=False, status=GeneralMeetingStatus.closed
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": True},
+        )
+        assert response.status_code == 409
+
+    # --- Edge cases ---
+
+    async def test_motion_not_found_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """PATCH on an unknown motion ID returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.patch(
+            f"/api/admin/motions/{fake_id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 404
+        assert "Motion not found" in response.json()["detail"]
+
+    async def test_unauthenticated_returns_401(
+        self, db_session: AsyncSession
+    ):
+        """PATCH without admin credentials returns 401."""
+        from app.main import app as fastapi_app
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "UnauthVis"
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=fastapi_app), base_url="http://test"
+        ) as unauthenticated_client:
+            response = await unauthenticated_client.patch(
+                f"/api/admin/motions/{motion.id}/visibility",
+                json={"is_visible": False},
+            )
+            assert response.status_code == 401
+
+    async def test_toggle_special_motion_returns_correct_motion_type(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Toggling a special motion returns motion_type='special' in response."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "SpecialHide",
+            motion_type=MotionType.special,
+            is_visible=True,
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 200
+        assert response.json()["motion_type"] == "special"
+        assert response.json()["is_visible"] is False
+
+    async def test_show_motion_with_votes_allowed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Showing (is_visible=true) a hidden motion that has votes IS allowed (only hiding is guarded)."""
+        b = Building(name="VisBldg_ShowVoted", manager_email="vis_showvoted@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Vis Meeting ShowVoted",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="SV1", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="Vis Motion ShowVoted",
+            order_index=1,
+            is_visible=False,
+        )
+        db_session.add(motion)
+        await db_session.flush()
+        submitted_vote = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motion.id,
+            voter_email="showvoted@test.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(submitted_vote)
+        await db_session.commit()
+        await db_session.refresh(motion)
+
+        # Showing a hidden-but-voted motion should be allowed
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": True},
+        )
+        assert response.status_code == 200
+        assert response.json()["is_visible"] is True
+
+    async def test_is_visible_field_in_admin_detail_response(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/general-meetings/{id} includes is_visible on each motion."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "DetailVisible", is_visible=True
+        )
+        response = await client.get(f"/api/admin/general-meetings/{_agm.id}")
+        assert response.status_code == 200
+        motions = response.json()["motions"]
+        assert len(motions) == 1
+        assert "is_visible" in motions[0]
+        assert motions[0]["is_visible"] is True
+
+    async def test_is_visible_false_reflected_in_detail(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/general-meetings/{id} reflects is_visible=false for hidden motions."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "DetailHidden", is_visible=False
+        )
+        response = await client.get(f"/api/admin/general-meetings/{_agm.id}")
+        assert response.status_code == 200
+        motions = response.json()["motions"]
+        assert motions[0]["is_visible"] is False

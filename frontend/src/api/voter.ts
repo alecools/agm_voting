@@ -43,6 +43,7 @@ export interface AuthVerifyResponse {
   agm_status: string;
   building_name: string;
   meeting_title: string;
+  unvoted_visible_count: number;
 }
 
 export interface MotionOut {
@@ -51,6 +52,8 @@ export interface MotionOut {
   description: string | null;
   order_index: number;
   motion_type: MotionType;
+  is_visible: boolean;
+  already_voted: boolean;
 }
 
 export interface DraftSaveRequest {

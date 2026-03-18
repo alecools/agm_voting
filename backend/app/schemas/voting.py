@@ -13,6 +13,8 @@ class MotionOut(BaseModel):
     description: Optional[str]
     order_index: int
     motion_type: MotionType
+    is_visible: bool = True
+    already_voted: bool = False
 
     model_config = {"from_attributes": True}
 

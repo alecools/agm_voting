@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getGeneralMeetingDetail, deleteGeneralMeeting } from "../../api/admin";
+import { getGeneralMeetingDetail, deleteGeneralMeeting, toggleMotionVisibility } from "../../api/admin";
 import type { GeneralMeetingDetail } from "../../api/admin";
 import StatusBadge from "../../components/admin/StatusBadge";
 import CloseGeneralMeetingButton from "../../components/admin/CloseGeneralMeetingButton";
@@ -13,6 +14,7 @@ export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
 
   const { data: meeting, isLoading, error } = useQuery<GeneralMeetingDetail>({
     queryKey: ["admin", "general-meetings", meetingId],
@@ -32,6 +34,28 @@ export default function GeneralMeetingDetailPage() {
     mutationFn: () => deleteGeneralMeeting(meetingId!),
     onSuccess: () => {
       navigate("/admin/general-meetings");
+    },
+  });
+
+  const [pendingVisibilityMotionId, setPendingVisibilityMotionId] = useState<string | null>(null);
+
+  const visibilityMutation = useMutation({
+    mutationFn: ({ motionId, isVisible }: { motionId: string; isVisible: boolean }) => {
+      setPendingVisibilityMotionId(motionId);
+      return toggleMotionVisibility(motionId, isVisible);
+    },
+    onSuccess: () => {
+      setPendingVisibilityMotionId(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    },
+    onError: (error: Error, variables) => {
+      setPendingVisibilityMotionId(null);
+      const msg = error.message.includes("409")
+        ? "Cannot hide: motion has received votes"
+        : error.message.includes("Cannot change visibility on a closed meeting")
+        ? "Cannot change visibility on a closed meeting"
+        : "Failed to update visibility";
+      setVisibilityErrors((prev) => ({ ...prev, [variables.motionId]: msg }));
     },
   });
 
@@ -146,6 +170,55 @@ export default function GeneralMeetingDetailPage() {
           onRetrySuccess={handleRetrySuccess}
         />
       )}
+
+      <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motion Visibility</h2>
+      <div className="admin-card" style={{ marginBottom: 24 }}>
+        {meeting.motions.length === 0 ? (
+          <p className="state-message">No motions.</p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {meeting.motions.map((motion) => (
+              <li key={motion.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ flex: 1 }}>
+                  <strong>{motion.order_index + 1}. {motion.title}</strong>
+                  <span
+                    className={`motion-type-badge${motion.motion_type === "special" ? " motion-type-badge--special" : " motion-type-badge--general"}`}
+                    style={{ marginLeft: 8 }}
+                  >
+                    {motion.motion_type === "special" ? "Special" : "General"}
+                  </span>
+                  {!motion.is_visible && (
+                    <span className="motion-type-badge motion-type-badge--hidden" style={{ marginLeft: 8 }} aria-label="Hidden">
+                      Hidden
+                    </span>
+                  )}
+                </span>
+                {visibilityErrors[motion.id] && (
+                  <span style={{ color: "var(--red)", fontSize: "0.875rem" }} role="alert">
+                    {visibilityErrors[motion.id]}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  aria-label={motion.is_visible ? `Hide motion ${motion.order_index + 1}` : `Show motion ${motion.order_index + 1}`}
+                  disabled={meeting.status === "closed" || pendingVisibilityMotionId === motion.id}
+                  onClick={() => {
+                    setVisibilityErrors((prev) => { const next = { ...prev }; delete next[motion.id]; return next; });
+                    visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
+                  }}
+                >
+                  {pendingVisibilityMotionId === motion.id
+                    ? "..."
+                    : motion.is_visible
+                    ? "Hide"
+                    : "Show"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />

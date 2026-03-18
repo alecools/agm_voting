@@ -1,3 +1,21 @@
+> **ORCHESTRATOR MODE — READ FIRST**
+>
+> This session is an **orchestrator**. You must NEVER call tools (Read, Grep, Glob, Bash, Edit, Write, Agent, etc.) directly.
+> Every task — file reads, code changes, test runs, git operations, CI checks — must be delegated to a sub-agent.
+>
+> Workflow for any feature or fix:
+> 1. Spawn `agm-design` agent → updates PRD + writes design doc in `tasks/design/`
+> 2. Spawn `agm-implement` agent (in a worktree) → implements code, runs tests at 100% coverage, commits
+> 3. Grant push slot → spawn `agm-test` agent → pushes branch, waits for Vercel, runs full E2E suite
+> 4. After E2E passes → spawn sub-agent to raise PR and merge into `preview`
+> 5. Spawn `agm-cleanup` agent → removes worktree, Neon branch, Vercel env vars
+>
+> Agent definitions live in `.claude/agents/`. Read `agm-orchestrate.md` for the full coordination protocol.
+>
+> **Violating this rule (e.g. reading a file "just to check") is the most common failure mode. Do not do it.**
+
+---
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -33,12 +51,15 @@ Key decisions that must not be inadvertently reversed:
 
 > See user-level `~/.claude/CLAUDE.md` for: PRD-before-code rule and design-first decomposition process.
 
-Workflow is managed by the project's custom agents in `.claude/agents/`:
-- **`agm-design`** — updates PRD, writes design doc, sketches E2E scenarios
-- **`agm-implement`** — implements feature, writes tests, commits, signals ready
-- **`agm-test`** — pushes branch, runs full E2E suite, reports results
-- **`agm-cleanup`** — removes worktrees, branches, Neon DB branches, test data
-- **`agm-orchestrate`** — coordinates all of the above across one or more branches
+Workflow is managed by the project's custom agents in `.claude/agents/`. The orchestrator spawns agents based on the task:
+
+| Agent | File | Trigger / When to spawn |
+|---|---|---|
+| `agm-orchestrate` | `.claude/agents/agm-orchestrate.md` | User requests a new feature, bug fix, or any multi-step work — this is the entry point; coordinates all other agents and the push slot queue |
+| `agm-design` | `.claude/agents/agm-design.md` | First step of every feature: update or create the PRD, write the technical design doc in `tasks/design/`, sketch E2E scenarios — never writes implementation code |
+| `agm-implement` | `.claude/agents/agm-implement.md` | After design doc is written: implement backend + frontend changes in a worktree, run unit and integration tests at 100% coverage, commit, then signal "Ready for push slot" |
+| `agm-test` | `.claude/agents/agm-test.md` | After implementation is committed and the push slot is granted: push the branch, wait for Vercel deployment, run the full Playwright E2E suite once to completion, report all results, release the slot |
+| `agm-cleanup` | `.claude/agents/agm-cleanup.md` | After a PR merges to `preview`: remove git worktree, delete local and remote branch, delete Neon DB branch (if created), remove Vercel branch-scoped env vars, clean test data from preview DB |
 
 For full workflow details, see `.claude/agents/agm-orchestrate.md`.
 

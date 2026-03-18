@@ -22,6 +22,8 @@ from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
+from app.models.motion import Motion
+from app.models.vote import Vote, VoteStatus
 from app.schemas.auth import (
     AuthVerifyRequest,
     AuthVerifyResponse,
@@ -274,7 +276,38 @@ async def verify_auth(
     # Sort by lot_number for consistent ordering
     lots.sort(key=lambda l: l.lot_number)
 
-    # 10. Create session
+    # 10. Compute unvoted_visible_count
+    visible_motions_result = await db.execute(
+        select(Motion).where(
+            Motion.general_meeting_id == request.general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
+        )
+    )
+    visible_motions = list(visible_motions_result.scalars().all())
+
+    # Get submitted vote motion IDs for this voter across all their lots
+    submitted_votes_result = await db.execute(
+        select(Vote.motion_id).where(
+            Vote.general_meeting_id == request.general_meeting_id,
+            Vote.lot_owner_id.in_(all_lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
+        ).distinct()
+    )
+    submitted_motion_ids = {row[0] for row in submitted_votes_result.all()}
+
+    # remaining_lot_owner_ids_set = lots not yet submitted
+    remaining_lot_owner_ids_set = all_lot_owner_ids - submitted_lot_ids
+
+    if remaining_lot_owner_ids_set:
+        # There are unsubmitted lots — all visible motions are "unvoted" from their perspective
+        unvoted_visible_count = len(visible_motions)
+    else:
+        # All lots submitted — count visible motions not yet voted on by this voter email
+        unvoted_visible_count = sum(
+            1 for m in visible_motions if m.id not in submitted_motion_ids
+        )
+
+    # 11. Create session
     token = await create_session(
         db=db,
         voter_email=request.email,
@@ -298,6 +331,7 @@ async def verify_auth(
         agm_status=get_effective_status(meeting).value,
         building_name=building.name,
         meeting_title=meeting.title,
+        unvoted_visible_count=unvoted_visible_count,
     )
 
 

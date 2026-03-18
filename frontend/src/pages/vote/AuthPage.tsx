@@ -35,7 +35,6 @@ export function AuthPage() {
     onSuccess: (data) => {
       /* c8 ignore next */
       if (!meetingId) return;
-      const allSubmitted = data.lots.length > 0 && data.lots.every((l) => l.already_submitted);
       const pendingLots = data.lots.filter((l) => !l.already_submitted);
       const pendingLotIds = pendingLots.map((l) => l.lot_owner_id);
       // Persist pending lot IDs in sessionStorage so VotingPage can submit on behalf of them
@@ -51,10 +50,19 @@ export function AuthPage() {
         navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });
         return;
       }
-      if (data.agm_status === "closed" || allSubmitted) {
+      if (data.agm_status === "closed") {
         navigate(`/vote/${meetingId}/confirmation`);
-      } else {
+        return;
+      }
+      // Route to voting if there are remaining unsubmitted lots OR unvoted visible motions.
+      // hasRemainingLots guards the case where one lot already voted on all motions but
+      // another lot hasn't submitted yet — the backend sets unvoted_visible_count correctly,
+      // but the frontend double-checks via lot state as a safety net.
+      const hasRemainingLots = data.lots.some((l) => !l.already_submitted);
+      if (hasRemainingLots || data.unvoted_visible_count > 0) {
         navigate(`/vote/${meetingId}/voting`);
+      } else {
+        navigate(`/vote/${meetingId}/confirmation`);
       }
     },
     onError: (error: Error) => {

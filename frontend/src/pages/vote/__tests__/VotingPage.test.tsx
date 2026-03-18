@@ -1182,4 +1182,126 @@ describe("VotingPage", () => {
     expect(document.querySelector(".sidebar-drawer")).not.toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
+
+  // --- No motions state ---
+
+  it("shows no-motions message when server returns empty motions array", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([])
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("no-motions-message")).toBeInTheDocument();
+    });
+  });
+
+  // --- Single-lot submitted View Submission in submit-section ---
+
+  it("single-lot submitted: View Submission shown in submit-section when all motions already_voted", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+        ])
+      )
+    );
+    // Single non-proxy lot already submitted — no sidebar (showSidebar=false)
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }])
+    );
+    renderPage();
+    // View Submission button should appear in submit-section (single-lot, no sidebar)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "View Submission" }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  // --- already_voted + hasUnsubmittedSelected logic ---
+
+  it("already_voted motion is read-only when all selected lots have already submitted", async () => {
+    // Both lots submitted → no unsubmitted selected → motion should be read-only
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // Motion 1 is already_voted and all lots submitted → read-only badge shown
+    expect(screen.getAllByText("Already voted")[0]).toBeInTheDocument();
+    // Motion 2 is not already_voted → no read-only badge
+    const alreadyVotedBadges = screen.queryAllByText("Already voted");
+    expect(alreadyVotedBadges).toHaveLength(1);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("already_voted motion is NOT read-only when some selected lot is unsubmitted", async () => {
+    // Lot-A submitted, Lot-B unsubmitted → hasUnsubmittedSelected=true → motions should be interactive
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // hasUnsubmittedSelected=true (lo2 unsubmitted and selected) → motions not read-only
+    expect(screen.queryByText("Already voted")).not.toBeInTheDocument();
+    // Vote buttons should be enabled (not disabled)
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    expect(forButtons[0]).not.toBeDisabled();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot all-submitted: View Submission not duplicated in submit-section when sidebar present", async () => {
+    // When showSidebar=true (multi-lot), the submit-section should not render a second View Submission button
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    // Exactly one View Submission button (from sidebar only, not duplicated in submit-section)
+    const viewSubmissionButtons = screen.getAllByRole("button", { name: "View Submission" });
+    expect(viewSubmissionButtons).toHaveLength(1);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
 });

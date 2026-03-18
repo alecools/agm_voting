@@ -34,6 +34,8 @@ from app.schemas.admin import (
     LotOwnerImportResult,
     LotOwnerOut,
     LotOwnerUpdate,
+    MotionDetail,
+    MotionVisibilityRequest,
     ProxyImportResult,
     ResendReportOut,
     SetProxyRequest,
@@ -324,6 +326,27 @@ async def remove_lot_owner_proxy(
     """Remove the proxy nomination for a lot owner."""
     owner = await admin_service.remove_lot_owner_proxy(lot_owner_id, db)
     return LotOwnerOut(**owner)
+
+
+# ---------------------------------------------------------------------------
+# Motions
+# ---------------------------------------------------------------------------
+
+
+@router.patch("/motions/{motion_id}/visibility", response_model=MotionDetail)
+async def toggle_motion_visibility_endpoint(
+    motion_id: uuid.UUID,
+    data: MotionVisibilityRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MotionDetail:
+    """Toggle the visibility of a motion. Requires admin auth.
+
+    Returns 200 with updated motion detail on success.
+    Returns 404 if motion not found.
+    Returns 409 if meeting is closed or if hiding a motion that has votes.
+    """
+    result = await admin_service.toggle_motion_visibility(motion_id, data.is_visible, db)
+    return MotionDetail(**result)
 
 
 # ---------------------------------------------------------------------------

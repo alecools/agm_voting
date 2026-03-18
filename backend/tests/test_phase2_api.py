@@ -1517,21 +1517,32 @@ class TestSubmitBallot:
         assert response.status_code == 403
         assert "not started" in response.json()["detail"].lower()
 
-    async def test_submit_already_submitted_returns_409(
+    async def test_submit_already_submitted_reentry_returns_200(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
+        """Re-entry: submitting when BallotSubmission exists is a no-op returning 200."""
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
 
-        # Submit ballot already
+        # Submit ballot and all votes already
         bs = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
         db_session.add(bs)
+        for m in motions:
+            db_session.add(Vote(
+                general_meeting_id=agm.id,
+                motion_id=m.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            ))
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, agm.id)
@@ -1541,7 +1552,11 @@ class TestSubmitBallot:
             json={"lot_owner_ids": [str(lo.id)]},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert response.status_code == 409
+        assert response.status_code == 200
+        data = response.json()
+        assert data["submitted"] is True
+        # All motions were already voted on so no new votes added
+        assert data["lots"][0]["votes"] == []
 
     async def test_no_session_returns_401(
         self, client: AsyncClient, building_with_agm: dict

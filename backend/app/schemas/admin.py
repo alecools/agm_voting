@@ -189,8 +189,13 @@ class MotionOut(BaseModel):
     description: str | None
     order_index: int
     motion_type: MotionType
+    is_visible: bool = True
 
     model_config = {"from_attributes": True}
+
+
+class MotionVisibilityRequest(BaseModel):
+    is_visible: bool
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +287,7 @@ class MotionDetail(BaseModel):
     description: str | None
     order_index: int
     motion_type: MotionType
+    is_visible: bool = True
     tally: MotionTally
     voter_lists: MotionVoterLists
 

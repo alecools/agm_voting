@@ -108,6 +108,7 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       description: "Description 1",
       order_index: 0,
       motion_type: "general" as const,
+      is_visible: true,
       tally: {
         yes: { voter_count: 2, entitlement_sum: 200 },
         no: { voter_count: 1, entitlement_sum: 100 },
@@ -170,6 +171,7 @@ export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
       description: null,
       order_index: 0,
       motion_type: "general" as const,
+      is_visible: true,
     },
   ],
 };
@@ -428,6 +430,25 @@ export const adminHandlers = [
     const result: ResendReportOut = { queued: true };
     return HttpResponse.json(result);
   }),
+
+  http.patch(`${BASE}/api/admin/motions/:motionId/visibility`, async ({ params, request }) => {
+    if (params.motionId === "motion-closed") {
+      return HttpResponse.json({ detail: "Cannot change visibility on a closed meeting" }, { status: 409 });
+    }
+    if (params.motionId === "motion-has-votes") {
+      return HttpResponse.json({ detail: "Cannot hide a motion that has received votes" }, { status: 409 });
+    }
+    if (params.motionId === "motion-notfound") {
+      return HttpResponse.json({ detail: "Motion not found" }, { status: 404 });
+    }
+    const body = await request.json() as { is_visible: boolean };
+    const motion = ADMIN_MEETING_DETAIL.motions[0];
+    return HttpResponse.json({
+      ...motion,
+      id: params.motionId as string,
+      is_visible: body.is_visible,
+    });
+  }),
 ];
 
 export const SUMMARY_AGM_ID = "agm-summary-test-999";
@@ -487,12 +508,16 @@ export const motionFixtures = [
     title: "Motion 1",
     description: "Approve the budget",
     order_index: 0,
+    is_visible: true,
+    already_voted: false,
   },
   {
     id: MOTION_ID_2,
     title: "Motion 2",
     description: null,
     order_index: 1,
+    is_visible: true,
+    already_voted: false,
   },
 ];
 
@@ -551,6 +576,7 @@ export const handlers = [
       agm_status: "open",
       building_name: "Sunset Towers",
       meeting_title: "2024 AGM",
+      unvoted_visible_count: 1,
     })
   ),
 

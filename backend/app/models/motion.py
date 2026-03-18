@@ -1,7 +1,8 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+import sqlalchemy as sa
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -34,6 +35,12 @@ class Motion(Base):
         nullable=False,
         default=MotionType.general,
         server_default="general",
+    )
+    is_visible: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=sa.text("true"),
     )
 
     # Relationships

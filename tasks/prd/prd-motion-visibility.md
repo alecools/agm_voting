@@ -28,7 +28,9 @@ Admins running a General Meeting want to control which motions are visible to vo
 - [ ] Add `is_visible` boolean column to the `motions` table, default `true`
 - [ ] Alembic migration generated and runs cleanly against dev and test DBs
 - [ ] Existing motions default to `is_visible = true` (no behaviour change for existing meetings)
-- [ ] `MotionOut` Pydantic schema includes `is_visible: bool`
+- [ ] `MotionOut` Pydantic schema (voting.py) includes `is_visible: bool`
+- [ ] `MotionOut` Pydantic schema (admin.py) includes `is_visible: bool`
+- [ ] `MotionDetail` Pydantic schema (admin.py) includes `is_visible: bool`
 - [ ] Typecheck/lint passes
 
 ---
@@ -42,8 +44,9 @@ Admins running a General Meeting want to control which motions are visible to vo
 - [ ] Returns 200 with the updated motion object on success
 - [ ] Returns 404 if the motion does not exist
 - [ ] Returns 409 if the meeting is `closed` (toggling is not allowed on closed meetings)
+- [ ] Returns 409 if attempting to set `is_visible=false` on a motion that has received votes (at least one submitted `Vote` record exists for that motion)
 - [ ] Returns 403 if the caller is not an authenticated admin
-- [ ] Integration tests cover: toggle on, toggle off, 404, 409 (closed meeting), 403
+- [ ] Integration tests cover: toggle on, toggle off (no votes), 404, 409 (closed meeting), 409 (has votes), 403
 - [ ] Typecheck/lint passes
 
 ---
@@ -76,6 +79,7 @@ Admins running a General Meeting want to control which motions are visible to vo
 - [ ] A motion that is visible and not yet voted on is shown as a normal votable motion card
 - [ ] "Submit" / "Continue" is enabled when all **currently visible** motions have a selection (previously submitted motions do not need to be re-selected)
 - [ ] If there are no visible motions and no previously submitted motions, the voting page shows a message such as "No motions are available yet. Please check back shortly."
+- [ ] No hint text is shown to voters about how many total motions exist or whether more will be revealed — newly revealed motions simply appear on the next page refresh
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
@@ -87,7 +91,8 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 **Acceptance Criteria:**
 - [ ] A voter who has a `BallotSubmission` record for the meeting can still access the voting page if there are visible motions they have not yet voted on
-- [ ] The `POST /api/auth/verify` response does NOT return `agm_status: "already_submitted"` / redirect to confirmation if there are unvoted visible motions — it allows re-entry to the voting page
+- [ ] The `POST /api/auth/verify` response includes `unvoted_visible_count: int` — the count of currently visible motions that the voter (across all their lots) has not yet submitted a vote for
+- [ ] If `unvoted_visible_count > 0`, the frontend routes to the voting page, not confirmation, even if the voter has existing submissions
 - [ ] The voter can submit a vote for the newly visible motion without affecting their previous vote records
 - [ ] After submitting the new motion's vote, if all visible motions are now voted on, the voter is navigated to the confirmation/summary page
 - [ ] The backend records the new vote under the same `BallotSubmission` (or creates a new one per the existing model) without duplicating or overwriting existing vote records
@@ -127,9 +132,9 @@ Admins running a General Meeting want to control which motions are visible to vo
 ## Functional Requirements
 
 - FR-1: `motions` table has an `is_visible` boolean column, default `true`
-- FR-2: `PATCH /api/admin/motions/{motion_id}/visibility` toggles visibility; forbidden on closed meetings
+- FR-2: `PATCH /api/admin/motions/{motion_id}/visibility` toggles visibility; forbidden on closed meetings; also returns 409 if attempting to hide a motion that has received votes (at least one submitted Vote record exists for that motion)
 - FR-3: Admin meeting detail page shows a visibility toggle per motion; hidden motions are visually distinguished
-- FR-4: Voter voting page shows only visible motions plus previously-voted motions (read-only)
+- FR-4: Voter voting page shows only visible motions plus previously-voted motions (read-only); server-side filtering ensures hidden motion titles are never sent to the browser for unvoted motions
 - FR-5: Voting completion is determined by whether all currently visible motions have a submitted vote — previously submitted votes on hidden motions count toward completion
 - FR-6: A voter with a prior `BallotSubmission` is allowed re-entry to the voting page if there are visible motions they have not voted on
 - FR-7: Re-entered vote is appended to the existing submission; no prior vote records are modified
@@ -144,7 +149,7 @@ Admins running a General Meeting want to control which motions are visible to vo
 - No real-time push to voter screens — a page refresh is the required mechanism for voters to see newly revealed motions
 - No per-voter visibility control — visibility is global for all voters in a meeting
 - No scheduling or time-based auto-reveal of motions
-- No ability to hide a motion after votes have been cast on it (attempting to do so should be blocked with a 409 and a clear error message — or allowed with a warning, per open questions)
+- No "more motions coming" hint text shown to voters — newly revealed motions appear silently on next refresh
 - No change to how the meeting close logic assigns absent votes — absent logic is unchanged
 
 ---
@@ -154,7 +159,7 @@ Admins running a General Meeting want to control which motions are visible to vo
 - **Re-entry guard (`POST /api/auth/verify`):** Currently returns `agm_status` to tell the frontend whether to redirect to confirmation. This logic must be updated: a voter is only "done" if every visible motion has a submitted vote. The endpoint should compute `unvoted_visible_count` and return it so the frontend can decide whether to go to voting or confirmation.
 - **Vote deduplication:** The backend must guard against a voter submitting a second vote for the same motion (which could happen if the voter manipulates state). Return 409 if a vote for `(ballot_submission_id, motion_id)` already exists.
 - **Tally impact:** Hidden motions still accumulate votes normally; the tally displayed in the admin view must include them. The auto-close absent logic runs over all motions (visible or not) at meeting close — this is unchanged.
-- **`MotionOut` schema:** Add `is_visible: bool` field. The voter-facing motions list endpoint should filter server-side, not client-side, to avoid leaking hidden motion titles to the browser.
+- **`MotionOut` schema:** Add `is_visible: bool` field. The voter-facing motions list endpoint should filter server-side, not client-side, to avoid leaking hidden motion titles to the browser. Exception: motions the voter has already submitted a vote for are always returned even if hidden, so the voter can see their submitted vote as read-only.
 
 ---
 
@@ -168,5 +173,8 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 ## Open Questions
 
-1. Should an admin be able to hide a motion that already has votes cast on it? If yes, those votes persist but are excluded from the visible tally until the motion is re-shown. If no, the API should return 409 with "Cannot hide a motion that has received votes." — **needs decision before implementation.**
-2. Should the voter voting page show a count or hint like "X of Y motions available" so voters know more motions may be revealed later, or is silent phased reveal the intended UX?
+All open questions resolved:
+
+1. **Should an admin be able to hide a motion that already has votes?** — **Resolved: 1A (Block).** An admin cannot hide a motion that already has votes. The `PATCH /api/admin/motions/{id}/visibility` endpoint returns 409 with "Cannot hide a motion that has received votes" if any submitted `Vote` records exist for that motion.
+
+2. **Should the voter voting page show a hint like "X of Y motions available"?** — **Resolved: 2A (Silent).** No hint text is shown to voters. Newly revealed motions just appear on the next page refresh with no messaging.

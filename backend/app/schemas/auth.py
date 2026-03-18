@@ -55,3 +55,4 @@ class AuthVerifyResponse(BaseModel):
     agm_status: str
     building_name: str
     meeting_title: str
+    unvoted_visible_count: int = 0

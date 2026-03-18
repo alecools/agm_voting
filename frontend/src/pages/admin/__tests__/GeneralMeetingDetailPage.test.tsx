@@ -169,7 +169,8 @@ describe("GeneralMeetingDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Results Report")).toBeInTheDocument();
     });
-    expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
+    // Motion 1 appears in both the Motion Visibility section and the Results Report section
+    expect(screen.getAllByText(/Motion 1/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows 'Voting link' section label on the meeting detail page", async () => {

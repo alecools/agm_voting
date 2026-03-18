@@ -32,6 +32,7 @@ export interface MotionOut {
   description: string | null;
   order_index: number;
   motion_type: MotionType;
+  is_visible: boolean;
 }
 
 export interface GeneralMeetingOut {
@@ -88,6 +89,7 @@ export interface MotionDetail {
   description: string | null;
   order_index: number;
   motion_type: MotionType;
+  is_visible: boolean;
   tally: MotionTally;
   voter_lists: MotionVoterLists;
 }
@@ -444,4 +446,15 @@ export async function deleteBuilding(buildingId: string): Promise<void> {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
+}
+
+export async function toggleMotionVisibility(
+  motionId: string,
+  isVisible: boolean,
+): Promise<MotionDetail> {
+  return apiFetch<MotionDetail>(`/api/admin/motions/${motionId}/visibility`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_visible: isVisible }),
+  });
 }
