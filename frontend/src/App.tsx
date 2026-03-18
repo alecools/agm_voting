@@ -1,4 +1,6 @@
 import { Routes, Route } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { BuildingSelectPage } from "./pages/vote/BuildingSelectPage";
 import { AuthPage } from "./pages/vote/AuthPage";
 import { VotingPage } from "./pages/vote/VotingPage";
@@ -9,20 +11,24 @@ import GeneralMeetingSummaryPage from "./pages/GeneralMeetingSummaryPage";
 
 export default function App() {
   return (
-    <Routes>
-      {/* Lot owner voting routes — wrapped in shared header shell */}
-      <Route element={<VoterShell />}>
-        <Route path="/" element={<BuildingSelectPage />} />
-        <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
-<Route path="/vote/:meetingId/voting" element={<VotingPage />} />
-        <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
-      </Route>
+    <>
+      <Routes>
+        {/* Lot owner voting routes — wrapped in shared header shell */}
+        <Route element={<VoterShell />}>
+          <Route path="/" element={<BuildingSelectPage />} />
+          <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
+          <Route path="/vote/:meetingId/voting" element={<VotingPage />} />
+          <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
+        </Route>
 
-      {/* Public General Meeting summary page */}
-      <Route path="/general-meeting/:meetingId/summary" element={<GeneralMeetingSummaryPage />} />
+        {/* Public General Meeting summary page */}
+        <Route path="/general-meeting/:meetingId/summary" element={<GeneralMeetingSummaryPage />} />
 
-      {/* Admin routes */}
-      <Route path="/admin/*" element={<AdminRoutes />} />
-    </Routes>
+        {/* Admin routes */}
+        <Route path="/admin/*" element={<AdminRoutes />} />
+      </Routes>
+      <Analytics />
+      <SpeedInsights />
+    </>
   );
 }
