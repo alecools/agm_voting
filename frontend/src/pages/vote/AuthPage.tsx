@@ -54,9 +54,12 @@ export function AuthPage() {
         navigate(`/vote/${meetingId}/confirmation`);
         return;
       }
-      // Use unvoted_visible_count as the authoritative signal for re-entry routing:
-      // if there are visible motions the voter hasn't voted on yet, go to voting page.
-      if (data.unvoted_visible_count > 0) {
+      // Route to voting if there are remaining unsubmitted lots OR unvoted visible motions.
+      // hasRemainingLots guards the case where one lot already voted on all motions but
+      // another lot hasn't submitted yet — the backend sets unvoted_visible_count correctly,
+      // but the frontend double-checks via lot state as a safety net.
+      const hasRemainingLots = data.lots.some((l) => !l.already_submitted);
+      if (hasRemainingLots || data.unvoted_visible_count > 0) {
         navigate(`/vote/${meetingId}/voting`);
       } else {
         navigate(`/vote/${meetingId}/confirmation`);

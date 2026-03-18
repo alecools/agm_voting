@@ -91,7 +91,7 @@ describe("AuthPage", () => {
     });
   });
 
-  it("navigates to confirmation when all lots already_submitted=true", async () => {
+  it("navigates to confirmation when all lots already_submitted=true and unvoted_visible_count=0", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () =>
         HttpResponse.json({
@@ -100,6 +100,7 @@ describe("AuthPage", () => {
           agm_status: "open",
           building_name: "Sunset Towers",
           meeting_title: "2024 AGM",
+          unvoted_visible_count: 0,
         })
       )
     );
@@ -108,6 +109,33 @@ describe("AuthPage", () => {
     await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+  });
+
+  it("navigates to voting when hasRemainingLots is true even if unvoted_visible_count=0", async () => {
+    // Simulates multi-lot voter where one lot already submitted all votes (so backend returns
+    // unvoted_visible_count=0 for the submitted lot's motions), but another lot is still pending.
+    // The frontend hasRemainingLots guard must catch this and route to voting.
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        HttpResponse.json({
+          lots: [
+            { lot_owner_id: "lo1", lot_number: "A", financial_position: "normal", already_submitted: true, is_proxy: false },
+            { lot_owner_id: "lo2", lot_number: "B", financial_position: "normal", already_submitted: false, is_proxy: false },
+          ],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 0,
+        })
+      )
+    );
+    mockNavigate.mockClear();
+    renderPage();
+    await fillAndSubmit("owner@example.com");
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
   });
 

@@ -595,6 +595,150 @@ class TestAuthVerify:
 
         assert response.status_code == 401
 
+    # --- unvoted_visible_count ---
+
+    async def test_unvoted_visible_count_zero_when_no_motions(self, transport, db_session: AsyncSession):
+        """No motions → unvoted_visible_count = 0."""
+        b = make_building("UVC Zero Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="UVC0")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "uvc0@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        code = await make_otp(db_session, "uvc0@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "uvc0@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+        assert r.status_code == 200
+        assert r.json()["unvoted_visible_count"] == 0
+
+    async def test_unvoted_visible_count_equals_visible_motion_count_when_not_submitted(self, transport, db_session: AsyncSession):
+        """All lots unsubmitted → unvoted_visible_count = number of visible motions."""
+        b = make_building("UVC Unsubmitted Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="UVC1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "uvc1@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=2, is_visible=True)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Hidden Motion", order_index=3, is_visible=False)
+        db_session.add_all([m1, m2, m_hidden])
+        code = await make_otp(db_session, "uvc1@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "uvc1@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+        assert r.status_code == 200
+        # Only 2 visible motions; hidden one excluded
+        assert r.json()["unvoted_visible_count"] == 2
+
+    async def test_unvoted_visible_count_zero_when_all_lots_submitted_and_all_motions_voted(self, transport, db_session: AsyncSession):
+        """All lots submitted and all visible motions voted → unvoted_visible_count = 0."""
+        b = make_building("UVC All Done Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="UVC2")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "uvc2@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(general_meeting_id=agm.id, title="Motion C", order_index=1, is_visible=True)
+        db_session.add(m)
+        await db_session.flush()
+        # Submit a ballot for the lot
+        sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="uvc2@auth.com")
+        db_session.add(sub)
+        # Add submitted vote for the motion
+        v = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m.id,
+            voter_email="uvc2@auth.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(v)
+        code = await make_otp(db_session, "uvc2@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "uvc2@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+        assert r.status_code == 200
+        assert r.json()["unvoted_visible_count"] == 0
+
+    async def test_unvoted_visible_count_full_when_one_lot_unsubmitted_even_if_other_voted_all(self, transport, db_session: AsyncSession):
+        """Multi-lot voter: lot-A submitted all votes, lot-B unsubmitted → unvoted_visible_count = total visible motions."""
+        b = make_building("UVC Multi Partial Building")
+        db_session.add(b)
+        await db_session.flush()
+        lo_a = make_lot_owner(b, lot_number="UVCA")
+        lo_b = make_lot_owner(b, lot_number="UVCB")
+        db_session.add_all([lo_a, lo_b])
+        await db_session.flush()
+        await add_email(db_session, lo_a, "uvcmulti@auth.com")
+        await add_email(db_session, lo_b, "uvcmulti@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+        m1 = Motion(general_meeting_id=agm.id, title="Motion X", order_index=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion Y", order_index=2, is_visible=True)
+        db_session.add_all([m1, m2])
+        await db_session.flush()
+        # lo_a has submitted a ballot and voted on both motions
+        sub_a = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo_a.id, voter_email="uvcmulti@auth.com")
+        db_session.add(sub_a)
+        v1 = Vote(
+            general_meeting_id=agm.id, motion_id=m1.id, voter_email="uvcmulti@auth.com",
+            lot_owner_id=lo_a.id, choice=VoteChoice.yes, status=VoteStatus.submitted,
+        )
+        v2 = Vote(
+            general_meeting_id=agm.id, motion_id=m2.id, voter_email="uvcmulti@auth.com",
+            lot_owner_id=lo_a.id, choice=VoteChoice.no, status=VoteStatus.submitted,
+        )
+        db_session.add_all([v1, v2])
+        # lo_b has NOT submitted — no BallotSubmission, no Votes
+        code = await make_otp(db_session, "uvcmulti@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "uvcmulti@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+        assert r.status_code == 200
+        data = r.json()
+        # lo_b is still pending → unvoted_visible_count = total visible motions (2)
+        assert data["unvoted_visible_count"] == 2
+        # Confirm lo_a is already_submitted, lo_b is not
+        lots_by_number = {lot["lot_number"]: lot for lot in data["lots"]}
+        assert lots_by_number["UVCA"]["already_submitted"] is True
+        assert lots_by_number["UVCB"]["already_submitted"] is False
+
     # --- Edge cases ---
 
     async def test_multi_lot_owner_same_email_returns_multiple_lots(self, transport, db_session: AsyncSession):

@@ -295,9 +295,17 @@ async def verify_auth(
     )
     submitted_motion_ids = {row[0] for row in submitted_votes_result.all()}
 
-    unvoted_visible_count = sum(
-        1 for m in visible_motions if m.id not in submitted_motion_ids
-    )
+    # remaining_lot_owner_ids_set = lots not yet submitted
+    remaining_lot_owner_ids_set = all_lot_owner_ids - submitted_lot_ids
+
+    if remaining_lot_owner_ids_set:
+        # There are unsubmitted lots — all visible motions are "unvoted" from their perspective
+        unvoted_visible_count = len(visible_motions)
+    else:
+        # All lots submitted — count visible motions not yet voted on by this voter email
+        unvoted_visible_count = sum(
+            1 for m in visible_motions if m.id not in submitted_motion_ids
+        )
 
     # 11. Create session
     token = await create_session(
