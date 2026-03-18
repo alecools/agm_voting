@@ -149,6 +149,14 @@ async def update_building(
     return BuildingOut.model_validate(building)
 
 
+@router.delete("/buildings/{building_id}", status_code=204)
+async def delete_building(
+    building_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await admin_service.delete_building(building_id, db)
+
+
 # ---------------------------------------------------------------------------
 # Lot owners
 # ---------------------------------------------------------------------------

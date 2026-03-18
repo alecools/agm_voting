@@ -3477,6 +3477,78 @@ class TestUpdateBuilding:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/admin/buildings/{id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteBuilding:
+    # --- Happy path ---
+
+    async def test_delete_archived_building_returns_204(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Delete Me Building", manager_email="deleteme@test.com")
+        b.is_archived = True
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/buildings/{b.id}")
+        assert response.status_code == 204
+
+    async def test_delete_archived_building_removes_from_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Delete From DB Building", manager_email="deletedb@test.com")
+        b.is_archived = True
+        db_session.add(b)
+        await db_session.commit()
+        building_id = b.id
+
+        await client.delete(f"/api/admin/buildings/{building_id}")
+
+        result = await db_session.execute(select(Building).where(Building.id == building_id))
+        assert result.scalar_one_or_none() is None
+
+    async def test_delete_archived_building_cascades_lot_owners(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Delete Cascade Building", manager_email="cascade@test.com")
+        b.is_archived = True
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="C1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        lot_owner_id = lo.id
+
+        await client.delete(f"/api/admin/buildings/{b.id}")
+
+        result = await db_session.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
+        assert result.scalar_one_or_none() is None
+
+    # --- State / precondition errors ---
+
+    async def test_delete_active_building_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Active Do Not Delete", manager_email="active@test.com")
+        b.is_archived = False
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/buildings/{b.id}")
+        assert response.status_code == 409
+        assert "archived" in response.json()["detail"].lower()
+
+    async def test_delete_nonexistent_building_returns_404(
+        self, client: AsyncClient
+    ):
+        response = await client.delete(f"/api/admin/buildings/{uuid.uuid4()}")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Admin auth endpoints
 # ---------------------------------------------------------------------------
 

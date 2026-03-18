@@ -397,6 +397,20 @@ export const adminHandlers = [
     return HttpResponse.json(result);
   }),
 
+  http.delete(`${BASE}/api/admin/buildings/:buildingId`, ({ params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    if (!building.is_archived) {
+      return HttpResponse.json(
+        { detail: "Only archived buildings can be deleted" },
+        { status: 409 }
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.delete(`${BASE}/api/admin/general-meetings/:meetingId`, ({ params }) => {
     if (params.meetingId === "agm1") {
       return HttpResponse.json({ detail: "Cannot delete an open General Meeting" }, { status: 409 });

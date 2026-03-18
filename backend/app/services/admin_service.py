@@ -305,6 +305,18 @@ async def update_building(
     return building
 
 
+async def delete_building(building_id: uuid.UUID, db: AsyncSession) -> None:
+    """Permanently delete an archived building and all its cascade data."""
+    building = await get_building_or_404(building_id, db)
+    if not building.is_archived:
+        raise HTTPException(
+            status_code=409,
+            detail="Only archived buildings can be deleted",
+        )
+    await db.delete(building)
+    await db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Lot owners
 # ---------------------------------------------------------------------------

@@ -432,3 +432,16 @@ export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to delete meeting: ${res.status}`);
 }
+
+export async function deleteBuilding(buildingId: string): Promise<void> {
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+  const res = await fetch(`${BASE_URL}/api/admin/buildings/${buildingId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+}
