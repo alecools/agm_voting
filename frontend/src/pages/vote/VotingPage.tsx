@@ -203,8 +203,15 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  // Already-voted motions are read-only — only count unvoted visible motions for progress
-  const unvotedMotions = motions ? motions.filter((m) => !m.already_voted) : [];
+  // A motion is read-only only when the voter has already voted on it AND there are no
+  // currently-selected lots that still need to submit.  If any selected lot is unsubmitted,
+  // the voter can still cast votes for those lots on all motions.
+  const hasUnsubmittedSelected = selectedLots.some((l) => !l.already_submitted);
+  const isMotionReadOnly = (m: { already_voted: boolean }) =>
+    m.already_voted && !hasUnsubmittedSelected;
+
+  // Only count motions the voter can still interact with towards the progress bar.
+  const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
   const answeredCount = unvotedMotions.filter((m) => !!choices[m.id]).length;
 
   const unansweredMotions = unvotedMotions.filter((m) => !choices[m.id]);
@@ -496,11 +503,11 @@ export function VotingPage() {
                       choice={choices[motion.id] ?? null}
                       onChoiceChange={handleChoiceChange}
                       disabled={isClosed}
-                      highlight={highlightUnanswered && !motion.already_voted && !choices[motion.id]}
-                      readOnly={motion.already_voted}
+                      highlight={highlightUnanswered && !isMotionReadOnly(motion) && !choices[motion.id]}
+                      readOnly={isMotionReadOnly(motion)}
                     />
                   ))}
-                  {unvotedMotions.length === 0 && !isClosed && (
+                  {unvotedMotions.length === 0 && !isClosed && !showSidebar && (
                     <div className="submit-section">
                       <button type="button" className="btn btn--primary" onClick={handleViewSubmission}>
                         View Submission
