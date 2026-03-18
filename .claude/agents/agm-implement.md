@@ -72,6 +72,10 @@ Report:
 
 Do NOT push. Do NOT open a PR. Wait for the orchestrator to grant the push slot.
 
+## Frontend Style Consistency
+
+Before writing any frontend component or editing existing ones, read `tasks/design/design-system.md` to understand the established design patterns. All new UI must use the documented CSS classes — never use `form-group`, `form-control`, inline style props for colors or spacing, or Bootstrap/Tailwind class names. Run `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` after completing frontend changes to verify no legacy classes were introduced.
+
 ## Testing standards
 
 ### Backend tests
