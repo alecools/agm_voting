@@ -217,6 +217,72 @@ describe("ConfirmationPage", () => {
     });
   });
 
+  it("does not show 'Vote for remaining lots' button when remaining_lot_owner_ids is empty", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /vote for remaining lots/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Vote for remaining lots' button when remaining_lot_owner_ids is non-empty", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "owner@example.com",
+          meeting_title: "2024 AGM",
+          building_name: "Sunset Towers",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: ["lo2", "lo3"],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /vote for remaining lots/i })).toBeInTheDocument();
+    });
+  });
+
+  it("clicking 'Vote for remaining lots' writes remaining IDs to sessionStorage and navigates to voting", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "owner@example.com",
+          meeting_title: "2024 AGM",
+          building_name: "Sunset Towers",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: ["lo2", "lo3"],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /vote for remaining lots/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /vote for remaining lots/i }));
+    expect(sessionStorage.getItem(`meeting_lots_${AGM_ID}`)).toBe(JSON.stringify(["lo2", "lo3"]));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+  });
+
   it("shows 'Not eligible' label for not_eligible votes in multi-lot ballot", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
