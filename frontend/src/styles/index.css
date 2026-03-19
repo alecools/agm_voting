@@ -1377,6 +1377,43 @@ button, input, select, textarea {
   box-shadow: 0 3px 12px rgba(163,34,14,.25);
 }
 
+/* Small size modifier */
+.btn--sm {
+  padding: 5px 14px;
+  font-size: 0.78rem;
+}
+
+/* Table action buttons — solid fills so enabled/disabled contrast is obvious */
+.btn--table-edit {
+  background: var(--navy);
+  color: var(--gold-light);
+  border-color: var(--navy);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.btn--table-edit:hover:not(:disabled) {
+  background: #1a2f4a;
+  border-color: #1a2f4a;
+  box-shadow: 0 2px 8px rgba(12,27,46,.25);
+}
+
+.btn--table-delete {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.btn--table-delete:hover:not(:disabled) {
+  background: #7a1a0b;
+  border-color: #7a1a0b;
+  box-shadow: 0 2px 8px rgba(163,34,14,.3);
+}
+
 /* === ADMIN TABLE === */
 .admin-table {
   width: 100%;
