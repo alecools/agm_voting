@@ -316,7 +316,7 @@ export default function GeneralMeetingDetailPage() {
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motion Visibility</h2>
       <div style={{ marginBottom: 24 }}>
         {meeting.status !== "closed" && (
-          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
             <button
               type="button"
               className="btn btn--primary"
@@ -324,22 +324,24 @@ export default function GeneralMeetingDetailPage() {
             >
               Add Motion
             </button>
-            <button
-              type="button"
-              className="btn btn--secondary btn--sm"
-              disabled={isBulkLoading || meeting.motions.every((m) => m.is_visible)}
-              onClick={() => void handleShowAll()}
-            >
-              {isBulkLoading ? "Working…" : "Show All"}
-            </button>
-            <button
-              type="button"
-              className="btn btn--secondary btn--sm"
-              disabled={isBulkLoading || meeting.motions.every((m) => !m.is_visible) || meeting.motions.filter((m) => m.is_visible).length === 0}
-              onClick={() => void handleHideAll()}
-            >
-              {isBulkLoading ? "Working…" : "Hide All"}
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={isBulkLoading || meeting.motions.every((m) => m.is_visible)}
+                onClick={() => void handleShowAll()}
+              >
+                {isBulkLoading ? "Working…" : "Show All"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={isBulkLoading || meeting.motions.every((m) => !m.is_visible) || meeting.motions.filter((m) => m.is_visible).length === 0}
+                onClick={() => void handleHideAll()}
+              >
+                {isBulkLoading ? "Working…" : "Hide All"}
+              </button>
+            </div>
           </div>
         )}
         {meeting.motions.length === 0 ? (
