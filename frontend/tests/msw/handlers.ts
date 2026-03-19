@@ -180,6 +180,84 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
 // Keep backward-compatible alias
 export const ADMIN_AGM_DETAIL_CLOSED = ADMIN_MEETING_DETAIL_CLOSED;
 
+export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-mixed",
+  motions: [
+    {
+      id: "m-visible-1",
+      title: "Visible Motion 1",
+      description: null,
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: true,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+    {
+      id: "m-hidden-1",
+      title: "Hidden Motion 1",
+      description: null,
+      order_index: 1,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+    {
+      id: "m-hidden-2",
+      title: "Hidden Motion 2",
+      description: null,
+      order_index: 2,
+      motion_type: "special" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
+
+export const ADMIN_MEETING_DETAIL_ALL_HIDDEN: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-all-hidden",
+  motions: [
+    {
+      id: "m-only-hidden",
+      title: "Only Hidden Motion",
+      description: null,
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
+
 export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
   id: "agm-new",
   building_id: "b1",
@@ -397,6 +475,12 @@ export const adminHandlers = [
     }
     if (params.meetingId === "agm-hidden-motion") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_HIDDEN_MOTION);
+    }
+    if (params.meetingId === "agm-mixed") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_MIXED_VISIBILITY);
+    }
+    if (params.meetingId === "agm-all-hidden") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_ALL_HIDDEN);
     }
     return HttpResponse.json(ADMIN_MEETING_DETAIL);
   }),

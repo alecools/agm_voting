@@ -10,6 +10,8 @@ import {
   ADMIN_MEETING_DETAIL,
   ADMIN_MEETING_DETAIL_CLOSED,
   ADMIN_MEETING_DETAIL_HIDDEN_MOTION,
+  ADMIN_MEETING_DETAIL_MIXED_VISIBILITY,
+  ADMIN_MEETING_DETAIL_ALL_HIDDEN,
 } from "../../../../tests/msw/handlers";
 
 const mockNavigate = vi.fn();
@@ -1121,5 +1123,244 @@ describe("Delete motion", () => {
     // No alert shown (no API error), form still shows delete button enabled
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bulk motion visibility — Show All / Hide All
+// ---------------------------------------------------------------------------
+
+describe("Bulk motion visibility", () => {
+  function renderPage(meetingId: string) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
+          <Routes>
+            <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  // --- Happy path ---
+
+  it("Show All calls toggleMotionVisibility for each hidden motion", async () => {
+    // agm-mixed has 1 visible + 2 hidden motions
+    const patchedIds: string[] = [];
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+        const body = await request.json() as { is_visible: boolean };
+        if (body.is_visible) patchedIds.push(params.motionId as string);
+        return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Show All" }));
+    await waitFor(() => {
+      expect(patchedIds).toHaveLength(2);
+    });
+    expect(patchedIds).toContain("m-hidden-1");
+    expect(patchedIds).toContain("m-hidden-2");
+    // The visible motion should NOT have been patched
+    expect(patchedIds).not.toContain("m-visible-1");
+  });
+
+  it("Hide All calls toggleMotionVisibility for each visible motion", async () => {
+    const patchedIds: string[] = [];
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+        const body = await request.json() as { is_visible: boolean };
+        if (!body.is_visible) patchedIds.push(params.motionId as string);
+        return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Hide All" }));
+    await waitFor(() => {
+      expect(patchedIds).toHaveLength(1);
+    });
+    expect(patchedIds).toContain("m-visible-1");
+    expect(patchedIds).not.toContain("m-hidden-1");
+    expect(patchedIds).not.toContain("m-hidden-2");
+  });
+
+  it("Hide All swallows 409 received-votes errors and still invalidates queries", async () => {
+    // m-visible-1 will 409, the operation should still complete without throwing
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params }) => {
+        if (params.motionId === "m-visible-1") {
+          return HttpResponse.json({ detail: "Cannot hide a motion that has received votes" }, { status: 409 });
+        }
+        return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: false });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Hide All" }));
+    // After the operation completes, neither button should be in a loading state
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).not.toBeDisabled();
+    });
+    // No unhandled error alert from the bulk operation itself
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  // --- Disabled conditions ---
+
+  it("Show All is disabled when all motions are visible (agm1 — all visible)", async () => {
+    // ADMIN_MEETING_DETAIL (agm1) has one motion with is_visible: true
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Show All" })).toBeDisabled();
+  });
+
+  it("Hide All is disabled when no motions are visible (agm-all-hidden)", async () => {
+    renderPage("agm-all-hidden");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Hide All" })).toBeDisabled();
+  });
+
+  it("Show All is enabled when at least one motion is hidden", async () => {
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Show All" })).not.toBeDisabled();
+  });
+
+  it("Hide All is enabled when at least one motion is visible", async () => {
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Hide All" })).not.toBeDisabled();
+  });
+
+  // --- State / precondition errors ---
+
+  it("both Show All and Hide All buttons are absent when meeting is closed", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Show All" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide All" })).not.toBeInTheDocument();
+  });
+
+  it("isBulkLoading disables both bulk buttons and individual visibility toggles", async () => {
+    // Use a handler that never resolves to keep the bulk operation in-flight
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async () => {
+        await new Promise(() => {}); // never resolves
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-all-hidden");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Show All" }));
+    await waitFor(() => {
+      // Both buttons show the loading label
+      expect(screen.getAllByRole("button", { name: "Working…" })).toHaveLength(2);
+    });
+    // All bulk buttons disabled
+    const workingButtons = screen.getAllByRole("button", { name: "Working…" });
+    workingButtons.forEach((btn) => expect(btn).toBeDisabled());
+    // Individual toggle checkboxes also disabled
+    const checkboxes = screen.getAllByRole("checkbox");
+    checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+  });
+
+  // --- Edge cases ---
+
+  it("Show All does nothing and stays enabled when all motions are already visible", async () => {
+    const patchSpy = vi.fn();
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+        patchSpy();
+        return HttpResponse.json({});
+      })
+    );
+    // agm1 already has all motions visible
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeDisabled();
+    });
+    // Button is disabled so no click triggers the handler; patchSpy stays 0
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+
+  it("query is invalidated after Show All completes", async () => {
+    let getCallCount = 0;
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-all-hidden") {
+          getCallCount++;
+          return HttpResponse.json(ADMIN_MEETING_DETAIL_ALL_HIDDEN);
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      }),
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+        const body = await request.json() as { is_visible: boolean };
+        return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_ALL_HIDDEN.motions[0], id: params.motionId as string, is_visible: body.is_visible });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-all-hidden");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show All" })).toBeInTheDocument();
+    });
+    const initialCallCount = getCallCount;
+    await user.click(screen.getByRole("button", { name: "Show All" }));
+    await waitFor(() => {
+      expect(getCallCount).toBeGreaterThan(initialCallCount);
+    });
+  });
+
+  it("query is invalidated after Hide All completes", async () => {
+    let getCallCount = 0;
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-mixed") {
+          getCallCount++;
+          return HttpResponse.json(ADMIN_MEETING_DETAIL_MIXED_VISIBILITY);
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      }),
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+        const body = await request.json() as { is_visible: boolean };
+        return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-mixed");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Hide All" })).toBeInTheDocument();
+    });
+    const initialCallCount = getCallCount;
+    await user.click(screen.getByRole("button", { name: "Hide All" }));
+    await waitFor(() => {
+      expect(getCallCount).toBeGreaterThan(initialCallCount);
+    });
   });
 });

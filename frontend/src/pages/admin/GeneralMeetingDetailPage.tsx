@@ -47,6 +47,7 @@ export default function GeneralMeetingDetailPage() {
   });
 
   const [pendingVisibilityMotionId, setPendingVisibilityMotionId] = useState<string | null>(null);
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
 
   // Add motion state
   const [showAddMotionModal, setShowAddMotionModal] = useState(false);
@@ -155,6 +156,37 @@ export default function GeneralMeetingDetailPage() {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [showAddMotionModal]);
+
+  async function handleShowAll() {
+    const hidden = meeting!.motions.filter((m) => !m.is_visible);
+    if (hidden.length === 0) return;
+    setIsBulkLoading(true);
+    try {
+      await Promise.all(hidden.map((m) => toggleMotionVisibility(m.id, true)));
+      await queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  }
+
+  async function handleHideAll() {
+    const visible = meeting!.motions.filter((m) => m.is_visible);
+    if (visible.length === 0) return;
+    setIsBulkLoading(true);
+    try {
+      await Promise.allSettled(
+        visible.map((m) =>
+          toggleMotionVisibility(m.id, false).catch((err: Error) => {
+            // Silently skip motions that have received votes (409)
+            if (!err.message.includes("received votes")) throw err;
+          })
+        )
+      );
+      await queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  }
 
   function handleDelete() {
     if (window.confirm("Delete this meeting? This cannot be undone.")) {
@@ -284,13 +316,29 @@ export default function GeneralMeetingDetailPage() {
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motion Visibility</h2>
       <div style={{ marginBottom: 24 }}>
         {meeting.status !== "closed" && (
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button
               type="button"
               className="btn btn--primary"
               onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
             >
               Add Motion
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || meeting.motions.every((m) => m.is_visible)}
+              onClick={() => void handleShowAll()}
+            >
+              {isBulkLoading ? "Working…" : "Show All"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || meeting.motions.every((m) => !m.is_visible) || meeting.motions.filter((m) => m.is_visible).length === 0}
+              onClick={() => void handleHideAll()}
+            >
+              {isBulkLoading ? "Working…" : "Hide All"}
             </button>
           </div>
         )}
@@ -314,7 +362,8 @@ export default function GeneralMeetingDetailPage() {
                   const isVisDisabled =
                     meeting.status === "closed" ||
                     motionsWithVotes.has(motion.id) ||
-                    isVisLoading;
+                    isVisLoading ||
+                    isBulkLoading;
                   const disabledReason =
                     meeting.status === "closed"
                       ? "Meeting is closed"
