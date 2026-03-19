@@ -301,6 +301,7 @@ async def verify_auth(
             financial_position=fp.value if hasattr(fp, "value") else fp,
             already_submitted=already_submitted,
             is_proxy=is_proxy,
+            voted_motion_ids=list(voted_for_this_lot),
         ))
 
     # Sort by lot_number for consistent ordering
@@ -468,6 +469,7 @@ async def restore_session(
             financial_position=fp.value if hasattr(fp, "value") else fp,
             already_submitted=already_submitted,
             is_proxy=is_proxy,
+            voted_motion_ids=list(voted_for_this_lot),
         ))
 
     lots.sort(key=lambda l: l.lot_number)

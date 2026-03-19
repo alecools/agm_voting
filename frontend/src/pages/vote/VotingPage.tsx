@@ -13,6 +13,7 @@ import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
 import { CountdownTimer } from "../../components/vote/CountdownTimer";
 import { SubmitDialog } from "../../components/vote/SubmitDialog";
+import { MixedSelectionWarningDialog } from "../../components/vote/MixedSelectionWarningDialog";
 import { ClosedBanner } from "../../components/vote/ClosedBanner";
 import { useServerTime } from "../../hooks/useServerTime";
 
@@ -31,6 +32,7 @@ export function VotingPage() {
 
   const [choices, setChoices] = useState<Record<string, VoteChoice | null>>({});
   const [showDialog, setShowDialog] = useState(false);
+  const [showMixedWarning, setShowMixedWarning] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -245,18 +247,33 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  // A motion is read-only only when the voter has already voted on it AND there are no
-  // currently-selected lots that still need to submit.  If any selected lot is unsubmitted,
-  // the voter can still cast votes for those lots on all motions.
-  const hasUnsubmittedSelected = selectedLots.some((l) => !l.already_submitted);
-  const isMotionReadOnly = (m: { already_voted: boolean }) =>
-    m.already_voted && !hasUnsubmittedSelected;
+  // A motion is read-only when every currently-selected lot has already voted on it.
+  // If any selected lot has not yet voted on this motion, it remains interactive so
+  // the voter can submit on behalf of that lot.
+  // When selectedLots is empty (all lots are already_submitted), fall back to allLots so
+  // that motions remain locked rather than becoming editable again.
+  const readOnlyReferenceLots = selectedLots.length > 0 ? selectedLots : allLots;
+  const isMotionReadOnly = (m: { id: string }) =>
+    readOnlyReferenceLots.length > 0 &&
+    readOnlyReferenceLots.every((lot) => (lot.voted_motion_ids ?? []).includes(m.id));
 
   // Only count motions the voter can still interact with towards the progress bar.
   const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
   const answeredCount = unvotedMotions.filter((m) => !!choices[m.id]).length;
 
   const unansweredMotions = unvotedMotions.filter((m) => !choices[m.id]);
+
+  // Check whether selected lots have mixed vote coverage (some have prior votes, others don't).
+  // Returns true only when two or more lots have different voted_motion_ids sets.
+  const hasMixedVoteStatus = (): boolean => {
+    if (selectedLots.length <= 1) return false;
+    const firstIds = new Set(selectedLots[0].voted_motion_ids ?? []);
+    return selectedLots.slice(1).some((lot) => {
+      const ids = new Set(lot.voted_motion_ids ?? []);
+      if (ids.size !== firstIds.size) return true;
+      return [...ids].some((id) => !firstIds.has(id));
+    });
+  };
 
   const handleSubmitClick = () => {
     if (isMultiLot && selectedIds.size === 0) {
@@ -270,8 +287,23 @@ export function VotingPage() {
         JSON.stringify([...selectedIds])
       );
     }
+    // Show mixed selection warning before proceeding to the submit dialog
+    if (hasMixedVoteStatus()) {
+      setShowMixedWarning(true);
+      return;
+    }
     setHighlightUnanswered(true);
     setShowDialog(true);
+  };
+
+  const handleMixedWarningContinue = () => {
+    setShowMixedWarning(false);
+    setHighlightUnanswered(true);
+    setShowDialog(true);
+  };
+
+  const handleMixedWarningGoBack = () => {
+    setShowMixedWarning(false);
   };
 
   const handleConfirm = () => {
@@ -436,7 +468,7 @@ export function VotingPage() {
 
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}`)}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/auth`)}>
         ← Back
       </button>
       {isClosed && <ClosedBanner />}
@@ -568,6 +600,19 @@ export function VotingPage() {
         </div>
       </div>
 
+      {showMixedWarning && (
+        <MixedSelectionWarningDialog
+          differingLots={selectedLots.filter((lot) => {
+            const ids = new Set(lot.voted_motion_ids ?? []);
+            return ids.size > 0 || selectedLots.some((other) => {
+              const otherIds = new Set(other.voted_motion_ids ?? []);
+              return ids.size !== otherIds.size || [...ids].some((id) => !otherIds.has(id));
+            });
+          })}
+          onContinue={handleMixedWarningContinue}
+          onGoBack={handleMixedWarningGoBack}
+        />
+      )}
       {showDialog && (
         <SubmitDialog
           unansweredTitles={unansweredMotions.map((m) => m.title)}

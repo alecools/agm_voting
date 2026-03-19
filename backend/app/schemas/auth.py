@@ -59,6 +59,7 @@ class LotInfo(BaseModel):
     financial_position: str
     already_submitted: bool
     is_proxy: bool = False
+    voted_motion_ids: list[uuid.UUID] = []  # motion IDs with submitted votes for this lot
 
 
 class AuthVerifyResponse(BaseModel):

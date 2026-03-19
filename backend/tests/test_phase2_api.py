@@ -441,6 +441,104 @@ class TestAuthVerify:
         assert "is_proxy" in lot
         assert lot["is_proxy"] is False  # direct owner, not proxy
 
+    async def test_verify_lot_info_voted_motion_ids_empty_for_unvoted_lot(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """voted_motion_ids is empty for a lot that has no submitted votes."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot = data["lots"][0]
+        assert "voted_motion_ids" in lot
+        assert lot["voted_motion_ids"] == []
+
+    async def test_verify_lot_info_voted_motion_ids_populated_after_submission(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """voted_motion_ids contains the IDs of submitted votes for this lot."""
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        motions = building_with_agm["motions"]
+
+        # Submit votes on both motions
+        for motion in motions:
+            v = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(v)
+        await db_session.flush()
+
+        code = await make_otp(db_session, voter_email, agm.id)
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot = data["lots"][0]
+        voted_ids = lot["voted_motion_ids"]
+        assert len(voted_ids) == 2
+        assert str(motions[0].id) in voted_ids
+        assert str(motions[1].id) in voted_ids
+
+    async def test_verify_voted_motion_ids_excludes_draft_votes(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """voted_motion_ids only includes submitted votes, not drafts."""
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        motions = building_with_agm["motions"]
+
+        # Add a draft vote (status=draft) — should NOT appear in voted_motion_ids
+        from app.models.vote import VoteStatus as VS
+        draft_v = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email=voter_email,
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VS.draft,
+        )
+        db_session.add(draft_v)
+        await db_session.flush()
+
+        code = await make_otp(db_session, voter_email, agm.id)
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot = data["lots"][0]
+        # Draft vote must not be included
+        assert lot["voted_motion_ids"] == []
+
     # --- Input validation ---
 
     async def test_empty_email_returns_422(
@@ -837,6 +935,58 @@ class TestSessionRestore:
         assert response.status_code == 200
         data = response.json()
         assert data["lots"][0]["already_submitted"] is True
+
+    async def test_restore_session_lot_info_includes_voted_motion_ids(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """restore_session returns voted_motion_ids populated with submitted vote IDs."""
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        motions = building_with_agm["motions"]
+        building = building_with_agm["building"]
+
+        # Submit one vote (on motions[0] only)
+        v = Vote(
+            general_meeting_id=agm.id,
+            motion_id=motions[0].id,
+            voter_email=voter_email,
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(v)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot = data["lots"][0]
+        voted_ids = lot["voted_motion_ids"]
+        assert len(voted_ids) == 1
+        assert str(motions[0].id) in voted_ids
+
+    async def test_restore_session_voted_motion_ids_empty_for_unvoted_lot(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """restore_session returns voted_motion_ids=[] when no submitted votes exist."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+        response = await client.post(
+            "/api/auth/session",
+            json={"session_token": token, "general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot = data["lots"][0]
+        assert lot["voted_motion_ids"] == []
 
     async def test_valid_token_with_proxy_lot_returns_is_proxy_true(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict

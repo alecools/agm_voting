@@ -342,7 +342,7 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     await user.click(screen.getByRole("button", { name: "← Back" }));
-    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}`);
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/auth`);
   });
 
   // --- Lot selection panel ---
@@ -1212,7 +1212,7 @@ describe("VotingPage", () => {
     // Single non-proxy lot already submitted — no sidebar (showSidebar=false)
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }])
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] }])
     );
     renderPage();
     // "All voted" message and View Submission button should appear in submit-section (single-lot, no sidebar)
@@ -1225,114 +1225,129 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  // --- already_voted + hasUnsubmittedSelected logic ---
+  // --- Per-lot per-motion locking (BUG-RV-03 / Phase 3) ---
 
-  it("already_voted motion is read-only when all selected lots have already submitted", async () => {
-    // Both lots submitted → no unsubmitted selected → motion should be read-only
+  it("motion is read-only when all selected lots have it in voted_motion_ids", async () => {
+    // Both lots have voted on MOTION_ID_1 → it should be locked (read-only)
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
         ])
       )
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
-        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
-        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
       ])
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // Motion 1 is already_voted and all lots submitted → read-only badge shown
+    // Motion 1: both lots have it in voted_motion_ids → read-only badge shown
     expect(screen.getAllByText("Already voted")[0]).toBeInTheDocument();
-    // Motion 2 is not already_voted → no read-only badge
+    // Motion 2: neither lot has it in voted_motion_ids → no read-only badge
     const alreadyVotedBadges = screen.queryAllByText("Already voted");
     expect(alreadyVotedBadges).toHaveLength(1);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("already_voted motion is NOT read-only when some selected lot is unsubmitted", async () => {
-    // Lot-A submitted, Lot-B unsubmitted → hasUnsubmittedSelected=true → motions should be interactive
+  it("motion is NOT read-only when only some selected lots have voted on it", async () => {
+    // Lo1 has voted on MOTION_ID_1, lo2 has not → motion remains interactive
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
         ])
       )
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
-        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
-        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
       ])
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // hasUnsubmittedSelected=true (lo2 unsubmitted and selected) → motions not read-only
+    // lo2 has not voted on MOTION_ID_1 → not read-only
     expect(screen.queryByText("Already voted")).not.toBeInTheDocument();
-    // Vote buttons should be enabled (not disabled)
+    // Vote buttons should be enabled
     const forButtons = screen.getAllByRole("button", { name: "For" });
     expect(forButtons[0]).not.toBeDisabled();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("motion is NOT read-only when selectedLots is empty", async () => {
+    // No lots in sessionStorage → selectedLots = [] → isMotionReadOnly returns false
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+        ])
+      )
+    );
+    // No sessionStorage lots → allLots is empty → selectedLots is empty
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // No read-only badge — empty selectedLots means isMotionReadOnly returns false
+    expect(screen.queryByText("Already voted")).not.toBeInTheDocument();
   });
 
   // --- Revote scenario tests (BUG-RV-01) ---
   // Submit button must be visible when all lots have already_submitted=true but new visible
   // motions exist that haven't been voted on yet (i.e. unvotedMotions.length > 0).
 
-  it("revote: submit button IS visible when lots all have already_submitted=true but motions include new unvoted ones", async () => {
-    // Simulate the revote scenario: all lots have already_submitted=true (from backend),
-    // but one motion has already_voted=false (a newly visible motion).
-    // The !allSubmitted guard has been removed, so the submit button should be visible.
+  it("revote: submit button IS visible when lot voted_motion_ids is partial but new motions exist", async () => {
+    // Simulate the revote scenario: lot has voted on MOTION_ID_1 (in voted_motion_ids),
+    // but a new MOTION_ID_2 is now visible and not yet voted on → submit button must be visible.
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
         ])
       )
     );
-    // Both lots already_submitted=true (backend fixed: means all visible motions voted on at last check)
-    // but the page is loaded with a new motion — already_submitted reflects state at auth time
+    // Lot has voted on MOTION_ID_1 but not MOTION_ID_2
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
-        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
       ])
     );
     renderPage();
-    // Submit button must be visible (unvotedMotions.length > 0 and meeting is open)
+    // MOTION_ID_1 is locked (only motion in voted_motion_ids), MOTION_ID_2 is interactive
+    // unvotedMotions = [MOTION_ID_2] → Submit button must be visible
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
     });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("revote: submit button hidden when all motions already_voted and no unsubmitted lots", async () => {
-    // When all lots are already_submitted=true AND all motions are already_voted=true,
-    // unvotedMotions is empty → no submit button (View Submission shown instead for single lot).
+  it("revote: submit button hidden when all motions in voted_motion_ids for all selected lots", async () => {
+    // When all motions are in voted_motion_ids for the lot → all read-only → no submit button.
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true, submitted_choice: "no" },
         ])
       )
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
-        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
       ])
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // No submit button — all motions read-only and no unvoted motions
+    // No submit button — all motions read-only
     expect(screen.queryByRole("button", { name: "Submit ballot" })).not.toBeInTheDocument();
     // View Submission shown instead (single non-proxy lot, no sidebar, all motions read-only)
     await waitFor(() => {
@@ -1346,16 +1361,16 @@ describe("VotingPage", () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true, submitted_choice: "no" },
         ])
       )
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
       JSON.stringify([
-        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
-        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
       ])
     );
     renderPage();
@@ -1620,7 +1635,7 @@ describe("VotingPage", () => {
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }])
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] }])
     );
     renderPage();
     await waitFor(() => {
@@ -1637,5 +1652,136 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
     expect(screen.queryByTestId("all-voted-message")).not.toBeInTheDocument();
+  });
+
+  // --- Mixed selection warning (BUG-RV-04 / Phase 3) ---
+
+  it("mixed warning NOT shown for single-lot voter", async () => {
+    // Single lot → no mixed state possible → proceed directly to SubmitDialog
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // Should go straight to SubmitDialog — no mixed warning
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Mixed voting history" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("mixed warning NOT shown when all selected lots have same voted_motion_ids (all fresh)", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // Both lots are fresh → no mixed state → proceed to SubmitDialog
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Mixed voting history" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("mixed warning NOT shown when all selected lots have same voted_motion_ids (all partial same)", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // Both lots have same coverage → no mixed state
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Mixed voting history" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("mixed warning IS shown when selected lots have different voted_motion_ids", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    // Mixed state: lo1 has voted on MOTION_ID_1, lo2 has not → warning shown
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Mixed voting history" })).toBeInTheDocument();
+    });
+    // Warning dialog must be visible
+    expect(screen.getByText(/previously submitted votes will not be changed/)).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("mixed warning Continue proceeds to SubmitDialog", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("heading", { name: "Mixed voting history" }));
+    // Click Continue
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    // Mixed warning should be dismissed and SubmitDialog should appear
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Mixed voting history" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("mixed warning Go back dismisses warning and returns to voting", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("heading", { name: "Mixed voting history" }));
+    // Click Go back
+    await user.click(screen.getByRole("button", { name: "Go back to lot selection" }));
+    // Warning dismissed, no dialog shown
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Mixed voting history" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Submit ballot button still visible (still on voting page)
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 });

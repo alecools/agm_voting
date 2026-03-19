@@ -204,11 +204,11 @@ describe("Voting Flow Integration", () => {
       )
     );
 
-    // Backend returns already_submitted=true (all visible motions voted)
+    // Backend returns already_submitted=true and all visible motions in voted_motion_ids
     sessionStorage.setItem(
       `meeting_lots_info_${AGM}`,
       JSON.stringify([
-        { lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
       ])
     );
 

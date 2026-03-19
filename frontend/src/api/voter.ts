@@ -35,6 +35,7 @@ export interface LotInfo {
   financial_position: string;
   already_submitted: boolean;
   is_proxy: boolean;
+  voted_motion_ids: string[];  // motion IDs with submitted votes for this lot
 }
 
 export interface AuthVerifyResponse {

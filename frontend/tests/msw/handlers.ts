@@ -729,7 +729,7 @@ export const handlers = [
 
   http.post(`${BASE}/api/auth/verify`, () =>
     HttpResponse.json({
-      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }],
       voter_email: "owner@example.com",
       agm_status: "open",
       building_name: "Sunset Towers",
@@ -748,7 +748,7 @@ export const handlers = [
       return HttpResponse.json({ detail: "Session expired — meeting is closed" }, { status: 401 });
     }
     return HttpResponse.json({
-      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }],
       voter_email: "owner@example.com",
       agm_status: "open",
       building_name: "Sunset Towers",
