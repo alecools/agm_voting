@@ -888,12 +888,12 @@ describe("Edit motion modal", () => {
     });
   });
 
-  it("Edit button has btn--secondary class", async () => {
+  it("Edit button has btn--primary class", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Edit" })).toHaveClass("btn--secondary");
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveClass("btn--primary");
   });
 
   it("Delete button has btn--danger class", async () => {
