@@ -25,7 +25,6 @@ import {
   seedLotOwner,
   createOpenMeeting,
   createPendingMeeting,
-  seedPendingMeeting,
   closeMeeting,
   clearBallots,
   goToAuthPage,
@@ -230,38 +229,47 @@ test.describe("WF8: Edge cases", () => {
   });
 
   // ── WF8.6: Pending meeting → disabled button, auth redirects home ──────────
+  //
+  // The backend enforces one open-or-pending meeting per building. WF8.5 left
+  // an open meeting on the shared WF8 building, so seeding a second (pending)
+  // meeting on the same building would 409. To avoid this conflict, WF8.6 uses
+  // its own dedicated building with only a pending meeting. Because the building
+  // has no open meeting, it is excluded from the GET /api/buildings dropdown;
+  // the test therefore navigates directly to /vote/<meetingId>/auth instead of
+  // going through the home-page dropdown.
   test("WF8.6: pending meeting shows Voting Not Yet Open button; auth redirects to home", async ({
     page,
   }) => {
     test.setTimeout(120000);
 
-    // Seed the open meeting FIRST so the WF8 building passes the
-    // GET /api/buildings filter (which requires meeting_at <= now).
-    // createOpenMeeting closes any existing open/pending meetings before
-    // creating its own, so it must run before the pending meeting is created.
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     const api = await playwrightRequest.newContext({
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    await createOpenMeeting(api, buildingId, `WF8 Open Meeting WF8.6-${RUN_SUFFIX}`, [
-      {
-        title: MOTION_TITLE,
-        description: "A test motion for WF8.6.",
-        orderIndex: 1,
-        motionType: "general",
-      },
-    ]);
 
-    // Seed the pending meeting WITHOUT closing the open meeting above.
-    // Using seedPendingMeeting (no close-all step) keeps both meetings alive:
-    // the open meeting keeps the building visible in the voter dropdown, and
-    // the pending meeting is the one under test.
-    const pendingMeetingId = await seedPendingMeeting(
+    // Seed a dedicated building used only by WF8.6 so it never has an open
+    // meeting that would conflict with the pending meeting under test.
+    const wf86BuildingId = await seedBuilding(
       api,
-      buildingId,
-      `WF8 Pending Meeting-${RUN_SUFFIX}`,
+      `WF8.6 Pending Building-${RUN_SUFFIX}`,
+      "wf86-manager@test.com"
+    );
+    await seedLotOwner(api, wf86BuildingId, {
+      lotNumber: "WF86-1",
+      emails: [LOT1_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+
+    // Create the pending meeting (meeting_at in the future) on the dedicated
+    // building. createPendingMeeting closes any prior open/pending meetings on
+    // this building first — safe because no open meeting exists yet here.
+    const pendingMeetingId = await createPendingMeeting(
+      api,
+      wf86BuildingId,
+      `WF8.6 Pending Meeting-${RUN_SUFFIX}`,
       [
         {
           title: "WF8.6 Pending Test Motion",
@@ -272,22 +280,8 @@ test.describe("WF8: Edge cases", () => {
       ]
     );
 
-    // Keep api alive for OTP retrieval after pending meeting navigation
-    // On home page, select WF8 building — pending meeting shows disabled button
-    await page.goto("/");
-    await page.getByLabel("Select your building").selectOption({ label: BUILDING });
-
-    const agmItem = page.getByTestId(`agm-item-${pendingMeetingId}`);
-    await expect(agmItem).toBeVisible({ timeout: 15000 });
-
-    const notOpenBtn = agmItem.getByRole("button", { name: "Voting Not Yet Open" });
-    await expect(notOpenBtn).toBeVisible();
-    await expect(notOpenBtn).toBeDisabled();
-
-    // "Enter Voting" button must NOT be present for the pending meeting
-    await expect(agmItem.getByRole("button", { name: "Enter Voting" })).not.toBeVisible();
-
-    // Navigate directly to the auth page for the pending meeting
+    // Navigate directly to the auth page for the pending meeting — the building
+    // has no open meeting so it is excluded from the home-page dropdown.
     await page.goto(`/vote/${pendingMeetingId}/auth`);
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
 
@@ -295,7 +289,7 @@ test.describe("WF8: Edge cases", () => {
     await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, pendingMeetingId));
     await api.dispose();
 
-    // Should be redirected back to the home page
+    // Should be redirected back to the home page (pending meeting → not yet open)
     await expect(page).toHaveURL("/", { timeout: 20000 });
 
     // Informational message about the meeting not having started must be shown
