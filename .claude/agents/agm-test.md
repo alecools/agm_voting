@@ -57,12 +57,38 @@ EOF
 )"
 ```
 
-### 4. Wait for Vercel deployment
-Poll until the deployment is live (usually 2-3 minutes):
+### 4. Verify Vercel deployment is READY
+
+**Do NOT use HTTP 200 polling.** Vercel keeps the last successful deployment live even when a new build fails, so HTTP 200 does not prove the new code is deployed. You must check the Vercel API for the `readyState` of the latest deployment on the branch.
+
 ```bash
-gh pr checks <pr-number> --watch
+BRANCH="feat/your-branch-name"
+PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
+VERCEL_TOKEN=$(cat ~/.config/vercel/auth.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+
+# Poll until the latest deployment for this branch is Ready or Error (not Building/Queued)
+for i in $(seq 1 20); do
+  STATUS=$(curl -s \
+    "https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}&meta-gitBranch=${BRANCH}&limit=1" \
+    -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['deployments'][0]['readyState'] if d.get('deployments') else 'NONE')" 2>/dev/null)
+  echo "Attempt $i: deployment state = $STATUS"
+  [ "$STATUS" = "READY" ] && break
+  [ "$STATUS" = "ERROR" ] && echo "DEPLOYMENT FAILED — check Vercel dashboard" && exit 1
+  sleep 15
+done
+
+if [ "$STATUS" != "READY" ]; then
+  echo "Deployment did not become ready in time"
+  exit 1
+fi
 ```
-Or wait 3 minutes and proceed.
+
+**If `STATUS` is `ERROR`:** stop immediately. Do NOT run E2E. Report the deployment failure to the orchestrator with the exact branch name and a note to check the Vercel dashboard. Release the push slot.
+
+**If the loop times out without reaching `READY`:** stop, report "deployment did not become ready after 5 minutes", release the push slot.
+
+**Only proceed to step 5 when `STATUS` is `READY`.**
 
 ### 5. Run the full E2E suite — ONCE, to completion
 **HARD STOP: run exactly once. Do NOT re-run. Do NOT stop early.**
