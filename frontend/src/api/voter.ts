@@ -60,6 +60,7 @@ export interface MotionOut {
   motion_type: MotionType;
   is_visible: boolean;
   already_voted: boolean;
+  submitted_choice: VoteChoice | null;
 }
 
 export interface DraftSaveRequest {

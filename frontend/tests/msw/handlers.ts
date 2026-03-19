@@ -666,6 +666,7 @@ export const motionFixtures = [
     order_index: 0,
     is_visible: true,
     already_voted: false,
+    submitted_choice: null,
   },
   {
     id: MOTION_ID_2,
@@ -674,6 +675,7 @@ export const motionFixtures = [
     order_index: 1,
     is_visible: true,
     already_voted: false,
+    submitted_choice: null,
   },
 ];
 

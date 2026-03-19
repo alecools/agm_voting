@@ -92,6 +92,21 @@ export function VotingPage() {
     enabled: !!meetingId,
   });
 
+  // Seed choices state from submitted_choice when motions load (revote scenario)
+  useEffect(() => {
+    if (!motions) return;
+    setChoices((prev) => {
+      const seeded: Record<string, VoteChoice | null> = { ...prev };
+      for (const m of motions) {
+        // Only seed if not already set in state (avoid overwriting user interactions)
+        if (m.already_voted && m.submitted_choice !== null && !(m.id in seeded)) {
+          seeded[m.id] = m.submitted_choice;
+        }
+      }
+      return seeded;
+    });
+  }, [motions]);
+
   // Poll meeting status every 10s
   useEffect(() => {
     if (!meetingId || !buildings) return;
@@ -531,6 +546,9 @@ export function VotingPage() {
                   ))}
                   {unvotedMotions.length === 0 && !isClosed && !showSidebar && (
                     <div className="submit-section">
+                      <p className="state-message" data-testid="all-voted-message">
+                        You have voted on all motions.
+                      </p>
                       <button type="button" className="btn btn--primary" onClick={handleViewSubmission}>
                         View Submission
                       </button>

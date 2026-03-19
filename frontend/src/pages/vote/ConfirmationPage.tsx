@@ -120,20 +120,20 @@ export function ConfirmationPage() {
         </div>
 
         <div className="submit-section" style={{ borderTop: "none", marginTop: "24px", paddingTop: "0" }}>
-          {data.remaining_lot_owner_ids.length > 0 && (
-            <button
-              className="btn btn--secondary"
-              onClick={() => {
+          <button
+            className="btn btn--secondary"
+            onClick={() => {
+              if (data.remaining_lot_owner_ids.length > 0) {
                 sessionStorage.setItem(
                   `meeting_lots_${meetingId}`,
                   JSON.stringify(data.remaining_lot_owner_ids)
                 );
-                navigate(`/vote/${meetingId}/voting`);
-              }}
-            >
-              Vote for remaining lots
-            </button>
-          )}
+              }
+              navigate(`/vote/${meetingId}/voting`);
+            }}
+          >
+            {data.remaining_lot_owner_ids.length > 0 ? "Vote for remaining lots" : "View my votes"}
+          </button>
           <button className="btn btn--ghost" onClick={() => navigate("/")}>
             ← Back to home
           </button>

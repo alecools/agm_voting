@@ -1143,6 +1143,167 @@ class TestListMotions:
         assert "description" in motion
         assert "order_index" in motion
 
+    # --- submitted_choice field (BUG-RV-02) ---
+
+    async def test_submitted_choice_null_when_not_voted(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """submitted_choice is null for motions the voter has not yet voted on."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = response.json()
+        for motion in data:
+            assert motion["submitted_choice"] is None
+
+    async def test_submitted_choice_populated_for_voted_motion(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """submitted_choice returns the voter's choice for a motion they have already voted on."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        # Record a submitted vote for motion[0] = "yes"
+        vote = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+            motion_id=motions[0].id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = response.json()
+        # Find motion[0] in the response
+        m0 = next(m for m in data if str(m["id"]) == str(motions[0].id))
+        m1 = next(m for m in data if str(m["id"]) == str(motions[1].id))
+        assert m0["already_voted"] is True
+        assert m0["submitted_choice"] == "yes"
+        # Motion[1] not voted — null
+        assert m1["already_voted"] is False
+        assert m1["submitted_choice"] is None
+
+    async def test_submitted_choice_prefers_non_not_eligible(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """For a multi-lot voter where one lot is in-arrear (not_eligible) and
+        one normal lot voted yes, submitted_choice should return 'yes' not 'not_eligible'."""
+        agm = building_with_agm["agm"]
+        lo_normal = building_with_agm["lot_owner"]  # normal lot
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        # Create a second (in-arrear) lot owner with the same email
+        lo_arrear = LotOwner(
+            building_id=building.id, lot_number="P2-arrear", unit_entitlement=50
+        )
+        db_session.add(lo_arrear)
+        await db_session.flush()
+        lo_email_arrear = LotOwnerEmail(lot_owner_id=lo_arrear.id, email=voter_email)
+        db_session.add(lo_email_arrear)
+        await db_session.flush()
+
+        # Record not_eligible for in-arrear lot (added first)
+        vote_arrear = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_arrear.id,
+            voter_email=voter_email,
+            motion_id=motions[0].id,
+            choice=VoteChoice.not_eligible,
+            status=VoteStatus.submitted,
+        )
+        # Record yes for normal lot (added second)
+        vote_normal = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo_normal.id,
+            voter_email=voter_email,
+            motion_id=motions[0].id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add_all([vote_arrear, vote_normal])
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = response.json()
+        m0 = next(m for m in data if str(m["id"]) == str(motions[0].id))
+        # Should prefer "yes" over "not_eligible"
+        assert m0["submitted_choice"] == "yes"
+
+    async def test_submitted_choice_not_eligible_when_only_in_arrear(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """When only in-arrear lot exists and voted not_eligible, submitted_choice
+        returns not_eligible (no non-not_eligible alternative exists)."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]
+
+        vote = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+            motion_id=motions[0].id,
+            choice=VoteChoice.not_eligible,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = response.json()
+        m0 = next(m for m in data if str(m["id"]) == str(motions[0].id))
+        assert m0["submitted_choice"] == "not_eligible"
+
+    async def test_submitted_choice_includes_submitted_choice_field_in_schema(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Every motion response item includes the submitted_choice field."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = response.json()
+        for motion in data:
+            assert "submitted_choice" in motion
+
 
 # ---------------------------------------------------------------------------
 # PUT /api/general-meeting/{agm_id}/draft
