@@ -1304,4 +1304,165 @@ describe("VotingPage", () => {
     expect(viewSubmissionButtons).toHaveLength(1);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
+
+  // --- After successful submit: state and sessionStorage update (BUG-LS-01 regression) ---
+
+  it("after submit: submitted lots are marked already_submitted and show disabled checkbox and badge", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    // Seed the submitted lot IDs (simulating what handleSubmitClick writes)
+    sessionStorage.setItem(`meeting_lots_${AGM_ID}`, JSON.stringify(["lo1", "lo2"]));
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+
+    // Submit ballot
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    // After navigation mock fires, submitted lots are marked already_submitted
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+
+    // Both checkboxes should be disabled (getAllByRole returns all checkboxes across sidebar + drawer,
+    // but each lot appears once per panel; check that all rendered checkboxes are disabled)
+    const checkboxes = screen.getAllByRole("checkbox");
+    checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+
+    // "Already submitted" badges shown — lot list content is rendered in both sidebar and drawer
+    // so each lot produces 2 badge elements (1 per panel); at minimum 2 unique lots' badges exist
+    const badges = screen.getAllByText("Already submitted");
+    expect(badges.length).toBeGreaterThanOrEqual(2);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
+  it("after submit: sessionStorage meeting_lots_info is updated with already_submitted: true for submitted lots", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    sessionStorage.setItem(`meeting_lots_${AGM_ID}`, JSON.stringify(["lo1", "lo2"]));
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+
+    // sessionStorage meeting_lots_info should have both lots marked as already_submitted
+    const stored = JSON.parse(
+      sessionStorage.getItem(`meeting_lots_info_${AGM_ID}`) ?? "[]"
+    ) as { lot_owner_id: string; already_submitted: boolean }[];
+    const lo1 = stored.find((l) => l.lot_owner_id === "lo1");
+    const lo2 = stored.find((l) => l.lot_owner_id === "lo2");
+    expect(lo1?.already_submitted).toBe(true);
+    expect(lo2?.already_submitted).toBe(true);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
+  it("after partial submit: remaining unsubmitted lot stays selectable", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo3", lot_number: "3", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("checkbox"));
+
+    // Deselect lo3 so that handleSubmitClick only writes ["lo1","lo2"] to sessionStorage
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[2]); // uncheck lo3
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+
+    // After onSuccess: lo1 and lo2 are disabled (submitted), lo3 is still enabled
+    const updatedCheckboxes = screen.getAllByRole("checkbox");
+    // There are 3 lots × 2 panels (sidebar + drawer) = 6 checkboxes rendered in DOM
+    // Check by aria-label to target specific lots unambiguously
+    const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
+    const lo2Checkboxes = screen.getAllByLabelText("Select Lot 2");
+    const lo3Checkboxes = screen.getAllByLabelText("Select Lot 3");
+    lo1Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+    lo2Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+    lo3Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
+
+    // Silence unused variable warning
+    expect(updatedCheckboxes.length).toBeGreaterThan(0);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
+  it("back navigation with updated sessionStorage: submitted lots render as disabled (regression)", async () => {
+    // Simulate the post-fix state: sessionStorage already has already_submitted: true
+    // (as if a submit already happened and the user navigated back)
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+
+    // All rendered checkboxes should be disabled (lot list is rendered in both sidebar and drawer)
+    const checkboxes = screen.getAllByRole("checkbox");
+    checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+
+    // "Already submitted" badges shown for each lot in each panel
+    const badges = screen.getAllByText("Already submitted");
+    expect(badges.length).toBeGreaterThanOrEqual(2);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("after submit with no meeting_lots sessionStorage: falls back to empty submittedIds (no lots marked)", async () => {
+    // Edge case: meeting_lots_<id> is absent when onSuccess fires
+    // This can happen for single-lot voters where handleSubmitClick does not write the key.
+    // Single-lot non-proxy voters: allLots is empty (no sessionStorage lot info), isMultiLot=false,
+    // handleSubmitClick does not write meeting_lots_<id>, so onSuccess reads null → submittedIds=[]
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    // Wait for motions to load before interacting
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }), { timeout: 5000 });
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+  });
 });

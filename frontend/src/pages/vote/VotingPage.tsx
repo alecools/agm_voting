@@ -129,6 +129,33 @@ export function VotingPage() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
+
+      // Determine which lot IDs were just submitted (written to sessionStorage by handleSubmitClick)
+      const raw = sessionStorage.getItem(`meeting_lots_${meetingId}`);
+      const submittedIds: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+      const submittedSet = new Set(submittedIds);
+
+      // Mark just-submitted lots as already_submitted and sync sessionStorage so that
+      // back-navigation within the same browser session reflects the updated state
+      setAllLots((prev) => {
+        const updated = prev.map((lot) =>
+          submittedSet.has(lot.lot_owner_id)
+            ? { ...lot, already_submitted: true }
+            : lot
+        );
+        if (meetingId) {
+          sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(updated));
+        }
+        return updated;
+      });
+
+      // Remove submitted lot IDs from selection to prevent stale selectedIds
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of submittedSet) next.delete(id);
+        return next;
+      });
+
       navigate(`/vote/${meetingId}/confirmation`);
     },
     onError: (error: Error) => {

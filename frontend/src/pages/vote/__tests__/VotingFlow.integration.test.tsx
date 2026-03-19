@@ -103,4 +103,47 @@ describe("Voting Flow Integration", () => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
   });
+
+  it("multi-lot partial submit: lot A disabled after submit, lot B stays selectable", async () => {
+    // Seed two lots in sessionStorage
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderApp(`/vote/${AGM_ID}/voting`);
+
+    // Wait for sidebar (multi-lot)
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+
+    // Deselect lo2 so that handleSubmitClick writes only ["lo1"] to meeting_lots sessionStorage
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[1]); // uncheck lo2
+
+    // Submit ballot for lo1 only
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+
+    // Lot A (lo1) is now disabled with "Already submitted" badge — use aria-label to target specifically
+    const lo1Checkboxes = screen.getAllByLabelText("Select Lot 1");
+    const lo2Checkboxes = screen.getAllByLabelText("Select Lot 2");
+    lo1Checkboxes.forEach((cb) => expect(cb).toBeDisabled());
+    lo2Checkboxes.forEach((cb) => expect(cb).not.toBeDisabled());
+
+    // At least one "Already submitted" badge visible (one per panel for lo1)
+    const submittedBadges = screen.getAllByText("Already submitted");
+    expect(submittedBadges.length).toBeGreaterThanOrEqual(1);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
 });
