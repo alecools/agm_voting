@@ -652,7 +652,7 @@ describe("Add Motion form", () => {
   });
 });
 
-describe("Edit motion", () => {
+describe("Edit motion modal", () => {
   function renderPage(meetingId = "agm-hidden-motion") {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -678,32 +678,44 @@ describe("Edit motion", () => {
     expect(screen.getByRole("button", { name: "Edit" })).not.toBeDisabled();
   });
 
-  it("clicking Edit opens inline form pre-filled with current values", async () => {
+  it("clicking Edit opens modal dialog", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    // Form should be pre-filled
-    const titleInput = screen.getByLabelText("Edit Title");
-    expect(titleInput).toHaveValue(ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0].title);
-    expect(screen.getByLabelText("Edit Description")).toHaveValue(
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Edit Motion")).toBeInTheDocument();
+  });
+
+  it("modal pre-fills form fields with current motion values", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.querySelector("#modal-edit-title")).toHaveValue(
+      ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0].title
+    );
+    expect(dialog.querySelector("#modal-edit-description")).toHaveValue(
       ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0].description ?? ""
     );
   });
 
-  it("submitting edit form calls PATCH and closes form on success", async () => {
+  it("Save Changes button calls PATCH and closes modal on success", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });
 
@@ -770,7 +782,7 @@ describe("Edit motion", () => {
     );
   });
 
-  it("API error is shown inline when PATCH fails", async () => {
+  it("API error is shown inside modal when PATCH fails", async () => {
     server.use(
       http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-hidden-edit-fail") {
@@ -803,27 +815,59 @@ describe("Edit motion", () => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
+    // Modal stays open on error
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   // --- Edge cases ---
 
-  it("Cancel button closes edit form without calling API", async () => {
+  it("Cancel button closes modal without calling API", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("Save button is disabled while mutation is pending", async () => {
+  it("Escape key closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("clicking backdrop closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    // Click the backdrop (the dialog element itself, not the inner panel)
+    await user.click(dialog);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Save Changes button is disabled while mutation is pending", async () => {
     server.use(
       http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params }) => {
         if (params.motionId === "m-hidden") {
@@ -838,10 +882,26 @@ describe("Edit motion", () => {
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
     });
+  });
+
+  it("Edit button has btn--secondary class", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveClass("btn--secondary");
+  });
+
+  it("Delete button has btn--danger class", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveClass("btn--danger");
   });
 });
 
