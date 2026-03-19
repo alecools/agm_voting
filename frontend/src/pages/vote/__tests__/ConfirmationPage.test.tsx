@@ -217,7 +217,39 @@ describe("ConfirmationPage", () => {
     });
   });
 
-  it("does not show 'Vote for remaining lots' button when remaining_lot_owner_ids is empty", async () => {
+  it("always shows a back-to-voting button regardless of remaining lots (BUG-RV-02)", async () => {
+    // Default fixture has remaining_lot_owner_ids: [] — back button should still show as "View my votes"
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /view my votes/i })).toBeInTheDocument();
+    });
+  });
+
+  it("back-to-voting button label is 'View my votes' when no remaining lots", async () => {
+    // remaining_lot_owner_ids is empty → label is "View my votes"
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /view my votes/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /vote for remaining lots/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("clicking 'View my votes' navigates to voting page without writing sessionStorage", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /view my votes/i })).toBeInTheDocument();
+    });
+    // Remove any prior sessionStorage for this key
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+    await user.click(screen.getByRole("button", { name: /view my votes/i }));
+    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+    // sessionStorage NOT written because no remaining lots
+    expect(sessionStorage.getItem(`meeting_lots_${AGM_ID}`)).toBeNull();
+  });
+
+  it("does not show 'Vote for remaining lots' button when remaining_lot_owner_ids is empty (legacy check)", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /vote for remaining lots/i })).not.toBeInTheDocument();

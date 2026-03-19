@@ -96,15 +96,21 @@ async def list_motions(
 
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
 
-    # Get submitted vote motion IDs for this voter's lots
+    # Get submitted vote motion IDs and choices for this voter's lots
     voted_result = await db.execute(
-        select(Vote.motion_id).where(
+        select(Vote.motion_id, Vote.choice).where(
             Vote.general_meeting_id == general_meeting_id,
             Vote.lot_owner_id.in_(all_lot_owner_ids),
             Vote.status == VoteStatus.submitted,
-        ).distinct()
+        )
     )
-    voted_motion_ids = {row[0] for row in voted_result.all()}
+    # Build a dict preferring a non-not_eligible choice when multiple lots vote on the same motion
+    voted_choice_by_motion: dict[uuid.UUID, VoteChoice] = {}
+    for motion_id, choice in voted_result.all():
+        existing = voted_choice_by_motion.get(motion_id)
+        if existing is None or existing == VoteChoice.not_eligible:
+            voted_choice_by_motion[motion_id] = choice
+    voted_motion_ids = set(voted_choice_by_motion.keys())
 
     # Fetch motions that are visible OR already voted on by this voter
     result = await db.execute(
@@ -128,6 +134,7 @@ async def list_motions(
             motion_type=m.motion_type,
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,
+            submitted_choice=voted_choice_by_motion.get(m.id),
         )
         for m in motions
     ]

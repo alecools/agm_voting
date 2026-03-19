@@ -1204,8 +1204,8 @@ describe("VotingPage", () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true, submitted_choice: "no" },
         ])
       )
     );
@@ -1215,8 +1215,9 @@ describe("VotingPage", () => {
       JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }])
     );
     renderPage();
-    // View Submission button should appear in submit-section (single-lot, no sidebar)
+    // "All voted" message and View Submission button should appear in submit-section (single-lot, no sidebar)
     await waitFor(() => {
+      expect(screen.getByTestId("all-voted-message")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "View Submission" }));
@@ -1524,5 +1525,117 @@ describe("VotingPage", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
     });
+  });
+
+  // --- BUG-RV-02: Pre-populate prior vote choices on re-entry ---
+
+  it("choices seeded from submitted_choice when motions load (revote scenario)", async () => {
+    // When a voter re-enters after some motions have been voted on, choices should be pre-populated.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // Motion 1 has submitted_choice="yes" — its For button should be aria-pressed="true"
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    await waitFor(() => {
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
+    });
+    // Motion 2 has submitted_choice=null — its For button should be aria-pressed="false"
+    expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("submitted_choice not seeded when already_voted is false (null choice)", async () => {
+    // Motions with already_voted=false and submitted_choice=null must not be seeded.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    renderPage();
+    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
+    expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    // Progress bar shows 0 answered
+    expect(screen.getByLabelText("0 / 2 motions answered")).toBeInTheDocument();
+  });
+
+  it("existing user interaction not overwritten by submitted_choice seeding", async () => {
+    // If a voter has already clicked a button in the current session, and motions reload
+    // (e.g. due to query invalidation), the seeding must not overwrite their selection.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }])
+    );
+    renderPage();
+    // Wait for choices to seed Motion 1 as "yes"
+    await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
+    });
+    // User changes Motion 1 to "no"
+    const noButtons = screen.getAllByRole("button", { name: "Against" });
+    await user.click(noButtons[0]);
+    await waitFor(() => {
+      expect(noButtons[0]).toHaveAttribute("aria-pressed", "true");
+    });
+    // The seeding guard (!(m.id in seeded)) means if motions re-resolves, Motion 1's "no" is kept.
+    // We can verify this: the For button for Motion 1 is no longer selected.
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("all-voted message shown when all motions have already_voted=true (no sidebar)", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true, submitted_choice: "no" },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("all-voted-message")).toBeInTheDocument();
+      expect(screen.getByTestId("all-voted-message")).toHaveTextContent("You have voted on all motions.");
+    });
+    // No submit button
+    expect(screen.queryByRole("button", { name: "Submit ballot" })).not.toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("all-voted message NOT shown when there are unvoted motions", async () => {
+    // Default fixture has already_voted=false for both motions
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+    expect(screen.queryByTestId("all-voted-message")).not.toBeInTheDocument();
   });
 });
