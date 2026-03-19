@@ -135,7 +135,7 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 **Acceptance Criteria:**
 - [x] An "Add Motion" button is visible on the admin meeting detail page when the meeting status is `pending` or `open`
-- [x] Clicking "Add Motion" opens a form (inline or modal) with fields: title/description and motion type
+- [x] Clicking "Add Motion" opens a modal dialog (same backdrop/panel structure as the Edit Motion modal) with fields: title/description and motion type
 - [x] Submitting the form calls `POST /api/admin/general-meetings/{id}/motions` and the new motion appears in the list immediately
 - [x] New motions are added with `is_visible = false` by default so admins can review before revealing
 - [x] The button is not shown (or is disabled) when the meeting is `closed`
@@ -212,12 +212,14 @@ Admins running a General Meeting want to control which motions are visible to vo
 **Description:** As a building manager, I want the Edit and Delete buttons on motion rows to be visually distinct when they are enabled so I can immediately tell which motions I can act on.
 
 **Acceptance Criteria:**
-- [ ] When a motion row's Edit/Delete buttons are enabled (motion is hidden AND meeting is not closed), the Edit button uses `.btn--secondary` styling (navy outline, clearly visible) and the Delete button uses `.btn--danger` styling (red-tinted fill, clearly destructive)
-- [ ] When a motion row's Edit/Delete buttons are disabled (motion is visible OR meeting is closed), the `disabled` attribute is present on both buttons so the browser applies reduced-opacity greyed-out appearance automatically (via the existing `.btn:disabled { opacity: 0.45 }` rule)
-- [ ] Disabled buttons retain their `title="Hide this motion first to edit or delete"` tooltip so the reason is discoverable on hover
-- [ ] No additional CSS class or wrapper is needed for the disabled state — the `disabled` attribute alone is sufficient
-- [ ] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] Hidden motion rows: text (#, title, type, visibility) cells are muted via `.admin-table__cell--muted` (opacity 0.45); the actions cell has no muting class so Edit/Delete buttons render at full opacity
+- [x] Edit button on hidden motion rows uses `.btn--secondary` with `padding: 5px 14px; font-size: 0.8rem` (matching the owners table style)
+- [x] Delete button on hidden motion rows uses `.btn--danger btn--sm`
+- [x] Visible motion rows: text cells are at full opacity; Edit and Delete buttons carry the `disabled` attribute and are faded to 45% opacity via the global `.btn:disabled { opacity: 0.45 }` rule
+- [x] Row-level `admin-table__row--muted` class is NOT used — cell-level muting is applied instead to allow independent control of the actions cell
+- [x] Disabled buttons retain their `title="Hide this motion first to edit or delete"` tooltip so the reason is discoverable on hover
+- [x] Typecheck/lint passes
+- [x] Verify in browser using dev-browser skill
 
 ---
 

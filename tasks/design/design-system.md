@@ -291,6 +291,13 @@ Always wrap admin tables in `.admin-table-wrapper` for horizontal scroll on narr
 | `.admin-table td` | `12px 14px` padding, subtle row divider, middle-aligned |
 | `.admin-table__link` | Borderless button that looks like an underline link |
 | `.admin-table__row--muted` | 60% opacity for archived/inactive rows |
+| `.admin-table__cell--muted` | 45% opacity on individual cells only — use when some cells in the row must remain at full opacity |
+
+### Cell-level vs row-level muting
+
+Use `.admin-table__cell--muted` on individual `<td>` elements when only some columns in a row should be greyed out. A common case is a row where data cells are muted but action buttons must remain at full opacity and saturation (e.g. hidden-motion rows in the motion list).
+
+Do **not** use `.admin-table__row--muted` in this case — row-level opacity affects all cells equally, including the actions cell, which prevents action buttons from standing out visually.
 
 ---
 

@@ -223,42 +223,77 @@ function handleEditSubmit(e: React.FormEvent) {
 
 ---
 
-## 4. Edit/Delete Button Saturation (US-AM06)
+## 4. Add Motion Modal (US-AM01)
 
-### 4.1 Current state (from code review)
+### 4.1 Background
 
-In `GeneralMeetingDetailPage.tsx` lines 422–453, the Edit and Delete buttons already use:
+The "Add Motion" form was originally specified as an inline expanding row. The final implementation converts it to a modal dialog, consistent with the Edit Motion modal, so both add and edit flows share the same UX pattern.
 
-```tsx
-<button className="btn btn--secondary" disabled={isEditDeleteDisabled} ...>Edit</button>
-<button className="btn btn--danger" disabled={isEditDeleteDisabled} ...>Delete</button>
-```
-
-The class names are already correct. The visual issue is that `.btn:disabled { opacity: 0.45 }` reduces both buttons to a washed-out state, which makes the enabled state look similar to the disabled state in some rendering environments or monitor calibrations.
-
-### 4.2 Required change
-
-No CSS changes are required. The existing rules already produce the desired visual separation:
-
-- **Enabled Edit** — `.btn--secondary`: transparent background, navy `1px` border, navy text — clearly visible outline button
-- **Enabled Delete** — `.btn--danger`: `var(--red-bg)` background, `var(--red)` text, red-tinted border — clearly a destructive action
-- **Disabled (either)** — `disabled` attribute triggers `.btn:disabled { opacity: 0.45; cursor: not-allowed }` — fades both buttons to 45% opacity, clearly inactive
-
-The implementation agent must confirm that both buttons in the row actually carry these classes in the rendered output. If any regression introduced a different class (e.g. `.btn--admin` or `.btn--ghost`) for the enabled state, restore `.btn--secondary` and `.btn--danger` respectively.
-
-### 4.3 Tooltip (disabled state)
-
-The `title` attribute on disabled buttons is already set:
+### 4.2 State
 
 ```tsx
-const editDeleteTitle = isEditDeleteDisabled ? "Hide this motion first to edit or delete" : undefined;
+const [showAddMotionModal, setShowAddMotionModal] = useState<boolean>(false);
 ```
 
-This is correct and must be preserved.
+The "Add Motion" button is always rendered (not conditionally) when the meeting is `pending` or `open`. Clicking it sets `showAddMotionModal = true`. The button is not shown when the meeting is `closed`.
+
+### 4.3 Modal structure
+
+Same backdrop and centred-panel structure as the Edit Motion modal (§3.3 above):
+
+- `role="dialog"`, `aria-modal="true"`, `aria-label="Add Motion"`
+- Fixed-position backdrop at `zIndex: 1000`; clicking the backdrop closes the modal (sets `showAddMotionModal = false`)
+- Escape key closes the modal when no mutation is in flight (same `useEffect` pattern as §3.4)
+- Form fields: Description (`<textarea>`, required) and Motion Type (`<select>`, required)
+- Footer: **Cancel** (`.btn--secondary`) and **Add Motion** (`.btn--primary`)
+
+### 4.4 Form reset and close behaviour
+
+- Opening the modal resets the add-form state to empty values (`description: ""`, `motion_type: "general"`)
+- On successful `POST /api/admin/general-meetings/{id}/motions`:
+  - Close modal (`setShowAddMotionModal(false)`)
+  - Reset form state
+  - Invalidate the meeting detail query so the new motion appears immediately
+- On Cancel / Escape / backdrop click: close without saving, reset form state
+- On API error: display error message inside the modal using `.field__error`; modal stays open
 
 ---
 
-## 5. Test coverage
+## 5. Motion Row Opacity Pattern (US-AM06)
+
+### 5.1 Hidden motion rows
+
+Apply `.admin-table__cell--muted` (opacity 0.45) to the individual `<td>` elements for the motion number (#), title, type, and visibility columns. The actions `<td>` must **not** carry this class — the Edit and Delete buttons must render at full opacity so they are clearly actionable.
+
+```tsx
+<td className="admin-table__cell--muted">{motion.order_index}</td>
+<td className="admin-table__cell--muted">{motion.title}</td>
+<td className="admin-table__cell--muted">…</td>  {/* type badge */}
+<td className="admin-table__cell--muted">…</td>  {/* visibility toggle */}
+<td>  {/* actions — NO muting class */}
+  <button className="btn btn--secondary" style={{ padding: "5px 14px", fontSize: "0.8rem" }}>Edit</button>
+  <button className="btn btn--danger btn--sm">Delete</button>
+</td>
+```
+
+### 5.2 Visible motion rows
+
+Text cells render at full opacity (no muting class). The Edit and Delete buttons carry the `disabled` attribute. The global CSS rule `.btn:disabled { opacity: 0.45 }` handles the visual fade — no additional class is needed.
+
+```tsx
+<button className="btn btn--secondary" disabled title="Hide this motion first to edit or delete">Edit</button>
+<button className="btn btn--danger btn--sm" disabled title="Hide this motion first to edit or delete">Delete</button>
+```
+
+### 5.3 Why cell-level, not row-level
+
+Row-level `admin-table__row--muted` applies opacity to the entire `<tr>`, including the actions cell. This prevents the Edit/Delete buttons from standing out at full saturation on hidden rows. Cell-level muting gives independent control: content cells are greyed out while action buttons remain visually prominent.
+
+**Do not use `admin-table__row--muted` on motion rows.**
+
+---
+
+## 6. Test coverage
 
 ### Unit / integration tests (Vitest + RTL)
 
