@@ -253,11 +253,6 @@ export function VotingPage() {
   // Sidebar is only rendered for multi-lot voters (single-lot voters see motions full-width)
   const showSidebar = isMultiLot && allLots.length > 0;
 
-  const selectedCount = allLots.filter((l) => selectedIds.has(l.lot_owner_id)).length;
-  const sidebarSummaryLabel = allSubmitted
-    ? "Your Lots — all submitted"
-    : `Your Lots (${selectedCount} selected)`;
-
   // Lot list content — shared between desktop sidebar and mobile drawer
   const lotListContent = showSidebar ? (
     <div className="lot-selection">
