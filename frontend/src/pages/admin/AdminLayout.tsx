@@ -57,7 +57,10 @@ export default function AdminLayout() {
     <div className="admin-layout">
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
-          <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
+          <picture>
+            <source srcSet="/logo.webp" type="image/webp" />
+            <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
+          </picture>
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <NavContent />
@@ -85,7 +88,10 @@ export default function AdminLayout() {
         data-testid="admin-nav-drawer"
       >
         <div className="admin-sidebar__header">
-          <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
+          <picture>
+            <source srcSet="/logo.webp" type="image/webp" />
+            <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
+          </picture>
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <button

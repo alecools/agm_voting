@@ -30,7 +30,10 @@ export default function AdminLoginPage() {
     <div className="admin-login-page">
       <div className="admin-login-card">
         <div className="admin-login-card__header">
-          <img src="/logo.png" alt="General Meeting Vote" className="admin-login-card__logo" />
+          <picture>
+            <source srcSet="/logo.webp" type="image/webp" />
+            <img src="/logo.png" alt="General Meeting Vote" className="admin-login-card__logo" />
+          </picture>
           <h1 className="admin-login-card__title">Admin Portal</h1>
           <p className="admin-login-card__subtitle">Sign in to manage buildings and General Meetings</p>
         </div>

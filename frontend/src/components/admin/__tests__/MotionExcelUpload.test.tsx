@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MotionExcelUpload from "../MotionExcelUpload";
 
+// vi.mock is hoisted by Vitest and intercepts both static and dynamic imports
 vi.mock("../../../utils/parseMotionsExcel");
 
 import { parseMotionsExcel } from "../../../utils/parseMotionsExcel";
@@ -18,6 +19,8 @@ describe("MotionExcelUpload", () => {
     vi.resetAllMocks();
   });
 
+  // --- Happy path ---
+
   it("renders the Download template link with correct href and download attribute", () => {
     renderComponent();
     const link = screen.getByRole("link", { name: "Download template" });
@@ -31,6 +34,11 @@ describe("MotionExcelUpload", () => {
     const input = screen.getByLabelText("Upload motions (CSV or Excel)");
     expect(input).toBeInTheDocument();
     expect(input).toHaveAttribute("accept", ".csv,text/csv,.xlsx,.xls");
+  });
+
+  it("renders button with 'Import motions from CSV or Excel' label", () => {
+    renderComponent();
+    expect(screen.getByRole("button", { name: "Import motions from CSV or Excel" })).toBeInTheDocument();
   });
 
   it("shows loading state while parsing", async () => {
@@ -76,6 +84,40 @@ describe("MotionExcelUpload", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("accepts a CSV file and calls onMotionsLoaded with parsed motions", async () => {
+    const motions = [
+      { title: "CSV Motion", description: "", motion_type: "general" as const },
+    ];
+    mockParse.mockResolvedValue({ motions });
+
+    const onMotionsLoaded = vi.fn();
+    const user = userEvent.setup();
+    renderComponent(onMotionsLoaded);
+
+    const csvFile = new File(["Motion,Description\n1,CSV Motion"], "motions.csv", { type: "text/csv" });
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), csvFile);
+
+    await waitFor(() => {
+      expect(onMotionsLoaded).toHaveBeenCalledWith(motions);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows filename after successful upload", async () => {
+    mockParse.mockResolvedValue({ motions: [] });
+    const user = userEvent.setup();
+    renderComponent();
+
+    const file = new File([""], "my-motions.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
+
+    await waitFor(() => {
+      expect(screen.getByText("my-motions.xlsx")).toBeInTheDocument();
+    });
+  });
+
+  // --- Input validation ---
+
   it("shows error alert with all error messages on parse error", async () => {
     mockParse.mockResolvedValue({ errors: ["Row 1: Motion must be a number", "Row 2: Description is empty"] });
 
@@ -113,29 +155,7 @@ describe("MotionExcelUpload", () => {
     });
   });
 
-  it("renders button with 'Import motions from CSV or Excel' label", () => {
-    renderComponent();
-    expect(screen.getByRole("button", { name: "Import motions from CSV or Excel" })).toBeInTheDocument();
-  });
-
-  it("accepts a CSV file and calls onMotionsLoaded with parsed motions", async () => {
-    const motions = [
-      { title: "CSV Motion", description: "", motion_type: "general" as const },
-    ];
-    mockParse.mockResolvedValue({ motions });
-
-    const onMotionsLoaded = vi.fn();
-    const user = userEvent.setup();
-    renderComponent(onMotionsLoaded);
-
-    const csvFile = new File(["Motion,Description\n1,CSV Motion"], "motions.csv", { type: "text/csv" });
-    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), csvFile);
-
-    await waitFor(() => {
-      expect(onMotionsLoaded).toHaveBeenCalledWith(motions);
-    });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
+  // --- Edge cases ---
 
   it("does nothing when change event fires with no file selected", async () => {
     const onMotionsLoaded = vi.fn();
@@ -175,5 +195,30 @@ describe("MotionExcelUpload", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     expect(onMotionsLoaded).toHaveBeenCalledWith([{ title: "Motion A", description: "", motion_type: "general" }]);
+  });
+
+  // --- Dynamic import failure (VP-PERF-06) ---
+
+  it("shows a generic error when the dynamic import of parseMotionsExcel fails", async () => {
+    // Simulate the module failing to load (e.g. network error during lazy chunk fetch)
+    vi.doMock("../../../utils/parseMotionsExcel", () => {
+      throw new Error("ChunkLoadError: Failed to load chunk");
+    });
+
+    // Use a fresh mock that rejects to simulate the dynamic import() promise rejecting
+    mockParse.mockRejectedValue(new Error("ChunkLoadError: Failed to load chunk"));
+
+    const onMotionsLoaded = vi.fn();
+    const user = userEvent.setup();
+    renderComponent(onMotionsLoaded);
+
+    const file = new File([""], "motions.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    await user.upload(screen.getByLabelText("Upload motions (CSV or Excel)"), file);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Failed to load the file parser. Please try again.")).toBeInTheDocument();
+    expect(onMotionsLoaded).not.toHaveBeenCalled();
   });
 });

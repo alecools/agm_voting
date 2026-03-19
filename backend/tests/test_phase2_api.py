@@ -279,17 +279,29 @@ class TestAuthVerify:
     async def test_valid_auth_already_submitted(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
+        """already_submitted=True when lot has submitted votes for every visible motion."""
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
+        motions = building_with_agm["motions"]  # [m1, m2] — both visible by default
 
-        # Create a ballot submission for this lot owner
+        # Create a ballot submission and submitted votes for all visible motions
         bs = BallotSubmission(
             general_meeting_id=agm.id,
             lot_owner_id=lo.id,
             voter_email=voter_email,
         )
         db_session.add(bs)
+        for motion in motions:
+            v = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(v)
         await db_session.flush()
         code = await make_otp(db_session, voter_email, agm.id)
 
@@ -1805,15 +1817,27 @@ class TestProxyAuth:
     async def test_proxy_already_submitted_shows_already_submitted(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """already_submitted for proxy lot reflects BallotSubmission."""
+        """already_submitted for proxy lot is True when lot has submitted votes for all visible motions."""
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
+        motions = building_with_agm["motions"]  # [m1, m2] — both visible by default
 
         proxy_email = "proxy2@test.com"
         lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
         db_session.add(lp)
         bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=proxy_email)
         db_session.add(bs)
+        # Submitted votes for all visible motions
+        for motion in motions:
+            v = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=proxy_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(v)
         await db_session.flush()
         code = await make_otp(db_session, proxy_email, agm.id)
 

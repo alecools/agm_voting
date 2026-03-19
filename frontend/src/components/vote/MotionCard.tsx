@@ -38,7 +38,7 @@ export function MotionCard({
       className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}`}
     >
       <div className="motion-card__top-row">
-        <p className="motion-card__number">Motion {motion.order_index}</p>
+        <p className="motion-card__number">Motion {motion.order_index + 1}</p>
         <span
           className={`motion-type-badge${isSpecial ? " motion-type-badge--special" : " motion-type-badge--general"}`}
           aria-label={`Motion type: ${isSpecial ? "Special" : "General"}`}

@@ -18,7 +18,6 @@ from app.logging_config import get_logger
 from app.models.auth_otp import AuthOtp
 from app.models.building import Building
 from app.models.general_meeting import GeneralMeeting, get_effective_status
-from app.models.ballot_submission import BallotSubmission
 from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
@@ -248,14 +247,33 @@ async def verify_auth(
     )
     lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
 
-    # 9. Check submissions per lot owner
-    submissions_result = await db.execute(
-        select(BallotSubmission).where(
-            BallotSubmission.general_meeting_id == request.general_meeting_id,
-            BallotSubmission.lot_owner_id.in_(all_lot_owner_ids),
+    # 9. Fetch all currently visible motions for this meeting.
+    #    These are needed both for the per-lot already_submitted computation and for
+    #    unvoted_visible_count. Fetched once here and reused below.
+    visible_motions_result = await db.execute(
+        select(Motion).where(
+            Motion.general_meeting_id == request.general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
         )
     )
-    submitted_lot_ids: set[uuid.UUID] = {s.lot_owner_id for s in submissions_result.scalars().all()}
+    visible_motions = list(visible_motions_result.scalars().all())
+    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
+
+    # 10. For each lot, determine the set of visible motion IDs that already have a
+    #     submitted Vote row.  A lot is "already submitted" only if it has a submitted
+    #     vote for EVERY currently visible motion — not just if a BallotSubmission row
+    #     exists (which would be permanently True after the first submission even when
+    #     new motions have been made visible since then).
+    voted_by_lot_result = await db.execute(
+        select(Vote.lot_owner_id, Vote.motion_id).where(
+            Vote.general_meeting_id == request.general_meeting_id,
+            Vote.lot_owner_id.in_(all_lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
+        )
+    )
+    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for lot_owner_id, motion_id in voted_by_lot_result.all():
+        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
 
     lots = []
     for lot_owner_id in all_lot_owner_ids:
@@ -265,47 +283,38 @@ async def verify_auth(
         # Direct owner takes precedence: is_proxy=False if voter is a direct owner of this lot
         is_proxy = lot_owner_id not in direct_lot_owner_ids
         fp = lo.financial_position
+
+        # A lot is "already submitted" when it has a submitted vote for every currently
+        # visible motion.  If there are no visible motions yet, nothing to vote on so
+        # already_submitted = False (the voter has not "completed" anything).
+        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
+        already_submitted = (
+            len(visible_motion_ids) > 0
+            and visible_motion_ids.issubset(voted_for_this_lot)
+        )
+
         lots.append(LotInfo(
             lot_owner_id=lo.id,
             lot_number=lo.lot_number,
             financial_position=fp.value if hasattr(fp, "value") else fp,
-            already_submitted=lo.id in submitted_lot_ids,
+            already_submitted=already_submitted,
             is_proxy=is_proxy,
         ))
 
     # Sort by lot_number for consistent ordering
     lots.sort(key=lambda l: l.lot_number)
 
-    # 10. Compute unvoted_visible_count
-    visible_motions_result = await db.execute(
-        select(Motion).where(
-            Motion.general_meeting_id == request.general_meeting_id,
-            Motion.is_visible == True,  # noqa: E712
-        )
-    )
-    visible_motions = list(visible_motions_result.scalars().all())
-
-    # Get submitted vote motion IDs for this voter across all their lots
-    submitted_votes_result = await db.execute(
-        select(Vote.motion_id).where(
-            Vote.general_meeting_id == request.general_meeting_id,
-            Vote.lot_owner_id.in_(all_lot_owner_ids),
-            Vote.status == VoteStatus.submitted,
-        ).distinct()
-    )
-    submitted_motion_ids = {row[0] for row in submitted_votes_result.all()}
-
-    # remaining_lot_owner_ids_set = lots not yet submitted
-    remaining_lot_owner_ids_set = all_lot_owner_ids - submitted_lot_ids
-
-    if remaining_lot_owner_ids_set:
-        # There are unsubmitted lots — all visible motions are "unvoted" from their perspective
+    # 11. Compute unvoted_visible_count.
+    #     This is consistent with the per-lot already_submitted definition above:
+    #     if any lot has already_submitted=False, the voter still has visible motions
+    #     to vote on, so unvoted_visible_count = len(visible_motions).
+    #     If all lots are already_submitted=True (every visible motion voted on by every
+    #     lot), unvoted_visible_count = 0.
+    any_lot_not_submitted = any(not l.already_submitted for l in lots)
+    if any_lot_not_submitted:
         unvoted_visible_count = len(visible_motions)
     else:
-        # All lots submitted — count visible motions not yet voted on by this voter email
-        unvoted_visible_count = sum(
-            1 for m in visible_motions if m.id not in submitted_motion_ids
-        )
+        unvoted_visible_count = 0
 
     # 11. Create session
     token = await create_session(

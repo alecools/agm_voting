@@ -362,6 +362,7 @@ class TestAuthVerify:
         assert "meeting_session" in response.cookies
 
     async def test_already_submitted_flag(self, transport, db_session: AsyncSession):
+        """already_submitted=True only when lot has submitted votes for every visible motion."""
         b = make_building("Already Submitted Building")
         db_session.add(b)
         await db_session.flush()
@@ -373,9 +374,23 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        # Pre-existing ballot submission
+        # One visible motion
+        m = Motion(general_meeting_id=agm.id, title="Motion C3", order_index=1, is_visible=True)
+        db_session.add(m)
+        await db_session.flush()
+
+        # Pre-existing ballot submission AND a submitted vote for the visible motion
         sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="submitted@auth.com")
         db_session.add(sub)
+        v = Vote(
+            general_meeting_id=agm.id,
+            motion_id=m.id,
+            voter_email="submitted@auth.com",
+            lot_owner_id=lo.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+        )
+        db_session.add(v)
         code = await make_otp(db_session, "submitted@auth.com", agm.id)
         await db_session.commit()
 
@@ -794,6 +809,228 @@ class TestAuthVerify:
             })
 
         assert response.status_code == 200
+
+    # --- Revote scenario tests (BUG-RV-01) ---
+    # already_submitted is motion-aware: True only when every visible motion has
+    # a submitted Vote row for that lot — not just because a BallotSubmission row exists.
+
+    async def test_already_submitted_false_when_new_visible_motion_added_after_first_vote(
+        self, transport, db_session: AsyncSession
+    ):
+        """Revote scenario: lot voted on M1 (only visible motion at first submission).
+        Admin then makes M2 visible. On re-auth, already_submitted should be False
+        because M2 has not yet been voted on."""
+        b = make_building("Revote Building 1")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="RV1")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "revote1@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        # Two visible motions — lot has only voted on M1
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV1-A", order_index=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV1-B", order_index=2, is_visible=True)
+        db_session.add_all([m1, m2])
+        await db_session.flush()
+
+        sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote1@auth.com")
+        db_session.add(sub)
+        # Only voted on M1 — M2 is a new visible motion (simulates admin making it visible after first vote)
+        v1 = Vote(
+            general_meeting_id=agm.id, motion_id=m1.id, voter_email="revote1@auth.com",
+            lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.submitted,
+        )
+        db_session.add(v1)
+        code = await make_otp(db_session, "revote1@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "revote1@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+
+        assert r.status_code == 200
+        data = r.json()
+        # M2 not yet voted → already_submitted must be False
+        assert data["lots"][0]["already_submitted"] is False
+        # unvoted_visible_count must reflect remaining work (2 visible motions, not just 1)
+        assert data["unvoted_visible_count"] == 2
+
+    async def test_already_submitted_true_when_all_visible_motions_voted(
+        self, transport, db_session: AsyncSession
+    ):
+        """Lot has submitted votes for every currently visible motion → already_submitted=True."""
+        b = make_building("Revote Building 2")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="RV2")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "revote2@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV2-A", order_index=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV2-B", order_index=2, is_visible=True)
+        # Hidden motion — should NOT block already_submitted
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV2-Hidden", order_index=3, is_visible=False)
+        db_session.add_all([m1, m2, m_hidden])
+        await db_session.flush()
+
+        sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote2@auth.com")
+        db_session.add(sub)
+        v1 = Vote(
+            general_meeting_id=agm.id, motion_id=m1.id, voter_email="revote2@auth.com",
+            lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.submitted,
+        )
+        v2 = Vote(
+            general_meeting_id=agm.id, motion_id=m2.id, voter_email="revote2@auth.com",
+            lot_owner_id=lo.id, choice=VoteChoice.no, status=VoteStatus.submitted,
+        )
+        db_session.add_all([v1, v2])
+        code = await make_otp(db_session, "revote2@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "revote2@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+
+        assert r.status_code == 200
+        data = r.json()
+        # All visible motions voted → already_submitted must be True
+        assert data["lots"][0]["already_submitted"] is True
+        assert data["unvoted_visible_count"] == 0
+
+    async def test_already_submitted_false_when_no_visible_motions(
+        self, transport, db_session: AsyncSession
+    ):
+        """No visible motions at all → already_submitted=False (nothing to vote on yet)."""
+        b = make_building("Revote Building 3")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="RV3")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "revote3@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        # Only a hidden motion — nothing visible
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV3-Hidden", order_index=1, is_visible=False)
+        db_session.add(m_hidden)
+        # BallotSubmission exists but no visible motions → should still be False
+        sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote3@auth.com")
+        db_session.add(sub)
+        code = await make_otp(db_session, "revote3@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "revote3@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lots"][0]["already_submitted"] is False
+        assert data["unvoted_visible_count"] == 0
+
+    async def test_already_submitted_false_when_lot_has_never_voted(
+        self, transport, db_session: AsyncSession
+    ):
+        """Lot with no votes at all on visible motions → already_submitted=False."""
+        b = make_building("Revote Building 4")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="RV4")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "revote4@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m = Motion(general_meeting_id=agm.id, title="Motion RV4-A", order_index=1, is_visible=True)
+        db_session.add(m)
+        # No BallotSubmission, no Vote rows at all
+        code = await make_otp(db_session, "revote4@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "revote4@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lots"][0]["already_submitted"] is False
+        assert data["unvoted_visible_count"] == 1
+
+    async def test_revote_unvoted_visible_count_nonzero_when_partial_votes_exist(
+        self, transport, db_session: AsyncSession
+    ):
+        """Multi-motion meeting where lot voted on some but not all visible motions.
+        unvoted_visible_count must equal total visible motions (not the remainder),
+        because any_lot_not_submitted=True → show all visible motions."""
+        b = make_building("Revote Building 5")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, lot_number="RV5")
+        db_session.add(lo)
+        await db_session.flush()
+        await add_email(db_session, lo, "revote5@auth.com")
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV5-A", order_index=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV5-B", order_index=2, is_visible=True)
+        m3 = Motion(general_meeting_id=agm.id, title="Motion RV5-C", order_index=3, is_visible=True)
+        db_session.add_all([m1, m2, m3])
+        await db_session.flush()
+
+        sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote5@auth.com")
+        db_session.add(sub)
+        # Voted on M1 and M2 only — M3 is newly visible
+        v1 = Vote(
+            general_meeting_id=agm.id, motion_id=m1.id, voter_email="revote5@auth.com",
+            lot_owner_id=lo.id, choice=VoteChoice.yes, status=VoteStatus.submitted,
+        )
+        v2 = Vote(
+            general_meeting_id=agm.id, motion_id=m2.id, voter_email="revote5@auth.com",
+            lot_owner_id=lo.id, choice=VoteChoice.abstained, status=VoteStatus.submitted,
+        )
+        db_session.add_all([v1, v2])
+        code = await make_otp(db_session, "revote5@auth.com", agm.id)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/api/auth/verify", json={
+                "email": "revote5@auth.com",
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            })
+
+        assert r.status_code == 200
+        data = r.json()
+        # M3 not voted → already_submitted=False
+        assert data["lots"][0]["already_submitted"] is False
+        # any_lot_not_submitted=True → unvoted_visible_count = total visible motions (3)
+        assert data["unvoted_visible_count"] == 3
 
 
 # ---------------------------------------------------------------------------

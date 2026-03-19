@@ -536,7 +536,7 @@ export function VotingPage() {
                       </button>
                     </div>
                   )}
-                  {unvotedMotions.length > 0 && !isClosed && !allSubmitted && (
+                  {unvotedMotions.length > 0 && !isClosed && (
                     <div className="submit-section">
                       <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
                         Submit ballot

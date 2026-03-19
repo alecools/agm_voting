@@ -146,4 +146,82 @@ describe("Voting Flow Integration", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
     sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
   });
+
+  // --- Revote integration scenario (BUG-RV-01) ---
+
+  it("revote: submit button visible after prior submission when new visible motion exists", async () => {
+    // Simulate a voter returning after admin made a new motion visible.
+    // Backend now returns already_submitted=false (motion-aware).
+    // The voting page must show the submit button.
+    const { http, HttpResponse } = await import("msw");
+    const { server } = await import("../../../../tests/msw/server");
+    const { MOTION_ID_1, MOTION_ID_2, AGM_ID: AGM } = await import("../../../../tests/msw/handlers");
+
+    server.use(
+      http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
+        HttpResponse.json([
+          // Motion 1 was voted on previously (already_voted=true)
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          // Motion 2 is newly visible — not yet voted
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+        ])
+      )
+    );
+
+    // Backend returns already_submitted=false (new correct logic: M2 not yet voted)
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+
+    renderApp(`/vote/${AGM}/voting`);
+
+    // Motion 2 should be interactive (not read-only)
+    await waitFor(() => screen.getByRole("heading", { name: "New Motion" }));
+
+    // Submit ballot button must be present (unvotedMotions=[Motion 2])
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    });
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM}`);
+  });
+
+  it("revote: submit button hidden after voter has voted on all currently visible motions", async () => {
+    // After revote: all motions are already_voted=true → unvotedMotions=[] → no submit button.
+    const { http, HttpResponse } = await import("msw");
+    const { server } = await import("../../../../tests/msw/server");
+    const { MOTION_ID_1, MOTION_ID_2, AGM_ID: AGM } = await import("../../../../tests/msw/handlers");
+
+    server.use(
+      http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+        ])
+      )
+    );
+
+    // Backend returns already_submitted=true (all visible motions voted)
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+
+    renderApp(`/vote/${AGM}/voting`);
+
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // No submit button — all motions read-only (already_voted=true, no unsubmitted lots)
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Submit ballot" })).not.toBeInTheDocument();
+    });
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM}`);
+
+  });
 });

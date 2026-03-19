@@ -1280,6 +1280,66 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  // --- Revote scenario tests (BUG-RV-01) ---
+  // Submit button must be visible when all lots have already_submitted=true but new visible
+  // motions exist that haven't been voted on yet (i.e. unvotedMotions.length > 0).
+
+  it("revote: submit button IS visible when lots all have already_submitted=true but motions include new unvoted ones", async () => {
+    // Simulate the revote scenario: all lots have already_submitted=true (from backend),
+    // but one motion has already_voted=false (a newly visible motion).
+    // The !allSubmitted guard has been removed, so the submit button should be visible.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+        ])
+      )
+    );
+    // Both lots already_submitted=true (backend fixed: means all visible motions voted on at last check)
+    // but the page is loaded with a new motion — already_submitted reflects state at auth time
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    // Submit button must be visible (unvotedMotions.length > 0 and meeting is open)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("revote: submit button hidden when all motions already_voted and no unsubmitted lots", async () => {
+    // When all lots are already_submitted=true AND all motions are already_voted=true,
+    // unvotedMotions is empty → no submit button (View Submission shown instead for single lot).
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // No submit button — all motions read-only and no unvoted motions
+    expect(screen.queryByRole("button", { name: "Submit ballot" })).not.toBeInTheDocument();
+    // View Submission shown instead (single non-proxy lot, no sidebar, all motions read-only)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("multi-lot all-submitted: View Submission not duplicated in submit-section when sidebar present", async () => {
     // When showSidebar=true (multi-lot), the submit-section should not render a second View Submission button
     server.use(

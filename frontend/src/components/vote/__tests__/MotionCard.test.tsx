@@ -180,6 +180,34 @@ describe("MotionCard", () => {
     expect(card).not.toHaveClass("motion-card--highlight");
   });
 
+  // --- 1-based motion number display ---
+
+  it("displays motion number as order_index + 1 (1-based)", () => {
+    render(
+      <MotionCard
+        motion={{ ...motion, order_index: 0 }}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.getByText("Motion 1")).toBeInTheDocument();
+  });
+
+  it("displays correct 1-based number for order_index 4", () => {
+    render(
+      <MotionCard
+        motion={{ ...motion, order_index: 4 }}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+      />
+    );
+    expect(screen.getByText("Motion 5")).toBeInTheDocument();
+  });
+
   // --- motion_type badge tests ---
 
   it("shows 'General' badge for a general motion", () => {
