@@ -189,8 +189,8 @@ class TestListBuildings:
         names = [item["name"] for item in response.json()]
         assert "Tower With GeneralMeeting" in names
 
-    async def test_returns_buildings_without_agms(self, transport, db_session: AsyncSession):
-        """Buildings without AGMs appear (GeneralMeeting list will be empty)."""
+    async def test_building_without_agm_is_excluded(self, transport, db_session: AsyncSession):
+        """Buildings without any AGMs are excluded from the list."""
         b = make_building("No GeneralMeeting Tower")
         db_session.add(b)
         await db_session.commit()
@@ -199,11 +199,15 @@ class TestListBuildings:
             response = await client.get("/api/buildings")
 
         names = [item["name"] for item in response.json()]
-        assert "No GeneralMeeting Tower" in names
+        assert "No GeneralMeeting Tower" not in names
 
     async def test_building_fields(self, transport, db_session: AsyncSession):
         b = make_building("Field Check Tower")
         db_session.add(b)
+        await db_session.flush()
+
+        agm = make_agm(b)
+        db_session.add(agm)
         await db_session.commit()
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -217,11 +221,116 @@ class TestListBuildings:
         assert "name" in item
 
     async def test_empty_buildings_returns_empty_list(self, transport):
-        """When no buildings exist, returns empty list."""
+        """When no buildings (with open meetings) exist, returns empty list."""
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/buildings")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
+
+    # --- State / precondition errors ---
+
+    async def test_building_with_only_closed_meeting_is_excluded(
+        self, transport, db_session: AsyncSession
+    ):
+        """A building whose only meeting has status=closed does not appear."""
+        b = make_building("Closed Meeting Tower")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = utcnow()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Closed AGM",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=now - timedelta(hours=2),
+            voting_closes_at=now + timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
+
+        names = [item["name"] for item in response.json()]
+        assert "Closed Meeting Tower" not in names
+
+    async def test_building_with_expired_voting_is_excluded(
+        self, transport, db_session: AsyncSession
+    ):
+        """A building whose meeting has voting_closes_at in the past is excluded."""
+        b = make_building("Expired Voting Tower")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = utcnow()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Expired AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=now - timedelta(days=3),
+            voting_closes_at=now - timedelta(hours=1),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
+
+        names = [item["name"] for item in response.json()]
+        assert "Expired Voting Tower" not in names
+
+    async def test_building_with_future_meeting_is_excluded(
+        self, transport, db_session: AsyncSession
+    ):
+        """A building whose meeting has meeting_at in the future (pending) is excluded."""
+        b = make_building("Pending Meeting Tower")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = utcnow()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Pending AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=now + timedelta(days=2),
+            voting_closes_at=now + timedelta(days=5),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
+
+        names = [item["name"] for item in response.json()]
+        assert "Pending Meeting Tower" not in names
+
+    # --- Edge cases ---
+
+    async def test_building_with_open_and_closed_meetings_is_included(
+        self, transport, db_session: AsyncSession
+    ):
+        """A building with at least one open meeting appears even if it also has closed ones."""
+        b = make_building("Mixed Meetings Tower")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = utcnow()
+        closed_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Past AGM",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=now - timedelta(days=30),
+            voting_closes_at=now - timedelta(days=28),
+        )
+        open_agm = make_agm(b, title="Current AGM")
+        db_session.add_all([closed_agm, open_agm])
+        await db_session.commit()
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/buildings")
+
+        names = [item["name"] for item in response.json()]
+        assert "Mixed Meetings Tower" in names
 
 
 # ---------------------------------------------------------------------------

@@ -231,6 +231,11 @@ export async function createOpenMeeting(
 /**
  * Create a pending meeting (meeting_at in the future) for a building.
  * Returns the meeting ID.
+ *
+ * NOTE: This helper closes any existing open/pending meetings before creating
+ * the pending meeting. If you need to keep an open meeting alive alongside the
+ * pending meeting (e.g. so the building still appears in the voter dropdown),
+ * use `seedPendingMeeting` instead and seed the open meeting first.
  */
 export async function createPendingMeeting(
   api: APIRequestContext,
@@ -274,6 +279,48 @@ export async function createPendingMeeting(
   if (!createRes.ok()) {
     throw new Error(
       `Failed to create pending meeting "${title}" (${createRes.status()}): ${await createRes.text()}`
+    );
+  }
+  const newAgm = (await createRes.json()) as { id: string };
+  return newAgm.id;
+}
+
+/**
+ * Create a pending meeting (meeting_at in the future) WITHOUT closing any
+ * existing meetings first. Use this when an open meeting must remain alive
+ * alongside the pending meeting — e.g. so the building still passes the
+ * GET /api/buildings filter (which requires meeting_at <= now).
+ *
+ * Callers are responsible for ensuring no conflicting state exists beforehand.
+ */
+export async function seedPendingMeeting(
+  api: APIRequestContext,
+  buildingId: string,
+  title: string,
+  motions: MotionSeed[]
+): Promise<string> {
+  const meetingAt = new Date();
+  meetingAt.setHours(meetingAt.getHours() + 2); // 2 hours in the future
+  const closesAt = new Date();
+  closesAt.setFullYear(closesAt.getFullYear() + 1);
+
+  const createRes = await api.post("/api/admin/general-meetings", {
+    data: {
+      building_id: buildingId,
+      title,
+      meeting_at: meetingAt.toISOString(),
+      voting_closes_at: closesAt.toISOString(),
+      motions: motions.map((m) => ({
+        title: m.title,
+        description: m.description,
+        order_index: m.orderIndex,
+        motion_type: m.motionType,
+      })),
+    },
+  });
+  if (!createRes.ok()) {
+    throw new Error(
+      `Failed to seed pending meeting "${title}" (${createRes.status()}): ${await createRes.text()}`
     );
   }
   const newAgm = (await createRes.json()) as { id: string };

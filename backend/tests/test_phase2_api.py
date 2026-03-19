@@ -190,10 +190,10 @@ class TestPublicListBuildings:
         assert "id" in first
         assert "name" in first
 
-    async def test_building_without_agm_is_listed(
+    async def test_building_without_agm_is_excluded(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Buildings without AGMs now appear — the GeneralMeeting list for that building will be empty."""
+        """Buildings without any AGMs are excluded — only buildings with open meetings appear."""
         b = Building(name="No GeneralMeeting Building P2", manager_email="noagm@test.com")
         db_session.add(b)
         await db_session.flush()
@@ -201,7 +201,87 @@ class TestPublicListBuildings:
         response = await client.get("/api/buildings")
         data = response.json()
         names = [item["name"] for item in data]
-        assert "No GeneralMeeting Building P2" in names
+        assert "No GeneralMeeting Building P2" not in names
+
+    # --- State / precondition errors ---
+
+    async def test_building_with_only_closed_meeting_is_excluded(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A building whose only meeting is closed does not appear in the list."""
+        b = Building(name="Closed Only P2 Building", manager_email="closed@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Closed Meeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=now - timedelta(days=5),
+            voting_closes_at=now + timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        response = await client.get("/api/buildings")
+        names = [item["name"] for item in response.json()]
+        assert "Closed Only P2 Building" not in names
+
+    async def test_building_with_expired_voting_is_excluded(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A building with a meeting whose voting_closes_at has passed is excluded."""
+        b = Building(name="Expired Voting P2 Building", manager_email="expired@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Expired Voting Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=now - timedelta(days=3),
+            voting_closes_at=now - timedelta(hours=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        response = await client.get("/api/buildings")
+        names = [item["name"] for item in response.json()]
+        assert "Expired Voting P2 Building" not in names
+
+    # --- Edge cases ---
+
+    async def test_building_with_open_and_closed_meetings_is_included(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A building with at least one open meeting appears even if it also has closed ones."""
+        b = Building(name="Mixed P2 Building", manager_email="mixed@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        closed_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Old Closed Meeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=now - timedelta(days=30),
+            voting_closes_at=now - timedelta(days=28),
+        )
+        open_agm = GeneralMeeting(
+            building_id=b.id,
+            title="Current Open Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=now - timedelta(hours=1),
+            voting_closes_at=now + timedelta(days=2),
+        )
+        db_session.add_all([closed_agm, open_agm])
+        await db_session.flush()
+
+        response = await client.get("/api/buildings")
+        names = [item["name"] for item in response.json()]
+        assert "Mixed P2 Building" in names
 
 
 # ---------------------------------------------------------------------------
