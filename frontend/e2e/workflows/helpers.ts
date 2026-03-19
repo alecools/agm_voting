@@ -437,6 +437,11 @@ export async function getTestOtp(
  * to reach the auth form for that building.
  */
 export async function goToAuthPage(page: Page, buildingName: string): Promise<void> {
+  await page.evaluate(() => {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('agm_session_'))
+      .forEach(k => localStorage.removeItem(k))
+  })
   await page.goto("/");
   const select = page.getByLabel("Select your building");
   await expect(select).toBeVisible();

@@ -165,6 +165,11 @@ test.describe("Multi-lot voter journey", () => {
 
   // ── Helper: navigate to the auth page for this AGM ──────────────────────────
   async function goToAuthPage(page: import("@playwright/test").Page) {
+    await page.evaluate(() => {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('agm_session_'))
+        .forEach(k => localStorage.removeItem(k))
+    })
     await page.goto("/");
     const select = page.getByLabel("Select your building");
     await expect(select).toBeVisible();
