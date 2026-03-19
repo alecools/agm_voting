@@ -302,7 +302,7 @@ button, input, select, textarea {
 .btn--secondary {
   background: transparent;
   color: var(--navy);
-  border-color: rgba(12,27,46,.28);
+  border-color: var(--navy);
   letter-spacing: 0.04em;
   text-transform: none;
   font-size: 0.875rem;
@@ -1361,20 +1361,25 @@ button, input, select, textarea {
 
 /* === DANGER BUTTON === */
 .btn--danger {
-  background: var(--red-bg);
-  color: var(--red);
-  border-color: rgba(163,34,14,.22);
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
   letter-spacing: 0.04em;
   text-transform: none;
   font-size: 0.875rem;
   font-weight: 600;
 }
-
 .btn--danger:hover:not(:disabled) {
-  background: var(--red);
-  color: var(--white);
-  border-color: var(--red);
-  box-shadow: 0 3px 12px rgba(163,34,14,.25);
+  background: #7a1a0b;
+  border-color: #7a1a0b;
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(163,34,14,.35);
+}
+
+/* === SMALL BUTTON === */
+.btn--sm {
+  padding: 6px 14px;
+  font-size: 0.78rem;
 }
 
 /* Small size modifier */
