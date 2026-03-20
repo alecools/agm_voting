@@ -211,6 +211,23 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-BUG-AS01: Fix already-submitted state lost on return from confirmation page
+
+**Description:** As a voter who has submitted a ballot and clicks "View my votes" to return to the voting page, I should see my submitted lots correctly marked as "Already submitted" with disabled checkboxes and read-only motions — not an editable form that makes it appear I have not voted.
+
+**Root cause:** In `VotingPage.tsx`, `submitMutation.onSuccess`, the `sessionStorage.setItem` call that persists `already_submitted: true` for submitted lots was placed inside the functional updater passed to `setAllLots`. Under React 18 concurrent rendering, `navigate()` (React Router v6) internally uses `startTransition`, which can cause the component to unmount before the functional updater runs. This means the sessionStorage write is skipped, and on re-mount the page reads stale pre-submission data.
+
+**Fix:** Move the `sessionStorage.setItem` call to synchronous code in `onSuccess`, before the `navigate()` call, so it always executes regardless of React's rendering schedule.
+
+**Acceptance Criteria:**
+- [x] After submitting a ballot and returning to the voting page via "View my votes", submitted lots show "Already submitted" badge with disabled checkboxes
+- [x] After submitting all lots and returning via "View my votes", all motion cards are read-only
+- [x] The synchronous sessionStorage write in `onSuccess` is wrapped in a try/catch so corrupt sessionStorage data cannot prevent navigation
+- [x] All existing voting page tests continue to pass at 100% coverage
+- [x] Typecheck/lint passes
+
+---
+
 ### US-TECH02: Fix browser caching of index.html
 
 **Description:** As a user, I should not need to force-refresh my browser after a deployment to see the latest version of the app.

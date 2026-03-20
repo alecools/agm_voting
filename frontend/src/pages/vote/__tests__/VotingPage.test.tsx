@@ -1542,6 +1542,30 @@ describe("VotingPage", () => {
     });
   });
 
+  it("after submit: invalid JSON in meeting_lots_info sessionStorage is handled gracefully (catch branch)", async () => {
+    // Edge case: meeting_lots_info_<id> contains invalid JSON when onSuccess fires.
+    // The synchronous sessionStorage write in onSuccess must not throw — it must catch the
+    // parse error and leave sessionStorage unchanged (BUG-AS-01 catch path).
+    sessionStorage.setItem(`meeting_lots_info_${AGM_ID}`, "invalid-json{{{");
+    sessionStorage.setItem(`meeting_lots_${AGM_ID}`, JSON.stringify(["lo1"]));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    // allLots is empty because sessionStorage has invalid JSON (parse error in useEffect)
+    await waitFor(() => screen.getByRole("button", { name: "Submit ballot" }));
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    // Navigate still fires — the catch block does not rethrow
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+  });
+
   // --- BUG-RV-02: Pre-populate prior vote choices on re-entry ---
 
   it("choices seeded from submitted_choice when motions load (revote scenario)", async () => {

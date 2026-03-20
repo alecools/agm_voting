@@ -152,19 +152,36 @@ export function VotingPage() {
       const submittedIds: string[] = raw ? (JSON.parse(raw) as string[]) : [];
       const submittedSet = new Set(submittedIds);
 
-      // Mark just-submitted lots as already_submitted and sync sessionStorage so that
-      // back-navigation within the same browser session reflects the updated state
-      setAllLots((prev) => {
-        const updated = prev.map((lot) =>
+      // Write sessionStorage synchronously here, before navigate(), so that when the voter
+      // returns to VotingPage via "View my votes", the re-mount useEffect reads the correct
+      // already_submitted state. React Router v6's navigate() wraps in startTransition
+      // internally; any side-effect inside a setAllLots functional updater may not execute
+      // before the component unmounts under concurrent rendering (BUG-AS-01).
+      if (meetingId) {
+        try {
+          const currentLots = JSON.parse(
+            sessionStorage.getItem(`meeting_lots_info_${meetingId}`) ?? "[]"
+          ) as LotInfo[];
+          const updatedLots = currentLots.map((lot) =>
+            submittedSet.has(lot.lot_owner_id)
+              ? { ...lot, already_submitted: true }
+              : lot
+          );
+          sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(updatedLots));
+        } catch {
+          // ignore parse errors — stale sessionStorage is acceptable; fresh data comes from re-auth
+        }
+      }
+
+      // Also update in-memory React state so the UI is consistent for the brief period
+      // before navigation completes (and to keep the in-memory state correct if navigate is delayed).
+      setAllLots((prev) =>
+        prev.map((lot) =>
           submittedSet.has(lot.lot_owner_id)
             ? { ...lot, already_submitted: true }
             : lot
-        );
-        if (meetingId) {
-          sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(updated));
-        }
-        return updated;
-      });
+        )
+      );
 
       // Remove submitted lot IDs from selection to prevent stale selectedIds
       setSelectedIds((prev) => {
