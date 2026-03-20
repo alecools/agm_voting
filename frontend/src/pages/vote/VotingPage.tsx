@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -47,13 +47,9 @@ export function VotingPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNoSelectionError, setShowNoSelectionError] = useState(false);
 
-  // Track previously-seen motions count to detect when new motions are revealed.
-  // Starts at -1 to indicate "initial load not yet seen"; the first motions fetch
-  // sets the ref without calling restoreSession so only genuine increases (new motions
-  // revealed after mount) trigger the refresh.
-  const prevMotionCountRef = useRef(-1);
-
-  // Load allLots from sessionStorage on mount
+  // Load allLots from sessionStorage on mount, then immediately restore from server
+  // if a session token is available. This ensures voted_motion_ids is always fresh
+  // from the DB — not a stale sessionStorage snapshot.
   useEffect(() => {
     if (!meetingId) return;
     const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
@@ -61,12 +57,37 @@ export function VotingPage() {
     try {
       const lots = JSON.parse(raw) as LotInfo[];
       setAllLots(lots);
+      // Seed selectedIds from sessionStorage as a fast first-render approximation.
+      // The [motions, allLots] effect will correct this once motions are known.
       const pending = lots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
       setSelectedIds(new Set(pending));
     } catch {
       // ignore parse errors
     }
   }, [meetingId]);
+
+  // On every VotingPage mount: if a session token is present, call restoreSession to
+  // get server-authoritative voted_motion_ids from the DB. This ensures that:
+  // - voted_motion_ids is not stale from a previous session
+  // - isLotSubmitted() derives lock state from fresh data on re-mount
+  useEffect(() => {
+    if (!meetingId) return;
+    const token = localStorage.getItem(`agm_session_${meetingId}`);
+    if (!token) return;
+
+    restoreSession({ session_token: token, general_meeting_id: meetingId })
+      .then((response) => {
+        const freshLots = response.lots;
+        setAllLots(freshLots);
+        // Update sessionStorage so the derived state is correct on future renders
+        // before the next mount restore.
+        sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(freshLots));
+      })
+      .catch(() => {
+        // If session is expired/invalid, leave allLots as loaded from sessionStorage.
+        // The voter will need to re-authenticate if they try to submit.
+      });
+  }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch buildings to find the building for this meeting
   const { data: buildings } = useQuery({
@@ -116,44 +137,40 @@ export function VotingPage() {
     });
   }, [motions]);
 
-  // BUG-NM-01: Re-fetch already_submitted per lot when new motions are revealed.
-  // When the motions list grows (admin made a new motion visible), call restoreSession
-  // so the server recomputes already_submitted with the latest visible motion set.
-  // Lots that had already_submitted=true but haven't voted on the new motion will return
-  // already_submitted=false, causing their checkboxes to unlock.
+  // --- Dynamic already-submitted derivation (BUG-NM-01-B fix) ---
+  //
+  // A lot is effectively "submitted" when every currently-visible motion has a ballot
+  // recorded in that lot's voted_motion_ids. This mirrors the server-side computation in
+  // POST /api/auth/verify and POST /api/auth/session.
+  //
+  // Because `motions` is live React Query state, isLotSubmitted() automatically returns
+  // false the moment a new motion appears — without any manual effect or ref tracking.
+  // This eliminates the re-mount bug (BUG-NM-01-B) caused by prevMotionCountRef resetting.
+  const isLotSubmitted = useCallback(
+    (lot: LotInfo): boolean => {
+      if (!motions || motions.length === 0) return false;
+      return motions.every((m) => (lot.voted_motion_ids ?? []).includes(m.id));
+    },
+    [motions]
+  );
+
+  // Re-seed selectedIds whenever motions or allLots change.
+  // This handles the case where motions refetch reveals new motions that make a
+  // previously-submitted lot not-yet-submitted again (it was locked, now unlocked).
   useEffect(() => {
-    if (!motions || !meetingId) return;
-    // First-time init: record baseline count without calling restoreSession.
-    // prevMotionCountRef starts at -1 to distinguish "never seen" from 0 motions.
-    if (prevMotionCountRef.current === -1) {
-      prevMotionCountRef.current = motions.length;
-      return;
-    }
-    if (motions.length <= prevMotionCountRef.current) {
-      prevMotionCountRef.current = motions.length;
-      return;
-    }
-    // New motions have appeared — update the ref first to avoid re-triggering
-    prevMotionCountRef.current = motions.length;
-    const token = localStorage.getItem(`agm_session_${meetingId}`);
-    if (!token) return;
-    restoreSession({ session_token: token, general_meeting_id: meetingId })
-      .then((data) => {
-        setAllLots(data.lots);
-        sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
-        // Unlock any lots that are no longer already_submitted
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          for (const lot of data.lots) {
-            if (!lot.already_submitted) next.add(lot.lot_owner_id);
-          }
-          return next;
-        });
-      })
-      .catch(() => {
-        // Silently ignore — session may have expired; stale state is acceptable
-      });
-  }, [motions, meetingId]);
+    if (!motions || allLots.length === 0) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const lot of allLots) {
+        if (!isLotSubmitted(lot)) {
+          next.add(lot.lot_owner_id);
+        } else {
+          next.delete(lot.lot_owner_id);
+        }
+      }
+      return next;
+    });
+  }, [motions, allLots, isLotSubmitted]);
 
   // Poll meeting status every 10s
   useEffect(() => {
@@ -198,11 +215,14 @@ export function VotingPage() {
       const submittedIds: string[] = raw ? (JSON.parse(raw) as string[]) : [];
       const submittedSet = new Set(submittedIds);
 
+      // Collect the current motion IDs so we can merge them into voted_motion_ids.
+      const currentMotionIds = motions ? motions.map((m) => m.id) : [];
+
       // Write sessionStorage synchronously here, before navigate(), so that when the voter
       // returns to VotingPage via "View my votes", the re-mount useEffect reads the correct
-      // already_submitted state. React Router v6's navigate() wraps in startTransition
-      // internally; any side-effect inside a setAllLots functional updater may not execute
-      // before the component unmounts under concurrent rendering (BUG-AS-01).
+      // already_submitted state and voted_motion_ids. React Router v6's navigate() wraps in
+      // startTransition internally; any side-effect inside a setAllLots functional updater may
+      // not execute before the component unmounts under concurrent rendering (BUG-AS-01).
       if (meetingId) {
         try {
           const currentLots = JSON.parse(
@@ -210,7 +230,13 @@ export function VotingPage() {
           ) as LotInfo[];
           const updatedLots = currentLots.map((lot) =>
             submittedSet.has(lot.lot_owner_id)
-              ? { ...lot, already_submitted: true }
+              ? {
+                  ...lot,
+                  already_submitted: true,
+                  voted_motion_ids: Array.from(
+                    new Set([...(lot.voted_motion_ids ?? []), ...currentMotionIds])
+                  ),
+                }
               : lot
           );
           sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(updatedLots));
@@ -224,7 +250,13 @@ export function VotingPage() {
       setAllLots((prev) =>
         prev.map((lot) =>
           submittedSet.has(lot.lot_owner_id)
-            ? { ...lot, already_submitted: true }
+            ? {
+                ...lot,
+                already_submitted: true,
+                voted_motion_ids: Array.from(
+                  new Set([...(lot.voted_motion_ids ?? []), ...currentMotionIds])
+                ),
+              }
             : lot
         )
       );
@@ -250,8 +282,8 @@ export function VotingPage() {
 
   // Derived values for lot panel
   const isMultiLot = allLots.length > 1;
-  const allSubmitted = allLots.length > 0 && allLots.every((l) => l.already_submitted);
-  const pendingLots = allLots.filter((l) => !l.already_submitted);
+  const allSubmitted = allLots.length > 0 && allLots.every((l) => isLotSubmitted(l));
+  const pendingLots = allLots.filter((l) => !isLotSubmitted(l));
   const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
 
   // In-arrear warning banner: computed from the currently selected lots
@@ -279,7 +311,7 @@ export function VotingPage() {
   };
 
   const handleSelectAll = () => {
-    const pendingIds = allLots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
+    const pendingIds = allLots.filter((l) => !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(pendingIds));
     setShowNoSelectionError(false);
   };
@@ -289,13 +321,13 @@ export function VotingPage() {
   };
 
   const handleSelectProxy = () => {
-    const proxyIds = allLots.filter((l) => l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    const proxyIds = allLots.filter((l) => l.is_proxy && !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(proxyIds));
     setShowNoSelectionError(false);
   };
 
   const handleSelectOwned = () => {
-    const ownedIds = allLots.filter((l) => !l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    const ownedIds = allLots.filter((l) => !l.is_proxy && !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(ownedIds));
     setShowNoSelectionError(false);
   };
@@ -443,15 +475,15 @@ export function VotingPage() {
         {allLots.map((lot) => (
           <li
             key={lot.lot_owner_id}
-            className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
-            aria-disabled={lot.already_submitted ? "true" : undefined}
+            className={`lot-selection__item${isLotSubmitted(lot) ? " lot-selection__item--submitted" : ""}`}
+            aria-disabled={isLotSubmitted(lot) ? "true" : undefined}
           >
             <input
               type="checkbox"
               id={`lot-checkbox-${lot.lot_owner_id}`}
               className="lot-selection__checkbox"
               checked={selectedIds.has(lot.lot_owner_id)}
-              disabled={lot.already_submitted}
+              disabled={isLotSubmitted(lot)}
               onChange={() => handleToggle(lot.lot_owner_id)}
               aria-label={`Select Lot ${lot.lot_number}`}
             />
@@ -470,7 +502,7 @@ export function VotingPage() {
               </span>
             )}
 
-            {lot.already_submitted && (
+            {isLotSubmitted(lot) && (
               <span className="lot-selection__badge lot-selection__badge--submitted">
                 Already submitted
               </span>
@@ -586,21 +618,21 @@ export function VotingPage() {
               <h2 className="lot-selection__title">Your Lots</h2>
               <ul className="lot-selection__list" role="list">
                 <li
-                  className={`lot-selection__item${allLots[0].already_submitted ? " lot-selection__item--submitted" : ""}`}
-                  aria-disabled={allLots[0].already_submitted ? "true" : undefined}
+                  className={`lot-selection__item${isLotSubmitted(allLots[0]) ? " lot-selection__item--submitted" : ""}`}
+                  aria-disabled={isLotSubmitted(allLots[0]) ? "true" : undefined}
                 >
                   <span className="lot-selection__lot-number">Lot {allLots[0].lot_number}</span>
                   <span className="lot-selection__badge lot-selection__badge--proxy">
                     via Proxy
                   </span>
-                  {allLots[0].already_submitted && (
+                  {isLotSubmitted(allLots[0]) && (
                     <span className="lot-selection__badge lot-selection__badge--submitted">
                       Already submitted
                     </span>
                   )}
                 </li>
               </ul>
-              {allLots[0].already_submitted && (
+              {isLotSubmitted(allLots[0]) && (
                 <button
                   type="button"
                   className="btn btn--primary"

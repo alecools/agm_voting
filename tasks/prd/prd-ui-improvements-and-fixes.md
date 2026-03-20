@@ -287,6 +287,27 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-FIX-NM01-B: Lots remain unlocked after multiple batch-vote cycles (follow-up to US-FIX-NM01)
+
+**Description:** As a voter who has completed multiple rounds of batch voting (vote batch 1, navigate away, admin reveals batch 2, return, vote batch 2, navigate away, admin reveals batch 3, return), I want my lots to correctly unlock on every return to the VotingPage — not just on the first round.
+
+**Root cause (BUG-NM-01-B):** The original BUG-NM-01 fix tracked motions count via `prevMotionCountRef` initialised to `-1` as a sentinel. On every VotingPage re-mount the ref resets to `-1`, causing the first motions-load to be treated as "set baseline, do not unlock" rather than "motions may have grown since last visit, unlock if needed." The fix therefore works on the first batch but fails on all subsequent batches because the voter must navigate away (unmounting the component) between batches.
+
+**Fix approach:** Replace the stale `already_submitted` boolean with a derived computation based on `lot.voted_motion_ids` (which already exists on `LotInfo` in the current codebase). A lot is considered submitted when every currently-visible motion ID is present in its `voted_motion_ids` array. This is evaluated at render time from data already in memory — no extra API call required. `prevMotionCountRef` and its associated `useEffect` are removed.
+
+**Acceptance Criteria:**
+- [ ] After voting all motions in batch 1, navigating to confirmation, then returning to VotingPage after admin reveals batch 2, lots are unlocked — same as US-FIX-NM01
+- [ ] After voting all motions in batch 2, navigating to confirmation (VotingPage unmounts), then returning after admin reveals batch 3, lots are still correctly unlocked (the re-mount does not re-lock them)
+- [ ] This correct unlock-on-return behaviour holds for any number of batch cycles
+- [ ] `submitMutation.onSuccess` updates `voted_motion_ids` (not only `already_submitted`) for submitted lots in both React state and sessionStorage, so the derived computation remains accurate after each submission
+- [ ] Previously answered motions (whose IDs are in `voted_motion_ids`) remain read-only; only motions not yet in `voted_motion_ids` are interactive
+- [ ] The fix works for single-lot and multi-lot voters
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ## Functional Requirements
 
 - FR-1: Back button appears on voter verification, lot selection, and voting pages; navigates to the previous step
@@ -304,7 +325,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-13: Vercel Analytics and Speed Insights are mounted in the frontend app
 - FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
 - FR-15: When `submitMutation.onSuccess` fires in `VotingPage`, the `meeting_lots_info_<meetingId>` sessionStorage key is updated synchronously (outside of React state updaters) before navigation, so that re-mounting the voting page reads the correct `already_submitted: true` state for submitted lots
-- FR-16: When the motions list changes (new motion becomes visible), `VotingPage` re-fetches `already_submitted` per lot from the server and updates `allLots` state, so previously-locked lots that have not voted on the new motion become selectable again
+- FR-16: `VotingPage` derives lot-submitted status dynamically: a lot is considered submitted when every currently-visible motion ID appears in `lot.voted_motion_ids`. This replaces reliance on the cached `already_submitted` boolean from sessionStorage. `submitMutation.onSuccess` must update `voted_motion_ids` (merging current motion IDs) for submitted lots in both React state and sessionStorage so the derived computation is accurate after each submission. Previously-introduced `prevMotionCountRef` logic is removed.
 
 ---
 

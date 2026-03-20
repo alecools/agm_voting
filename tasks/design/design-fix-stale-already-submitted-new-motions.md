@@ -1,21 +1,21 @@
 # Design: Fix Stale `already_submitted` When Admin Reveals New Motions
 
-**PRD story:** US-FIX-NM01
+**PRD story:** US-FIX-NM01 (follow-up: BUG-NM-01-B)
 **Schema migration needed:** No
 
 ---
 
 ## Overview
 
-When all of a voter's lots have submitted ballots for every currently-visible motion, each lot is marked `already_submitted: true` and its checkbox is disabled in `VotingPage`. If an admin then makes an additional motion visible, those lots should automatically unlock — they have not yet voted on the new motion. Currently they remain locked forever because `already_submitted` is a stale value cached in `sessionStorage` and in React component state, and is never refreshed after the initial page mount.
+When all of a voter's lots have submitted ballots for every currently-visible motion, each lot is marked `already_submitted: true` and its checkbox is disabled in `VotingPage`. If an admin then makes an additional motion visible, those lots should automatically unlock — they have not yet voted on the new motion. The original BUG-NM-01 fix attempted to detect this by tracking motions count with a `prevMotionCountRef` and calling `restoreSession` when the count increased. That fix has a re-mount bug (BUG-NM-01-B) described below.
 
 ---
 
 ## Root Cause
 
-### Server-side (correct)
+### Server-side (correct, unchanged)
 
-`POST /api/auth/verify` and `POST /api/auth/session` both compute `already_submitted` dynamically at the time of the call (auth.py lines 289–296 and 460–464):
+`POST /api/auth/verify` and `POST /api/auth/session` both compute `already_submitted` dynamically at the time of the call:
 
 ```python
 already_submitted = (
@@ -24,146 +24,169 @@ already_submitted = (
 )
 ```
 
-If a new motion has been made visible since the voter last authenticated, `visible_motion_ids` now contains the new motion ID, which is NOT in `voted_for_this_lot`, so `already_submitted` correctly returns `False`. The server is correct.
+The server is correct and needs no changes.
 
-### Frontend (broken)
+### Original BUG-NM-01 root cause (still present)
 
-**`AuthPage.tsx` line 22** writes the server-provided `data.lots` (including `already_submitted`) to `sessionStorage`:
+`VotingPage.tsx` lines 50-62 loads `allLots` from sessionStorage on mount, initialising `already_submitted` from a cached value that was written when the voter last submitted. After that, `already_submitted` is only updated in `submitMutation.onSuccess` (setting it to `true`). No code path sets it back to `false` when new motions appear.
+
+### BUG-NM-01-B: re-mount failure in the original fix
+
+The original fix introduced a `prevMotionCountRef` (starting at `-1` as a sentinel) and a `useEffect([motions, meetingId])`. The logic was:
 
 ```
-sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
+if prevMotionCountRef === -1:   // first load — set baseline, do NOT call restoreSession
+    prevMotionCount = motions.length
+    return
+if motions.length > prevMotionCount:  // motions grew — call restoreSession
+    ...
 ```
 
-**`VotingPage.tsx` lines 48–60** reads this from `sessionStorage` on mount and initialises `allLots` state:
+This breaks when:
+
+1. Voter votes batch 1, submits → `already_submitted: true` written to sessionStorage.
+2. Admin reveals batch 2 → motions count grows → `restoreSession` is called → lots unlock. Works.
+3. Voter votes batch 2, submits → `already_submitted: true` again in sessionStorage.
+4. Voter navigates to confirmation page → `VotingPage` unmounts → `prevMotionCountRef` is destroyed.
+5. Admin reveals batch 3.
+6. Voter returns to `VotingPage` → component **re-mounts** → `prevMotionCountRef` resets to `-1`.
+7. The effect fires with `prevMotionCountRef === -1` → treats this as "first load, set baseline" → does NOT call `restoreSession` → lots remain locked with stale `already_submitted: true`.
+
+The sentinel exists to avoid a spurious `restoreSession` call on the very first mount (when the voter has just authenticated and sessionStorage is fresh). But it also suppresses the necessary call on every subsequent re-mount.
+
+### Why Option C is now the right fix
+
+At the time the original design doc was written, `voted_motion_ids` did not exist on `LotInfo`. That doc explicitly noted: "There is no `voted_motion_ids` field. The fix therefore cannot be implemented by deriving `already_submitted` from `lot.voted_motion_ids`."
+
+**This is no longer true.** As of the current codebase:
+
+- `frontend/src/api/voter.ts` line 38: `voted_motion_ids: string[]` exists on `LotInfo`.
+- `VotingPage.tsx` lines 273-275: `isMotionReadOnly` already computes read-only state from `voted_motion_ids`:
+  ```tsx
+  const isMotionReadOnly = (m: { id: string }) =>
+    readOnlyReferenceLots.length > 0 &&
+    readOnlyReferenceLots.every((lot) => (lot.voted_motion_ids ?? []).includes(m.id));
+  ```
+
+`voted_motion_ids` is a per-lot list of motion IDs for which that lot has a submitted ballot. It is returned by `POST /api/auth/session` (and `POST /api/auth/verify`) as part of `LotInfo`, and is written to sessionStorage alongside `already_submitted`.
+
+This means `already_submitted` can be computed dynamically in the render:
+
+```
+isLotSubmitted(lot) = motions.length > 0 && motions.every(m => lot.voted_motion_ids.includes(m.id))
+```
+
+A lot is effectively submitted when every currently-visible motion is in its `voted_motion_ids` set. This is exactly what the server computes — but now the frontend can do it locally from data it already has, with no extra API call.
+
+---
+
+## Chosen Fix: Option C — Derive `already_submitted` dynamically from `voted_motion_ids`
+
+### What changes
+
+In `VotingPage.tsx`, replace all reads of `lot.already_submitted` with a derived value computed from `lot.voted_motion_ids` and the current `motions` array. The `voted_motion_ids` field is already in sessionStorage and in `allLots` state — it is kept up to date by `submitMutation.onSuccess` (which must also update `voted_motion_ids` in addition to `already_submitted`).
+
+Remove the `prevMotionCountRef` and the motion-count-tracking `useEffect` introduced by the original BUG-NM-01 fix. They are no longer needed.
+
+### Derived value
+
+```tsx
+const isLotSubmitted = (lot: LotInfo): boolean => {
+  if (!motions || motions.length === 0) return false;
+  return motions.every((m) => (lot.voted_motion_ids ?? []).includes(m.id));
+};
+```
+
+This function is called at render time. Because `motions` is live React Query state, it automatically reflects new motions the moment the motions query re-fetches — no manual effect required.
+
+### Impact on existing reads of `already_submitted`
+
+Every place in `VotingPage.tsx` that reads `lot.already_submitted` must be replaced with `isLotSubmitted(lot)`:
+
+| Location | Current | Replacement |
+|---|---|---|
+| Line 57: `lots.filter((l) => !l.already_submitted)` in mount useEffect | reads from sessionStorage snapshot | replace with `isLotSubmitted` after motions load, OR keep the sessionStorage-based initial selection and rely on the derived value for rendering |
+| Line 207: `allLots.every((l) => l.already_submitted)` for `allSubmitted` | derived bool | `allLots.every((l) => isLotSubmitted(l))` |
+| Line 208: `allLots.filter((l) => !l.already_submitted)` for `pendingLots` | derived bool | `allLots.filter((l) => !isLotSubmitted(l))` |
+| Line 236: `allLots.filter((l) => !l.already_submitted)` in `handleSelectAll` | derived bool | `allLots.filter((l) => !isLotSubmitted(l))` |
+| Line 246: `l.is_proxy && !l.already_submitted` in `handleSelectProxy` | derived bool | `l.is_proxy && !isLotSubmitted(l)` |
+| Line 252: `!l.is_proxy && !l.already_submitted` in `handleSelectOwned` | derived bool | `!l.is_proxy && !isLotSubmitted(l)` |
+| Line 272: `readOnlyReferenceLots` falls back to `allLots` when `selectedLots` empty | `selectedLots.length > 0` — `selectedLots` is filtered by `selectedIds`, which itself is seeded from `!already_submitted` | indirectly affected; once `isLotSubmitted` returns false, these lots re-enter `selectedIds` correctly |
+| Lines 400-431 (JSX): `lot.already_submitted` for badge and checkbox disabled state | render | `isLotSubmitted(lot)` |
+| Lines 540-565 (JSX): single-lot inline panel `allLots[0].already_submitted` | render | `isLotSubmitted(allLots[0])` |
+
+### Mount `useEffect` — initial `selectedIds` seeding
+
+The mount useEffect (lines 50-62) seeds `selectedIds` from `!l.already_submitted`. At mount time, `motions` is not yet loaded (async React Query fetch). Two options:
+
+**A.** Keep the sessionStorage-based seeding on mount (as today), and add a second `useEffect([motions])` that re-seeds `selectedIds` whenever `motions` loads or changes:
 
 ```tsx
 useEffect(() => {
-    const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
-    const lots = JSON.parse(raw) as LotInfo[];
-    setAllLots(lots);
-    const pending = lots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
-    setSelectedIds(new Set(pending));
-}, [meetingId]);
+  if (!motions || allLots.length === 0) return;
+  setSelectedIds((prev) => {
+    const next = new Set(prev);
+    for (const lot of allLots) {
+      if (!isLotSubmitted(lot)) {
+        next.add(lot.lot_owner_id);
+      } else {
+        next.delete(lot.lot_owner_id);
+      }
+    }
+    return next;
+  });
+}, [motions, allLots]);
 ```
 
-This `useEffect` only runs once on mount. After that, `allLots` is updated only in `submitMutation.onSuccess` (VotingPage.tsx lines 155–165), which sets `already_submitted: true` for the lots that were just submitted. There is no code path that sets `already_submitted: false` back to unlocked.
+This means: once motions are known, correct `selectedIds` to reflect true unlock status.
 
-**`MotionOut.already_voted`** (returned by `GET /api/general-meeting/{id}/motions`) cannot be used to recompute per-lot `already_submitted`. The `already_voted` field is aggregated across ALL of the voter's lots (voting.py lines 100–113 — `voted_motion_ids` is a union over all lot IDs). A single lot that has not voted on the new motion would still show `already_voted: true` on the old motions, but there is no per-lot breakdown in the motions response.
+**B.** Remove the sessionStorage-based initial seeding entirely, and seed `selectedIds` only when motions are loaded (in the `[motions, allLots]` effect above). This is simpler but introduces a brief moment where `selectedIds` is empty before motions load.
 
-### Why the hypothesis in the task description differs
+**Decision: Option A** — keep the sessionStorage-based initial selection for a fast first render, then correct it once motions load. This avoids a visible flicker where all checkboxes appear unchecked.
 
-The task description mentions `voted_motion_ids` as a per-lot field on `LotInfo`. This field does NOT exist in either the backend `LotInfo` schema (`backend/app/schemas/auth.py` lines 56–61) or the frontend `LotInfo` interface (`frontend/src/api/voter.ts` lines 32–38). The `LotInfo` shape is:
+### `submitMutation.onSuccess` — update `voted_motion_ids`
 
-```typescript
-interface LotInfo {
-  lot_owner_id: string;
-  lot_number: string;
-  financial_position: string;
-  already_submitted: boolean;
-  is_proxy: boolean;
-}
-```
+The `onSuccess` handler currently updates `already_submitted: true` for submitted lots in both state and sessionStorage. Under the new approach, `already_submitted` is derived and the field on `LotInfo` in state/sessionStorage is no longer authoritative. However, `voted_motion_ids` must remain accurate.
 
-There is no `voted_motion_ids` field. The fix therefore cannot be implemented by deriving `already_submitted` from `lot.voted_motion_ids` — that data is not available in the frontend.
-
----
-
-## Technical Fix
-
-### Approach: Re-fetch lots from server when motions list changes
-
-The correct approach is to call `POST /api/auth/session` (session restore) whenever the motions list changes. This endpoint recomputes `already_submitted` per lot server-side with the current set of visible motions and returns a fresh `AuthVerifyResponse` including updated `LotInfo[]`. The frontend updates `allLots` state from the response, which causes previously-locked lots to unlock if the new motion ID is not yet voted on.
-
-This is the same endpoint already called by `AuthPage` on mount for session restoration. It requires a valid `session_token` (stored in `localStorage` under `agm_session_${meetingId}`) and the `general_meeting_id`.
-
-### Where to add the logic
-
-In `VotingPage.tsx`, add a `useEffect` that watches `motions` (the React Query result). When `motions` is defined and its length increases compared to the previous render (a new motion has become visible), call `restoreSession` and update `allLots` and the sessionStorage cache.
-
-The effect must:
-
-1. Track the previous motions count using a `useRef`.
-2. When `motions` length exceeds the previous count, retrieve `session_token` from `localStorage.getItem(`agm_session_${meetingId}`)`.
-3. Call `restoreSession({ session_token, general_meeting_id: meetingId })`.
-4. On success, update `allLots` with the fresh `data.lots` and write the updated lots to `sessionStorage` under `meeting_lots_info_${meetingId}`.
-5. Also update `selectedIds` — add any lot IDs that were previously locked (`already_submitted: true`) but are now unlocked (`already_submitted: false`) after the new motion appeared. Do not deselect lots that are currently selected.
-6. On failure (session expired, network error), silently ignore — the meeting may be closing, and the existing stale state is safe to display.
-
-### Detailed logic
-
-```
-prevMotionCount ref: starts at 0
-
-useEffect([motions]):
-  if motions is undefined: return
-  if motions.length <= prevMotionCount.current:
-    prevMotionCount.current = motions.length
-    return
-  // New motions have appeared
-  prevMotionCount.current = motions.length
-  token = localStorage.getItem(`agm_session_${meetingId}`)
-  if not token: return
-  restoreSession({ session_token: token, general_meeting_id: meetingId })
-    .then(data => {
-      setAllLots(data.lots)
-      sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots))
-      // Unlock any lots that are now not already_submitted
-      setSelectedIds(prev => {
-        const next = new Set(prev)
-        for (const lot of data.lots) {
-          if (!lot.already_submitted) next.add(lot.lot_owner_id)
-        }
-        return next
-      })
-    })
-    .catch(() => { /* silently ignore */ })
-```
-
-The condition `motions.length > prevMotionCount.current` is sufficient because:
-- Motions are never removed from the voter's view (voted motions remain in the response even when hidden).
-- An increase in the motions array length means at least one new visible motion has appeared.
-- The initial load sets `prevMotionCount.current` to the initial length, so no spurious re-fetch on mount.
-
-### No backend changes required
-
-The backend already computes `already_submitted` correctly. `POST /api/auth/session` already handles this case — no new endpoints or schema changes are needed.
-
----
-
-## Impact on `isMotionReadOnly` logic
-
-`isMotionReadOnly` in `VotingPage.tsx` (lines 251–253) is:
+The `onSuccess` handler must add the current motion IDs to `voted_motion_ids` for each submitted lot:
 
 ```tsx
-const hasUnsubmittedSelected = selectedLots.some((l) => !l.already_submitted);
-const isMotionReadOnly = (m: { already_voted: boolean }) =>
-  m.already_voted && !hasUnsubmittedSelected;
+const currentMotionIds = motions ? motions.map((m) => m.id) : [];
+
+const updatedLots = currentLots.map((lot) =>
+  submittedSet.has(lot.lot_owner_id)
+    ? {
+        ...lot,
+        already_submitted: true,  // keep for backward compat with any other readers
+        voted_motion_ids: Array.from(
+          new Set([...(lot.voted_motion_ids ?? []), ...currentMotionIds])
+        ),
+      }
+    : lot
+);
 ```
 
-This logic is unaffected by the fix. After the re-fetch:
-- `already_submitted` on the affected lots will be `false` (server returned the correct value).
-- Those lots will be re-added to `selectedIds`.
-- `hasUnsubmittedSelected` will be `true` (there are selected lots with `already_submitted: false`).
-- Therefore `isMotionReadOnly` returns `false` for the new motion (which has `already_voted: false`), making it interactive.
-- Old motions that the lot has already voted on have `already_voted: true`, but since `hasUnsubmittedSelected` is `true`, `isMotionReadOnly` returns `false` for those too — which is correct: the voter can re-submit a vote for those lots on the newly-unlocked slot, and the existing `submitted_choice` is shown as a pre-filled choice via the choices seeding `useEffect` (lines 96–108).
+This ensures that after submission, `isLotSubmitted(lot)` still returns `true` for submitted lots — and when new motions appear, they are not in `voted_motion_ids`, so `isLotSubmitted` returns `false` automatically.
 
-The `isMotionReadOnly` function does not need modification.
+### Removal of `prevMotionCountRef` and motion-count useEffect
+
+Once `already_submitted` is derived dynamically, the `prevMotionCountRef` ref and the `useEffect` that watches `motions.length` are no longer needed. Remove both.
 
 ---
 
-## Data Flow (Happy Path)
+## Data Flow (Happy Path — batch voting scenario)
 
-1. Voter authenticates. All lots have `already_submitted: false`. Motions M1 is visible.
-2. Voter votes on M1 for all lots and submits. `submitMutation.onSuccess` sets `already_submitted: true` for all lots in state and sessionStorage. Voter is navigated to confirmation page.
-3. Admin makes motion M2 visible.
-4. Voter returns to VotingPage (via "View my votes" link or direct navigation). On mount, `allLots` is loaded from sessionStorage with `already_submitted: true` for all lots — lots appear locked.
-5. React Query fetches motions. The response now contains both M1 (`already_voted: true`) and M2 (`already_voted: false`). The motions array length is 2, but `prevMotionCount.current` was 0 at mount so the condition fires.
-6. The `useEffect` calls `restoreSession`. The server computes: M2 is visible and not in `voted_for_this_lot`, so `already_submitted: false` for all lots.
-7. `allLots` state is updated with `already_submitted: false`. Lots are re-added to `selectedIds`. SessionStorage is updated.
-8. The UI re-renders: lots show as selectable (no "Already submitted" badge, checkbox enabled). M1 is shown with its prior choice pre-filled (read-only via `isMotionReadOnly` — wait, `hasUnsubmittedSelected` is now `true`, so M1 is also shown as interactive with choice pre-seeded). M2 is shown as interactive with no prior choice.
-9. Voter votes on M2 and submits.
-
-Note on step 8: since `hasUnsubmittedSelected` is `true`, `isMotionReadOnly` returns `false` for M1. This is intentional — the voter needs to be able to include M1 in their next submit for the lots that are unlocked. The prior choice for M1 is still pre-filled from the `choices` seeding effect (lines 96–108 — it checks `m.already_voted && m.submitted_choice !== null && !(m.id in seeded)`). So M1 will show its previous choice and the voter can change it or accept it before submitting.
+1. Voter authenticates. `LotInfo.voted_motion_ids = []` for all lots. Motions: [M1].
+2. `isLotSubmitted(lot)` = `false` (M1 not in voted_motion_ids). Lots appear unlocked.
+3. Voter votes on M1, submits. `onSuccess` adds M1 to `voted_motion_ids` for submitted lots. SessionStorage updated. Voter navigates to confirmation.
+4. Admin reveals M2.
+5. Voter returns to VotingPage. Re-mounts. Mount useEffect reads sessionStorage — `voted_motion_ids = [M1]`, `already_submitted: true` (stale boolean, ignored for rendering).
+6. React Query fetches motions → returns [M1, M2]. The `[motions, allLots]` useEffect fires and recomputes `selectedIds`:
+   - `isLotSubmitted(lot)` = `motions.every(m => [M1].includes(m.id))` = false (M2 not in voted_motion_ids).
+   - Lots are added to `selectedIds`.
+7. UI re-renders: lots are unlocked (no "Already submitted" badge, checkbox enabled). M1 shows prior choice pre-filled (read-only via `isMotionReadOnly` which checks voted_motion_ids). M2 is interactive.
+8. Voter votes on M2, submits. `onSuccess` adds M2 to `voted_motion_ids`. Now `voted_motion_ids = [M1, M2]`.
+9. Admin reveals M3. Voter returns. Step 5-8 repeats correctly for any number of batches, regardless of how many times the component remounts.
 
 ---
 
@@ -171,80 +194,96 @@ Note on step 8: since `hasUnsubmittedSelected` is `true`, `isMotionReadOnly` ret
 
 ### `VotingPage.tsx`
 
-Add one `useRef` and one `useEffect`:
-
-- `const prevMotionCountRef = useRef(0)` — tracks the last-seen motions array length to detect new motions appearing.
-- A new `useEffect` that depends on `[motions, meetingId]`. When `motions` is defined and `motions.length > prevMotionCountRef.current`, call `restoreSession` with the stored token, update `allLots` and `selectedIds` from the response, and write back to sessionStorage.
-
-No other files need to change.
+1. Add `isLotSubmitted(lot: LotInfo): boolean` helper (inline or as a `useCallback`).
+2. Replace all reads of `lot.already_submitted` in render and derived values with `isLotSubmitted(lot)`.
+3. Add a `useEffect([motions, allLots])` that re-seeds `selectedIds` whenever motions or lots change, replacing stale `selectedIds` entries.
+4. Update `submitMutation.onSuccess` to merge current motion IDs into `voted_motion_ids` for submitted lots (in both React state and sessionStorage).
+5. Remove `prevMotionCountRef` and the motion-count-tracking `useEffect` if present.
 
 ### `frontend/src/api/voter.ts`
 
-No changes. `restoreSession` and `LotInfo` already have the correct shapes.
+No changes needed. `LotInfo.voted_motion_ids` already exists.
+
+### Backend
+
+No changes needed.
 
 ---
 
 ## Key Design Decisions
 
-**Why use `restoreSession` rather than a new endpoint?**
-`POST /api/auth/session` already performs the exact per-lot `already_submitted` computation the frontend needs. Adding a new "get lots" endpoint would duplicate this logic and require new tests. Reusing the session restore endpoint avoids all of that.
+**Why Option C over Option A (always call restoreSession on mount)?**
+Option A adds an API call on every VotingPage mount — including the common case where nothing has changed. Option C derives the value from data already in memory with no network round-trip. It is also more robust: the unlock happens the moment React Query returns updated motions, with no dependency on localStorage or session token availability.
 
-**Why not re-fetch on every motions poll interval?**
-The motions query has no explicit `refetchInterval` set — it is only re-fetched on focus, mount, and query invalidation. Even if it were polled, adding a `restoreSession` call on every motions fetch would be unnecessarily chatty. Detecting that the length increased is a cheap guard that makes the extra call only when something material changed.
+**Why Option C over Option B (restoreSession on mount only if stale lots exist)?**
+Option B is a heuristic: "if any lot is marked already_submitted, maybe it's stale." It adds an API call on every return-to-voting after a submission, which covers the bug but wastes a round-trip. Option C has no false positives and no extra calls.
 
-**Why not add `voted_motion_ids` to `LotInfo` and derive locally?**
-This would require a backend schema change, a migration awareness note, and more complex frontend logic. Since `already_submitted` is a derived boolean that the backend already computes correctly, it is simpler and more reliable to ask the backend for the fresh value.
+**Why keep `already_submitted` in the sessionStorage LotInfo objects?**
+For backward compatibility with any other code that reads the sessionStorage shape (e.g. AuthPage, ConfirmationPage). It is not the authoritative source for lock state in `VotingPage` under the new design, but keeping it written avoids breaking any reader that still checks it.
 
-**Why not clear `already_submitted` whenever `motions` changes?**
-Clearing it unconditionally would cause a brief flash where all lots appear unlocked every time the motions query re-fetches (e.g. on window focus). Using the server response ensures the state is correct before rendering.
+**Why a separate `[motions, allLots]` useEffect for re-seeding `selectedIds`?**
+The mount useEffect (loads from sessionStorage) runs before motions are available. A second effect that fires when motions change is the idiomatic React pattern for a derived state that depends on async data.
 
 ---
 
 ## Vertical Slice
 
-This fix is entirely frontend-only. There are no backend changes and no schema migrations. It can be implemented and tested independently of all other open stories.
+This fix is entirely frontend-only. No backend changes, no schema migrations, no new API endpoints. It can be implemented and tested independently of all other open stories.
 
 ---
 
 ## E2E Test Scenarios
 
-### Happy path: new motion unlocks previously-submitted lots
+### Happy path: new motion unlocks previously-submitted lots (single session, no remount)
 
 1. Seed: one open meeting with 1 visible motion (M1), voter with 2 lots.
 2. Voter authenticates, votes on M1 for both lots, submits. Both lots show "Already submitted".
-3. Admin (via API call) makes motion M2 visible on the same meeting.
-4. In the same voter session, navigate back to VotingPage (simulate "View my votes" and return, or reload the page via back-navigation).
+3. Admin (via API) makes M2 visible on the same meeting.
+4. In the same voter session, navigate back to VotingPage (e.g. back button or direct URL).
 5. Assert: both lots no longer show "Already submitted" badge; both checkboxes are enabled.
-6. Assert: M1 is shown with the previously-submitted choice pre-filled and editable (not locked).
+6. Assert: M1 is shown with the previously-submitted choice pre-filled and is read-only (voted_motion_ids includes M1).
 7. Assert: M2 is shown as interactive with no prior choice.
 8. Assert: "Submit ballot" button is visible.
 9. Voter votes on M2 for both lots and submits. Navigate to confirmation. Assert both lots appear in the confirmation summary.
 
+### BUG-NM-01-B regression: unlock works after component remount (multiple batches)
+
+1. Seed: one open meeting with 1 visible motion (M1), voter with 1 lot.
+2. Voter authenticates, votes M1, submits. Navigated to confirmation (VotingPage unmounts).
+3. Admin reveals M2.
+4. Voter clicks "View my votes" or back-navigates to VotingPage (component re-mounts fresh).
+5. Assert: lot is unlocked (no "Already submitted" badge, checkbox enabled).
+6. Voter votes M2, submits. Navigated to confirmation (VotingPage unmounts again).
+7. Admin reveals M3.
+8. Voter returns to VotingPage again (third mount).
+9. Assert: lot is unlocked again. M1 and M2 are read-only with prior choices. M3 is interactive.
+
 ### Edge case: single-lot voter
 
 1. Seed: one open meeting with 1 visible motion, voter with 1 lot.
-2. Voter authenticates, votes on M1, submits. Voter is navigated to confirmation.
+2. Voter authenticates, votes on M1, submits. Voter navigated to confirmation.
 3. Admin makes M2 visible.
 4. Voter navigates back to VotingPage.
-5. Assert: lot is not marked "Already submitted"; M1 shows prior choice; M2 is interactive.
+5. Assert: lot is not marked "Already submitted"; M1 shows prior choice as read-only; M2 is interactive.
 
 ### Edge case: partial submission (some lots submitted, some not)
 
-1. Seed: one open meeting with 1 visible motion, voter with 3 lots. Lot A and Lot B submitted, Lot C not.
+1. Seed: one open meeting with 1 visible motion, voter with 3 lots. Lots A and B submitted on M1, Lot C not.
 2. Admin makes M2 visible.
 3. Voter navigates to VotingPage.
-4. Assert: Lot A and Lot B are unlocked (no "Already submitted" badge); Lot C was never submitted, also unlocked.
-5. Assert: all three lots are in `selectedIds` (all checkboxes checked).
+4. Assert: Lots A and B are unlocked; Lot C was never submitted, also unlocked.
+5. Assert: all three lots are in selectedIds (all checkboxes checked).
 
-### No regression: motions count unchanged does not trigger extra re-fetch
+### No regression: fully unvoted lots stay unlocked when motions load
 
 1. Seed: one open meeting, voter with 1 lot, 2 visible motions. Voter has NOT yet voted.
-2. VotingPage mounts and fetches motions (count = 2). No extra `restoreSession` call should be made beyond the initial mount flow.
-3. Voter votes and submits normally. Confirm submission succeeds.
+2. VotingPage mounts and fetches motions. No lots should be locked.
+3. Assert: lot is unlocked, both motions are interactive.
+4. Voter votes and submits normally. Confirm submission succeeds.
 
-### No regression: session token absent
+### No regression: session token absent does not break the page
 
-1. Seed: as above, but manually remove `agm_session_${meetingId}` from localStorage before the motions-change trigger.
-2. Admin makes a new motion visible.
-3. VotingPage motions refresh detects the new motion.
-4. Assert: no unhandled error; lots remain in whatever state they were (graceful no-op).
+1. Manually remove `agm_session_${meetingId}` from localStorage.
+2. Navigate to VotingPage with an existing sessionStorage cache.
+3. Assert: no unhandled error; page renders motions normally.
+4. (No restoreSession is called under Option C — this scenario simply confirms Option A's risk is eliminated.)
