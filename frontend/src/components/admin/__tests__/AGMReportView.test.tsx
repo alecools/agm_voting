@@ -10,6 +10,7 @@ const motions: MotionDetail[] = [
     description: "First motion description",
     order_index: 0,
     motion_type: "general" as const,
+    is_visible: true,
     tally: {
       yes: { voter_count: 2, entitlement_sum: 200 },
       no: { voter_count: 1, entitlement_sum: 100 },
@@ -37,6 +38,7 @@ const motions: MotionDetail[] = [
     description: null,
     order_index: 1,
     motion_type: "special" as const,
+    is_visible: true,
     tally: {
       yes: { voter_count: 1, entitlement_sum: 50 },
       no: { voter_count: 0, entitlement_sum: 0 },
@@ -137,5 +139,22 @@ describe("AGMReportView", () => {
   it("shows 'No motions recorded' when empty", () => {
     render(<AGMReportView motions={[]} />);
     expect(screen.getByText("No motions recorded.")).toBeInTheDocument();
+  });
+
+  it("shows Hidden badge for motion with is_visible=false", () => {
+    const hiddenMotion: MotionDetail = {
+      ...motions[0],
+      id: "m-hidden",
+      is_visible: false,
+    };
+    render(<AGMReportView motions={[hiddenMotion]} />);
+    const badge = screen.getByLabelText("Motion is hidden from voters");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass("motion-type-badge--hidden");
+  });
+
+  it("does not show Hidden badge for visible motion", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    expect(screen.queryByLabelText("Motion is hidden from voters")).not.toBeInTheDocument();
   });
 });

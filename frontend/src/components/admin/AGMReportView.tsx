@@ -74,6 +74,11 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
             >
               {motion.motion_type === "special" ? "Special" : "General"}
             </span>
+            {!motion.is_visible && (
+              <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
+                Hidden
+              </span>
+            )}
           </div>
           {motion.description && (
             <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem" }}>

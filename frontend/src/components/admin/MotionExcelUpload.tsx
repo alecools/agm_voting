@@ -1,5 +1,4 @@
 import React, { useRef, useState } from "react";
-import { parseMotionsExcel } from "../../utils/parseMotionsExcel";
 import type { MotionFormEntry } from "./MotionEditor";
 
 interface MotionExcelUploadProps {
@@ -19,6 +18,7 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
     setErrors([]);
     setParsing(true);
     try {
+      const { parseMotionsExcel } = await import("../../utils/parseMotionsExcel");
       const result = await parseMotionsExcel(file);
       if ("errors" in result) {
         setErrors(result.errors);
@@ -26,6 +26,8 @@ export default function MotionExcelUpload({ onMotionsLoaded }: MotionExcelUpload
         setErrors([]);
         onMotionsLoaded(result.motions);
       }
+    } catch {
+      setErrors(["Failed to load the file parser. Please try again."]);
     } finally {
       setParsing(false);
     }

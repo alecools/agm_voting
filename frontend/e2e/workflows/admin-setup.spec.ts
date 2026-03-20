@@ -36,6 +36,7 @@ import {
   createOpenMeeting,
   createPendingMeeting,
   closeMeeting,
+  deleteMeeting,
   clearBallots,
 } from "./helpers";
 
@@ -208,6 +209,9 @@ test.describe("WF2: Meeting creation and motion management", () => {
     "3,Maintenance Plan,General,Do you approve the maintenance plan?",
   ].join("\n");
 
+  // Track all meeting IDs created during WF2 so we can clean them up afterwards.
+  const wf2MeetingIds: string[] = [];
+
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     const api = await playwrightRequest.newContext({
@@ -241,7 +245,21 @@ test.describe("WF2: Meeting creation and motion management", () => {
         motionType: "special",
       },
     ]);
+    wf2MeetingIds.push(wf2MeetingId);
     await clearBallots(api, wf2MeetingId);
+    await api.dispose();
+  }, { timeout: 60000 });
+
+  test.afterAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+    for (const id of wf2MeetingIds) {
+      await deleteMeeting(api, id);
+    }
     await api.dispose();
   }, { timeout: 60000 });
 
@@ -291,8 +309,11 @@ test.describe("WF2: Meeting creation and motion management", () => {
     await page.goto("/admin/general-meetings");
     await expect(page.getByRole("table")).toBeVisible({ timeout: 15000 });
 
-    // The WF2 meeting should appear
-    await expect(page.getByText(WF2_MEETING_TITLE)).toBeVisible({ timeout: 15000 });
+    // Scope to the table row so duplicates from prior runs do not cause a
+    // strict-mode violation ("resolved to N elements").
+    const meetingRow = page.getByRole("row").filter({ hasText: WF2_MEETING_TITLE }).first();
+    await expect(meetingRow).toBeVisible({ timeout: 15000 });
+    await expect(meetingRow).toContainText("Open");
   });
 
   // WF2.5: Pending meeting shows Start Meeting button, no Close Voting
@@ -322,6 +343,7 @@ test.describe("WF2: Meeting creation and motion management", () => {
         },
       ]
     );
+    wf2MeetingIds.push(pendingMeetingId);
     await api.dispose();
 
     await page.goto(`/admin/general-meetings/${pendingMeetingId}`);

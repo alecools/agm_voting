@@ -341,7 +341,12 @@ test.describe("Admin General Meetings — absent count", () => {
 
     // The Absent row should show voter count 0 for an open meeting
     // (backend returns absent_ids = empty set for non-closed meetings)
-    const absentRow = page.getByRole("row").filter({ hasText: "Absent" });
+    // Scope to the tally table (identified by its "Category" column header) to avoid
+    // matching motion title rows that also contain the word "Absent".
+    const tallyTable = page.locator("table").filter({
+      has: page.getByRole("columnheader", { name: "Category" }),
+    });
+    const absentRow = tallyTable.getByRole("row").filter({ hasText: "Absent" });
     await expect(absentRow).toBeVisible({ timeout: 10000 });
     // Voter count cell: second td in the Absent row
     const absentCountCell = absentRow.getByRole("cell").nth(1);
@@ -362,7 +367,10 @@ test.describe("Admin General Meetings — absent count", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
 
     // After close, both lots have no ballots → they are absent
-    const absentRowAfterClose = page.getByRole("row").filter({ hasText: "Absent" });
+    const tallyTableAfterClose = page.locator("table").filter({
+      has: page.getByRole("columnheader", { name: "Category" }),
+    });
+    const absentRowAfterClose = tallyTableAfterClose.getByRole("row").filter({ hasText: "Absent" });
     await expect(absentRowAfterClose).toBeVisible({ timeout: 10000 });
     const absentCountAfterClose = absentRowAfterClose.getByRole("cell").nth(1);
     // 2 lots, neither voted → absent count should be 2

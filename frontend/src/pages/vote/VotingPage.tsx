@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,7 @@ import {
   submitBallot,
   fetchGeneralMeetings,
   fetchBuildings,
+  restoreSession,
 } from "../../api/voter";
 import type { VoteChoice } from "../../types";
 import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
@@ -13,6 +14,7 @@ import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
 import { CountdownTimer } from "../../components/vote/CountdownTimer";
 import { SubmitDialog } from "../../components/vote/SubmitDialog";
+import { MixedSelectionWarningDialog } from "../../components/vote/MixedSelectionWarningDialog";
 import { ClosedBanner } from "../../components/vote/ClosedBanner";
 import { useServerTime } from "../../hooks/useServerTime";
 
@@ -31,6 +33,7 @@ export function VotingPage() {
 
   const [choices, setChoices] = useState<Record<string, VoteChoice | null>>({});
   const [showDialog, setShowDialog] = useState(false);
+  const [showMixedWarning, setShowMixedWarning] = useState(false);
   const [highlightUnanswered, setHighlightUnanswered] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -44,7 +47,9 @@ export function VotingPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNoSelectionError, setShowNoSelectionError] = useState(false);
 
-  // Load allLots from sessionStorage on mount
+  // Load allLots from sessionStorage on mount, then immediately restore from server
+  // if a session token is available. This ensures voted_motion_ids is always fresh
+  // from the DB — not a stale sessionStorage snapshot.
   useEffect(() => {
     if (!meetingId) return;
     const raw = sessionStorage.getItem(`meeting_lots_info_${meetingId}`);
@@ -52,12 +57,37 @@ export function VotingPage() {
     try {
       const lots = JSON.parse(raw) as LotInfo[];
       setAllLots(lots);
+      // Seed selectedIds from sessionStorage as a fast first-render approximation.
+      // The [motions, allLots] effect will correct this once motions are known.
       const pending = lots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
       setSelectedIds(new Set(pending));
     } catch {
       // ignore parse errors
     }
   }, [meetingId]);
+
+  // On every VotingPage mount: if a session token is present, call restoreSession to
+  // get server-authoritative voted_motion_ids from the DB. This ensures that:
+  // - voted_motion_ids is not stale from a previous session
+  // - isLotSubmitted() derives lock state from fresh data on re-mount
+  useEffect(() => {
+    if (!meetingId) return;
+    const token = localStorage.getItem(`agm_session_${meetingId}`);
+    if (!token) return;
+
+    restoreSession({ session_token: token, general_meeting_id: meetingId })
+      .then((response) => {
+        const freshLots = response.lots;
+        setAllLots(freshLots);
+        // Update sessionStorage so the derived state is correct on future renders
+        // before the next mount restore.
+        sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(freshLots));
+      })
+      .catch(() => {
+        // If session is expired/invalid, leave allLots as loaded from sessionStorage.
+        // The voter will need to re-authenticate if they try to submit.
+      });
+  }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch buildings to find the building for this meeting
   const { data: buildings } = useQuery({
@@ -91,6 +121,56 @@ export function VotingPage() {
     queryFn: () => fetchMotions(meetingId!),
     enabled: !!meetingId,
   });
+
+  // Seed choices state from submitted_choice when motions load (revote scenario)
+  useEffect(() => {
+    if (!motions) return;
+    setChoices((prev) => {
+      const seeded: Record<string, VoteChoice | null> = { ...prev };
+      for (const m of motions) {
+        // Only seed if not already set in state (avoid overwriting user interactions)
+        if (m.already_voted && m.submitted_choice !== null && !(m.id in seeded)) {
+          seeded[m.id] = m.submitted_choice;
+        }
+      }
+      return seeded;
+    });
+  }, [motions]);
+
+  // --- Dynamic already-submitted derivation (BUG-NM-01-B fix) ---
+  //
+  // A lot is effectively "submitted" when every currently-visible motion has a ballot
+  // recorded in that lot's voted_motion_ids. This mirrors the server-side computation in
+  // POST /api/auth/verify and POST /api/auth/session.
+  //
+  // Because `motions` is live React Query state, isLotSubmitted() automatically returns
+  // false the moment a new motion appears — without any manual effect or ref tracking.
+  // This eliminates the re-mount bug (BUG-NM-01-B) caused by prevMotionCountRef resetting.
+  const isLotSubmitted = useCallback(
+    (lot: LotInfo): boolean => {
+      if (!motions || motions.length === 0) return false;
+      return motions.every((m) => (lot.voted_motion_ids ?? []).includes(m.id));
+    },
+    [motions]
+  );
+
+  // Re-seed selectedIds whenever motions or allLots change.
+  // This handles the case where motions refetch reveals new motions that make a
+  // previously-submitted lot not-yet-submitted again (it was locked, now unlocked).
+  useEffect(() => {
+    if (!motions || allLots.length === 0) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const lot of allLots) {
+        if (!isLotSubmitted(lot)) {
+          next.add(lot.lot_owner_id);
+        } else {
+          next.delete(lot.lot_owner_id);
+        }
+      }
+      return next;
+    });
+  }, [motions, allLots, isLotSubmitted]);
 
   // Poll meeting status every 10s
   useEffect(() => {
@@ -129,6 +209,65 @@ export function VotingPage() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
+
+      // Determine which lot IDs were just submitted (written to sessionStorage by handleSubmitClick)
+      const raw = sessionStorage.getItem(`meeting_lots_${meetingId}`);
+      const submittedIds: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+      const submittedSet = new Set(submittedIds);
+
+      // Collect the current motion IDs so we can merge them into voted_motion_ids.
+      const currentMotionIds = motions ? motions.map((m) => m.id) : [];
+
+      // Write sessionStorage synchronously here, before navigate(), so that when the voter
+      // returns to VotingPage via "View my votes", the re-mount useEffect reads the correct
+      // already_submitted state and voted_motion_ids. React Router v6's navigate() wraps in
+      // startTransition internally; any side-effect inside a setAllLots functional updater may
+      // not execute before the component unmounts under concurrent rendering (BUG-AS-01).
+      if (meetingId) {
+        try {
+          const currentLots = JSON.parse(
+            sessionStorage.getItem(`meeting_lots_info_${meetingId}`) ?? "[]"
+          ) as LotInfo[];
+          const updatedLots = currentLots.map((lot) =>
+            submittedSet.has(lot.lot_owner_id)
+              ? {
+                  ...lot,
+                  already_submitted: true,
+                  voted_motion_ids: Array.from(
+                    new Set([...(lot.voted_motion_ids ?? []), ...currentMotionIds])
+                  ),
+                }
+              : lot
+          );
+          sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(updatedLots));
+        } catch {
+          // ignore parse errors — stale sessionStorage is acceptable; fresh data comes from re-auth
+        }
+      }
+
+      // Also update in-memory React state so the UI is consistent for the brief period
+      // before navigation completes (and to keep the in-memory state correct if navigate is delayed).
+      setAllLots((prev) =>
+        prev.map((lot) =>
+          submittedSet.has(lot.lot_owner_id)
+            ? {
+                ...lot,
+                already_submitted: true,
+                voted_motion_ids: Array.from(
+                  new Set([...(lot.voted_motion_ids ?? []), ...currentMotionIds])
+                ),
+              }
+            : lot
+        )
+      );
+
+      // Remove submitted lot IDs from selection to prevent stale selectedIds
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of submittedSet) next.delete(id);
+        return next;
+      });
+
       navigate(`/vote/${meetingId}/confirmation`);
     },
     onError: (error: Error) => {
@@ -143,8 +282,8 @@ export function VotingPage() {
 
   // Derived values for lot panel
   const isMultiLot = allLots.length > 1;
-  const allSubmitted = allLots.length > 0 && allLots.every((l) => l.already_submitted);
-  const pendingLots = allLots.filter((l) => !l.already_submitted);
+  const allSubmitted = allLots.length > 0 && allLots.every((l) => isLotSubmitted(l));
+  const pendingLots = allLots.filter((l) => !isLotSubmitted(l));
   const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
 
   // In-arrear warning banner: computed from the currently selected lots
@@ -172,7 +311,7 @@ export function VotingPage() {
   };
 
   const handleSelectAll = () => {
-    const pendingIds = allLots.filter((l) => !l.already_submitted).map((l) => l.lot_owner_id);
+    const pendingIds = allLots.filter((l) => !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(pendingIds));
     setShowNoSelectionError(false);
   };
@@ -182,13 +321,13 @@ export function VotingPage() {
   };
 
   const handleSelectProxy = () => {
-    const proxyIds = allLots.filter((l) => l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    const proxyIds = allLots.filter((l) => l.is_proxy && !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(proxyIds));
     setShowNoSelectionError(false);
   };
 
   const handleSelectOwned = () => {
-    const ownedIds = allLots.filter((l) => !l.is_proxy && !l.already_submitted).map((l) => l.lot_owner_id);
+    const ownedIds = allLots.filter((l) => !l.is_proxy && !isLotSubmitted(l)).map((l) => l.lot_owner_id);
     setSelectedIds(new Set(ownedIds));
     setShowNoSelectionError(false);
   };
@@ -203,9 +342,33 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  const answeredCount = motions ? motions.filter((m) => !!choices[m.id]).length : 0;
+  // A motion is read-only when every currently-selected lot has already voted on it.
+  // If any selected lot has not yet voted on this motion, it remains interactive so
+  // the voter can submit on behalf of that lot.
+  // When selectedLots is empty (all lots are already_submitted), fall back to allLots so
+  // that motions remain locked rather than becoming editable again.
+  const readOnlyReferenceLots = selectedLots.length > 0 ? selectedLots : allLots;
+  const isMotionReadOnly = (m: { id: string }) =>
+    readOnlyReferenceLots.length > 0 &&
+    readOnlyReferenceLots.every((lot) => (lot.voted_motion_ids ?? []).includes(m.id));
 
-  const unansweredMotions = motions ? motions.filter((m) => !choices[m.id]) : [];
+  // Only count motions the voter can still interact with towards the progress bar.
+  const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
+  const answeredCount = unvotedMotions.filter((m) => !!choices[m.id]).length;
+
+  const unansweredMotions = unvotedMotions.filter((m) => !choices[m.id]);
+
+  // Check whether selected lots have mixed vote coverage (some have prior votes, others don't).
+  // Returns true only when two or more lots have different voted_motion_ids sets.
+  const hasMixedVoteStatus = (): boolean => {
+    if (selectedLots.length <= 1) return false;
+    const firstIds = new Set(selectedLots[0].voted_motion_ids ?? []);
+    return selectedLots.slice(1).some((lot) => {
+      const ids = new Set(lot.voted_motion_ids ?? []);
+      if (ids.size !== firstIds.size) return true;
+      return [...ids].some((id) => !firstIds.has(id));
+    });
+  };
 
   const handleSubmitClick = () => {
     if (isMultiLot && selectedIds.size === 0) {
@@ -219,8 +382,23 @@ export function VotingPage() {
         JSON.stringify([...selectedIds])
       );
     }
+    // Show mixed selection warning before proceeding to the submit dialog
+    if (hasMixedVoteStatus()) {
+      setShowMixedWarning(true);
+      return;
+    }
     setHighlightUnanswered(true);
     setShowDialog(true);
+  };
+
+  const handleMixedWarningContinue = () => {
+    setShowMixedWarning(false);
+    setHighlightUnanswered(true);
+    setShowDialog(true);
+  };
+
+  const handleMixedWarningGoBack = () => {
+    setShowMixedWarning(false);
   };
 
   const handleConfirm = () => {
@@ -243,11 +421,6 @@ export function VotingPage() {
 
   // Sidebar is only rendered for multi-lot voters (single-lot voters see motions full-width)
   const showSidebar = isMultiLot && allLots.length > 0;
-
-  const selectedCount = allLots.filter((l) => selectedIds.has(l.lot_owner_id)).length;
-  const sidebarSummaryLabel = allSubmitted
-    ? "Your Lots — all submitted"
-    : `Your Lots (${selectedCount} selected)`;
 
   // Lot list content — shared between desktop sidebar and mobile drawer
   const lotListContent = showSidebar ? (
@@ -302,15 +475,15 @@ export function VotingPage() {
         {allLots.map((lot) => (
           <li
             key={lot.lot_owner_id}
-            className={`lot-selection__item${lot.already_submitted ? " lot-selection__item--submitted" : ""}`}
-            aria-disabled={lot.already_submitted ? "true" : undefined}
+            className={`lot-selection__item${isLotSubmitted(lot) ? " lot-selection__item--submitted" : ""}`}
+            aria-disabled={isLotSubmitted(lot) ? "true" : undefined}
           >
             <input
               type="checkbox"
               id={`lot-checkbox-${lot.lot_owner_id}`}
               className="lot-selection__checkbox"
               checked={selectedIds.has(lot.lot_owner_id)}
-              disabled={lot.already_submitted}
+              disabled={isLotSubmitted(lot)}
               onChange={() => handleToggle(lot.lot_owner_id)}
               aria-label={`Select Lot ${lot.lot_number}`}
             />
@@ -329,7 +502,7 @@ export function VotingPage() {
               </span>
             )}
 
-            {lot.already_submitted && (
+            {isLotSubmitted(lot) && (
               <span className="lot-selection__badge lot-selection__badge--submitted">
                 Already submitted
               </span>
@@ -390,7 +563,7 @@ export function VotingPage() {
 
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}`)}>
+      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/auth`)}>
         ← Back
       </button>
       {isClosed && <ClosedBanner />}
@@ -445,21 +618,21 @@ export function VotingPage() {
               <h2 className="lot-selection__title">Your Lots</h2>
               <ul className="lot-selection__list" role="list">
                 <li
-                  className={`lot-selection__item${allLots[0].already_submitted ? " lot-selection__item--submitted" : ""}`}
-                  aria-disabled={allLots[0].already_submitted ? "true" : undefined}
+                  className={`lot-selection__item${isLotSubmitted(allLots[0]) ? " lot-selection__item--submitted" : ""}`}
+                  aria-disabled={isLotSubmitted(allLots[0]) ? "true" : undefined}
                 >
                   <span className="lot-selection__lot-number">Lot {allLots[0].lot_number}</span>
                   <span className="lot-selection__badge lot-selection__badge--proxy">
                     via Proxy
                   </span>
-                  {allLots[0].already_submitted && (
+                  {isLotSubmitted(allLots[0]) && (
                     <span className="lot-selection__badge lot-selection__badge--submitted">
                       Already submitted
                     </span>
                   )}
                 </li>
               </ul>
-              {allLots[0].already_submitted && (
+              {isLotSubmitted(allLots[0]) && (
                 <button
                   type="button"
                   className="btn btn--primary"
@@ -473,36 +646,68 @@ export function VotingPage() {
 
           {motions && (
             <>
-              <ProgressBar answered={answeredCount} total={motions.length} />
-              {arrearBannerMode !== "none" && (
-                <div className="arrear-notice" data-testid="arrear-banner" role="note">
-                  {arrearBannerMode === "all"
-                    ? "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
-                    : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
-                </div>
-              )}
-              {motions.map((motion) => (
-                <MotionCard
-                  key={motion.id}
-                  motion={motion}
-                  choice={choices[motion.id] ?? null}
-                  onChoiceChange={handleChoiceChange}
-                  disabled={isClosed}
-                  highlight={highlightUnanswered && !choices[motion.id]}
-                />
-              ))}
-              {!isClosed && !allSubmitted && (
-                <div className="submit-section">
-                  <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
-                    Submit ballot
-                  </button>
-                </div>
+              {motions.length === 0 ? (
+                <p className="state-message" data-testid="no-motions-message">
+                  No motions are available yet. Please check back shortly.
+                </p>
+              ) : (
+                <>
+                  <ProgressBar answered={answeredCount} total={unvotedMotions.length} />
+                  {arrearBannerMode !== "none" && (
+                    <div className="arrear-notice" data-testid="arrear-banner" role="note">
+                      {arrearBannerMode === "all"
+                        ? "All your selected lots are in arrear. You may only vote on Special Motions — General Motion votes will be recorded as not eligible."
+                        : "Some of your selected lots are in arrear. Your votes on General Motions will not count for in-arrear lots — they will be recorded as not eligible. Votes for all other lots will be recorded normally."}
+                    </div>
+                  )}
+                  {motions.map((motion) => (
+                    <MotionCard
+                      key={motion.id}
+                      motion={motion}
+                      choice={choices[motion.id] ?? null}
+                      onChoiceChange={handleChoiceChange}
+                      disabled={isClosed}
+                      highlight={highlightUnanswered && !isMotionReadOnly(motion) && !choices[motion.id]}
+                      readOnly={isMotionReadOnly(motion)}
+                    />
+                  ))}
+                  {unvotedMotions.length === 0 && !isClosed && !showSidebar && (
+                    <div className="submit-section">
+                      <p className="state-message" data-testid="all-voted-message">
+                        You have voted on all motions.
+                      </p>
+                      <button type="button" className="btn btn--primary" onClick={handleViewSubmission}>
+                        View Submission
+                      </button>
+                    </div>
+                  )}
+                  {unvotedMotions.length > 0 && !isClosed && (
+                    <div className="submit-section">
+                      <button type="button" className="btn btn--primary" onClick={handleSubmitClick}>
+                        Submit ballot
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
         </div>
       </div>
 
+      {showMixedWarning && (
+        <MixedSelectionWarningDialog
+          differingLots={selectedLots.filter((lot) => {
+            const ids = new Set(lot.voted_motion_ids ?? []);
+            return ids.size > 0 || selectedLots.some((other) => {
+              const otherIds = new Set(other.voted_motion_ids ?? []);
+              return ids.size !== otherIds.size || [...ids].some((id) => !otherIds.has(id));
+            });
+          })}
+          onContinue={handleMixedWarningContinue}
+          onGoBack={handleMixedWarningGoBack}
+        />
+      )}
       {showDialog && (
         <SubmitDialog
           unansweredTitles={unansweredMotions.map((m) => m.title)}

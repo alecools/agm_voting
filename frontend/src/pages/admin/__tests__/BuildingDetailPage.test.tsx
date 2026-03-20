@@ -454,4 +454,146 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByText(/409/)).toBeInTheDocument();
     });
   });
+
+  // --- Delete Building ---
+
+  it("shows Delete Building button only for archived buildings", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      })
+    );
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+  });
+
+  it("does not show Delete Building button for active buildings", async () => {
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Delete Building" })).not.toBeInTheDocument();
+  });
+
+  it("shows confirm dialog when Delete Building clicked", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(confirmSpy).toHaveBeenCalled();
+  });
+
+  it("navigates to buildings list on successful delete", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    mockNavigate.mockClear();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      }),
+      http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
+    });
+  });
+
+  it("does not delete when confirm is cancelled", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    mockNavigate.mockClear();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("shows delete error when API returns error", async () => {
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json([
+          {
+            id: "b1",
+            name: "Alpha Tower",
+            manager_email: "alpha@example.com",
+            is_archived: true,
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      }),
+      http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json(
+          { detail: "Only archived buildings can be deleted" },
+          { status: 409 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    await waitFor(() => {
+      expect(screen.getByText(/409/)).toBeInTheDocument();
+    });
+  });
 });

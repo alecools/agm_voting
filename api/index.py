@@ -119,10 +119,25 @@ _dist_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(_dist_dir):
     from fastapi.staticfiles import StaticFiles  # noqa: E402
     from fastapi.responses import FileResponse  # noqa: E402
+    from starlette.types import Scope  # noqa: E402
+
+    class _ImmutableStaticFiles(StaticFiles):  # pragma: no cover
+        """StaticFiles subclass that adds immutable cache headers to all responses.
+
+        Hashed asset filenames (e.g. main.abc123.js) are safe to cache forever
+        because their URLs change whenever the content changes.
+        """
+
+        async def get_response(self, path: str, scope: Scope):  # type: ignore[override]  # pragma: no cover
+            response = await super().get_response(path, scope)  # pragma: no cover
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"  # pragma: no cover
+            return response  # pragma: no cover
 
     _assets_dir = os.path.join(_dist_dir, "assets")
     if os.path.isdir(_assets_dir):
-        app.mount("/assets", StaticFiles(directory=_assets_dir), name="static_assets")
+        app.mount("/assets", _ImmutableStaticFiles(directory=_assets_dir), name="static_assets")
+
+    _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
     @app.get("/{full_path:path}", include_in_schema=False)  # pragma: no cover
     async def _serve_spa(full_path: str) -> FileResponse:  # pragma: no cover
@@ -131,6 +146,9 @@ if os.path.isdir(_dist_dir):
         candidate = os.path.join(_dist_dir, full_path)  # pragma: no cover
         if os.path.isfile(candidate):  # pragma: no cover
             return FileResponse(candidate)  # pragma: no cover
-        return FileResponse(os.path.join(_dist_dir, "index.html"))  # pragma: no cover
+        return FileResponse(  # pragma: no cover
+            os.path.join(_dist_dir, "index.html"),  # pragma: no cover
+            headers=_NO_CACHE,  # pragma: no cover
+        )  # pragma: no cover
 
 __all__ = ["app"]

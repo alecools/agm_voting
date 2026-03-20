@@ -302,7 +302,7 @@ button, input, select, textarea {
 .btn--secondary {
   background: transparent;
   color: var(--navy);
-  border-color: rgba(12,27,46,.28);
+  border-color: var(--navy);
   letter-spacing: 0.04em;
   text-transform: none;
   font-size: 0.875rem;
@@ -579,6 +579,85 @@ button, input, select, textarea {
   background: #fef3c7;
   color: #92400e;
   border: 1px solid #fcd34d;
+}
+
+.motion-type-badge--hidden {
+  background: var(--text-muted, #888);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* Motion visibility toggle */
+.motion-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.motion-visibility-toggle--disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.motion-visibility-toggle--loading {
+  opacity: 0.6;
+}
+
+.motion-visibility-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.motion-visibility-toggle__track {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  background: var(--text-muted, #aaa);
+  border-radius: 11px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.motion-visibility-toggle__track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.motion-visibility-toggle__input:checked + .motion-visibility-toggle__track {
+  background: var(--green, #22c55e);
+}
+
+.motion-visibility-toggle__input:checked + .motion-visibility-toggle__track::after {
+  transform: translateX(18px);
+}
+
+.motion-visibility-toggle__label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  min-width: 42px;
+}
+
+.motion-visibility-toggle__input:checked ~ .motion-visibility-toggle__label {
+  color: var(--green, #22c55e);
+  font-weight: 600;
+}
+
+/* Admin table muted cell — applied to text cells only, not the actions cell */
+.admin-table__cell--muted {
+  opacity: 0.45;
 }
 
 .motion-card__footer {
@@ -1282,21 +1361,27 @@ button, input, select, textarea {
 
 /* === DANGER BUTTON === */
 .btn--danger {
-  background: var(--red-bg);
-  color: var(--red);
-  border-color: rgba(163,34,14,.22);
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
   letter-spacing: 0.04em;
   text-transform: none;
   font-size: 0.875rem;
   font-weight: 600;
 }
-
 .btn--danger:hover:not(:disabled) {
-  background: var(--red);
-  color: var(--white);
-  border-color: var(--red);
-  box-shadow: 0 3px 12px rgba(163,34,14,.25);
+  background: #7a1a0b;
+  border-color: #7a1a0b;
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(163,34,14,.35);
 }
+
+/* === SMALL BUTTON === */
+.btn--sm {
+  padding: 6px 14px;
+  font-size: 0.78rem;
+}
+
 
 /* === ADMIN TABLE === */
 .admin-table {

@@ -79,15 +79,15 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
-### US-017: Share AGM summary page link from admin portal
-**Description:** As a meeting host, I want to easily copy the shareable link for an AGM's summary page so I can distribute it to lot owners.
+### US-017: Share voting link from admin portal
+**Description:** As a meeting host, I want to easily copy the shareable voting link for a general meeting so I can distribute it to lot owners so they can authenticate and cast their votes.
 
 **Acceptance Criteria:**
-- [ ] The AGM detail view in the admin portal shows a "Share summary page" button or link
-- [ ] Clicking it copies the full URL of the `/agm/:agmId/summary` page to the clipboard
-- [ ] A brief confirmation message ("Link copied!") is shown after copying
-- [ ] The link is also displayed as a clickable URL so the host can open or inspect it
-- [ ] Typecheck/lint passes
+- [x] The General Meeting detail view in the admin portal shows a "Share voting link" button or link
+- [x] Clicking it copies the full URL of the voter auth page (`/vote/:meetingId/auth`) to the clipboard
+- [x] A brief confirmation message ("Link copied!") is shown after copying
+- [x] The link is also displayed as a clickable URL so the host can open or inspect it
+- [x] Typecheck/lint passes
 - [ ] Verify in browser using dev-browser skill
 
 ### US-018: Backend endpoint for AGM public summary
@@ -115,7 +115,7 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - **FR-23:** A new public endpoint `GET /api/agm/:agmId/summary` returns AGM title, building name, meeting datetime, voting close datetime, and ordered motions list. No auth required.
 - **FR-24:** A new public frontend route `/agm/:agmId/summary` renders the AGM summary page using data from FR-23.
 - **FR-25:** The summary page must be print-friendly: non-content elements (nav bars, buttons) hidden via CSS `@media print`.
-- **FR-26:** The admin portal AGM detail view must show a "Share summary page" control that copies the summary URL to the clipboard.
+- **FR-26:** The admin portal General Meeting detail view must show a "Share voting link" control that copies the voter auth page URL (`/vote/:meetingId/auth`) to the clipboard.
 
 ---
 

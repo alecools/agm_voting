@@ -32,6 +32,24 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-BLD-DELETE: Delete an archived building
+
+**Description:** As a building manager, I want to permanently delete a building that has been archived so I can remove test or incorrectly created buildings from the system.
+
+**Acceptance Criteria:**
+- [x] `DELETE /api/admin/buildings/:id` endpoint added
+- [x] Returns 204 on success; the building and all cascade data (lot owners, general meeting lot weights, ballot submissions, votes, session records, motions, general meetings) are deleted
+- [x] Returns 404 if the building does not exist
+- [x] Returns 409 if the building is not archived (only archived buildings can be deleted)
+- [x] A "Delete Building" button is visible on the building detail/edit page only when the building is archived
+- [x] Clicking the button shows a browser confirmation dialog before proceeding
+- [x] On success, admin is navigated to the buildings list
+- [x] Button shows "Deleting…" while the request is in flight
+- [x] Typecheck/lint passes
+- [x] All tests pass at 100% coverage
+
+---
+
 ### US-019: Archive buildings and associated lot owners
 
 **Description:** As a meeting host, I want to archive a building so it no longer appears in the voter portal, and have its lot owners archived too unless they belong to another active building.
@@ -104,6 +122,25 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] Server-side errors are shown inline in the modal
 - [ ] "Cancel" closes the modal without saving
 - [ ] Typecheck/lint passes
+
+---
+
+### US-BLD-02: Filter voter building dropdown to buildings with open meetings
+
+**Description:** As a lot owner, I want the building dropdown on the voter home page to show only buildings that have an active (open) voting session, so I am not presented with buildings where there is nothing to vote on.
+
+**Acceptance Criteria:**
+
+- [ ] `GET /api/buildings` returns only buildings where at least one associated General Meeting has an **effective status** of `"open"` — i.e. stored `status != 'closed'`, `meeting_at` is in the past or present, and `voting_closes_at` is in the future
+- [ ] A building with no meetings is excluded from the response
+- [ ] A building with only closed meetings (manually closed or with `voting_closes_at` in the past) is excluded from the response
+- [ ] A building with only pending meetings (`meeting_at` in the future) is excluded from the response
+- [ ] A building with at least one open meeting and one or more closed meetings is included in the response
+- [ ] Archived buildings (`is_archived = true`) remain excluded regardless of meeting status (existing rule unchanged)
+- [ ] No change to `GET /api/buildings/{building_id}/general-meetings` — this endpoint continues to return all meetings for a building (used after a voter has selected a building)
+- [ ] No database schema changes required
+- [ ] Typecheck/lint passes
+- [ ] All tests pass at 100% coverage
 
 ---
 
@@ -245,6 +282,29 @@ A web application for body corporates to run voting during Annual General Meetin
 - [ ] The code input is cleared when a resend is triggered so the user starts fresh
 - [ ] The previously issued code is no longer valid after a resend (it was deleted)
 - [ ] Typecheck/lint passes
+
+---
+
+### US-PS-01: Persistent voter session (skip OTP on return visit)
+
+**Description:** As a lot owner, I want my authenticated session to be remembered across browser tab closures so that I do not have to re-enter my email and OTP code every time I open the voting app within the same day.
+
+**Acceptance Criteria:**
+
+- [ ] After a successful OTP verification, the session token is stored in `localStorage` under the key `agm_session_<meetingId>`
+- [ ] When a voter navigates to `/vote/<meetingId>/auth` and a valid token exists in `localStorage`, the app calls `POST /api/auth/session` with the stored token instead of showing the OTP form
+- [ ] While the session restore request is in flight, a "Resuming your session…" loading indicator is shown; the OTP form does not flash
+- [ ] On a successful session restore, the voter is taken directly to the voting page (or confirmation page if all lots are already submitted) — no OTP entry required
+- [ ] `POST /api/auth/session` accepts `{ session_token: string, general_meeting_id: UUID }` and returns the same `AuthVerifyResponse` shape as `POST /api/auth/verify`, including the `session_token` field
+- [ ] `POST /api/auth/session` returns 401 if the token is not found, expired (> 24 hours old), or the meeting is closed
+- [ ] On a 401 response from `POST /api/auth/session`, the stale token is removed from `localStorage` and the normal OTP auth form is shown
+- [ ] Sessions expire after 24 hours — re-authentication via OTP is required after that window
+- [ ] When a meeting is closed, any stored token for that meeting becomes immediately invalid; the next restore attempt returns 401 and the voter is taken through OTP (which then routes to the confirmation page via `agm_status: "closed"`)
+- [ ] `POST /api/auth/verify` response now includes a `session_token` field (the raw token string) so the frontend can store it; existing response fields are unchanged
+- [ ] No new environment variables or secrets are required — the session token uses `secrets.token_urlsafe(32)` stored in the existing `session_records` table
+- [ ] Verify in browser using dev-browser skill
+- [ ] Typecheck/lint passes
+- [ ] All tests pass at 100% coverage
 
 ---
 
@@ -420,6 +480,240 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+## Non-Functional Requirements
+
+### NFR-PERF-01: Frontend bundle optimisation
+
+The voter-facing JavaScript bundle must not include the `xlsx` library. `xlsx` is used only by the admin motion upload flow and must be loaded lazily (dynamic import) so it is never downloaded by lot owners.
+
+- `xlsx` must be isolated into a separate Rollup chunk (`manualChunks: { xlsx: ["xlsx"] }` in `vite.config.ts`) and imported dynamically from `MotionExcelUpload.tsx`
+- The voter bundle (initial JS transferred to a browser opening the voter flow) must not reference the `xlsx` chunk
+
+### NFR-PERF-02: Static asset CDN serving
+
+All Vite-built assets under `/assets/` must be served from Vercel's CDN edge, not the FastAPI Lambda.
+
+- `vercel.json` must set `outputDirectory: "frontend/dist"` so Vercel serves static files directly
+- The catch-all rewrite must be scoped so `/assets/` paths are not routed through the Lambda
+- All assets under `/assets/(.*)` must be served with `Cache-Control: public, max-age=31536000, immutable` (Vite content-hashes all filenames)
+
+### NFR-PERF-03: Logo optimisation
+
+`frontend/public/logo.png` (201 KB) must be supplemented with a WebP version. All four logo `<img>` references must be wrapped in a `<picture>` element offering `logo.webp` as the preferred source with `logo.png` as fallback, targeting ~60–75% size reduction for WebP-capable browsers.
+
+### NFR-PERF-04: Brotli pre-compression
+
+The Vite build must pre-generate `.br` files for all JS/CSS assets using `vite-plugin-compression`. Vercel's CDN will serve pre-compressed Brotli files to clients that send `Accept-Encoding: br`, reducing transferred payload by ~15–20% over gzip.
+
+---
+
+## Bug Fixes
+
+### BUG-RV-01: Submit button missing after admin makes additional motions visible post-submission
+
+**Status:** Design complete (see `tasks/design/design-fix-revote-submit-button.md`)
+
+**Description:** When a voter has already submitted their ballot and an admin subsequently makes additional motions visible, the voter logs back in and can see the new motions — but the Submit button is absent, and every lot is incorrectly shown as "Already submitted". The voter cannot vote on the new motions.
+
+**Root cause:** The auth endpoint (`POST /api/auth/verify`) computes `already_submitted` per lot based solely on the existence of a `BallotSubmission` row, which is an append-only audit record that is never deleted. A lot that submitted against 3 motions will have `already_submitted = True` even when a 4th motion has since become visible and has not been voted on. Because all lots are flagged as submitted, the `allSubmitted` guard on line 512 of `VotingPage.tsx` suppresses the Submit button, `selectedIds` is initialised empty, and `meeting_lots_<id>` in sessionStorage contains an empty array.
+
+**Fix summary:**
+
+- **Backend (`auth.py`):** Recompute `already_submitted` per lot as "has this lot cast a submitted vote on every currently-visible motion?" (set-subset check) rather than "does a `BallotSubmission` row exist?". Also simplify `unvoted_visible_count` to be consistent with the new per-lot flags.
+- **Frontend (`VotingPage.tsx`):** Remove the redundant `!allSubmitted` guard from the Submit button condition. The correct gating condition is `unvotedMotions.length > 0 && !isClosed` — once the backend flag is accurate, `allSubmitted` is never simultaneously `true` when there are unanswered visible motions.
+- No database schema changes are required.
+
+**User Stories affected:** US-004 (Vote on motions), US-009 (Vote confirmation screen)
+
+**Acceptance Criteria:**
+
+- [ ] After initial submission, if an admin makes additional motions visible, a returning voter sees those motions as interactive (not read-only) and the Submit button is present
+- [ ] Lots that have fully voted on all currently-visible motions continue to display the "Already submitted" badge and their checkboxes remain disabled
+- [ ] A voter who has voted on all currently-visible motions and logs back in with no new motions added is still routed to the confirmation page
+- [ ] Re-submitting for the new motions does not duplicate previously submitted vote rows; the backend records only the new motion votes
+- [ ] The confirmation page after the second submit shows all motions (previously voted and newly voted) with correct choices
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+- [ ] E2E test scenario "revote after new motions made visible" passes
+
+---
+
+### BUG-LS-01: Submitted lots remain selectable after voting and back navigation
+
+**Status:** Design complete (see `tasks/design/design-fix-lot-reselection-after-vote.md`)
+
+**Description:** After a voter submits their ballot for one or more lots and then navigates back to
+the voting page (via the Back button, direct URL, or the "Vote for remaining lots" button), all
+lots — including ones that were just submitted — are shown as fully interactive. The user can
+re-select a submitted lot, fill in choices, and click Submit again. The backend correctly rejects
+the duplicate submission with 409, but the user receives no visible error feedback and may believe
+their re-vote was recorded.
+
+**Root cause:** `VotingPage.tsx` `submitMutation.onSuccess` (lines 130–133) does not update
+`allLots` state or `meeting_lots_info_<meetingId>` in sessionStorage after a successful submission.
+When the user navigates back to `/voting`, the page re-mounts and reloads lot state from the stale
+sessionStorage, which still has all lots as `already_submitted: false`.
+
+**Fix summary:**
+
+- **Frontend (`VotingPage.tsx`) only — no backend changes required.**
+- In `submitMutation.onSuccess`: read the submitted lot IDs from
+  `meeting_lots_<meetingId>` in sessionStorage (written by `handleSubmitClick`), call
+  `setAllLots` to mark those lots as `already_submitted: true`, write the updated lot list back
+  to `meeting_lots_info_<meetingId>` in sessionStorage, and remove the submitted IDs from
+  `selectedIds`.
+
+**User Stories affected:** US-004 (Vote on motions), US-009 (Vote confirmation screen)
+
+**Acceptance Criteria:**
+
+- [ ] After submitting for one or more lots, navigating back to the voting page shows submitted
+      lots with "Already submitted" badge and disabled checkboxes — not interactive checkboxes
+- [ ] The Submit ballot button is absent when all lots have been submitted (no unsubmitted lots
+      remain)
+- [ ] Unsubmitted lots (in a partial multi-lot submission) remain selectable after the voter
+      navigates back to the voting page
+- [ ] `meeting_lots_info_<meetingId>` in sessionStorage is updated immediately after a successful
+      submission so that subsequent back navigations within the same browser session are consistent
+- [ ] A second submit attempt for an already-submitted lot navigates to the confirmation page
+      (409 behaviour is unchanged)
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+- [ ] E2E scenarios "submitted lot is disabled after back navigation" and "partial submission —
+      remaining lot stays selectable" pass
+
+---
+
+### BUG-RV-02: Previously-voted motions shown as unvoted and without prior answer on re-entry
+
+**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`)
+
+**Description:** When a voter has submitted votes for motions 1, 2, and 3 and an admin subsequently makes motion 4 visible, the voter re-authenticates and correctly reaches the voting page (BUG-RV-01 is fixed). However, motions 1, 2, and 3 display with no pre-selected choice — the vote buttons all appear blank. The voter cannot see what they previously voted and can inadvertently submit different choices for motions that have already been answered (the backend will silently ignore those overrides, but the voter experience is confusing and misleading).
+
+**Root cause:** Two contributing gaps:
+
+1. **Backend** — `GET /api/general-meeting/{id}/motions` returns `already_voted: bool` per motion but does not return the voter's prior `choice` for that motion. There is no way for the frontend to know what was previously selected.
+2. **Frontend** — `VotingPage.tsx` always initialises `choices` as an empty object (`{}`). Even if the backend returned the prior choice, the page does not seed `choices` state from it.
+
+**Fix summary:**
+
+- **Backend (`voting.py` router):** Extend `MotionOut` with a new optional field `submitted_choice: VoteChoice | null`. Populate it from the existing submitted-votes query inside `list_motions`. For multi-lot voters where one lot has `not_eligible` and another has a real choice for the same motion, prefer the non-`not_eligible` value.
+- **Frontend (`VotingPage.tsx`):** Add a `useEffect` on the `motions` query result that seeds `choices` state with each motion's `submitted_choice` (where non-null and not yet set in state).
+- **Frontend (`voter.ts`):** Add `submitted_choice: VoteChoice | null` to the `MotionOut` interface.
+- No backend submit logic changes needed — `submit_ballot` already skips already-voted motions.
+- No database schema changes required.
+
+**User Stories affected:** US-004 (Vote on motions), US-009 (Vote confirmation screen)
+
+**Acceptance Criteria:**
+
+- [ ] When a voter re-enters the voting page after an admin has made additional motions visible, motions they previously answered display with their original choice pre-selected in the vote buttons
+- [ ] Newly visible motions (not yet voted on) display with no pre-selected choice
+- [ ] The progress bar reflects only the number of newly unvoted motions (not previously-voted ones)
+- [ ] On submit, the backend records votes only for the new motions; previously-voted motions are not overwritten regardless of what the frontend sends
+- [ ] The confirmation page after the second submit shows all motions (previously voted and newly voted) with correct choices
+- [ ] `GET /api/general-meeting/{id}/motions` returns `submitted_choice: null` for unvoted motions and the correct `VoteChoice` value for voted motions
+- [ ] For a multi-lot voter where one lot's general-motion choice is `not_eligible` and another lot's is `yes`, `submitted_choice` returns `yes`
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+- [ ] E2E test scenarios in `design-fix-revote-motion-state.md` pass
+
+---
+
+### BUG-RV-03: Previously-voted motions remain interactive in revote flow instead of being locked
+
+**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 2 section)
+
+**Description:** After BUG-RV-02 is fixed (pre-populated prior choices displayed), motions that the voter has already submitted are still rendered as fully interactive — the vote buttons are enabled and the "Already voted" badge does not appear. The voter can change their prior answer, though the backend silently ignores any re-submission for already-voted motions. The expected UX is: previously-voted motions should be locked (disabled vote buttons, "Already voted" badge visible) and only newly revealed unvoted motions should be interactive.
+
+**Root cause:** `isMotionReadOnly` in `VotingPage.tsx` (line 237–238) gates the lock on a per-lot condition (`hasUnsubmittedSelected`) rather than a per-motion condition. When any selected lot has `already_submitted: false` (which is always true in the revote scenario, since the lot has not yet voted on the new visible motion), `isMotionReadOnly` returns `false` for all motions — including ones where `already_voted === true`.
+
+**Fix summary:**
+
+- **Frontend (`VotingPage.tsx`) only.** Replace the `isMotionReadOnly` function body: change `m.already_voted && !hasUnsubmittedSelected` to simply `m.already_voted`. Remove the now-unused `hasUnsubmittedSelected` variable.
+- No backend changes required. `already_voted` is already computed correctly by `list_motions`.
+- No database schema changes required.
+- Phase 2 depends on Phase 1 (BUG-RV-02) — `submitted_choice` must be present to correctly show the locked choice in the read-only card.
+
+**User Stories affected:** US-004 (Vote on motions)
+
+**Acceptance Criteria:**
+
+- [ ] In the revote scenario, motions the voter has previously answered display with the "Already voted" badge and disabled vote buttons
+- [ ] In the revote scenario, only newly revealed unvoted motions have interactive vote buttons
+- [ ] The progress bar counts only newly unvoted motions (read-only already-voted motions are excluded from the count)
+- [ ] Multi-lot voter where Lot A has voted on motions 1–3 but Lot B has not: motions 1–3 remain interactive (because `already_voted` is `false` when any lot has no vote yet)
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+- [ ] E2E Scenario 1 in `design-fix-revote-motion-state.md` (Phase 2) passes
+
+---
+
+### BUG-RV-04: Per-lot per-motion vote status not available to frontend
+
+**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 3 section)
+
+**Description:** The auth response (`LotInfo`) currently returns only an `already_submitted` boolean per lot. It does not expose which specific motions each lot has already voted on. Without this data the frontend cannot compute per-lot per-motion locking (needed when a multi-lot voter selects lots with different prior-vote coverage) and cannot detect the mixed-selection condition required for BUG-RV-05.
+
+**Fix summary:**
+
+- **Backend (`auth.py` + `schemas/auth.py`):** Add `voted_motion_ids: list[uuid.UUID]` to `LotInfo`. Populate it from `voted_motion_ids_by_lot` (already computed in both `verify_auth` and `restore_session`). No DB changes required.
+- **Frontend (`voter.ts`):** Add `voted_motion_ids: string[]` to the `LotInfo` TypeScript interface.
+- No database schema changes required.
+
+**User Stories affected:** US-004 (Vote on motions)
+
+**Acceptance Criteria:**
+
+- [ ] `POST /api/auth/verify` returns `voted_motion_ids` on each `LotInfo` object listing the motion IDs where this lot has a submitted vote
+- [ ] `POST /api/auth/session` (restore session) also returns `voted_motion_ids` on each `LotInfo`
+- [ ] `voted_motion_ids` is empty (`[]`) for a lot that has never submitted any votes
+- [ ] `voted_motion_ids` contains only motion IDs where `Vote.status == submitted`; draft votes are excluded
+- [ ] The field is included in the `meeting_lots_info_{meetingId}` sessionStorage entry written by `AuthPage`
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+
+---
+
+### BUG-RV-05: No warning when multi-lot voter selects a mix of voted and unvoted lots
+
+**Status:** Design complete (see `tasks/design/design-fix-revote-motion-state.md`, Phase 3 section)
+
+**Description:** When a multi-lot voter selects lots with different voting histories (some motions already submitted for some lots but not others), there is no indication that previously submitted votes will not be re-recorded. The voter may believe their new answers override prior votes for affected lots — they do not. The backend silently skips already-voted motions per lot. This silent skip is correct behaviour but is not communicated to the voter. This includes the case where both lots are "partial" but with different motion coverage (e.g., Lot A voted motions 1–2 and Lot B voted motions 1–3).
+
+**Fix summary:**
+
+- **Frontend only.** Add a `MixedSelectionWarningDialog` component that appears when the voter clicks "Submit ballot" and any two selected lots have different `voted_motion_ids` sets. The dialog explains the situation, lists the affected lot numbers, and offers "Continue" or "Go back to lot selection".
+- The per-lot `voted_motion_ids` data from BUG-RV-04 is the prerequisite for detecting this condition.
+- Update `isMotionReadOnly` in `VotingPage.tsx` to use per-lot vote status: a motion is locked when every selected lot has voted on it. If any selected lot has not yet voted on a motion, the motion remains interactive.
+- Fresh lots always see blank motion cards — no pre-filling from another lot's prior votes.
+- No backend changes required beyond BUG-RV-04. No database schema changes required.
+- Depends on BUG-RV-04 (per-lot vote status must be available before this warning can be implemented).
+
+**User Stories affected:** US-004 (Vote on motions)
+
+**Acceptance Criteria:**
+
+- [ ] When the voter clicks "Submit ballot" and any two selected lots have different `voted_motion_ids` sets, a warning dialog is shown before the existing submit confirmation dialog
+- [ ] The warning fires even when both lots are "partial" but with different motion coverage (e.g., Lot A voted motions 1–2, Lot B voted motions 1–3)
+- [ ] The warning dialog lists the lot numbers of all lots whose `voted_motion_ids` set differs from at least one other selected lot
+- [ ] The warning message is: "The lots you have selected have different voting histories — some have already voted on certain motions while others have not. Previously recorded votes are fixed and will not be changed. For each lot, only motions it has not yet voted on will be recorded from this submission. Lots with differing vote histories: [lot numbers]. Do you want to continue?"
+- [ ] The dialog offers two actions: "Continue" (proceeds to the existing SubmitDialog) and "Go back to lot selection" (dismisses the dialog, returns focus to the lot panel)
+- [ ] The warning is NOT shown when all selected lots have identical `voted_motion_ids` sets (including when all are completely fresh)
+- [ ] The warning is NOT shown when only one lot is selected
+- [ ] A motion is locked (read-only, "Already voted" badge, disabled buttons) only when ALL currently-selected lots have voted on it; if any selected lot has not yet voted on a motion, the motion remains interactive
+- [ ] Fresh lots always see blank motion cards even if another selected lot's `submitted_choice` is non-null for that motion
+- [ ] Verify in browser using dev-browser skill
+- [ ] All tests pass at 100% coverage (backend pytest + frontend vitest)
+- [ ] E2E Scenarios 7, 8, 9, 10, and 11 in `design-fix-revote-motion-state.md` (Phase 3) pass
+
+---
+
+### BUG-MC-01: Motion count display starts at 0 instead of 1
+
+**Status:** Fixed (see `tasks/design/design-fix-motion-count-display.md`)
+
+On the voting screen, motion cards display "Motion N" where N is the raw `order_index` value (0-based). The first motion therefore shows "Motion 0". The fix is a single-line change in `MotionCard.tsx`: display `motion.order_index + 1` instead of `motion.order_index`, making motions read "Motion 1", "Motion 2", etc.
+
+No backend or database changes are required. The `order_index` field remains 0-based in the data model; only the display label is adjusted.
+
+---
+
 ## Non-Goals
 
 - No proxy voting
@@ -464,6 +758,8 @@ A web application for body corporates to run voting during Annual General Meetin
 - **CSV parsing:** Python `csv` standard library
 - **PMS integration:** PropertyIQ API — API credentials and endpoint details needed before US-006 can be built
 - **Deployment:** Not scoped for MVP — local development only
+- **Frontend bundle:** `xlsx` (SheetJS) is a production dependency used exclusively in the admin motion-upload flow. It must be lazy-loaded (dynamic import) so it is absent from the voter bundle. See NFR-PERF-01 and `tasks/design/design-perf-bundle-optimisation.md`.
+- **Static asset serving:** `vercel.json` must declare `outputDirectory: "frontend/dist"` and serve `/assets/` files from Vercel CDN with immutable cache headers. The Lambda handles only API routes and SPA HTML fallback. See NFR-PERF-02.
 
 ---
 

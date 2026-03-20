@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -61,6 +61,10 @@ async function fillStep1(email: string) {
 }
 
 describe("AuthPage", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   // --- Happy path ---
   it("renders 'Verify your identity' heading immediately", () => {
     renderPage();
@@ -91,7 +95,7 @@ describe("AuthPage", () => {
     });
   });
 
-  it("navigates to confirmation when all lots already_submitted=true", async () => {
+  it("navigates to confirmation when all lots already_submitted=true and unvoted_visible_count=0", async () => {
     server.use(
       http.post(`${BASE}/api/auth/verify`, () =>
         HttpResponse.json({
@@ -100,6 +104,7 @@ describe("AuthPage", () => {
           agm_status: "open",
           building_name: "Sunset Towers",
           meeting_title: "2024 AGM",
+          unvoted_visible_count: 0,
         })
       )
     );
@@ -108,6 +113,33 @@ describe("AuthPage", () => {
     await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+  });
+
+  it("navigates to voting when hasRemainingLots is true even if unvoted_visible_count=0", async () => {
+    // Simulates multi-lot voter where one lot already submitted all votes (so backend returns
+    // unvoted_visible_count=0 for the submitted lot's motions), but another lot is still pending.
+    // The frontend hasRemainingLots guard must catch this and route to voting.
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        HttpResponse.json({
+          lots: [
+            { lot_owner_id: "lo1", lot_number: "A", financial_position: "normal", already_submitted: true, is_proxy: false },
+            { lot_owner_id: "lo2", lot_number: "B", financial_position: "normal", already_submitted: false, is_proxy: false },
+          ],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 0,
+        })
+      )
+    );
+    mockNavigate.mockClear();
+    renderPage();
+    await fillAndSubmit("owner@example.com");
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
   });
 
@@ -291,6 +323,189 @@ describe("AuthPage", () => {
     await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
     await waitFor(() => {
       expect(screen.queryByText("Failed to send code. Please try again.")).not.toBeInTheDocument();
+    });
+  });
+
+  // --- Session persistence (localStorage) ---
+
+  it("stores session_token in localStorage after successful OTP verify", async () => {
+    mockNavigate.mockClear();
+    renderPage();
+    await fillAndSubmit("owner@example.com");
+    await waitFor(() => {
+      expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBe("test-session-token-abc123");
+    });
+  });
+
+  it("does not store token in localStorage when session_token is empty", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/verify`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "B",
+          meeting_title: "T",
+          unvoted_visible_count: 1,
+          session_token: "",
+        })
+      )
+    );
+    renderPage();
+    await fillAndSubmit("owner@example.com");
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+    });
+    expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
+  });
+
+  // --- Session restore on mount ---
+
+  it("shows loading indicator when restoring session from localStorage", async () => {
+    // Delay the session restore response to observe the loading state
+    let resolveRestore!: () => void;
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        new Promise<Response>((res) => {
+          resolveRestore = () =>
+            res(HttpResponse.json({
+              lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+              voter_email: "owner@example.com",
+              agm_status: "open",
+              building_name: "Sunset Towers",
+              meeting_title: "2024 AGM",
+              unvoted_visible_count: 1,
+              session_token: "new-token",
+            }) as Response);
+        })
+      )
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Resuming your session…")).toBeInTheDocument();
+    });
+    resolveRestore();
+  });
+
+  it("skips OTP form and navigates to voting when valid token in localStorage", async () => {
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    mockNavigate.mockClear();
+    renderPage();
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+    });
+    // OTP form should never have been shown
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+  });
+
+  it("navigates to confirmation on restore when all lots already_submitted", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "B",
+          meeting_title: "T",
+          unvoted_visible_count: 0,
+          session_token: "new-token",
+        })
+      )
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    mockNavigate.mockClear();
+    renderPage();
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+  });
+
+  it("navigates to home with pending message on restore when agm_status=pending", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "pending",
+          building_name: "B",
+          meeting_title: "T",
+          unvoted_visible_count: 0,
+          session_token: "new-token",
+        })
+      )
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    mockNavigate.mockClear();
+    renderPage();
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/", {
+        state: { pendingMessage: "This meeting has not started yet. Please check back later." },
+      });
+    });
+  });
+
+  it("navigates to confirmation on restore when agm_status=closed", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "closed",
+          building_name: "B",
+          meeting_title: "T",
+          unvoted_visible_count: 0,
+          session_token: "new-token",
+        })
+      )
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    mockNavigate.mockClear();
+    renderPage();
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/confirmation`);
+    });
+  });
+
+  it("updates localStorage with new token returned from session restore", async () => {
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    renderPage();
+    await waitFor(() => {
+      expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBe("new-session-token-xyz789");
+    });
+  });
+
+  it("clears stale token and shows OTP form when restore returns 401", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "invalid-token");
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    });
+    expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
+  });
+
+  it("clears stale token and shows OTP form on network error during restore", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () => HttpResponse.error())
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    });
+    expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
+  });
+
+  it("shows OTP form immediately when no token in localStorage (no restore attempt)", async () => {
+    // No token set in localStorage — restore should not run
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
     });
   });
 });

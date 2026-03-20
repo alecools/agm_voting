@@ -231,6 +231,11 @@ export async function createOpenMeeting(
 /**
  * Create a pending meeting (meeting_at in the future) for a building.
  * Returns the meeting ID.
+ *
+ * NOTE: This helper closes any existing open/pending meetings before creating
+ * the pending meeting. If you need to keep an open meeting alive alongside the
+ * pending meeting (e.g. so the building still appears in the voter dropdown),
+ * use `seedPendingMeeting` instead and seed the open meeting first.
  */
 export async function createPendingMeeting(
   api: APIRequestContext,
@@ -281,6 +286,48 @@ export async function createPendingMeeting(
 }
 
 /**
+ * Create a pending meeting (meeting_at in the future) WITHOUT closing any
+ * existing meetings first. Use this when an open meeting must remain alive
+ * alongside the pending meeting — e.g. so the building still passes the
+ * GET /api/buildings filter (which requires meeting_at <= now).
+ *
+ * Callers are responsible for ensuring no conflicting state exists beforehand.
+ */
+export async function seedPendingMeeting(
+  api: APIRequestContext,
+  buildingId: string,
+  title: string,
+  motions: MotionSeed[]
+): Promise<string> {
+  const meetingAt = new Date();
+  meetingAt.setHours(meetingAt.getHours() + 2); // 2 hours in the future
+  const closesAt = new Date();
+  closesAt.setFullYear(closesAt.getFullYear() + 1);
+
+  const createRes = await api.post("/api/admin/general-meetings", {
+    data: {
+      building_id: buildingId,
+      title,
+      meeting_at: meetingAt.toISOString(),
+      voting_closes_at: closesAt.toISOString(),
+      motions: motions.map((m) => ({
+        title: m.title,
+        description: m.description,
+        order_index: m.orderIndex,
+        motion_type: m.motionType,
+      })),
+    },
+  });
+  if (!createRes.ok()) {
+    throw new Error(
+      `Failed to seed pending meeting "${title}" (${createRes.status()}): ${await createRes.text()}`
+    );
+  }
+  const newAgm = (await createRes.json()) as { id: string };
+  return newAgm.id;
+}
+
+/**
  * Close a meeting via the admin API. Asserts 200 OK.
  */
 export async function closeMeeting(api: APIRequestContext, meetingId: string): Promise<void> {
@@ -288,6 +335,29 @@ export async function closeMeeting(api: APIRequestContext, meetingId: string): P
   if (!res.ok()) {
     throw new Error(
       `Failed to close meeting ${meetingId} (${res.status()}): ${await res.text()}`
+    );
+  }
+}
+
+/**
+ * Delete a meeting via the admin API (204 No Content on success).
+ * If the meeting is open, closes it first so the delete succeeds.
+ * If the meeting does not exist (404) the call is silently ignored.
+ */
+export async function deleteMeeting(api: APIRequestContext, meetingId: string): Promise<void> {
+  // Try to delete directly first
+  let res = await api.delete(`/api/admin/general-meetings/${meetingId}`);
+  if (res.status() === 404) {
+    return; // already gone
+  }
+  if (res.status() === 409) {
+    // Meeting is open — close it first, then retry the delete
+    await closeMeeting(api, meetingId);
+    res = await api.delete(`/api/admin/general-meetings/${meetingId}`);
+  }
+  if (!res.ok()) {
+    throw new Error(
+      `Failed to delete meeting ${meetingId} (${res.status()}): ${await res.text()}`
     );
   }
 }
@@ -414,6 +484,15 @@ export async function getTestOtp(
  * to reach the auth form for that building.
  */
 export async function goToAuthPage(page: Page, buildingName: string): Promise<void> {
+  await page.evaluate(() => {
+    try {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('agm_session_'))
+        .forEach(k => localStorage.removeItem(k))
+    } catch (_) {
+      // page not yet on target origin — no session token to clear
+    }
+  })
   await page.goto("/");
   const select = page.getByLabel("Select your building");
   await expect(select).toBeVisible();

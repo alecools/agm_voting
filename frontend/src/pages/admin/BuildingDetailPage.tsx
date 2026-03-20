@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listBuildings, listLotOwners, archiveBuilding, updateBuilding } from "../../api/admin";
+import { listBuildings, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
 import type { Building, LotOwner } from "../../types";
 import LotOwnerTable from "../../components/admin/LotOwnerTable";
 import LotOwnerForm from "../../components/admin/LotOwnerForm";
@@ -121,6 +121,8 @@ export default function BuildingDetailPage() {
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: buildings = [] } = useQuery<Building[]>({
     queryKey: ["admin", "buildings"],
@@ -188,6 +190,25 @@ export default function BuildingDetailPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!buildingId) return;
+    const confirmed = window.confirm(
+      `Permanently delete "${building?.name ?? "this building"}"?\n\nThis action cannot be undone. All lot owners, meetings, and votes will be deleted.`
+    );
+    if (!confirmed) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deleteBuilding(buildingId);
+      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+      navigate("/admin/buildings");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete building.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (error) return <p className="state-message state-message--error">Failed to load lot owners.</p>;
 
   return (
@@ -237,6 +258,15 @@ export default function BuildingDetailPage() {
               {archiving ? "Archiving…" : "Archive Building"}
             </button>
           )}
+          {building?.is_archived && (
+            <button
+              className="btn btn--secondary"
+              onClick={() => { void handleDelete(); }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting…" : "Delete Building"}
+            </button>
+          )}
           <button className="btn btn--secondary" onClick={handleAddNew}>Add Lot Owner</button>
           <button className="btn btn--primary" onClick={() => navigate("/admin/general-meetings/new")}>Create General Meeting</button>
         </div>
@@ -244,6 +274,10 @@ export default function BuildingDetailPage() {
 
       {archiveError && (
         <p className="state-message state-message--error">{archiveError}</p>
+      )}
+
+      {deleteError && (
+        <p className="state-message state-message--error">{deleteError}</p>
       )}
 
       {showForm && (

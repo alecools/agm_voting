@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.session_record import SessionRecord
 
-SESSION_DURATION_HOURS = 24
+SESSION_DURATION_HOURS = 24  # kept for backward compatibility
+SESSION_DURATION = timedelta(minutes=30)
 
 
 async def create_session(
@@ -28,7 +29,7 @@ async def create_session(
         voter_email=voter_email,
         building_id=building_id,
         general_meeting_id=general_meeting_id,
-        expires_at=now + timedelta(hours=SESSION_DURATION_HOURS),
+        expires_at=now + SESSION_DURATION,
     )
     db.add(session)
     await db.flush()

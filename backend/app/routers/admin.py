@@ -34,6 +34,12 @@ from app.schemas.admin import (
     LotOwnerImportResult,
     LotOwnerOut,
     LotOwnerUpdate,
+    MotionAddRequest,
+    MotionDetail,
+    MotionOut,
+    MotionUpdateRequest,
+    MotionVisibilityOut,
+    MotionVisibilityRequest,
     ProxyImportResult,
     ResendReportOut,
     SetProxyRequest,
@@ -147,6 +153,14 @@ async def update_building(
 ) -> BuildingOut:
     building = await admin_service.update_building(building_id, data, db)
     return BuildingOut.model_validate(building)
+
+
+@router.delete("/buildings/{building_id}", status_code=204)
+async def delete_building(
+    building_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await admin_service.delete_building(building_id, db)
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +330,84 @@ async def remove_lot_owner_proxy(
     """Remove the proxy nomination for a lot owner."""
     owner = await admin_service.remove_lot_owner_proxy(lot_owner_id, db)
     return LotOwnerOut(**owner)
+
+
+# ---------------------------------------------------------------------------
+# Motions
+# ---------------------------------------------------------------------------
+
+
+@router.patch("/motions/{motion_id}/visibility", response_model=MotionDetail)
+async def toggle_motion_visibility_endpoint(
+    motion_id: uuid.UUID,
+    data: MotionVisibilityRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MotionDetail:
+    """Toggle the visibility of a motion. Requires admin auth.
+
+    Returns 200 with updated motion detail on success.
+    Returns 404 if motion not found.
+    Returns 409 if meeting is closed or if hiding a motion that has votes.
+    """
+    result = await admin_service.toggle_motion_visibility(motion_id, data.is_visible, db)
+    return MotionDetail(**result)
+
+
+@router.post(
+    "/general-meetings/{general_meeting_id}/motions",
+    response_model=MotionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_motion_to_meeting_endpoint(
+    general_meeting_id: uuid.UUID,
+    data: MotionAddRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MotionOut:
+    """Add a new motion to an existing General Meeting.
+
+    Returns 201 with the created motion.
+    Returns 404 if the meeting does not exist.
+    Returns 409 if the meeting is closed.
+    """
+    result = await admin_service.add_motion_to_meeting(general_meeting_id, data, db)
+    return MotionOut(**result)
+
+
+@router.patch(
+    "/motions/{motion_id}",
+    response_model=MotionVisibilityOut,
+    status_code=status.HTTP_200_OK,
+)
+async def update_motion_endpoint(
+    motion_id: uuid.UUID,
+    data: MotionUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MotionVisibilityOut:
+    """Edit title, description, or motion_type of a hidden motion.
+
+    Returns 200 with the updated motion.
+    Returns 404 if the motion does not exist.
+    Returns 409 if the motion is visible or the meeting is closed.
+    """
+    result = await admin_service.update_motion(motion_id, data, db)
+    return MotionVisibilityOut(**result)
+
+
+@router.delete(
+    "/motions/{motion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_motion_endpoint(
+    motion_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a hidden motion permanently.
+
+    Returns 204 on success.
+    Returns 404 if the motion does not exist.
+    Returns 409 if the motion is visible or the meeting is closed.
+    """
+    await admin_service.delete_motion(motion_id, db)
 
 
 # ---------------------------------------------------------------------------

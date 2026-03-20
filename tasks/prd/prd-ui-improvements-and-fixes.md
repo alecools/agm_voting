@@ -118,7 +118,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - [x] All TypeScript type names and interface names updated (e.g. `AGMOut` → `GeneralMeetingOut`)
 - [x] React component filenames and component function names updated where they contain "AGM" or "Agm"
 - [x] Typecheck/lint passes
-- [ ] Verify in browser using dev-browser skill
+- [x] Verify in browser using dev-browser skill
 
 ---
 
@@ -154,15 +154,15 @@ A set of UI improvements and correctness fixes for the voting application:
 **Description:** As a building manager, I want to filter the General Meetings list by building so I can quickly find meetings for a specific building when managing multiple buildings.
 
 **Acceptance Criteria:**
-- [ ] A single-select dropdown labelled "All buildings" appears above the General Meetings table
-- [ ] Selecting a building from the dropdown filters the table to show only meetings for that building
-- [ ] Selecting "All buildings" (the default/empty option) removes the filter and shows all meetings
-- [ ] The selected building is stored in the URL as a `?building=<id>` search param
-- [ ] On page load, if `?building=<id>` is present in the URL, the matching building is pre-selected and the table is filtered
-- [ ] Changing the filter updates the URL without triggering a full page navigation
-- [ ] Filtering is client-side — no additional API call is made when the filter changes
-- [ ] The table, pagination, and loading states are unchanged; only the data passed to the table is filtered
-- [ ] Typecheck/lint passes
+- [x] A single-select dropdown labelled "All buildings" appears above the General Meetings table
+- [x] Selecting a building from the dropdown filters the table to show only meetings for that building
+- [x] Selecting "All buildings" (the default/empty option) removes the filter and shows all meetings
+- [x] The selected building is stored in the URL as a `?building=<id>` search param
+- [x] On page load, if `?building=<id>` is present in the URL, the matching building is pre-selected and the table is filtered
+- [x] Changing the filter updates the URL without triggering a full page navigation
+- [x] Filtering is client-side — no additional API call is made when the filter changes
+- [x] The table, pagination, and loading states are unchanged; only the data passed to the table is filtered
+- [x] Typecheck/lint passes
 
 ---
 
@@ -184,16 +184,127 @@ A set of UI improvements and correctness fixes for the voting application:
 **Description:** As a building manager, I want to delete a meeting that is in a closed or pending state so I can remove test meetings or incorrectly created meetings without leaving clutter.
 
 **Acceptance Criteria:**
-- [ ] A "Delete Meeting" button is visible on the General Meeting detail page when the meeting status is `closed` or `pending`
-- [ ] The button is not shown for meetings with status `open` — open meetings cannot be deleted
-- [ ] Clicking "Delete Meeting" shows a browser confirmation dialog before proceeding
-- [ ] On confirmation, `DELETE /api/admin/general-meetings/{id}` is called
-  - [ ] Returns 204 on success; the meeting and all associated data (ballot submissions, lot weights, motions, OTP records) are cascade-deleted
-  - [ ] Returns 404 if the meeting does not exist
-  - [ ] Returns 409 if the meeting status is `open`
-- [ ] On successful deletion, the admin is navigated to the General Meetings list page
-- [ ] The button is disabled and shows "Deleting…" while the request is in flight
+- [x] A "Delete Meeting" button is visible on the General Meeting detail page when the meeting status is `closed` or `pending`
+- [x] The button is not shown for meetings with status `open` — open meetings cannot be deleted
+- [x] Clicking "Delete Meeting" shows a browser confirmation dialog before proceeding
+- [x] On confirmation, `DELETE /api/admin/general-meetings/{id}` is called
+  - [x] Returns 204 on success; the meeting and all associated data (ballot submissions, lot weights, motions, OTP records) are cascade-deleted
+  - [x] Returns 404 if the meeting does not exist
+  - [x] Returns 409 if the meeting status is `open`
+- [x] On successful deletion, the admin is navigated to the General Meetings list page
+- [x] The button is disabled and shows "Deleting…" while the request is in flight
+- [x] Typecheck/lint passes
+
+---
+
+### US-TECH01: Vercel Analytics and Speed Insights
+
+**Description:** As a product owner, I want Vercel Analytics and Speed Insights instrumented in the frontend so I can monitor real-user performance and usage patterns.
+
+**Acceptance Criteria:**
+- [x] `@vercel/analytics` package added to frontend dependencies
+- [x] `@vercel/speed-insights` package added to frontend dependencies
+- [x] `<Analytics />` component from `@vercel/analytics/react` mounted in `App.tsx`
+- [x] `<SpeedInsights />` component from `@vercel/speed-insights/react` mounted in `App.tsx`
+- [x] Both components are mocked in frontend unit tests so they don't interfere with test rendering
+- [x] Typecheck/lint passes
+
+---
+
+### US-BUG-AS01: Fix already-submitted state lost on return from confirmation page
+
+**Description:** As a voter who has submitted a ballot and clicks "View my votes" to return to the voting page, I should see my submitted lots correctly marked as "Already submitted" with disabled checkboxes and read-only motions — not an editable form that makes it appear I have not voted.
+
+**Root cause:** In `VotingPage.tsx`, `submitMutation.onSuccess`, the `sessionStorage.setItem` call that persists `already_submitted: true` for submitted lots was placed inside the functional updater passed to `setAllLots`. Under React 18 concurrent rendering, `navigate()` (React Router v6) internally uses `startTransition`, which can cause the component to unmount before the functional updater runs. This means the sessionStorage write is skipped, and on re-mount the page reads stale pre-submission data.
+
+**Fix:** Move the `sessionStorage.setItem` call to synchronous code in `onSuccess`, before the `navigate()` call, so it always executes regardless of React's rendering schedule.
+
+**Acceptance Criteria:**
+- [x] After submitting a ballot and returning to the voting page via "View my votes", submitted lots show "Already submitted" badge with disabled checkboxes
+- [x] After submitting all lots and returning via "View my votes", all motion cards are read-only
+- [x] The synchronous sessionStorage write in `onSuccess` is wrapped in a try/catch so corrupt sessionStorage data cannot prevent navigation
+- [x] All existing voting page tests continue to pass at 100% coverage
+- [x] Typecheck/lint passes
+
+---
+
+### US-TECH02: Fix browser caching of index.html
+
+**Description:** As a user, I should not need to force-refresh my browser after a deployment to see the latest version of the app.
+
+**Acceptance Criteria:**
+- [x] `index.html` is served with `Cache-Control: no-cache, no-store, must-revalidate` so browsers always revalidate on the next visit
+- [x] Hashed asset files (JS/CSS bundles under `/assets/`) are served with `Cache-Control: public, max-age=31536000, immutable` for optimal caching
+- [x] Implementation uses a `_ImmutableStaticFiles` subclass in `api/index.py` to inject immutable cache headers on the `/assets` mount
+- [x] Typecheck/lint passes
+
+---
+
+### US-FIX-BB01: Fix blank page when navigating back from VotingPage
+
+**Description:** As a voter, I should never see a blank page when I click the "Back" button on the voting page or use the browser's native back button.
+
+**Acceptance Criteria:**
+- [ ] The in-page "← Back" button on `VotingPage` navigates to `/vote/:meetingId/auth` (the auth page), not `/vote/:meetingId`
+- [ ] Clicking Back lands on a fully rendered page (the auth email-entry form is visible)
+- [ ] The browser native back button from `/vote/:meetingId/voting` also returns to a rendered page (the auth page)
+- [ ] No blank or empty page is shown at any point during backward navigation in the voter flow
 - [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-FIX-AS01: Lots and motions show correct submitted state after returning via "View my votes"
+
+**Description:** As a voter who has submitted their ballot and then navigated back to the voting page via the "View my votes" button on the confirmation page, I should see my lots correctly labelled "Already submitted" and my motions locked as read-only — not as if I have not voted yet.
+
+**Acceptance Criteria:**
+- [ ] After submitting a ballot and clicking "View my votes" on the confirmation page, the voting page shows each submitted lot with an "Already submitted" badge and the checkbox disabled
+- [ ] After submitting a ballot and clicking "View my votes", all motions that were voted on are shown as read-only (locked), not as interactive
+- [ ] The above behaviour is correct even when the user has a single lot
+- [ ] The above behaviour is correct when the user has multiple lots and submits a subset of them: submitted lots show the badge; unsubmitted lots remain interactive
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-FIX-NM01: Previously-submitted lots unlock when admin reveals new motions
+
+**Description:** As a voter whose lots were all locked ("Already submitted") after voting on all prior motions, I want my lots to automatically become selectable again when the admin reveals a new motion — because I have not yet voted on it.
+
+**Acceptance Criteria:**
+- [ ] After voting on all visible motions (all lots show "Already submitted"), if the admin makes an additional motion visible, refreshing or returning to the VotingPage shows those lots as unlocked (checkbox enabled, no "Already submitted" badge)
+- [ ] The new motion is shown as interactive (not read-only) on the VotingPage
+- [ ] Previously answered motions remain read-only once a lot has voted on them
+- [ ] The "Submit ballot" button is visible when there is at least one unsubmitted lot selected
+- [ ] Lots that had NOT yet submitted when the new motion was revealed remain unsubmitted and interactive (no regression)
+- [ ] The fix works for single-lot and multi-lot voters
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-FIX-NM01-B: Lots remain unlocked after multiple batch-vote cycles (follow-up to US-FIX-NM01)
+
+**Description:** As a voter who has completed multiple rounds of batch voting (vote batch 1, navigate away, admin reveals batch 2, return, vote batch 2, navigate away, admin reveals batch 3, return), I want my lots to correctly unlock on every return to the VotingPage — not just on the first round.
+
+**Root cause (BUG-NM-01-B):** The original BUG-NM-01 fix tracked motions count via `prevMotionCountRef` initialised to `-1` as a sentinel. On every VotingPage re-mount the ref resets to `-1`, causing the first motions-load to be treated as "set baseline, do not unlock" rather than "motions may have grown since last visit, unlock if needed." The fix therefore works on the first batch but fails on all subsequent batches because the voter must navigate away (unmounting the component) between batches.
+
+**Fix approach:** Replace the stale `already_submitted` boolean with a derived computation based on `lot.voted_motion_ids` (which already exists on `LotInfo` in the current codebase). A lot is considered submitted when every currently-visible motion ID is present in its `voted_motion_ids` array. This is evaluated at render time from data already in memory — no extra API call required. `prevMotionCountRef` and its associated `useEffect` are removed.
+
+**Acceptance Criteria:**
+- [ ] After voting all motions in batch 1, navigating to confirmation, then returning to VotingPage after admin reveals batch 2, lots are unlocked — same as US-FIX-NM01
+- [ ] After voting all motions in batch 2, navigating to confirmation (VotingPage unmounts), then returning after admin reveals batch 3, lots are still correctly unlocked (the re-mount does not re-lock them)
+- [ ] This correct unlock-on-return behaviour holds for any number of batch cycles
+- [ ] `submitMutation.onSuccess` updates `voted_motion_ids` (not only `already_submitted`) for submitted lots in both React state and sessionStorage, so the derived computation remains accurate after each submission
+- [ ] Previously answered motions (whose IDs are in `voted_motion_ids`) remain read-only; only motions not yet in `voted_motion_ids` are interactive
+- [ ] The fix works for single-lot and multi-lot voters
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
 
 ---
 
@@ -211,6 +322,10 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-10: On Lambda cold start, meetings with `close_date < now()` and `status = 'open'` are automatically set to `closed` and absent ballot submissions are generated for all non-voting lots
 - FR-11: Voters cannot reach the voting page for a meeting that is past its close date; they are routed to the read-only confirmation screen
 - FR-12: The General Meetings list page has a single-select building filter dropdown; filter state is persisted as a `?building=<id>` URL search param; filtering is client-side
+- FR-13: Vercel Analytics and Speed Insights are mounted in the frontend app
+- FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
+- FR-15: When `submitMutation.onSuccess` fires in `VotingPage`, the `meeting_lots_info_<meetingId>` sessionStorage key is updated synchronously (outside of React state updaters) before navigation, so that re-mounting the voting page reads the correct `already_submitted: true` state for submitted lots
+- FR-16: `VotingPage` derives lot-submitted status dynamically: a lot is considered submitted when every currently-visible motion ID appears in `lot.voted_motion_ids`. This replaces reliance on the cached `already_submitted` boolean from sessionStorage. `submitMutation.onSuccess` must update `voted_motion_ids` (merging current motion IDs) for submitted lots in both React state and sessionStorage so the derived computation is accurate after each submission. Previously-introduced `prevMotionCountRef` logic is removed.
 
 ---
 
@@ -231,6 +346,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - **Entitlement total:** Use `SUM(GeneralMeetingLotWeight.unit_entitlement)` per meeting — this is the snapshot total, not the live lot owner table.
 - **Frontend route rename:** React Router `<Route>` paths and `useParams` param names must both be updated. Any `useNavigate` hard-coded paths must also be updated. Playwright E2E tests reference URLs and must be updated.
 - **SessionStorage keys:** Voter flow uses `agm_lots_${agmId}`, `agm_lots_info_${agmId}`, `agm_lot_info_${agmId}` — rename to `meeting_lots_${meetingId}` etc.
+- **New motion unlock:** `already_submitted` is not a field that can be derived purely from `MotionOut.already_voted` because `already_voted` is aggregated across all of the voter's lots. The correct approach is to call `POST /api/auth/session` (session restore) whenever the motions list changes to get a fresh per-lot `already_submitted` flag from the server.
 
 ---
 

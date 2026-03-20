@@ -10,6 +10,7 @@ interface MotionCardProps {
   onChoiceChange: (motionId: string, choice: VoteChoice | null) => void;
   disabled: boolean;
   highlight: boolean;
+  readOnly?: boolean;
 }
 
 export function MotionCard({
@@ -18,30 +19,37 @@ export function MotionCard({
   onChoiceChange,
   disabled,
   highlight,
+  readOnly = false,
 }: MotionCardProps) {
   const handleClick = (c: VoteChoice) => {
     /* c8 ignore next */
-    if (disabled) return;
+    if (disabled || readOnly) return;
     // Clicking the currently selected choice deselects it
     const next = choice === c ? null : c;
     onChoiceChange(motion.id, next);
   };
 
   const isSpecial = motion.motion_type === "special";
+  const isEffectivelyDisabled = disabled || readOnly;
 
   return (
     <div
       data-testid={`motion-card-${motion.id}`}
-      className={`motion-card${highlight ? " motion-card--highlight" : ""}`}
+      className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}`}
     >
       <div className="motion-card__top-row">
-        <p className="motion-card__number">Motion {motion.order_index}</p>
+        <p className="motion-card__number">Motion {motion.order_index + 1}</p>
         <span
           className={`motion-type-badge${isSpecial ? " motion-type-badge--special" : " motion-type-badge--general"}`}
           aria-label={`Motion type: ${isSpecial ? "Special" : "General"}`}
         >
           {isSpecial ? "Special" : "General"}
         </span>
+        {readOnly && (
+          <span className="motion-card__voted-badge" aria-label="Already voted">
+            Already voted
+          </span>
+        )}
       </div>
       <h3 className="motion-card__title">{motion.title}</h3>
       {motion.description && (
@@ -53,7 +61,7 @@ export function MotionCard({
             key={c}
             choice={c}
             selected={choice === c}
-            disabled={disabled}
+            disabled={isEffectivelyDisabled}
             ariaDisabled={false}
             onClick={() => handleClick(c)}
           />

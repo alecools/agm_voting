@@ -149,8 +149,8 @@ test.describe("Public AGM summary page", () => {
     await expect(page.getByText("Do you approve the annual budget?")).toBeVisible();
     await expect(page.getByText("Do you approve the bylaw amendment?")).toBeVisible();
 
-    // Status is shown (open)
-    await expect(page.getByText(/open/i)).toBeVisible();
+    // Status is shown (open) — use exact match to avoid matching AGM/building names
+    await expect(page.getByText('Open', { exact: true })).toBeVisible();
   });
 
   test("invalid AGM ID shows not-found state", async ({ page }) => {

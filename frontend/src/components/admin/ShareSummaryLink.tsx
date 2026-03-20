@@ -5,7 +5,7 @@ interface ShareSummaryLinkProps {
 }
 
 export default function ShareSummaryLink({ meetingId }: ShareSummaryLinkProps) {
-  const url = window.location.origin + "/general-meeting/" + meetingId + "/summary";
+  const url = window.location.origin + "/vote/" + meetingId + "/auth";
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {

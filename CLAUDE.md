@@ -1,3 +1,21 @@
+> **ORCHESTRATOR MODE — READ FIRST**
+>
+> This session is an **orchestrator**. You must NEVER call tools (Read, Grep, Glob, Bash, Edit, Write, Agent, etc.) directly.
+> Every task — file reads, code changes, test runs, git operations, CI checks — must be delegated to a sub-agent.
+>
+> Workflow for any feature or fix:
+> 1. Spawn `agm-design` agent → updates PRD + writes design doc in `tasks/design/`
+> 2. Spawn `agm-implement` agent (in a worktree) → implements code, runs tests at 100% coverage, commits
+> 3. Grant push slot → spawn `agm-test` agent → pushes branch, waits for Vercel, runs full E2E suite
+> 4. After E2E passes → spawn sub-agent to raise PR and merge into `preview`
+> 5. Spawn `agm-cleanup` agent → removes worktree, Neon branch, Vercel env vars
+>
+> Agent definitions live in `.claude/agents/`. Read `agm-orchestrate.md` for the full coordination protocol.
+>
+> **Violating this rule (e.g. reading a file "just to check") is the most common failure mode. Do not do it.**
+
+---
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -33,6 +51,18 @@ Key decisions that must not be inadvertently reversed:
 
 > See user-level `~/.claude/CLAUDE.md` for: PRD-before-code rule and design-first decomposition process.
 
+Workflow is managed by the project's custom agents in `.claude/agents/`. The orchestrator spawns agents based on the task:
+
+| Agent | File | Trigger / When to spawn |
+|---|---|---|
+| `agm-orchestrate` | `.claude/agents/agm-orchestrate.md` | User requests a new feature, bug fix, or any multi-step work — this is the entry point; coordinates all other agents and the push slot queue |
+| `agm-design` | `.claude/agents/agm-design.md` | First step of every feature: update or create the PRD, write the technical design doc in `tasks/design/`, sketch E2E scenarios — never writes implementation code |
+| `agm-implement` | `.claude/agents/agm-implement.md` | After design doc is written: implement backend + frontend changes in a worktree, run unit and integration tests at 100% coverage, commit, then signal "Ready for push slot" |
+| `agm-test` | `.claude/agents/agm-test.md` | After implementation is committed and the push slot is granted: push the branch, wait for Vercel deployment, run the full Playwright E2E suite once to completion, report all results, release the slot |
+| `agm-cleanup` | `.claude/agents/agm-cleanup.md` | After a PR merges to `preview`: remove git worktree, delete local and remote branch, delete Neon DB branch (if created), remove Vercel branch-scoped env vars, clean test data from preview DB |
+
+For full workflow details, see `.claude/agents/agm-orchestrate.md`.
+
 ### Task folder structure
 
 | Folder | Contents |
@@ -42,106 +72,12 @@ Key decisions that must not be inadvertently reversed:
 
 **Design agents must write their output to `tasks/design/design-<feature>.md`** before reporting back to the orchestrator. Implementation agents must read this file before writing any code. Both files (PRD update + design doc) must be committed and included in the PR.
 
-### Orchestrator role
+### Definition of Done
 
-The orchestrator's only job is to **plan, coordinate, and communicate with the user**. It must never call tools directly — not even once, not even for a "quick fix".
-
-**Banned tools in the orchestrator session (no exceptions):**
-- `Bash` — no shell commands, git, gh, curl, or any CLI
-- `Edit`, `Write` — no file modifications
-- `Read`, `Glob`, `Grep` — no file reads or searches
-- Using `Agent` to *delegate work to a sub-agent* is fine; calling the above tools directly is not
-
-Every code change, file edit, test run, git operation, CI check, log read, and search must be delegated to a sub-agent. If the fix is "just one line", it still goes through an agent.
-
-- **User approval is required for any merge into `master` (production).** The orchestrator may merge PRs into `preview` autonomously once E2E passes.
-- **Agent duration tracking (required):** Record every sub-agent's task name and duration in `memory/agent-durations.md` using the `duration_ms` from the task completion notification.
-- **Agent communication:** Agents must not poll for other agents. When an agent finishes work another agent is waiting on, it completes and reports to the orchestrator. The orchestrator then resumes the waiting agent via the `resume` parameter with the new information.
-
----
-
-### Worktrees — MANDATORY FOR ALL AGENTS
-
-Every agent MUST create a git worktree before doing any work. Never check out a branch in the main working directory — it corrupts state for concurrent agents.
-
-```bash
-cd /Users/stevensun/personal/agm_survey
-git checkout preview && git pull origin preview
-git checkout -b feat/my-feature
-git worktree add /Users/stevensun/personal/agm_survey-feat-my-feature feat/my-feature
-# do ALL work inside the worktree
-```
-
-The main directory (`/Users/stevensun/personal/agm_survey`) is reserved for orchestrator-level operations only.
-
----
-
-### Single-agent branch workflow
-
-Use this for features that touch only one side (backend only or frontend only), or small full-stack changes.
-
-1. Create branch + worktree (see Worktrees section above)
-2. Implement all changes; multiple commits are fine
-3. Run local tests — `npm run test:coverage` (frontend) and `pytest --cov` (backend), both at 100%
-4. Signal orchestrator: "Ready for push slot — awaiting orchestrator grant." **Do not push yourself.**
-5. After slot is granted: `git push -u origin <branch>` — Vercel auto-deploys to `agm-voting-git-<branch>-ocss.vercel.app`
-6. **Immediately raise a PR to `preview`** (for visibility — do not merge yet; merge waits for E2E to pass)
-7. Wait for Vercel to deploy, then run the **full E2E suite to completion** — never stop early, record ALL failures:
-   ```bash
-   cd frontend && PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
-     VERCEL_BYPASS_TOKEN=<token> ADMIN_USERNAME=ocss_admin ADMIN_PASSWORD="ocss123!@#" \
-     npx playwright test
-   ```
-   > **HARD STOP after one run.** Run the suite exactly once, wait for it to finish completely, then stop. Do not re-run. Do not make any code changes. Do not commit or push again. Do not attempt to fix anything — not even a one-line change. Report every failure verbatim to the orchestrator and release the slot. The orchestrator decides what is a flake vs a real failure and what to fix.
-8. Release the push slot — report results to orchestrator (pass or fail)
-9. Fix any recorded failures (slot is now free; another agent may hold it)
-10. If fixes needed: re-queue (back to step 4, rejoins the **back** of the queue)
-11. Once all E2E pass: merge the PR (orchestrator delegates to a sub-agent; no user approval needed for `preview`)
-12. **Post-merge cleanup — REQUIRED, do not skip:**
-    - Remove the git worktree: `git worktree remove /Users/stevensun/personal/agm_survey-<branch> --force`
-    - Delete the local branch: `git branch -d <branch>`
-    - Delete the remote branch: `git push origin --delete <branch> && git remote prune origin`
-    - **Delete the Neon DB branch** (if one was created for this feature) — see Post-merge cleanup section for the API commands
-    - **Delete the Vercel branch-scoped env vars** (`DATABASE_URL` + `DATABASE_URL_UNPOOLED`) if set for this branch
-
----
-
-### Parallel-agent branch workflow (backend + frontend split)
-
-Use this when a feature touches both `backend/` and `frontend/` with independent changes.
-
-**Agent 1 — Backend** (`feat/X-backend` branch + worktree):
-- Implement backend changes (schema, routes, tests) + run `pytest --cov` at 100%
-- Signal orchestrator: "Backend ready." Do NOT push.
-
-**Agent 2 — Frontend** (`feat/X-frontend` branch + worktree):
-- Implement frontend changes using MSW mocks + run `npm run test:coverage` at 100%
-- Signal orchestrator: "Frontend ready." Do NOT push.
-
-**Agent 3 — Merge/test/push** (spawned after both signal ready):
-1. Create combined branch + worktree: `git checkout -b feat/X && git worktree add .../agm_survey-feat-X feat/X`
-2. Merge both branches: `git merge feat/X-backend && git merge feat/X-frontend`
-3. Run the **full local test suite** — `pytest --cov` + `npm run test:coverage` — both at 100%
-4. Fix any integration issues (API contract mismatches, merge conflicts); commit if needed
-5. Signal orchestrator: "Ready for push slot — awaiting orchestrator grant."
-6. After slot is granted: push, run full E2E, release slot
-7. Raise PR → merge
-8. **Post-merge cleanup — REQUIRED, do not skip:** remove worktrees + local/remote branches for all three branches (`feat/X-backend`, `feat/X-frontend`, `feat/X`). Delete Neon DB branch and Vercel branch-scoped env vars if created. See Post-merge cleanup section for commands.
-
----
-
-### Push slot queue
-
-One slot governs all actions that trigger a Vercel deployment. **Both pushes and PR merges require the slot.**
-
-- Grant FIFO; reprioritise by urgency or risk if needed
-- **Never push a new branch while another E2E run is in progress** — pushing triggers a Vercel deployment which can interfere with the running E2E suite and cause spurious failures.
-- **Branch push**: hold from `git push` until E2E run completes (pass or fail)
-- **PR merge**: hold from merge until Vercel post-merge deployment completes (no E2E needed)
-- Agent with fixes rejoins the **back** of the queue
-- If only one agent is running, grant immediately
-
-**After all slices are merged to `preview`:** run the full E2E suite once against the `preview` URL to confirm end-to-end correctness.
+1. All local tests pass at 100% coverage (backend pytest + frontend vitest)
+2. Branch pushed, Vercel deployed, full E2E passes against the branch preview URL
+3. PR raised and merged into `preview`
+4. Post-merge cleanup complete (Neon branch, Vercel env vars, worktree, local + remote git branch)
 
 ---
 
@@ -179,47 +115,9 @@ Every branch with schema migrations MUST have its own Neon DB branch to avoid mi
    ```
 
 4. Push the branch — Vercel build runs `alembic upgrade head` against the branch-scoped Neon DB before the Lambda goes live
-5. After merge: delete the Neon branch and remove branch-scoped Vercel env vars
+5. After merge: delete the Neon branch and remove branch-scoped Vercel env vars (delegate to the `agm-cleanup` agent)
 
 > When a PR merges to `preview`, the Vercel build runs `alembic upgrade head` against the shared preview DB as part of the build step.
-
----
-
-### Post-merge cleanup
-
-**Spawn a dedicated cleanup agent** immediately after the merge agent completes. Never bundle cleanup into the same long-running push+E2E+merge agent — it consistently gets skipped. The cleanup agent is a separate, short-lived agent whose only job is the steps below.
-
-Run immediately after each PR merges (delegate to a sub-agent):
-
-```bash
-# Remove worktree + local branch
-git worktree remove /Users/stevensun/personal/agm_survey-<branch> --force
-git branch -d <branch>
-
-# Delete remote branch
-git push origin --delete <branch>
-git remote prune origin
-
-# Delete Neon DB branch (if created) — list then delete by ID
-NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w 2>/dev/null)
-curl -s -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
-  | python3 -c "import sys,json; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
-curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
-  "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches/<branch_id>"
-
-# Delete Vercel branch-scoped env vars (DATABASE_URL + DATABASE_URL_UNPOOLED)
-# Use the Vercel dashboard or REST API
-```
-
----
-
-### Definition of Done
-
-1. All local tests pass at 100% coverage (backend pytest + frontend vitest)
-2. Branch pushed, Vercel deployed, full E2E passes against the branch preview URL
-3. PR raised and merged into `preview`
-4. Post-merge cleanup complete (Neon branch, Vercel env vars, worktree, local + remote git branch)
 
 ---
 
@@ -250,44 +148,44 @@ curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
 
 Before writing tests for any new requirement, identify which existing persona journeys are affected and update those tests:
 
-- **Voter journey** — authentication → lot selection → voting → confirmation. Changes to auth, lot resolution, vote submission, or UI routing must be reflected in the voter E2E spec.
-- **Admin journey** — login → building/meeting management → report viewing → close meeting. Changes to admin API responses, report data, or admin UI must be reflected in admin E2E and integration tests.
-- **Proxy voter journey** — authentication via proxy email → lot selection showing proxied lots → voting → confirmation. Changes to auth or vote submission must verify proxy flows are unaffected.
-- **In-arrear lot journey** — authentication → lot selection with in-arrear badge → voting with not_eligible motions → confirmation. Changes to vote eligibility must verify in-arrear behaviour is preserved.
+- **Voter journey** — authentication -> lot selection -> voting -> confirmation. Changes to auth, lot resolution, vote submission, or UI routing must be reflected in the voter E2E spec.
+- **Admin journey** — login -> building/meeting management -> report viewing -> close meeting. Changes to admin API responses, report data, or admin UI must be reflected in admin E2E and integration tests.
+- **Proxy voter journey** — authentication via proxy email -> lot selection showing proxied lots -> voting -> confirmation. Changes to auth or vote submission must verify proxy flows are unaffected.
+- **In-arrear lot journey** — authentication -> lot selection with in-arrear badge -> voting with not_eligible motions -> confirmation. Changes to vote eligibility must verify in-arrear behaviour is preserved.
 
 When a change affects an existing E2E scenario (new page in the voter flow, changed API response shape, renamed route), update the E2E spec — do not only add new unit tests.
 
 ### Key test scenarios by domain
 
 #### Authentication (`POST /api/auth/verify`)
-- Valid email + building → success with lot list
-- Email not found → 401
-- Proxy email → lots include `is_proxy: true`
-- Closed or past-close-date meeting → `agm_status: "closed"` in response
+- Valid email + building -> success with lot list
+- Email not found -> 401
+- Proxy email -> lots include `is_proxy: true`
+- Closed or past-close-date meeting -> `agm_status: "closed"` in response
 
 #### Vote submission (`POST /api/agm/{id}/submit`)
-- All motions answered → success
-- Re-submission after already voted → 409
-- Submission after meeting is closed → 403
-- Proxy submits → `BallotSubmission.proxy_email` set in DB
-- In-arrear lot on General Motion → `not_eligible` recorded
+- All motions answered -> success
+- Re-submission after already voted -> 409
+- Submission after meeting is closed -> 403
+- Proxy submits -> `BallotSubmission.proxy_email` set in DB
+- In-arrear lot on General Motion -> `not_eligible` recorded
 
 #### Meeting close (`POST /api/admin/agms/{id}/close`)
-- Close an open meeting → success + email triggered + absent records created for non-voters
-- Close an already-closed meeting → 409
-- Close a meeting that does not exist → 404
+- Close an open meeting -> success + email triggered + absent records created for non-voters
+- Close an already-closed meeting -> 409
+- Close a meeting that does not exist -> 404
 
 #### Lot owner import (`POST /api/admin/buildings/{id}/import`)
-- Valid file → success, returns upserted count
-- Missing required columns → 422
-- Duplicate lot numbers → 422 with details
-- Extra/unknown columns → silently ignored
-- Non-CSV/Excel file → 422
+- Valid file -> success, returns upserted count
+- Missing required columns -> 422
+- Duplicate lot numbers -> 422 with details
+- Extra/unknown columns -> silently ignored
+- Non-CSV/Excel file -> 422
 
 #### Weighted vote tallies
-- All lots vote Yes → entitlement sum equals total building entitlement
-- Mix of Yes/No → verify weighted sums, not lot counts
-- Absent lots → counted in absent tally, not abstained
+- All lots vote Yes -> entitlement sum equals total building entitlement
+- Mix of Yes/No -> verify weighted sums, not lot counts
+- Absent lots -> counted in absent tally, not abstained
 
 ---
 
@@ -320,9 +218,9 @@ Three example files live in `examples/` at the project root. Use these as test f
 ### `examples/Lot financial position.csv` — TOCS Lot Positions Report
 
 Auto-extracted from the TOCS management system. Contains Administrative Fund and Maintenance Fund sections.
-Key columns: `Lot#` → `LotOwner.lot_number`, `Closing Balance` → determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
-Multiple fund sections: worst-case across all sections (arrears in any → `in_arrear`).
-51 lots (lot numbers 1–51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
+Key columns: `Lot#` -> `LotOwner.lot_number`, `Closing Balance` -> determines `financial_position` (positive = `in_arrear`, bracketed/zero = `normal`).
+Multiple fund sections: worst-case across all sections (arrears in any -> `in_arrear`).
+51 lots (lot numbers 1-51). Auto-detected by `import_financial_positions_from_csv` when the CSV does not start with `Lot#` on the first line.
 
 ---
 

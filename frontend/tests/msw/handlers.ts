@@ -108,6 +108,7 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       description: "Description 1",
       order_index: 0,
       motion_type: "general" as const,
+      is_visible: true,
       tally: {
         yes: { voter_count: 2, entitlement_sum: 200 },
         no: { voter_count: 1, entitlement_sum: 100 },
@@ -153,8 +154,109 @@ export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {
   voting_closes_at: "2026-12-31T12:00:00Z",
 };
 
+export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-hidden-motion",
+  motions: [
+    {
+      id: "m-hidden",
+      title: "Hidden Motion",
+      description: "Hidden desc",
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
+
 // Keep backward-compatible alias
 export const ADMIN_AGM_DETAIL_CLOSED = ADMIN_MEETING_DETAIL_CLOSED;
+
+export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-mixed",
+  motions: [
+    {
+      id: "m-visible-1",
+      title: "Visible Motion 1",
+      description: null,
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: true,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+    {
+      id: "m-hidden-1",
+      title: "Hidden Motion 1",
+      description: null,
+      order_index: 1,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+    {
+      id: "m-hidden-2",
+      title: "Hidden Motion 2",
+      description: null,
+      order_index: 2,
+      motion_type: "special" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
+
+export const ADMIN_MEETING_DETAIL_ALL_HIDDEN: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-all-hidden",
+  motions: [
+    {
+      id: "m-only-hidden",
+      title: "Only Hidden Motion",
+      description: null,
+      order_index: 0,
+      motion_type: "general" as const,
+      is_visible: false,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [] },
+    },
+  ],
+};
 
 export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
   id: "agm-new",
@@ -170,6 +272,7 @@ export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
       description: null,
       order_index: 0,
       motion_type: "general" as const,
+      is_visible: true,
     },
   ],
 };
@@ -370,6 +473,15 @@ export const adminHandlers = [
     if (params.meetingId === "agm-pending") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_PENDING);
     }
+    if (params.meetingId === "agm-hidden-motion") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_HIDDEN_MOTION);
+    }
+    if (params.meetingId === "agm-mixed") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_MIXED_VISIBILITY);
+    }
+    if (params.meetingId === "agm-all-hidden") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_ALL_HIDDEN);
+    }
     return HttpResponse.json(ADMIN_MEETING_DETAIL);
   }),
 
@@ -397,6 +509,20 @@ export const adminHandlers = [
     return HttpResponse.json(result);
   }),
 
+  http.delete(`${BASE}/api/admin/buildings/:buildingId`, ({ params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    if (!building.is_archived) {
+      return HttpResponse.json(
+        { detail: "Only archived buildings can be deleted" },
+        { status: 409 }
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.delete(`${BASE}/api/admin/general-meetings/:meetingId`, ({ params }) => {
     if (params.meetingId === "agm1") {
       return HttpResponse.json({ detail: "Cannot delete an open General Meeting" }, { status: 409 });
@@ -413,6 +539,71 @@ export const adminHandlers = [
     }
     const result: ResendReportOut = { queued: true };
     return HttpResponse.json(result);
+  }),
+
+  http.patch(`${BASE}/api/admin/motions/:motionId/visibility`, async ({ params, request }) => {
+    if (params.motionId === "motion-closed") {
+      return HttpResponse.json({ detail: "Cannot change visibility on a closed meeting" }, { status: 409 });
+    }
+    if (params.motionId === "motion-has-votes") {
+      return HttpResponse.json({ detail: "Cannot hide a motion that has received votes" }, { status: 409 });
+    }
+    if (params.motionId === "motion-notfound") {
+      return HttpResponse.json({ detail: "Motion not found" }, { status: 404 });
+    }
+    const body = await request.json() as { is_visible: boolean };
+    const motion = ADMIN_MEETING_DETAIL.motions[0];
+    return HttpResponse.json({
+      ...motion,
+      id: params.motionId as string,
+      is_visible: body.is_visible,
+    });
+  }),
+
+  // Add motion
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    if (body?.title === "add-fail") {
+      return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
+    }
+    return HttpResponse.json({
+      id: "motion-new",
+      title: body?.title ?? "New Motion",
+      description: body?.description ?? null,
+      order_index: 3,
+      motion_type: body?.motion_type ?? "general",
+      is_visible: false,
+    }, { status: 201 });
+  }),
+
+  // Update motion
+  http.patch(`${BASE}/api/admin/motions/:motionId`, async ({ params, request }) => {
+    if (params.motionId === "motion-visible-edit") {
+      return HttpResponse.json({ detail: "Cannot edit a visible motion. Hide it first." }, { status: 409 });
+    }
+    if (params.motionId === "motion-edit-fail") {
+      return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+    }
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    const motion = ADMIN_MEETING_DETAIL.motions[0];
+    return HttpResponse.json({
+      ...motion,
+      id: params.motionId as string,
+      title: body?.title ?? motion.title,
+      description: body?.description ?? motion.description,
+      motion_type: body?.motion_type ?? motion.motion_type,
+    });
+  }),
+
+  // Delete motion
+  http.delete(`${BASE}/api/admin/motions/:motionId`, ({ params }) => {
+    if (params.motionId === "motion-visible-delete") {
+      return HttpResponse.json({ detail: "Cannot delete a visible motion. Hide it first." }, { status: 409 });
+    }
+    if (params.motionId === "motion-delete-fail") {
+      return HttpResponse.json({ detail: "Server error" }, { status: 500 });
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
 ];
 
@@ -473,12 +664,18 @@ export const motionFixtures = [
     title: "Motion 1",
     description: "Approve the budget",
     order_index: 0,
+    is_visible: true,
+    already_voted: false,
+    submitted_choice: null,
   },
   {
     id: MOTION_ID_2,
     title: "Motion 2",
     description: null,
     order_index: 1,
+    is_visible: true,
+    already_voted: false,
+    submitted_choice: null,
   },
 ];
 
@@ -532,13 +729,34 @@ export const handlers = [
 
   http.post(`${BASE}/api/auth/verify`, () =>
     HttpResponse.json({
-      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }],
       voter_email: "owner@example.com",
       agm_status: "open",
       building_name: "Sunset Towers",
       meeting_title: "2024 AGM",
+      unvoted_visible_count: 1,
+      session_token: "test-session-token-abc123",
     })
   ),
+
+  http.post(`${BASE}/api/auth/session`, async ({ request }) => {
+    const body = await request.json() as { session_token?: string; general_meeting_id?: string };
+    if (body?.session_token === "invalid-token" || body?.session_token === "expired-token") {
+      return HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 });
+    }
+    if (body?.session_token === "closed-meeting-token") {
+      return HttpResponse.json({ detail: "Session expired — meeting is closed" }, { status: 401 });
+    }
+    return HttpResponse.json({
+      lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }],
+      voter_email: "owner@example.com",
+      agm_status: "open",
+      building_name: "Sunset Towers",
+      meeting_title: "2024 AGM",
+      unvoted_visible_count: 1,
+      session_token: "new-session-token-xyz789",
+    });
+  }),
 
   http.get(`${BASE}/api/general-meeting/:meetingId/motions`, () =>
     HttpResponse.json(motionFixtures)

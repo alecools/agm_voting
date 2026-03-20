@@ -26,9 +26,9 @@ describe("ShareSummaryLink", () => {
     vi.useRealTimers();
   });
 
-  it("renders the summary URL as an anchor link with correct href", () => {
+  it("renders the voting URL as an anchor link with correct href", () => {
     render(<ShareSummaryLink meetingId="agm42" />);
-    const expectedUrl = window.location.origin + "/general-meeting/agm42/summary";
+    const expectedUrl = window.location.origin + "/vote/agm42/auth";
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", expectedUrl);
     expect(link).toHaveTextContent(expectedUrl);
@@ -57,7 +57,7 @@ describe("ShareSummaryLink", () => {
     render(<ShareSummaryLink meetingId="agm42" />);
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await flushPromises();
-    const expectedUrl = window.location.origin + "/general-meeting/agm42/summary";
+    const expectedUrl = window.location.origin + "/vote/agm42/auth";
     expect(writeTextMock).toHaveBeenCalledWith(expectedUrl);
   });
 
