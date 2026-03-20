@@ -89,6 +89,12 @@ test.describe("Back button navigation from VotingPage", () => {
     // Must navigate to /auth — not /vote/:meetingId (blank route)
     await expect(page).toHaveURL(`/vote/${meetingId}/auth`, { timeout: 10000 });
 
+    // Clear the persistent session token so AuthPage does not auto-restore the session
+    // and immediately redirect back to /voting before the email input is visible.
+    await page.evaluate((mid) => {
+      localStorage.removeItem(`agm_session_${mid}`);
+    }, meetingId);
+
     // Auth page must render (email input visible)
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 10000 });
 

@@ -84,9 +84,11 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
 
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
-    // Both lots should be visible in the sidebar
-    await expect(page.getByText(`Lot ${CRL_LOT_A}`, { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(`Lot ${CRL_LOT_B}`, { exact: true })).toBeVisible({ timeout: 15000 });
+    // Both lots should be visible in the sidebar (scope to desktop sidebar to avoid strict-mode
+    // violation — lotListContent is rendered in both the desktop sidebar and the mobile drawer)
+    const sidebar = page.locator(".voting-layout__sidebar");
+    await expect(sidebar.getByText(`Lot ${CRL_LOT_A}`, { exact: true }).first()).toBeVisible({ timeout: 15000 });
+    await expect(sidebar.getByText(`Lot ${CRL_LOT_B}`, { exact: true }).first()).toBeVisible({ timeout: 15000 });
 
     // Deselect Lot B — only Lot A will be submitted
     const lotBCheckbox = page.getByLabel(`Select Lot ${CRL_LOT_B}`).first();

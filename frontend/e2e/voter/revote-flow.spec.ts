@@ -449,9 +449,13 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     await authenticateVoter(page, WF10_EMAIL, () => getTestOtp(api, WF10_EMAIL, wf10MeetingId));
     await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
+    // Wait for the page to finish loading before interacting (resilience against transient
+    // net::ERR_NETWORK_CHANGED errors that can cause checkboxes to not yet be in the DOM)
+    await page.waitForLoadState("networkidle");
 
     // Deselect Lot B — only Lot A will be submitted
     const lotBCheckbox = page.getByLabel(`Select Lot ${WF10_LOT_B}`).first();
+    await expect(lotBCheckbox).toBeVisible({ timeout: 15000 });
     await lotBCheckbox.uncheck();
 
     // Vote on the motion for Lot A only
