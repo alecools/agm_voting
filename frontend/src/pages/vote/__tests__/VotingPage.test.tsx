@@ -22,7 +22,7 @@ vi.mock("react-router-dom", async () => {
 
 function renderPage(meetingId = AGM_ID) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/vote/${meetingId}/voting`]}>
         <Routes>
@@ -31,6 +31,7 @@ function renderPage(meetingId = AGM_ID) {
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return { ...utils, queryClient: qc };
 }
 
 describe("VotingPage", () => {
@@ -1807,5 +1808,371 @@ describe("VotingPage", () => {
     // Submit ballot button still visible (still on voting page)
     expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  // --- BUG-NM-01: Refresh already_submitted when new motions are revealed ---
+
+  // --- Happy path ---
+
+  it("BUG-NM-01: when motions count increases, restoreSession is called and lots are unlocked", async () => {
+    // Start with 1 motion; lots are already_submitted=true.
+    // Then motions query returns 2 motions (new one revealed).
+    // restoreSession should be called and allLots updated with already_submitted=false.
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          // First fetch: 1 motion
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          ]);
+        }
+        // Subsequent fetches: 2 motions (new one revealed)
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      }),
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [
+            { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+          ],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 1,
+          session_token: "refreshed-token",
+        })
+      )
+    );
+    // Lot starts as already_submitted=true
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-session-token");
+    const { queryClient } = renderPage();
+
+    // Initially: 1 motion visible
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Trigger re-fetch with more motions using the actual query client
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // The restoreSession response returns already_submitted=false → lot unlocks
+    await waitFor(() => {
+      expect(screen.queryByText("Already submitted")).not.toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Submit ballot button should now be visible (lot is unlocked)
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+  });
+
+  it("BUG-NM-01: restoreSession updates sessionStorage with fresh lots", async () => {
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          ]);
+        }
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      }),
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [
+            { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+          ],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 1,
+          session_token: "refreshed-token",
+        })
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-session-token");
+    const { queryClient } = renderPage();
+
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Trigger re-fetch with more motions
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // Wait for lot to unlock
+    await waitFor(() => {
+      expect(screen.queryByText("Already submitted")).not.toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // sessionStorage should reflect already_submitted: false
+    const stored = JSON.parse(
+      sessionStorage.getItem(`meeting_lots_info_${AGM_ID}`) ?? "[]"
+    ) as { lot_owner_id: string; already_submitted: boolean }[];
+    const lo1 = stored.find((l) => l.lot_owner_id === "lo1");
+    expect(lo1?.already_submitted).toBe(false);
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+  });
+
+  it("BUG-NM-01: newly-unlocked lots are added to selectedIds", async () => {
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          ]);
+        }
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      }),
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [
+            { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+            { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+          ],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 1,
+          session_token: "refreshed-token",
+        })
+      )
+    );
+    // Two lots, both already_submitted=true
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-session-token");
+    const { queryClient } = renderPage();
+
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    // Both lots should initially have disabled checkboxes
+    const initialCheckboxes = screen.getAllByRole("checkbox");
+    initialCheckboxes.forEach((cb) => expect(cb).toBeDisabled());
+
+    // Trigger re-fetch with more motions using the actual query client
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // After unlock: lots should be enabled and checked
+    await waitFor(() => {
+      const checkboxes = screen.getAllByRole("checkbox");
+      expect(checkboxes[0]).not.toBeDisabled();
+    }, { timeout: 3000 });
+
+    // Subtitle should reflect 2 lots selected (sidebar has "You are voting for 2 lots.")
+    expect(screen.getAllByText("You are voting for 2 lots.")[0]).toBeInTheDocument();
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+  });
+
+  // --- Edge cases ---
+
+  it("BUG-NM-01: no restoreSession call when session token is absent from localStorage", async () => {
+    const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession");
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          ]);
+        }
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      })
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    // No token in localStorage
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+
+    const { queryClient } = renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Trigger re-fetch with more motions
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // Wait for motions to re-fetch (count changes) — then verify restoreSession not called
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "New Motion" })).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // restoreSession should NOT have been called (no token)
+    expect(restoreSessionSpy).not.toHaveBeenCalled();
+
+    restoreSessionSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("BUG-NM-01: restoreSession failure is silently ignored", async () => {
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          ]);
+        }
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      }),
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "expired-session-token");
+
+    const { queryClient } = renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Trigger re-fetch with more motions
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // Wait for new motion to appear in the motions response
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "New Motion" })).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // restoreSession returned 401 → silently ignored, lot stays in stale state
+    // The page must not crash — "Already submitted" badge may still be present (stale state)
+    // and Submit ballot should not be thrown into an error state
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // No error thrown — page still functional (motions still rendered)
+    expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
+
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+  });
+
+  it("BUG-NM-01: motions count unchanged does not trigger restoreSession call", async () => {
+    // Motions query returns same count on re-fetch — no extra restoreSession call.
+    const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession");
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-session-token");
+
+    const { queryClient } = renderPage();
+    // Default handler returns 2 motions — wait for them to load
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Force a re-fetch with same motions (count unchanged — still 2)
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // restoreSession should NOT have been called (count didn't increase)
+    expect(restoreSessionSpy).not.toHaveBeenCalled();
+
+    restoreSessionSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
+  });
+
+  it("BUG-NM-01: motions count decreasing does not trigger restoreSession call (exercises <= branch)", async () => {
+    // Start with 3 motions, then re-fetch returns 2. Count went down → no restoreSession call.
+    // This exercises the `motions.length <= prevMotionCountRef.current` path (line 132 branch).
+    const MOTION_ID_3 = "mot-003";
+    let motionCallCount = 0;
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () => {
+        motionCallCount++;
+        if (motionCallCount === 1) {
+          return HttpResponse.json([
+            { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+            { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+            { id: MOTION_ID_3, title: "Motion 3", description: null, order_index: 2, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+          ]);
+        }
+        // Re-fetch: 2 motions (one was hidden)
+        return HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "general", is_visible: true, already_voted: false, submitted_choice: null },
+        ]);
+      })
+    );
+    const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-session-token");
+
+    const { queryClient } = renderPage();
+    // First load: 3 motions
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 3" }));
+
+    // Force a re-fetch — returns only 2 motions (count decreased)
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["motions", AGM_ID] });
+    });
+
+    // Motion 3 should disappear
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Motion 3" })).not.toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // restoreSession should NOT have been called (count didn't increase)
+    expect(restoreSessionSpy).not.toHaveBeenCalled();
+
+    restoreSessionSpy.mockRestore();
+    localStorage.removeItem(`agm_session_${AGM_ID}`);
   });
 });

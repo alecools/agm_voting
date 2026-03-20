@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,7 @@ import {
   submitBallot,
   fetchGeneralMeetings,
   fetchBuildings,
+  restoreSession,
 } from "../../api/voter";
 import type { VoteChoice } from "../../types";
 import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
@@ -45,6 +46,12 @@ export function VotingPage() {
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNoSelectionError, setShowNoSelectionError] = useState(false);
+
+  // Track previously-seen motions count to detect when new motions are revealed.
+  // Starts at -1 to indicate "initial load not yet seen"; the first motions fetch
+  // sets the ref without calling restoreSession so only genuine increases (new motions
+  // revealed after mount) trigger the refresh.
+  const prevMotionCountRef = useRef(-1);
 
   // Load allLots from sessionStorage on mount
   useEffect(() => {
@@ -108,6 +115,45 @@ export function VotingPage() {
       return seeded;
     });
   }, [motions]);
+
+  // BUG-NM-01: Re-fetch already_submitted per lot when new motions are revealed.
+  // When the motions list grows (admin made a new motion visible), call restoreSession
+  // so the server recomputes already_submitted with the latest visible motion set.
+  // Lots that had already_submitted=true but haven't voted on the new motion will return
+  // already_submitted=false, causing their checkboxes to unlock.
+  useEffect(() => {
+    if (!motions || !meetingId) return;
+    // First-time init: record baseline count without calling restoreSession.
+    // prevMotionCountRef starts at -1 to distinguish "never seen" from 0 motions.
+    if (prevMotionCountRef.current === -1) {
+      prevMotionCountRef.current = motions.length;
+      return;
+    }
+    if (motions.length <= prevMotionCountRef.current) {
+      prevMotionCountRef.current = motions.length;
+      return;
+    }
+    // New motions have appeared — update the ref first to avoid re-triggering
+    prevMotionCountRef.current = motions.length;
+    const token = localStorage.getItem(`agm_session_${meetingId}`);
+    if (!token) return;
+    restoreSession({ session_token: token, general_meeting_id: meetingId })
+      .then((data) => {
+        setAllLots(data.lots);
+        sessionStorage.setItem(`meeting_lots_info_${meetingId}`, JSON.stringify(data.lots));
+        // Unlock any lots that are no longer already_submitted
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const lot of data.lots) {
+            if (!lot.already_submitted) next.add(lot.lot_owner_id);
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        // Silently ignore — session may have expired; stale state is acceptable
+      });
+  }, [motions, meetingId]);
 
   // Poll meeting status every 10s
   useEffect(() => {
