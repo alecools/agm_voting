@@ -195,8 +195,8 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
     expect(motion1!.voter_lists.absent.some((v) => v.lot_number === VOTER3_LOT && v.entitlement === 75)).toBe(true);
   });
 
-  // WF3.7: Assert tallies via admin UI
-  test("WF3.7: admin UI shows correct tally for Motion 1", async ({ browser }) => {
+  // WF3.7: Assert tallies via admin UI — including entitlement percentage display
+  test("WF3.7: admin UI shows correct tally and entitlement percentages for Motion 1", async ({ browser }) => {
     test.setTimeout(60000);
     const adminCtx = await browser.newContext({ storageState: ADMIN_AUTH_PATH });
     const adminPage = await adminCtx.newPage();
@@ -208,6 +208,21 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
       // Spot-check: the results section renders voter_count and entitlement_sum
       await expect(adminPage.getByText("100").first()).toBeVisible({ timeout: 10000 });
       await expect(adminPage.getByText("150").first()).toBeVisible({ timeout: 10000 });
+
+      // US-UI04: entitlement percentage display
+      // Total building entitlement = 100 + 50 + 75 = 225
+      //   Motion 1 For:     100 / 225 = 44.4%  → displayed as "100 (44.4%)"
+      //   Motion 1 Against:  50 / 225 = 22.2%  → displayed as "50 (22.2%)"
+      //   Motion 2 For:     150 / 225 = 66.7%  → displayed as "150 (66.7%)"
+      // At least one tally cell must match the N (X.X%) pattern to confirm
+      // the percentage feature is rendered in the admin report.
+      await expect(
+        adminPage.getByText(/\d+\s*\(\d+\.\d+%\)/).first()
+      ).toBeVisible({ timeout: 10000 });
+
+      // Verify the specific percentages for Motion 1
+      await expect(adminPage.getByText("100 (44.4%)")).toBeVisible({ timeout: 10000 });
+      await expect(adminPage.getByText("50 (22.2%)")).toBeVisible({ timeout: 10000 });
     } finally {
       await adminCtx.close();
     }
@@ -421,14 +436,20 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     await api.dispose();
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
 
+    // Wait for motion cards to load BEFORE unchecking LOT_B.
+    // The VotingPage has a [motions, allLots] effect that re-seeds selectedIds whenever
+    // motions load for the first time. If motions load AFTER the user unchecks a lot,
+    // the effect re-adds it (because it's not yet submitted). Waiting for motions to
+    // appear first ensures the re-seed effect has already run so the subsequent uncheck
+    // sticks without being overridden.
+    const motionCards = page.locator(".motion-card");
+    await expect(motionCards).toHaveCount(2, { timeout: 15000 });
+
     // Both lots visible; uncheck LOT_B (scoped to sidebar to avoid duplicate in mobile drawer)
     const sidebar = page.locator(".voting-layout__sidebar");
     await expect(sidebar.getByText("You are voting for 2 lots.")).toBeVisible();
     await page.getByRole("checkbox", { name: `Select Lot ${LOT_B}` }).uncheck();
     await expect(sidebar.getByText("You are voting for 1 lot.")).toBeVisible();
-
-    const motionCards = page.locator(".motion-card");
-    await expect(motionCards).toHaveCount(2);
 
     await motionCards.filter({ hasText: MOTION1_TITLE }).getByRole("button", { name: "For" }).click();
     await motionCards.filter({ hasText: MOTION2_TITLE }).getByRole("button", { name: "Against" }).click();
@@ -437,9 +458,10 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
     await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
 
-    // Confirmation: only WF5-A submitted — WF5-B heading not shown yet
-    const lotBHeading = page.getByText(`Lot ${LOT_B}`, { exact: true });
-    await expect(lotBHeading).not.toBeVisible();
+    // Confirmation: only WF5-A submitted — WF5-B is a remaining lot, not yet submitted.
+    // The "Vote for remaining lots" button is shown when remaining_lot_owner_ids is non-empty,
+    // confirming that WF5-B still needs to be voted on in a future session.
+    await expect(page.getByRole("button", { name: "Vote for remaining lots" })).toBeVisible({ timeout: 10000 });
   });
 
   // WF5.3: Session 2 — re-authenticate, WF5-A disabled, vote WF5-B

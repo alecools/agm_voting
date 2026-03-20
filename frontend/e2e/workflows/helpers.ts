@@ -534,3 +534,65 @@ export async function submitBallot(page: Page): Promise<void> {
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Submit ballot" }).last().click();
 }
+
+/**
+ * Submit a ballot for the given lots and motions via the backend API, bypassing the
+ * browser UI. Useful for seeding pre-vote state in beforeAll / beforeEach blocks so
+ * that serial tests are idempotent across retries.
+ *
+ * Flow:
+ *   1. Request an OTP for (email, meetingId) with skip_email=true
+ *   2. Retrieve the OTP from the test-only endpoint
+ *   3. POST /api/auth/verify to get a session token
+ *   4. POST /api/general-meeting/{meetingId}/submit with the session token
+ *
+ * @param api      Admin-authenticated APIRequestContext (used for OTP retrieval only)
+ * @param email    Voter email address
+ * @param meetingId  General meeting UUID
+ * @param lotOwnerIds  Array of lot_owner_id UUIDs to submit on behalf of
+ * @param votes    Array of { motion_id, choice } objects (choice: "yes" | "no" | "abstained")
+ */
+export async function submitBallotViaApi(
+  api: APIRequestContext,
+  email: string,
+  meetingId: string,
+  lotOwnerIds: string[],
+  votes: { motion_id: string; choice: string }[]
+): Promise<void> {
+  // 1. Request OTP (no email sent)
+  const otpReqRes = await api.post("/api/auth/request-otp", {
+    data: { email, general_meeting_id: meetingId, skip_email: true },
+  });
+  if (!otpReqRes.ok()) {
+    throw new Error(`submitBallotViaApi: OTP request failed (${otpReqRes.status()}): ${await otpReqRes.text()}`);
+  }
+
+  // 2. Retrieve OTP
+  const otpRes = await api.get(
+    `/api/test/latest-otp?email=${encodeURIComponent(email)}&meeting_id=${meetingId}`
+  );
+  if (!otpRes.ok()) {
+    throw new Error(`submitBallotViaApi: OTP retrieval failed (${otpRes.status()}): ${await otpRes.text()}`);
+  }
+  const { code } = (await otpRes.json()) as { code: string };
+
+  // 3. Verify OTP → get session token (unauthenticated context needed, but the admin context
+  //    also works since /api/auth/verify is a public endpoint)
+  const verifyRes = await api.post("/api/auth/verify", {
+    data: { email, code, general_meeting_id: meetingId },
+  });
+  if (!verifyRes.ok()) {
+    throw new Error(`submitBallotViaApi: verify failed (${verifyRes.status()}): ${await verifyRes.text()}`);
+  }
+  const { session_token } = (await verifyRes.json()) as { session_token: string };
+
+  // 4. Submit ballot using Authorization header (bypasses cookie requirement)
+  const submitRes = await api.post(`/api/general-meeting/${meetingId}/submit`, {
+    headers: { Authorization: `Bearer ${session_token}` },
+    data: { lot_owner_ids: lotOwnerIds, votes },
+  });
+  if (!submitRes.ok() && submitRes.status() !== 409) {
+    // 409 = already submitted — acceptable in idempotent setup steps
+    throw new Error(`submitBallotViaApi: submit failed (${submitRes.status()}): ${await submitRes.text()}`);
+  }
+}
