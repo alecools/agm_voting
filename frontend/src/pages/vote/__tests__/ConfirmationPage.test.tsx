@@ -53,9 +53,9 @@ describe("ConfirmationPage", () => {
   it("renders each motion with vote", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
+      expect(screen.getByText("1. Motion 1")).toBeInTheDocument();
       expect(screen.getByText("For")).toBeInTheDocument();
-      expect(screen.getByText(/Motion 2/)).toBeInTheDocument();
+      expect(screen.getByText("2. Motion 2")).toBeInTheDocument();
       expect(screen.getByText("Against")).toBeInTheDocument();
     });
   });
@@ -111,8 +111,8 @@ describe("ConfirmationPage", () => {
     renderPage();
     await waitFor(() => {
       const items = screen.getAllByRole("listitem");
-      expect(items[0]).toHaveTextContent("First Motion");
-      expect(items[1]).toHaveTextContent("Second Motion");
+      expect(items[0]).toHaveTextContent("1. First Motion");
+      expect(items[1]).toHaveTextContent("2. Second Motion");
     });
   });
 
