@@ -240,6 +240,36 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-FIX-BB01: Fix blank page when navigating back from VotingPage
+
+**Description:** As a voter, I should never see a blank page when I click the "Back" button on the voting page or use the browser's native back button.
+
+**Acceptance Criteria:**
+- [ ] The in-page "← Back" button on `VotingPage` navigates to `/vote/:meetingId/auth` (the auth page), not `/vote/:meetingId`
+- [ ] Clicking Back lands on a fully rendered page (the auth email-entry form is visible)
+- [ ] The browser native back button from `/vote/:meetingId/voting` also returns to a rendered page (the auth page)
+- [ ] No blank or empty page is shown at any point during backward navigation in the voter flow
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-FIX-AS01: Lots and motions show correct submitted state after returning via "View my votes"
+
+**Description:** As a voter who has submitted their ballot and then navigated back to the voting page via the "View my votes" button on the confirmation page, I should see my lots correctly labelled "Already submitted" and my motions locked as read-only — not as if I have not voted yet.
+
+**Acceptance Criteria:**
+- [ ] After submitting a ballot and clicking "View my votes" on the confirmation page, the voting page shows each submitted lot with an "Already submitted" badge and the checkbox disabled
+- [ ] After submitting a ballot and clicking "View my votes", all motions that were voted on are shown as read-only (locked), not as interactive
+- [ ] The above behaviour is correct even when the user has a single lot
+- [ ] The above behaviour is correct when the user has multiple lots and submits a subset of them: submitted lots show the badge; unsubmitted lots remain interactive
+- [ ] Typecheck/lint passes
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ## Functional Requirements
 
 - FR-1: Back button appears on voter verification, lot selection, and voting pages; navigates to the previous step
@@ -256,6 +286,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-12: The General Meetings list page has a single-select building filter dropdown; filter state is persisted as a `?building=<id>` URL search param; filtering is client-side
 - FR-13: Vercel Analytics and Speed Insights are mounted in the frontend app
 - FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
+- FR-15: When `submitMutation.onSuccess` fires in `VotingPage`, the `meeting_lots_info_<meetingId>` sessionStorage key is updated synchronously (outside of React state updaters) before navigation, so that re-mounting the voting page reads the correct `already_submitted: true` state for submitted lots
 
 ---
 
