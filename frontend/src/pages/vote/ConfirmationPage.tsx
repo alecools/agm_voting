@@ -99,7 +99,7 @@ export function ConfirmationPage() {
                     <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                       {[...lot.votes].sort((a, b) => a.order_index - b.order_index).map((v) => (
                         <li className="vote-item" key={v.motion_id}>
-                          <span className="vote-item__motion">{v.motion_title}</span>
+                          <span className="vote-item__motion">{v.order_index + 1}. {v.motion_title}</span>
                           <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
                             {CHOICE_LABELS[v.choice] ?? v.choice}
                           </span>
@@ -110,7 +110,7 @@ export function ConfirmationPage() {
                 ))
               : sortedVotes.map((v) => (
                   <li className="vote-item" key={v.motion_id}>
-                    <span className="vote-item__motion">{v.motion_title}</span>
+                    <span className="vote-item__motion">{v.order_index + 1}. {v.motion_title}</span>
                     <span className={`vote-item__choice vote-item__choice--${v.choice}`}>
                       {CHOICE_LABELS[v.choice] ?? v.choice}
                     </span>

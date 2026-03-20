@@ -551,7 +551,7 @@ button, input, select, textarea {
   font-size: 0.9rem;
   margin-top: 10px;
   line-height: 1.65;
-  padding-bottom: 2px;
+  padding: 0 24px 2px;
 }
 
 .motion-card__top-row {
