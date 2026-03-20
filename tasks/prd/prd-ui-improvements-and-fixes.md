@@ -308,6 +308,37 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-UI06: Motion card typography improvements
+
+**Description:** As a voter, I want the motion title on each voting card to be clearly legible at a glance and the card content to have consistent spacing, so I can read and respond to each motion without visual effort.
+
+**Acceptance Criteria:**
+- [ ] Motion card title renders at `1.375rem`, `font-weight: 700` — visibly larger and bolder than the current `1.1875rem / 600`
+- [ ] Description text has `margin-top: 10px` (from 7px) and `line-height: 1.65` (aligned with global body copy)
+- [ ] The "Already voted" badge (shown when `readOnly={true}`) renders as a styled grey pill — not unstyled inline text
+- [ ] No functional changes — props, component logic, and DOM structure are unchanged
+- [ ] All existing `MotionCard` tests continue to pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-UI07: Admin label typography consistency
+
+**Description:** As a product owner, I want all "uppercase label" style text in the admin UI to use a consistent font family, size, weight, and letter-spacing so the app looks professionally polished and internally consistent.
+
+**Acceptance Criteria:**
+- [ ] All occurrences of `<h3 className="admin-card__title">` render in Outfit sans-serif (not Cormorant Garamond serif), matching table column headers
+- [ ] Letter-spacing for admin label classes (`.admin-card__title`, `.admin-stats__label`, `.section-label`, `.motion-entry__header`) is uniformly `0.09em`
+- [ ] The voter-facing `.vote-summary__heading` on the confirmation page also uses `0.09em` letter-spacing
+- [ ] Dark-background labels (`.agm-header__building`, `.auth-card__building`, `.hero__badge`, `.admin-sidebar__role`) are NOT changed — their higher tracking is intentional
+- [ ] No `.tsx` files are modified — all changes are CSS-only
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ### US-FIX-PF01: No pre-fill for unlocked motions on revote
 
 **Description:** As a voter returning to the voting page to vote for remaining lots, I should not see motion cards pre-populated with a prior vote choice unless that motion is already locked (read-only) for my current selection — so that I am never misled into thinking a vote has been cast on my behalf.
@@ -348,7 +379,9 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
 - FR-15: When `submitMutation.onSuccess` fires in `VotingPage`, the `meeting_lots_info_<meetingId>` sessionStorage key is updated synchronously (outside of React state updaters) before navigation, so that re-mounting the voting page reads the correct `already_submitted: true` state for submitted lots
 - FR-16: `VotingPage` derives lot-submitted status dynamically: a lot is considered submitted when every currently-visible motion ID appears in `lot.voted_motion_ids`. This replaces reliance on the cached `already_submitted` boolean from sessionStorage. `submitMutation.onSuccess` must update `voted_motion_ids` (merging current motion IDs) for submitted lots in both React state and sessionStorage so the derived computation is accurate after each submission. Previously-introduced `prevMotionCountRef` logic is removed.
-- FR-17: The `choices` seeding effect in `VotingPage` only carries forward `submitted_choice` for a motion when `isMotionReadOnly` is `true` for that motion. Unlocked (interactive) motions always start with `null` — no pre-fill — regardless of the `submitted_choice` value returned by the API. `isMotionReadOnly` is memoised with `useCallback` and included in the seeding effect's dependency array.
+- FR-17: The `choices` seeding effect in `VotingPage` only carries forward `submitted_choice` for a motion when `isMotionReadOnly` is `true` for that motion.
+- FR-18: The motion card title renders at `font-size: 1.375rem` and `font-weight: 700`; description renders at `margin-top: 10px` and `line-height: 1.65`; the "Already voted" badge renders as a grey pill (`background: #F0EFEE`, `color: var(--text-muted)`, pill border-radius).
+- FR-19: All admin card section headings (`h3.admin-card__title`) render in `'Outfit', system-ui, sans-serif` and `letter-spacing: 0.09em`. The classes `.admin-stats__label`, `.section-label`, `.motion-entry__header`, and `.vote-summary__heading` also use `letter-spacing: 0.09em`. No dark-background label classes are changed. Unlocked (interactive) motions always start with `null` — no pre-fill — regardless of the `submitted_choice` value returned by the API. `isMotionReadOnly` is memoised with `useCallback` and included in the seeding effect's dependency array.
 
 ---
 
