@@ -308,6 +308,28 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-FIX-PF01: No pre-fill for unlocked motions on revote
+
+**Description:** As a voter returning to the voting page to vote for remaining lots, I should not see motion cards pre-populated with a prior vote choice unless that motion is already locked (read-only) for my current selection — so that I am never misled into thinking a vote has been cast on my behalf.
+
+**Root cause:** The `choices` seeding effect in `VotingPage.tsx` carries forward `submitted_choice` for any motion where `already_voted === true && submitted_choice !== null`, regardless of whether the motion is actually read-only for the voter's current lot selection. When a voter returns to vote for a remaining lot, motions that all other lots have voted on (but not the remaining lot) are unlocked — yet they still appear pre-filled with the prior choice. This can cause a stale choice to be submitted silently if the voter does not notice the pre-fill.
+
+**Fix:** In the seeding effect, only carry forward `submitted_choice` when `isMotionReadOnly(motion)` is `true` for that motion. Unlocked motions must start with `null` (no pre-fill), regardless of `submitted_choice`.
+
+**Acceptance Criteria:**
+- [ ] A motion that is NOT locked (`isMotionReadOnly` returns `false`) always starts with no pre-filled choice — all vote buttons render as `aria-pressed="false"` on page load
+- [ ] A motion that IS locked (`isMotionReadOnly` returns `true`) may show the prior choice (`submitted_choice`) as a display aid; the card is read-only and cannot be changed
+- [ ] For a voter returning after a partial submit (some lots submitted, some pending): unlocked motions start blank; locked motions (all selected lots voted) show the prior choice
+- [ ] For a first-time voter (no prior submissions): all motions start blank
+- [ ] For a voter whose single lot is fully submitted: all motions are locked and may show prior choices
+- [ ] The existing guard `!(m.id in seeded)` is preserved — user interactions made in the current session are never overwritten by the seeding effect
+- [ ] `isMotionReadOnly` is wrapped in `useCallback` and included in the seeding effect's dependency array
+- [ ] Typecheck/lint passes
+- [ ] All existing voting page tests continue to pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ## Functional Requirements
 
 - FR-1: Back button appears on voter verification, lot selection, and voting pages; navigates to the previous step
@@ -326,6 +348,7 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-14: `index.html` is served with no-cache headers; hashed assets served with immutable cache headers
 - FR-15: When `submitMutation.onSuccess` fires in `VotingPage`, the `meeting_lots_info_<meetingId>` sessionStorage key is updated synchronously (outside of React state updaters) before navigation, so that re-mounting the voting page reads the correct `already_submitted: true` state for submitted lots
 - FR-16: `VotingPage` derives lot-submitted status dynamically: a lot is considered submitted when every currently-visible motion ID appears in `lot.voted_motion_ids`. This replaces reliance on the cached `already_submitted` boolean from sessionStorage. `submitMutation.onSuccess` must update `voted_motion_ids` (merging current motion IDs) for submitted lots in both React state and sessionStorage so the derived computation is accurate after each submission. Previously-introduced `prevMotionCountRef` logic is removed.
+- FR-17: The `choices` seeding effect in `VotingPage` only carries forward `submitted_choice` for a motion when `isMotionReadOnly` is `true` for that motion. Unlocked (interactive) motions always start with `null` — no pre-fill — regardless of the `submitted_choice` value returned by the API. `isMotionReadOnly` is memoised with `useCallback` and included in the seeding effect's dependency array.
 
 ---
 

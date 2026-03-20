@@ -1572,8 +1572,98 @@ describe("VotingPage", () => {
 
   // --- BUG-RV-02: Pre-populate prior vote choices on re-entry ---
 
-  it("choices seeded from submitted_choice when motions load (revote scenario)", async () => {
-    // When a voter re-enters after some motions have been voted on, choices should be pre-populated.
+  it("choices seeded from submitted_choice when motions load (revote scenario — locked motion)", async () => {
+    // When a voter re-enters and the motion is LOCKED (lot's voted_motion_ids contains the
+    // motion), the submitted_choice should be pre-populated. If the motion is not locked,
+    // no pre-fill should occur (see separate tests below).
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    // lot has voted on MOTION_ID_1 → it is locked → pre-fill is allowed
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] }])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // Motion 1 is locked — its For button should be aria-pressed="true"
+    await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
+    });
+    // Motion 2 has submitted_choice=null — its For button should be aria-pressed="false"
+    const forButtons = screen.getAllByRole("button", { name: "For" });
+    expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("choices NOT seeded for unlocked motion even when already_voted=true", async () => {
+    // Unlocked motion (lot has not voted on it, voted_motion_ids is empty) must start blank
+    // even if already_voted=true and submitted_choice is not null.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    // lot has voted_motion_ids: [] → no motion is locked → no pre-fill should happen
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // Motion 1 is unlocked — For button must NOT be pre-filled
+    await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
+      expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    });
+    // Progress bar shows 0 / 2 (Motion 1 is unlocked so it counts toward the total)
+    expect(screen.getByLabelText("0 / 2 motions answered")).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("choices seeded for locked motion (all selected lots voted)", async () => {
+    // Both motions are locked (lot has voted on both) — both submitted_choices should be seeded.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true, submitted_choice: "no" },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // Both motions are locked — submitted choices must be pre-filled
+    await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const againstButtons = screen.getAllByRole("button", { name: "Against" });
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");   // Motion 1 = "yes"
+      expect(againstButtons[1]).toHaveAttribute("aria-pressed", "true"); // Motion 2 = "no"
+    });
+    // Both cards show "Already voted" badge (read-only)
+    const alreadyVotedBadges = screen.getAllByText("Already voted");
+    expect(alreadyVotedBadges).toHaveLength(2);
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("partial lock: locked motion pre-filled, unlocked motion starts blank", async () => {
+    // Motion 1 is locked (in voted_motion_ids), Motion 2 is unlocked (not in voted_motion_ids).
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
@@ -1584,17 +1674,49 @@ describe("VotingPage", () => {
     );
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }])
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // Motion 1 has submitted_choice="yes" — its For button should be aria-pressed="true"
-    const forButtons = screen.getAllByRole("button", { name: "For" });
     await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      // Motion 1 is locked → pre-filled as "yes"
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
+      // Motion 2 is unlocked → no pre-fill
+      expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
     });
-    // Motion 2 has submitted_choice=null — its For button should be aria-pressed="false"
-    expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("multi-lot: locked only when ALL selected lots voted — unlocked motion starts blank", async () => {
+    // Lot A fully submitted (both motions in voted_motion_ids).
+    // Lot B pending (no motions voted). selectedIds will contain only Lot B.
+    // For Lot B's reference set, neither motion is locked → no pre-fill.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo-A", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
+        { lot_owner_id: "lo-B", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // selectedIds = {lo-B} because Lot A is submitted. Lot B has no voted motions → no motion locked.
+    await waitFor(() => {
+      const forButtons = screen.getAllByRole("button", { name: "For" });
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
+      expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
+    });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
@@ -1620,6 +1742,8 @@ describe("VotingPage", () => {
   it("existing user interaction not overwritten by submitted_choice seeding", async () => {
     // If a voter has already clicked a button in the current session, and motions reload
     // (e.g. due to query invalidation), the seeding must not overwrite their selection.
+    // Under the new behaviour, unlocked motions are never seeded, so the test verifies
+    // that a user-set choice on an unlocked motion is preserved if the effect re-fires.
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
@@ -1629,24 +1753,25 @@ describe("VotingPage", () => {
         ])
       )
     );
+    // lot has voted_motion_ids: [] → Motion 1 is unlocked → seeding does NOT seed it
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
-      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }])
+      JSON.stringify([{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] }])
     );
     renderPage();
-    // Wait for choices to seed Motion 1 as "yes"
+    // Motion 1 is unlocked → not pre-seeded → For button starts as unpressed
     await waitFor(() => {
       const forButtons = screen.getAllByRole("button", { name: "For" });
-      expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
+      expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
     });
-    // User changes Motion 1 to "no"
+    // User selects "Against" for Motion 1
     const noButtons = screen.getAllByRole("button", { name: "Against" });
     await user.click(noButtons[0]);
     await waitFor(() => {
       expect(noButtons[0]).toHaveAttribute("aria-pressed", "true");
     });
     // The seeding guard (!(m.id in seeded)) means if motions re-resolves, Motion 1's "no" is kept.
-    // We can verify this: the For button for Motion 1 is no longer selected.
+    // We can verify this: the For button for Motion 1 remains unpressed (the "no" choice persists).
     const forButtons = screen.getAllByRole("button", { name: "For" });
     expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
