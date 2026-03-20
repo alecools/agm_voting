@@ -361,6 +361,36 @@ A set of UI improvements and correctness fixes for the voting application:
 
 ---
 
+### US-UI08: Show motion numbers in the submit dialog
+
+**Description:** As a voter reviewing my ballot before submission, I want to see the motion number alongside each motion title in the unanswered-motions list in the submit dialog, so I can easily locate the correct card on the voting page and answer it.
+
+**Acceptance Criteria:**
+- [ ] When the submit dialog shows the "Unanswered motions" list, each item displays "Motion N — [title]" (where N = `order_index + 1`), not just the bare title
+- [ ] The clean "Confirm submission" path (no unanswered motions) is unchanged
+- [ ] The `SubmitDialog` component accepts `unansweredMotions` (array of `{ order_index: number; title: string }`) instead of the current `unansweredTitles: string[]`
+- [ ] The `VotingPage` call-site passes `unansweredMotions.map(m => ({ order_index: m.order_index, title: m.title }))` instead of mapping to a plain string
+- [ ] All existing `SubmitDialog` unit tests are updated to pass the new prop shape; no test assertions are removed
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-UI09: Fix motion description left padding
+
+**Description:** As a voter, I want the motion description text to be padded consistently with the rest of the card content (title and vote buttons), so the card looks visually coherent and the description does not appear to sit flush against the left border.
+
+**Acceptance Criteria:**
+- [ ] `.motion-card__description` has left and right padding that matches the card's existing horizontal content padding (`22px 24px 18px` on `.motion-card`)
+- [ ] The description text is visually aligned with the card title above it and the vote buttons below it
+- [ ] No other motion card layout properties (margins, line-height, colours) are changed
+- [ ] No `.tsx` files are modified — CSS-only change
+- [ ] All existing tests continue to pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ## Functional Requirements
 
 - FR-1: Back button appears on voter verification, lot selection, and voting pages; navigates to the previous step
@@ -382,6 +412,8 @@ A set of UI improvements and correctness fixes for the voting application:
 - FR-17: The `choices` seeding effect in `VotingPage` only carries forward `submitted_choice` for a motion when `isMotionReadOnly` is `true` for that motion.
 - FR-18: The motion card title renders at `font-size: 1.375rem` and `font-weight: 700`; description renders at `margin-top: 10px` and `line-height: 1.65`; the "Already voted" badge renders as a grey pill (`background: #F0EFEE`, `color: var(--text-muted)`, pill border-radius).
 - FR-19: All admin card section headings (`h3.admin-card__title`) render in `'Outfit', system-ui, sans-serif` and `letter-spacing: 0.09em`. The classes `.admin-stats__label`, `.section-label`, `.motion-entry__header`, and `.vote-summary__heading` also use `letter-spacing: 0.09em`. No dark-background label classes are changed. Unlocked (interactive) motions always start with `null` — no pre-fill — regardless of the `submitted_choice` value returned by the API. `isMotionReadOnly` is memoised with `useCallback` and included in the seeding effect's dependency array.
+- FR-20: The `SubmitDialog` component accepts `unansweredMotions: { order_index: number; title: string }[]` in place of `unansweredTitles: string[]`. Each list item in the dialog renders as "Motion N — [title]". `VotingPage` passes the new prop shape.
+- FR-21: `.motion-card__description` has `padding-left: 0` removed in favour of explicit horizontal padding matching the card's content padding (`24px` left and right), aligning the description with the card title and vote buttons.
 
 ---
 
@@ -403,6 +435,8 @@ A set of UI improvements and correctness fixes for the voting application:
 - **Frontend route rename:** React Router `<Route>` paths and `useParams` param names must both be updated. Any `useNavigate` hard-coded paths must also be updated. Playwright E2E tests reference URLs and must be updated.
 - **SessionStorage keys:** Voter flow uses `agm_lots_${agmId}`, `agm_lots_info_${agmId}`, `agm_lot_info_${agmId}` — rename to `meeting_lots_${meetingId}` etc.
 - **New motion unlock:** `already_submitted` is not a field that can be derived purely from `MotionOut.already_voted` because `already_voted` is aggregated across all of the voter's lots. The correct approach is to call `POST /api/auth/session` (session restore) whenever the motions list changes to get a fresh per-lot `already_submitted` flag from the server.
+- **SubmitDialog prop refactor (US-UI08):** The prop rename from `unansweredTitles: string[]` to `unansweredMotions: { order_index: number; title: string }[]` is a breaking change to the component interface. The single call-site in `VotingPage.tsx` must be updated in the same commit. All `SubmitDialog` unit tests must be updated to pass the new shape — existing test coverage must be maintained.
+- **Motion description padding (US-UI09):** The `.motion-card__description` rule in `index.css` needs explicit `padding-left` and `padding-right` values. The `.motion-card` itself uses `padding: 22px 24px 18px`, which means content inside the card already has `24px` of left/right space from the card border. The description `<p>` element is a direct child of `.motion-card` and inherits no additional horizontal padding today — it simply renders at full width inside the card's padded box, which is correct. Investigation of the actual rendering is needed to confirm whether the issue is a missing padding rule on `.motion-card__description` itself or a structural issue with the card layout.
 
 ---
 

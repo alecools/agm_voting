@@ -738,7 +738,7 @@ export function VotingPage() {
       )}
       {showDialog && (
         <SubmitDialog
-          unansweredTitles={unansweredMotions.map((m) => m.title)}
+          unansweredMotions={unansweredMotions.map((m) => ({ order_index: m.order_index, title: m.title }))}
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />

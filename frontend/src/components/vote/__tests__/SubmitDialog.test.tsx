@@ -5,7 +5,7 @@ import { SubmitDialog } from "../SubmitDialog";
 
 describe("SubmitDialog", () => {
   it("shows simple confirm dialog when no unanswered motions", () => {
-    render(<SubmitDialog unansweredTitles={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
     expect(screen.getByText("Confirm submission")).toBeInTheDocument();
     expect(
       screen.getByText("Are you sure? Votes cannot be changed after submission.")
@@ -15,14 +15,17 @@ describe("SubmitDialog", () => {
   it("shows unanswered motions dialog when there are unanswered", () => {
     render(
       <SubmitDialog
-        unansweredTitles={["Motion A", "Motion B"]}
+        unansweredMotions={[
+          { order_index: 0, title: "Motion A" },
+          { order_index: 1, title: "Motion B" },
+        ]}
         onConfirm={() => {}}
         onCancel={() => {}}
       />
     );
     expect(screen.getByText("Unanswered motions")).toBeInTheDocument();
-    expect(screen.getByText("Motion A")).toBeInTheDocument();
-    expect(screen.getByText("Motion B")).toBeInTheDocument();
+    expect(screen.getByText("Motion 1 — Motion A")).toBeInTheDocument();
+    expect(screen.getByText("Motion 2 — Motion B")).toBeInTheDocument();
     expect(screen.getByText(/will be recorded as/)).toBeInTheDocument();
   });
 
@@ -30,7 +33,7 @@ describe("SubmitDialog", () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(
-      <SubmitDialog unansweredTitles={[]} onConfirm={onConfirm} onCancel={() => {}} />
+      <SubmitDialog unansweredMotions={[]} onConfirm={onConfirm} onCancel={() => {}} />
     );
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
     expect(onConfirm).toHaveBeenCalledOnce();
@@ -40,14 +43,14 @@ describe("SubmitDialog", () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
     render(
-      <SubmitDialog unansweredTitles={[]} onConfirm={() => {}} onCancel={onCancel} />
+      <SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={onCancel} />
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
   it("has dialog role", () => {
-    render(<SubmitDialog unansweredTitles={[]} onConfirm={() => {}} onCancel={() => {}} />);
+    render(<SubmitDialog unansweredMotions={[]} onConfirm={() => {}} onCancel={() => {}} />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

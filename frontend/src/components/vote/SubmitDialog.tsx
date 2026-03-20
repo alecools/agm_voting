@@ -1,11 +1,11 @@
 interface SubmitDialogProps {
-  unansweredTitles: string[];
+  unansweredMotions: { order_index: number; title: string }[];
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function SubmitDialog({ unansweredTitles, onConfirm, onCancel }: SubmitDialogProps) {
-  const hasUnanswered = unansweredTitles.length > 0;
+export function SubmitDialog({ unansweredMotions, onConfirm, onCancel }: SubmitDialogProps) {
+  const hasUnanswered = unansweredMotions.length > 0;
 
   return (
     <div
@@ -28,9 +28,9 @@ export function SubmitDialog({ unansweredTitles, onConfirm, onCancel }: SubmitDi
               <strong>Abstained</strong>. Confirm submission?
             </p>
             <ul className="dialog__list">
-              {unansweredTitles.map((title) => (
-                <li className="dialog__list-item" key={title}>
-                  {title}
+              {unansweredMotions.map((m) => (
+                <li className="dialog__list-item" key={m.order_index}>
+                  Motion {m.order_index + 1} — {m.title}
                 </li>
               ))}
             </ul>
