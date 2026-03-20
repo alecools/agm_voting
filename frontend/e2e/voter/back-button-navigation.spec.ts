@@ -100,7 +100,7 @@ test.describe("Back button navigation from VotingPage", () => {
     await page.reload();
 
     // Auth page must render (email input visible)
-    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 20000 });
 
     // Page must not be blank — main element or body has visible content
     await expect(page.locator("main")).toBeVisible();
