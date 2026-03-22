@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { server } from "../../../tests/msw/server";
 import { BrandingProvider, useBranding, DEFAULT_CONFIG } from "../BrandingContext";
 import { resetConfigFixture, configFixture } from "../../../tests/msw/handlers";
@@ -20,18 +21,26 @@ function TestConsumer() {
   );
 }
 
-function renderProvider() {
+function makeQC() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+}
+
+function renderProvider(qc?: QueryClient) {
+  const client = qc ?? makeQC();
   return render(
-    <BrandingProvider>
-      <TestConsumer />
-    </BrandingProvider>
+    <QueryClientProvider client={client}>
+      <BrandingProvider>
+        <TestConsumer />
+      </BrandingProvider>
+    </QueryClientProvider>
   );
 }
 
 describe("BrandingContext", () => {
   beforeEach(() => {
     resetConfigFixture();
-    // Reset any CSS properties set on document root
     document.documentElement.style.removeProperty("--color-primary");
     document.title = "";
   });
@@ -134,17 +143,49 @@ describe("BrandingContext", () => {
     await waitFor(() =>
       expect(screen.getByTestId("is-loading").textContent).toBe("ready")
     );
-    // Config stays at defaults
+    // Config stays at defaults (placeholderData)
     expect(screen.getByTestId("app-name").textContent).toBe(DEFAULT_CONFIG.app_name);
     expect(screen.getByTestId("primary-colour").textContent).toBe(DEFAULT_CONFIG.primary_colour);
   });
 
-  it("does not update state after unmount (cancelled effect)", async () => {
-    // Render and immediately unmount — should not throw "can't perform state update on unmounted component"
+  it("re-fetches config when query is invalidated", async () => {
+    const qc = makeQC();
+    server.use(
+      http.get(`${BASE}/api/config`, () =>
+        HttpResponse.json({ app_name: "Initial", logo_url: "", primary_colour: "#111111", support_email: "" })
+      )
+    );
+    renderProvider(qc);
+    await waitFor(() =>
+      expect(screen.getByTestId("app-name").textContent).toBe("Initial")
+    );
+
+    // Swap MSW handler to return updated config
+    server.use(
+      http.get(`${BASE}/api/config`, () =>
+        HttpResponse.json({ app_name: "Updated", logo_url: "", primary_colour: "#222222", support_email: "" })
+      )
+    );
+
+    // Invalidate — BrandingProvider should re-fetch
+    await qc.invalidateQueries({ queryKey: ["public-config"] });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("app-name").textContent).toBe("Updated")
+    );
+  });
+
+  it("does not throw when unmounted before fetch resolves", async () => {
+    // Delay the response so we can unmount before it resolves
+    server.use(
+      http.get(`${BASE}/api/config`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ app_name: "Late", logo_url: "", primary_colour: "#005f73", support_email: "" });
+      })
+    );
     const { unmount } = renderProvider();
-    act(() => {
-      unmount();
-    });
+    // Unmount before the response arrives — React Query handles cleanup
+    unmount();
     // No assertion needed — test passes if no error is thrown
   });
 

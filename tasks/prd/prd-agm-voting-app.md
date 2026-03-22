@@ -714,6 +714,60 @@ No backend or database changes are required. The `order_index` field remains 0-b
 
 ---
 
+---
+
+### US-CFG-01: Admin can view and edit tenant branding settings
+
+**Description:** As a meeting host, I want to configure the app name, logo, primary colour, and support email for my deployment so that the voting app reflects my organisation's identity.
+
+**Acceptance Criteria:**
+
+- [ ] A "Settings" nav item appears in the admin sidebar and navigates to `/admin/settings`
+- [ ] The Settings page loads the current config via `GET /api/admin/config` and displays all four fields: App name, Logo URL, Primary colour, Support email
+- [ ] Admin can edit any combination of the four fields and save via `PUT /api/admin/config`
+- [ ] The form shows "Saving…" on the button while the request is in flight
+- [ ] On success, an inline success message "Settings saved" is shown
+- [ ] Server-side validation errors are shown inline below the relevant field
+- [ ] App name is required; submitting with an empty app name returns 422
+- [ ] Primary colour must be a valid 3- or 6-digit CSS hex string (e.g. `#1a73e8`, `#fff`); submitting an invalid value returns 422
+- [ ] Logo URL and support email are optional; clearing them saves empty strings (treated as "not set")
+- [ ] After a successful save, the admin sidebar branding (app name, logo, primary colour) updates immediately without a page reload — achieved via React Query:  registers the  query key and  invalidates it on save
+- [ ] All tests pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-CFG-02: Branding config applied app-wide via React context
+
+**Description:** As a voter, I want the app to display the configured app name, logo, and primary colour so that the voting experience matches the host organisation's branding.
+
+**Acceptance Criteria:**
+
+- [ ] On app load, the frontend fetches `GET /api/config` (public, no auth) and stores the result in a `BrandingContext`
+- [ ] While the config is loading, the app renders without branding changes (falls back to compile-time defaults)
+- [ ] The browser tab title (`<title>`) is set to the configured app name
+- [ ] The voter shell header displays the configured logo (as an `<img>`) if `logo_url` is non-empty; if empty, the app name is shown as text instead
+- [ ] The admin sidebar header uses the same logo/app name logic as the voter shell
+- [ ] The primary colour CSS custom property (`--color-primary`) is updated in the document root when config loads, applying the colour app-wide
+- [ ] The support email, if non-empty, is shown on the voter auth page and confirmation page as a "Need help? Contact [email]" link
+- [ ] All tests pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-CFG-03: Deployment seeded with default branding on first migration
+
+**Description:** As a developer or operator deploying a new instance, I want the system to start with sensible defaults so the app is usable immediately without any manual configuration step.
+
+**Acceptance Criteria:**
+
+- [ ] The Alembic migration that creates `tenant_config` also inserts a single seed row with: `app_name = "AGM Voting"`, `logo_url = ""`, `primary_colour = "#005f73"`, `support_email = ""`
+- [ ] The seed row is only inserted if the table is empty (idempotent — re-running the migration does not duplicate the row)
+- [ ] `GET /api/config` returns the seed values on a fresh deployment before any admin has edited settings
+- [ ] All tests pass at 100% coverage
+
+---
+
 ## Non-Goals
 
 - No proxy voting
