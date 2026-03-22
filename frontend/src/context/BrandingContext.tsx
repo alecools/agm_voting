@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { TenantConfig } from "../api/config";
 import { getPublicConfig } from "../api/config";
 
@@ -24,28 +25,24 @@ export function useBranding(): BrandingContextValue {
 }
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
-  const [config, setConfig] = useState<TenantConfig>(DEFAULT_CONFIG);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["public-config"],
+    queryFn: getPublicConfig,
+    // Branding rarely changes; long stale time reduces noise, but invalidation
+    // from SettingsPage.handleSubmit will still trigger an immediate re-fetch.
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  // On error fall back to defaults — app remains fully functional.
+  const config = (isError || !data) ? DEFAULT_CONFIG : data;
 
   useEffect(() => {
-    let cancelled = false;
-    getPublicConfig()
-      .then((data) => {
-        if (cancelled) return;
-        setConfig(data);
-        document.documentElement.style.setProperty("--color-primary", data.primary_colour);
-        document.title = data.app_name;
-      })
-      .catch(() => {
-        // Config fetch failed — keep defaults, app remains functional
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (data) {
+      document.documentElement.style.setProperty("--color-primary", data.primary_colour);
+      document.title = data.app_name;
+    }
+  }, [data]);
 
   return (
     <BrandingContext.Provider value={{ config, isLoading }}>

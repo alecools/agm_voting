@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import SettingsPage from "../SettingsPage";
 import { resetConfigFixture } from "../../../../tests/msw/handlers";
+import * as configApi from "../../../api/config";
 
 const BASE = "http://localhost:8000";
 
@@ -120,7 +121,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Failed to load settings.")).toBeInTheDocument();
   });
 
-  it("shows error message when save fails", async () => {
+  it("shows error message when save fails with HTTP error", async () => {
     server.use(
       http.put(`${BASE}/api/admin/config`, () =>
         HttpResponse.json({ detail: "Validation error" }, { status: 422 })
@@ -130,6 +131,15 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
     await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.getByText(/HTTP 422/)).toBeInTheDocument());
+  });
+
+  it("shows fallback error message when save throws non-Error value", async () => {
+    // Cover the `false` branch of `err instanceof Error ? err.message : "Failed to save settings."`
+    vi.spyOn(configApi, "updateAdminConfig").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
+    await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByText("Failed to save settings.")).toBeInTheDocument());
   });
 
   // --- Input interactions ---

@@ -63,6 +63,7 @@ export default defineConfig({
         // Tenant branding
         "src/api/config.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/context/BrandingContext.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/pages/admin/SettingsPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },

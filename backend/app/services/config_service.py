@@ -31,6 +31,8 @@ async def get_config(db: AsyncSession) -> TenantConfig:
         )
         db.add(config)
         await db.flush()
+        await db.commit()
+        await db.refresh(config)
     return config
 
 
@@ -48,5 +50,6 @@ async def update_config(data: TenantConfigUpdate, db: AsyncSession) -> TenantCon
     config.support_email = data.support_email
 
     await db.flush()
+    await db.commit()
     await db.refresh(config)
     return config

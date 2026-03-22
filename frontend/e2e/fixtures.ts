@@ -33,6 +33,10 @@ const IGNORED_PATTERNS = [
   // shows not-found state" test — the test deliberately uses a non-existent UUID
   // to verify that the component renders the "Meeting not found" fallback UI.
   /status of 404/i,
+  // 422 from /api/admin/config is expected in the "saving with invalid hex colour"
+  // E2E test — the browser logs this when the backend rejects an invalid colour value,
+  // which is the correct validation behaviour being tested.
+  /status of 422/i,
 ];
 
 /**
