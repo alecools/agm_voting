@@ -13,8 +13,25 @@ import type {
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
+import type { TenantConfig } from "../../src/api/config";
 
 const BASE = "http://localhost:8000";
+
+export let configFixture: TenantConfig = {
+  app_name: "AGM Voting",
+  logo_url: "",
+  primary_colour: "#005f73",
+  support_email: "",
+};
+
+export function resetConfigFixture() {
+  configFixture = {
+    app_name: "AGM Voting",
+    logo_url: "",
+    primary_colour: "#005f73",
+    support_email: "",
+  };
+}
 
 export const ADMIN_BUILDINGS: Building[] = [
   {
@@ -605,6 +622,28 @@ export const adminHandlers = [
     }
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // Tenant config — admin endpoints
+  http.get(`${BASE}/api/admin/config`, () => {
+    return HttpResponse.json(configFixture);
+  }),
+
+  http.put(`${BASE}/api/admin/config`, async ({ request }) => {
+    const body = await request.json() as Partial<TenantConfig>;
+    if (!body?.app_name || !body.app_name.trim()) {
+      return HttpResponse.json({ detail: "app_name must not be empty" }, { status: 422 });
+    }
+    if (!body?.primary_colour || !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(body.primary_colour)) {
+      return HttpResponse.json({ detail: "primary_colour must be a valid CSS hex colour" }, { status: 422 });
+    }
+    configFixture = {
+      app_name: body.app_name,
+      logo_url: body.logo_url ?? "",
+      primary_colour: body.primary_colour,
+      support_email: body.support_email ?? "",
+    };
+    return HttpResponse.json(configFixture);
+  }),
 ];
 
 export const SUMMARY_AGM_ID = "agm-summary-test-999";
@@ -711,6 +750,11 @@ export const myBallotFixture = {
 
 export const handlers = [
   ...adminHandlers,
+  // Tenant config — public endpoint
+  http.get(`${BASE}/api/config`, () => {
+    return HttpResponse.json(configFixture);
+  }),
+
   http.get(`${BASE}/api/server-time`, () =>
     HttpResponse.json({ utc: "2024-06-01T10:00:00Z" })
   ),

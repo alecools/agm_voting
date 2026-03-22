@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { AuthPage } from "../AuthPage";
 import { AGM_ID } from "../../../../tests/msw/handlers";
+import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
 const BASE = "http://localhost:8000";
 
@@ -20,16 +21,18 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage(meetingId = AGM_ID) {
+function renderPage(meetingId = AGM_ID, supportEmail = "") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${meetingId}/auth`]}>
-        <Routes>
-          <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, support_email: supportEmail }, isLoading: false }}>
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/vote/${meetingId}/auth`]}>
+          <Routes>
+            <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BrandingContext.Provider>
   );
 }
 
@@ -507,5 +510,19 @@ describe("AuthPage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Email address")).toBeInTheDocument();
     });
+  });
+
+  // --- Support email (branding) ---
+
+  it("shows support email link when support_email is set in branding config", () => {
+    renderPage(AGM_ID, "help@example.com");
+    expect(screen.getByRole("link", { name: "help@example.com" })).toBeInTheDocument();
+    expect(screen.getByText(/Need help/)).toBeInTheDocument();
+  });
+
+  it("does not show support email block when support_email is empty", () => {
+    renderPage(AGM_ID, "");
+    expect(screen.queryByRole("link", { name: /mailto/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Need help/)).not.toBeInTheDocument();
   });
 });

@@ -18,8 +18,17 @@ from app.models.building import Building
 from app.models.motion import Motion
 from app.schemas.agm import GeneralMeetingOut, GeneralMeetingSummaryOut, MotionSummaryOut
 from app.schemas.building import BuildingOut
+from app.schemas.config import TenantConfigOut
+from app.services import config_service
 
 router = APIRouter()
+
+
+@router.get("/config", response_model=TenantConfigOut)
+async def get_public_config(db: AsyncSession = Depends(get_db)) -> TenantConfigOut:
+    """Return current branding config — public, no auth required."""
+    config = await config_service.get_config(db)
+    return TenantConfigOut.model_validate(config)
 
 
 @router.get("/server-time")

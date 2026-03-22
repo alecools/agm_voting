@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { ConfirmationPage } from "../ConfirmationPage";
 import { AGM_ID } from "../../../../tests/msw/handlers";
+import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
 const BASE = "http://localhost:8000";
 
@@ -16,16 +17,18 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-function renderPage(meetingId = AGM_ID) {
+function renderPage(meetingId = AGM_ID, supportEmail = "") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${meetingId}/confirmation`]}>
-        <Routes>
-          <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, support_email: supportEmail }, isLoading: false }}>
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/vote/${meetingId}/confirmation`]}>
+          <Routes>
+            <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BrandingContext.Provider>
   );
 }
 
@@ -313,6 +316,21 @@ describe("ConfirmationPage", () => {
     await user.click(screen.getByRole("button", { name: /vote for remaining lots/i }));
     expect(sessionStorage.getItem(`meeting_lots_${AGM_ID}`)).toBe(JSON.stringify(["lo2", "lo3"]));
     expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+  });
+
+  // --- Support email (branding) ---
+
+  it("shows support email link when support_email is set in branding config", async () => {
+    renderPage(AGM_ID, "support@corp.com");
+    await waitFor(() => expect(screen.getByText(/Ballot submitted/)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "support@corp.com" })).toBeInTheDocument();
+    expect(screen.getByText(/Need help/)).toBeInTheDocument();
+  });
+
+  it("does not show support email block when support_email is empty", async () => {
+    renderPage(AGM_ID, "");
+    await waitFor(() => expect(screen.getByText(/Ballot submitted/)).toBeInTheDocument());
+    expect(screen.queryByText(/Need help/)).not.toBeInTheDocument();
   });
 
   it("shows 'Not eligible' label for not_eligible votes in multi-lot ballot", async () => {

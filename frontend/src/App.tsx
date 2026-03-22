@@ -8,10 +8,11 @@ import { ConfirmationPage } from "./pages/vote/ConfirmationPage";
 import { VoterShell } from "./components/vote/VoterShell";
 import AdminRoutes from "./routes/AdminRoutes";
 import GeneralMeetingSummaryPage from "./pages/GeneralMeetingSummaryPage";
+import { BrandingProvider } from "./context/BrandingContext";
 
 export default function App() {
   return (
-    <>
+    <BrandingProvider>
       <Routes>
         {/* Lot owner voting routes — wrapped in shared header shell */}
         <Route element={<VoterShell />}>
@@ -29,6 +30,6 @@ export default function App() {
       </Routes>
       <Analytics />
       <SpeedInsights />
-    </>
+    </BrandingProvider>
   );
 }

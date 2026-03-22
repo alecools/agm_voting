@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMyBallot } from "../../api/voter";
+import { useBranding } from "../../context/BrandingContext";
 
 const CHOICE_LABELS: Record<string, string> = {
   yes: "For",
@@ -12,6 +13,7 @@ const CHOICE_LABELS: Record<string, string> = {
 export function ConfirmationPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
+  const { config } = useBranding();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["my-ballot", meetingId],
@@ -138,6 +140,12 @@ export function ConfirmationPage() {
             ← Back to home
           </button>
         </div>
+        {config.support_email && (
+          <p className="support-contact">
+            Need help? Contact{" "}
+            <a href={`mailto:${config.support_email}`}>{config.support_email}</a>
+          </p>
+        )}
       </div>
     </main>
   );

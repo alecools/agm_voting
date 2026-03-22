@@ -2069,3 +2069,11 @@ button, input, select, textarea {
 .mt-24 { margin-top: 24px; }
 .mb-0  { margin-bottom: 0; }
 .text-center { text-align: center; }
+
+/* === SUPPORT CONTACT === */
+.support-contact {
+  margin-top: 16px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: center;
+}

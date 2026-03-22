@@ -44,7 +44,9 @@ from app.schemas.admin import (
     ResendReportOut,
     SetProxyRequest,
 )
+from app.schemas.config import TenantConfigOut, TenantConfigUpdate
 from app.services import admin_service
+from app.services import config_service
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -518,3 +520,25 @@ async def reset_general_meeting_ballots(
     """
     result = await admin_service.reset_general_meeting_ballots(general_meeting_id, db)
     return GeneralMeetingBallotResetOut(**result)
+
+
+# ---------------------------------------------------------------------------
+# Tenant configuration
+# ---------------------------------------------------------------------------
+
+
+@router.get("/config", response_model=TenantConfigOut)
+async def get_admin_config(db: AsyncSession = Depends(get_db)) -> TenantConfigOut:
+    """Return current branding config — admin only."""
+    config = await config_service.get_config(db)
+    return TenantConfigOut.model_validate(config)
+
+
+@router.put("/config", response_model=TenantConfigOut)
+async def update_admin_config(
+    data: TenantConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> TenantConfigOut:
+    """Update branding config — admin only. Returns 422 on validation failure."""
+    config = await config_service.update_config(data, db)
+    return TenantConfigOut.model_validate(config)
