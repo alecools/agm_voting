@@ -119,15 +119,20 @@ export default function SettingsPage() {
 
             <div className="field">
               <label className="field__label" htmlFor="logo-file">Upload logo image</label>
-              <input
-                id="logo-file"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                onChange={(e) => { void handleLogoFileChange(e); }}
-                disabled={isUploading}
-                data-testid="logo-file-input"
-              />
-              {isUploading && <p className="state-message">Uploading…</p>}
+              <div style={{ position: "relative", display: "inline-block" }}>
+                <label htmlFor="logo-file" className="btn btn--secondary">
+                  {isUploading ? "Uploading…" : "Choose file"}
+                </label>
+                <input
+                  id="logo-file"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  onChange={(e) => { void handleLogoFileChange(e); }}
+                  disabled={isUploading}
+                  data-testid="logo-file-input"
+                  style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+                />
+              </div>
               {uploadError && <span className="field__error">{uploadError}</span>}
             </div>
 
