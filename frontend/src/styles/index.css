@@ -23,6 +23,7 @@
   --red-bg:        #FDF0EE;
   --amber:         #C05621;
   --amber-bg:      #FFF8F0;
+  --color-primary: #005f73;
   --border:        #D5CCB8;
   --border-subtle: #E8E2D5;
   --shadow-sm:     0 1px 3px rgba(12,27,46,.08);
@@ -264,9 +265,9 @@ button, input, select, textarea {
   cursor: not-allowed;
 }
 
-/* Primary — gilt decree on navy: gold text, shimmer sweep on hover */
+/* Primary — uses --color-primary (set by BrandingContext from tenant config) */
 .btn--primary {
-  background: var(--navy);
+  background: var(--color-primary);
   color: var(--gold-light);
   border-color: rgba(184,134,31,.22);
   box-shadow:
