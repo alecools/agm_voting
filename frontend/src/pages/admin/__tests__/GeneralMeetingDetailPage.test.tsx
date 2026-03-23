@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -284,29 +284,86 @@ describe("GeneralMeetingDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Delete Meeting" })).not.toBeInTheDocument();
   });
 
-  it("clicking Delete Meeting calls API and navigates away on confirm", async () => {
-    mockNavigate.mockClear();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("clicking Delete Meeting opens confirm modal", async () => {
     const user = userEvent.setup();
     renderPage("agm2");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(screen.getByRole("dialog", { name: "Delete Meeting" })).toBeInTheDocument();
+    expect(screen.getByText(/This action cannot be undone/)).toBeInTheDocument();
+  });
+
+  it("delete modal shows meeting title in heading", async () => {
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(screen.getByRole("heading", { level: 2, name: /2023 AGM/ })).toBeInTheDocument();
+  });
+
+  it("confirming delete in modal calls API and navigates away", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Meeting" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Meeting" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/general-meetings");
     });
   });
 
-  it("does not navigate when confirm is cancelled", async () => {
+  it("cancelling delete modal does not navigate", async () => {
     mockNavigate.mockClear();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
     renderPage("agm2");
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(screen.getByRole("dialog", { name: "Delete Meeting" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Delete Meeting" })).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
+  });
+
+  it("Escape key closes delete modal without navigating", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    expect(screen.getByRole("dialog", { name: "Delete Meeting" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Meeting" })).not.toBeInTheDocument();
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
+  });
+
+  it("clicking backdrop closes delete modal without navigating", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Meeting" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Meeting" });
+    expect(dialog).toBeInTheDocument();
+    await user.click(dialog);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Meeting" })).not.toBeInTheDocument();
+    });
     expect(mockNavigate).not.toHaveBeenCalledWith("/admin/general-meetings");
   });
 

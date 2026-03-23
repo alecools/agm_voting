@@ -18,12 +18,73 @@ import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 
+interface DeleteMeetingConfirmModalProps {
+  meetingTitle: string;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteMeetingConfirmModal({ meetingTitle, deleting, onConfirm, onCancel }: DeleteMeetingConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !deleting) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleting, onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Meeting"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete "{meetingTitle}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This action cannot be undone. All motions, votes, and ballot submissions for this meeting will be permanently deleted.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete Meeting"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
+  const [showDeleteMeetingModal, setShowDeleteMeetingModal] = useState(false);
 
   const { data: meeting, isLoading, error } = useQuery<GeneralMeetingDetail>({
     queryKey: ["admin", "general-meetings", meetingId],
@@ -189,9 +250,12 @@ export default function GeneralMeetingDetailPage() {
   }
 
   function handleDelete() {
-    if (window.confirm("Delete this meeting? This cannot be undone.")) {
-      deleteMutation.mutate();
-    }
+    setShowDeleteMeetingModal(true);
+  }
+
+  function handleDeleteMeetingConfirm() {
+    deleteMutation.mutate();
+    setShowDeleteMeetingModal(false);
   }
 
   function handleEditSubmit(e: React.FormEvent) {
@@ -482,6 +546,16 @@ export default function GeneralMeetingDetailPage() {
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+
+      {/* Delete Meeting Modal */}
+      {showDeleteMeetingModal && meeting && (
+        <DeleteMeetingConfirmModal
+          meetingTitle={meeting.title}
+          deleting={deleteMutation.isPending}
+          onConfirm={handleDeleteMeetingConfirm}
+          onCancel={() => setShowDeleteMeetingModal(false)}
+        />
+      )}
 
       {/* Add Motion Modal */}
       {showAddMotionModal && (

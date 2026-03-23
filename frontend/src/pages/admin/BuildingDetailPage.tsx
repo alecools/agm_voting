@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBuildings, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
@@ -8,6 +8,66 @@ import LotOwnerForm from "../../components/admin/LotOwnerForm";
 import LotOwnerCSVUpload from "../../components/admin/LotOwnerCSVUpload";
 import ProxyNominationsUpload from "../../components/admin/ProxyNominationsUpload";
 import FinancialPositionUpload from "../../components/admin/FinancialPositionUpload";
+
+interface DeleteBuildingConfirmModalProps {
+  buildingName: string;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteBuildingConfirmModal({ buildingName, deleting, onConfirm, onCancel }: DeleteBuildingConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !deleting) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleting, onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Building"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete "{buildingName}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This action cannot be undone. All lot owners, meetings, and votes for this building will be permanently deleted.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete Building"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface ArchiveConfirmModalProps {
   buildingName: string;
@@ -176,6 +236,7 @@ export default function BuildingDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const { data: buildings = [] } = useQuery<Building[]>({
     queryKey: ["admin", "buildings"],
@@ -240,14 +301,15 @@ export default function BuildingDetailPage() {
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
+    setShowDeleteModal(true);
+  }
+
+  async function handleDeleteConfirm() {
     if (!buildingId) return;
-    const confirmed = window.confirm(
-      `Permanently delete "${building?.name ?? "this building"}"?\n\nThis action cannot be undone. All lot owners, meetings, and votes will be deleted.`
-    );
-    if (!confirmed) return;
     setDeleteError(null);
     setDeleting(true);
+    setShowDeleteModal(false);
     try {
       await deleteBuilding(buildingId);
       await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
@@ -310,8 +372,8 @@ export default function BuildingDetailPage() {
           )}
           {building?.is_archived && (
             <button
-              className="btn btn--secondary"
-              onClick={() => { void handleDelete(); }}
+              className="btn btn--danger"
+              onClick={handleDelete}
               disabled={deleting}
             >
               {deleting ? "Deleting…" : "Delete Building"}
@@ -357,6 +419,15 @@ export default function BuildingDetailPage() {
         buildingId={buildingId!}
         onSuccess={handleCSVSuccess}
       />
+
+      {showDeleteModal && building && (
+        <DeleteBuildingConfirmModal
+          buildingName={building.name}
+          deleting={deleting}
+          onConfirm={() => { void handleDeleteConfirm(); }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
 
       {showEditModal && building && (
         <BuildingEditModal
