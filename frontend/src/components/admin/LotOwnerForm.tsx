@@ -411,7 +411,7 @@ function EditModal({
 }
 
 // ---------------------------------------------------------------------------
-// Add form — inline card (unchanged behaviour)
+// Add form — centred dialog modal (same pattern as EditModal)
 // ---------------------------------------------------------------------------
 function AddForm({
   buildingId,
@@ -427,6 +427,19 @@ function AddForm({
   const [unitEntitlement, setUnitEntitlement] = useState("");
   const [financialPosition, setFinancialPosition] = useState("normal");
   const [formError, setFormError] = useState<string | null>(null);
+
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onCancel();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
 
   const addMutation = useMutation<LotOwner, Error, LotOwnerCreateRequest>({
     mutationFn: (data) => addLotOwner(buildingId, data),
@@ -472,12 +485,33 @@ function AddForm({
     });
   }
 
+  function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target === overlayRef.current) {
+      onCancel();
+    }
+  }
+
   return (
-    <div className="admin-card" style={{ marginBottom: 24 }}>
-      <div className="admin-card__header">
-        <h3 className="admin-card__title">Add Lot Owner</h3>
-      </div>
-      <div className="admin-card__body">
+    <div
+      className="dialog-overlay"
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-modal-title"
+    >
+      <div
+        className="dialog"
+        style={{ maxWidth: 480 }}
+      >
+        <h3
+          id="add-modal-title"
+          className="admin-card__title"
+          style={{ marginBottom: 20 }}
+        >
+          Add Lot Owner
+        </h3>
+
         <form onSubmit={handleSubmit} className="admin-form">
           <div className="field">
             <label className="field__label" htmlFor="lot-number">
