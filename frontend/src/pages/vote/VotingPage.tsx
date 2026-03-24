@@ -242,7 +242,7 @@ export function VotingPage() {
       const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
       const votes = Object.entries(choices)
         .filter(([, choice]) => choice !== null)
-        .map(([motion_id, choice]) => ({ motion_id, choice: choice as string }));
+        .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
       return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes });
     },
     onSuccess: () => {

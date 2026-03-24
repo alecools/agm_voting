@@ -233,8 +233,8 @@ async def create_building(name: str, manager_email: str, db: AsyncSession) -> Bu
     return building
 
 
-async def list_buildings(db: AsyncSession) -> list[Building]:
-    result = await db.execute(select(Building).order_by(Building.created_at))
+async def list_buildings(db: AsyncSession, limit: int = 100, offset: int = 0) -> list[Building]:
+    result = await db.execute(select(Building).order_by(Building.created_at).offset(offset).limit(limit))
     return list(result.scalars().all())
 
 
@@ -341,10 +341,10 @@ async def _get_proxy_email(lot_owner_id: uuid.UUID, db: AsyncSession) -> str | N
     return row[0] if row is not None else None
 
 
-async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> list[dict]:
+async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int = 100, offset: int = 0) -> list[dict]:
     await get_building_or_404(building_id, db)
     result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id)
+        select(LotOwner).where(LotOwner.building_id == building_id).offset(offset).limit(limit)
     )
     owners = list(result.scalars().all())
 
@@ -1026,11 +1026,13 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     }
 
 
-async def list_general_meetings(db: AsyncSession) -> list[dict]:
+async def list_general_meetings(db: AsyncSession, limit: int = 100, offset: int = 0) -> list[dict]:
     result = await db.execute(
         select(GeneralMeeting, Building.name.label("building_name"))
         .join(Building, GeneralMeeting.building_id == Building.id)
         .order_by(GeneralMeeting.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     rows = result.all()
     items = []

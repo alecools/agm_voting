@@ -115,7 +115,7 @@ export interface MyBallotResponse {
 
 export interface SubmitBallotRequest {
   lot_owner_ids: string[];
-  votes: Array<{ motion_id: string; choice: string }>;
+  votes: Array<{ motion_id: string; choice: VoteChoice }>;
 }
 
 export interface ServerTimeResponse {

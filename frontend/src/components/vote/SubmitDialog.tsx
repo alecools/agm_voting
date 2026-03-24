@@ -24,8 +24,7 @@ export function SubmitDialog({ unansweredMotions, onConfirm, onCancel }: SubmitD
         {hasUnanswered ? (
           <>
             <p className="dialog__body">
-              The following motions have no answer and will be recorded as{" "}
-              <strong>Abstained</strong>. Confirm submission?
+              {unansweredMotions.length} motion{unansweredMotions.length !== 1 ? "s" : ""} are unanswered and will be recorded as <strong>Abstained</strong>.
             </p>
             <ul className="dialog__list">
               {unansweredMotions.map((m) => (

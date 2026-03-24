@@ -42,6 +42,17 @@ _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _MAX_ATTEMPTS = 30
 _BACKOFF_CAP_SECONDS = 3600
 
+# Semaphore to cap concurrent outbound email sends at 10.
+# This prevents thundering-herd scenarios on startup requeue or meeting close
+# from exhausting SMTP connection limits.
+_email_semaphore = asyncio.Semaphore(10)
+
+
+async def _send_with_limit(coro: object) -> None:  # type: ignore[type-arg]
+    """Acquire the global email semaphore then await the given coroutine."""
+    async with _email_semaphore:
+        await coro  # type: ignore[misc]
+
 
 def _get_jinja_env() -> Environment:
     return Environment(
@@ -292,4 +303,4 @@ class EmailService:
                 general_meeting_id=str(delivery.general_meeting_id),
                 total_attempts=delivery.total_attempts,
             )
-            asyncio.create_task(self.trigger_with_retry(delivery.general_meeting_id))
+            asyncio.create_task(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))

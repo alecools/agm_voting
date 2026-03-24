@@ -132,6 +132,7 @@ async def request_otp(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == body.email,
             LotOwner.building_id == meeting.building_id,
         )
@@ -255,6 +256,7 @@ async def verify_auth(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == request.email,
             LotOwner.building_id == building_id,
         )
@@ -442,6 +444,7 @@ async def restore_session(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == voter_email,
             LotOwner.building_id == building_id,
         )

@@ -2338,6 +2338,156 @@ class TestSubmitBallot:
         )
         assert response.status_code == 401
 
+    # --- Input validation ---
+
+    async def test_submit_unknown_motion_id_returns_400(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Inline votes referencing a motion ID from a different meeting → 400."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        foreign_motion_id = str(uuid.uuid4())
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [{"motion_id": foreign_motion_id, "choice": "yes"}],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+        assert "Unknown motion IDs" in response.json()["detail"]
+
+    # --- Edge cases ---
+
+    async def test_concurrent_submission_integrity_error_raises_409(
+        self, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """IntegrityError on BallotSubmission flush is caught and re-raised as HTTP 409.
+
+        This is a pure unit test using a fully-mocked AsyncSession. It exercises the
+        IntegrityError handler in submit_ballot (voting_service.py lines 416-419) without
+        touching the shared test session.
+        """
+        import pytest
+        from unittest.mock import AsyncMock, MagicMock
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+        from fastapi import HTTPException
+        from app.services.voting_service import submit_ballot
+        from app.models import GeneralMeetingStatus
+
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        lot_owner_id = lo.id
+        general_meeting_id = agm.id
+
+        # Helper to make a mock result that returns a given scalar or list.
+        def _scalar_result(value):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = value
+            r.scalars.return_value.all.return_value = []
+            r.all.return_value = []
+            return r
+
+        def _scalars_result(items):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = items
+            r.scalar_one_or_none.return_value = None
+            r.all.return_value = []
+            return r
+
+        def _all_result(rows):
+            r = MagicMock()
+            r.all.return_value = rows
+            r.scalars.return_value.all.return_value = rows
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        # Build a mock open GeneralMeeting
+        mock_meeting = MagicMock()
+        mock_meeting.id = general_meeting_id
+        mock_meeting.status = GeneralMeetingStatus.open
+        mock_meeting.voting_closes_at = agm.voting_closes_at
+        mock_meeting.meeting_at = agm.meeting_at
+
+        # LotOwnerEmail row confirming direct ownership
+        mock_email_row = MagicMock()
+        mock_email_row.lot_owner_id = lot_owner_id
+
+        # Mock LotOwner
+        mock_lot_owner = MagicMock()
+        mock_lot_owner.id = lot_owner_id
+        mock_lot_owner.lot_number = lo.lot_number
+
+        flush_count = 0
+
+        async def _flush():
+            nonlocal flush_count
+            flush_count += 1
+            # The service calls flush in this order:
+            #   flush 1: after delete draft votes by lot
+            #   flush 2: (inside per-lot loop) before BallotSubmission insert add — actually
+            #            the first per-lot flush is at line 358 "await db.flush()"
+            #   flush 3: the BallotSubmission insert flush at line 415 "await db.flush()"
+            # Raise on flush 3 to simulate the concurrent duplicate.
+            if flush_count >= 3:
+                raise SAIntegrityError(None, None, Exception("duplicate key value"))
+
+        execute_call_count = 0
+
+        async def _execute(stmt):
+            nonlocal execute_call_count
+            execute_call_count += 1
+            # Call sequence (for 1 lot, no inline votes):
+            # 1: SELECT GeneralMeeting
+            # 2: SELECT LotOwnerEmail (ownership check)
+            # 3: SELECT BallotSubmission FOR UPDATE (existing_subs)
+            # 4: SELECT Vote.motion_id (already voted)
+            # 5: SELECT Motion (visible motions)
+            # 6: SELECT GeneralMeetingLotWeight
+            # 7: SELECT LotOwner
+            # 8: DELETE draft votes by lot
+            # 9: DELETE shared draft votes
+            if execute_call_count == 1:
+                return _scalar_result(mock_meeting)
+            elif execute_call_count == 2:
+                return _scalar_result(mock_email_row)
+            elif execute_call_count == 3:
+                return _scalars_result([])  # no existing submissions
+            elif execute_call_count == 4:
+                return _all_result([])  # no already-voted motions
+            elif execute_call_count == 5:
+                return _scalars_result([])  # no visible motions
+            elif execute_call_count == 6:
+                return _scalars_result([])  # no lot weights
+            elif execute_call_count == 7:
+                return _scalars_result([mock_lot_owner])
+            else:
+                return _all_result([])  # DELETE statements return nothing meaningful
+
+        mock_session = MagicMock()
+        mock_session.execute = _execute
+        mock_session.add = MagicMock()
+        mock_session.flush = _flush
+        mock_session.rollback = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await submit_ballot(
+                db=mock_session,  # type: ignore[arg-type]
+                general_meeting_id=general_meeting_id,
+                voter_email=voter_email,
+                lot_owner_ids=[lot_owner_id],
+                inline_votes={},
+            )
+        # The service converts IntegrityError to HTTP 409
+        assert exc_info.value.status_code == 409
+
 
 # ---------------------------------------------------------------------------
 # GET /api/general-meeting/{agm_id}/my-ballot

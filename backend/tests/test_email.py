@@ -49,6 +49,7 @@ from app.services.email_service import (
     _MAX_ATTEMPTS,
     _backoff_seconds,
     _get_jinja_env,
+    _send_with_limit,
 )
 
 
@@ -172,6 +173,25 @@ async def client(app, db_session):
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+# ---------------------------------------------------------------------------
+# _send_with_limit helper
+# ---------------------------------------------------------------------------
+
+
+class TestSendWithLimit:
+    # --- Happy path ---
+
+    async def test_send_with_limit_awaits_coroutine(self):
+        """_send_with_limit acquires the semaphore and awaits the coroutine."""
+        called = []
+
+        async def fake_coro():
+            called.append(True)
+
+        await _send_with_limit(fake_coro())
+        assert called == [True]
 
 
 # ---------------------------------------------------------------------------

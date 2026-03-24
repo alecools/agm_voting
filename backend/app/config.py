@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     admin_password: str = "admin"
     testing_mode: bool = False
     email_override: str = ""
+    environment: str = "development"
 
 
 settings = Settings()

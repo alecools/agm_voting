@@ -9,7 +9,7 @@ import asyncio
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -170,9 +170,11 @@ async def create_building(
 
 @router.get("/buildings", response_model=list[BuildingOut])
 async def list_buildings(
+    limit: int = Query(default=100, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[BuildingOut]:
-    buildings = await admin_service.list_buildings(db)
+    buildings = await admin_service.list_buildings(db, limit=limit, offset=offset)
     return [BuildingOut.model_validate(b) for b in buildings]
 
 
@@ -217,9 +219,11 @@ async def delete_building(
 )
 async def list_lot_owners(
     building_id: uuid.UUID,
+    limit: int = Query(default=100, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[LotOwnerOut]:
-    owners = await admin_service.list_lot_owners(building_id, db)
+    owners = await admin_service.list_lot_owners(building_id, db, limit=limit, offset=offset)
     return [LotOwnerOut(**o) for o in owners]
 
 
@@ -473,9 +477,11 @@ async def create_general_meeting(
 
 @router.get("/general-meetings", response_model=list[GeneralMeetingListItem])
 async def list_general_meetings(
+    limit: int = Query(default=100, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[GeneralMeetingListItem]:
-    items = await admin_service.list_general_meetings(db)
+    items = await admin_service.list_general_meetings(db, limit=limit, offset=offset)
     return [GeneralMeetingListItem(**item) for item in items]
 
 
