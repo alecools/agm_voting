@@ -1,13 +1,16 @@
 /**
- * E2E test: TOCS xlsx financial position upload.
+ * E2E test: TOCS CSV financial position upload.
  *
- * Creates a building, seeds lot owners for lots present in the TOCS xlsx,
- * uploads the xlsx via the admin UI, and asserts that:
+ * Creates a building, seeds lot owners for lots present in the TOCS CSV,
+ * uploads the CSV via the admin UI, and asserts that:
  * - The success message appears
  * - At least one lot shows the "In Arrear" badge in the lot owners table
  *
- * Lot 54 is used because it carries a positive closing balance in both
- * Administrative and Maintenance fund sections → in_arrear after worst-case merge.
+ * Lot 5 is used because it carries a positive closing balance ($1,882.06)
+ * in the Administrative Fund section → in_arrear after worst-case merge.
+ * Lot 1 has $- (zero balance) → stays normal.
+ *
+ * Uses examples/Lot financial position.csv (lots 1–51, The Vale building).
  */
 
 import { test, expect } from "../fixtures";
@@ -22,17 +25,17 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Path to the TOCS xlsx file in the examples directory
-const TOCS_XLSX_PATH = path.resolve(
+// Path to the TOCS CSV file in the examples directory
+const TOCS_CSV_PATH = path.resolve(
   __dirname,
-  "../../../examples/Consolidated Lot Positions Report 20-10-2025 to 17-03-2026.xlsx"
+  "../../../examples/Lot financial position.csv"
 );
 
 const BUILDING_NAME = `AGM Financial Position Test Building-${Date.now()}`;
 
 let buildingId = "";
 
-test.describe("Admin — TOCS xlsx financial position upload", () => {
+test.describe("Admin — TOCS CSV financial position upload", () => {
   test.describe.configure({ mode: "serial" });
 
   test.beforeAll(async () => {
@@ -45,17 +48,17 @@ test.describe("Admin — TOCS xlsx financial position upload", () => {
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "fin-pos-mgr@test.com");
 
-    // Seed lot 54 — in arrear in TOCS xlsx (positive closing balance in both fund sections)
+    // Seed lot 5 — in arrear in TOCS CSV (positive closing balance $1,882.06)
     await seedLotOwner(api, buildingId, {
-      lotNumber: "54",
-      emails: ["fin-pos-54@test.com"],
+      lotNumber: "5",
+      emails: ["fin-pos-5@test.com"],
       unitEntitlement: 10,
       financialPosition: "normal",
     });
-    // Seed a second lot that is normal in the xlsx (lot 53 has negative closing balance → normal)
+    // Seed lot 1 — normal in the CSV ($- zero balance)
     await seedLotOwner(api, buildingId, {
-      lotNumber: "53",
-      emails: ["fin-pos-53@test.com"],
+      lotNumber: "1",
+      emails: ["fin-pos-1@test.com"],
       unitEntitlement: 10,
       financialPosition: "normal",
     });
@@ -63,7 +66,7 @@ test.describe("Admin — TOCS xlsx financial position upload", () => {
     await api.dispose();
   }, { timeout: 60000 });
 
-  test("uploading TOCS xlsx updates financial positions and shows success message", async ({
+  test("uploading TOCS CSV updates financial positions and shows success message", async ({
     page,
   }) => {
     test.setTimeout(120000);
@@ -71,18 +74,18 @@ test.describe("Admin — TOCS xlsx financial position upload", () => {
     await page.goto(`/admin/buildings/${buildingId}`);
     await expect(page.getByText(BUILDING_NAME)).toBeVisible({ timeout: 15000 });
 
-    // Upload the TOCS xlsx file via the hidden file input
+    // Upload the TOCS CSV file via the hidden file input
     const fileInput = page.locator('input[aria-label="Financial positions file"]');
-    await fileInput.setInputFiles(TOCS_XLSX_PATH);
+    await fileInput.setInputFiles(TOCS_CSV_PATH);
 
     // Success message appears
     await expect(
       page.getByText(/Import complete: \d+ updated, \d+ skipped\./i)
     ).toBeVisible({ timeout: 30000 });
 
-    // Lot 54 should now show the "In Arrear" badge in the lot owners table
+    // Lot 5 should now show the "In Arrear" badge in the lot owners table
     await expect(
-      page.getByRole("row").filter({ hasText: "54" }).getByText("In Arrear")
+      page.getByRole("row").filter({ hasText: "5" }).getByText("In Arrear")
     ).toBeVisible({ timeout: 10000 });
   });
 

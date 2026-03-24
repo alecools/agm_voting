@@ -11,6 +11,12 @@ export default function GeneralMeetingSummaryPage() {
     queryKey: ["general-meeting-summary", meetingId],
     queryFn: () => getGeneralMeetingSummary(meetingId!),
     enabled: !!meetingId,
+    // Do not retry 404s — the meeting genuinely does not exist and retrying only
+    // delays showing the "Meeting not found" message to the user.
+    retry: (failureCount, err) => {
+      if ((err as Error).message.includes("404")) return false;
+      return failureCount < 3;
+    },
   });
 
   useEffect(() => {

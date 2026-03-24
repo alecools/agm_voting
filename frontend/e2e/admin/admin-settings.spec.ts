@@ -68,8 +68,16 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.goto("/admin/settings");
     await expect(page.getByLabel("App name")).toBeVisible();
 
-    // Store original sidebar text for comparison
-    const sidebar = page.locator(".admin-sidebar__app-name, .admin-sidebar__logo").first();
+    // Capture the current logo URL so we can restore it at the end.
+    const originalLogoUrl = await page.getByLabel("Logo URL").inputValue();
+
+    // Clear logo URL so the sidebar renders the text span (.admin-sidebar__app-name)
+    // rather than the <img> element — the span is only shown when logo_url is empty.
+    if (originalLogoUrl) {
+      await page.getByLabel("Logo URL").fill("");
+      await page.getByRole("button", { name: "Save" }).click();
+      await expect(page.getByText("Settings saved.")).toBeVisible();
+    }
 
     // Update app name and save
     await page.getByLabel("App name").fill(testAppName);
@@ -82,13 +90,17 @@ test.describe("Admin Settings — tenant branding", () => {
       timeout: 15000,
     });
 
-    // Restore original app name so the suite is idempotent
+    // Restore original app name and logo URL so the suite is idempotent
     await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
+    await page.getByLabel("Logo URL").fill(originalLogoUrl);
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
-    await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(ORIGINAL_APP_NAME, {
-      timeout: 15000,
-    });
+    // Only assert the sidebar text when no logo is set (otherwise the img is shown)
+    if (!originalLogoUrl) {
+      await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(ORIGINAL_APP_NAME, {
+        timeout: 15000,
+      });
+    }
   });
 
   test("success message disappears after a few seconds", async ({ page }) => {

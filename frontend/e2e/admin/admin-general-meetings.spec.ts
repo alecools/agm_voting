@@ -235,9 +235,12 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     // Delete Meeting button is visible for pending meetings
     await expect(page.getByRole("button", { name: "Delete Meeting" })).toBeVisible({ timeout: 10000 });
 
-    // Accept the confirm dialog and click delete
-    page.on("dialog", (dialog) => dialog.accept());
+    // Click Delete Meeting — this opens the custom confirmation modal (not a native dialog)
     await page.getByRole("button", { name: "Delete Meeting" }).click();
+
+    // Confirm deletion in the modal — the modal contains a "Delete Meeting" button in the footer
+    await expect(page.getByRole("dialog", { name: "Delete Meeting" })).toBeVisible({ timeout: 5000 });
+    await page.getByRole("dialog", { name: "Delete Meeting" }).getByRole("button", { name: "Delete Meeting" }).click();
 
     // Should be redirected to the meetings list
     await expect(page).toHaveURL(/\/admin\/general-meetings$/, { timeout: 15000 });

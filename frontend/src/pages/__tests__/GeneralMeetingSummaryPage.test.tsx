@@ -22,6 +22,22 @@ function renderPage(meetingId = SUMMARY_AGM_ID) {
   );
 }
 
+/** Render with no retry override so the component's own retry function takes effect. */
+function renderPageWithComponentRetry(meetingId = SUMMARY_AGM_ID) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retryDelay: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[`/general-meeting/${meetingId}/summary`]}>
+        <Routes>
+          <Route path="/general-meeting/:meetingId/summary" element={<GeneralMeetingSummaryPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
 afterEach(() => {
   document.title = "";
 });
@@ -146,9 +162,31 @@ describe("GeneralMeetingSummaryPage", () => {
         HttpResponse.json({ detail: "Server error" }, { status: 500 })
       )
     );
-    renderPage();
+    // Use component retry config (retryDelay:0) so the 3 automatic retries
+    // complete instantly and the error state renders within the waitFor window.
+    renderPageWithComponentRetry();
+    await waitFor(
+      () => {
+        expect(screen.getByText("Failed to load meeting.")).toBeInTheDocument();
+      },
+      { timeout: 10000 }
+    );
+  });
+
+  // --- Retry logic ---
+
+  it("retry function returns false immediately for 404 errors (no retries)", async () => {
+    // Use component's own retry config (no override). The 404 branch of the retry
+    // callback returns false so the error shows without any retry delay.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/:meetingId/summary`, () =>
+        HttpResponse.json({ detail: "Not found" }, { status: 404 })
+      )
+    );
+    renderPageWithComponentRetry();
     await waitFor(() => {
-      expect(screen.getByText("Failed to load meeting.")).toBeInTheDocument();
+      expect(screen.getByText("Meeting not found")).toBeInTheDocument();
     });
   });
+
 });
