@@ -19,7 +19,7 @@ function FinancialPositionBadge({ position }: { position: string }) {
           padding: "2px 8px",
           borderRadius: "12px",
           background: "#f59e0b",
-          color: "#fff",
+          color: "#0C1B2E",
           fontSize: "0.75rem",
           fontWeight: 600,
         }}
