@@ -206,6 +206,27 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ---
 
+### US-MN-03: Unified motion management table
+
+**Description:** As a meeting host, I want reorder controls (drag-and-drop + move buttons) and visibility toggles in a single table so I can manage motion ordering and visibility in one place, rather than switching between two separate panels.
+
+**Acceptance Criteria:**
+
+- [ ] The admin AGM detail page shows a single "Motions" table that combines: drag handle, motion number, title/description, type badge, visibility toggle, and action buttons (Edit/Delete)
+- [ ] The separate "Motion Reorder" panel and "Motion Visibility" heading are removed — all motion management happens in one table
+- [ ] Drag handles and move buttons (top/up/down/bottom) appear in the leftmost column when the meeting is open or pending
+- [ ] Drag handles and move buttons are absent when the meeting is closed
+- [ ] Visibility toggles behave identically to the previous standalone table: disabled when closed, disabled when motion has received votes, inline error on failure
+- [ ] Hidden motions appear with muted styling on data cells (#, title, type) but full opacity on the visibility toggle and action buttons
+- [ ] Edit and Delete buttons remain disabled when a motion is visible (must hide first), same as before
+- [ ] "Add Motion", "Show All", and "Hide All" buttons appear above the table (not closed meetings)
+- [ ] All existing reorder and visibility behaviour is preserved — this is a UI consolidation, not a behaviour change
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
 ### US-002: Building selection, AGM list, and past submission review
 
 **Description:** As a lot owner, I want to select my building, see all AGMs for that building, enter the active voting session, and review my past submissions.
