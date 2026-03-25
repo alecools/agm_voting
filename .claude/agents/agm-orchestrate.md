@@ -29,18 +29,6 @@ Determine:
 - Can the feature be split into parallel vertical slices?
 - Is this a **styling-only change**? (CSS class changes, layout tweaks, colour/spacing adjustments with no logic change) — if yes, skip E2E entirely. Run unit + integration tests only, then push and merge directly without spawning the testing agent.
 
-### Migration chain note — branching from `master`
-
-When a feature branch is cut from `master`, the `preview` Neon DB (used as the parent for the isolated Neon DB branch) may have migrations that don't exist in `master`. Alembic will fail with `Can't locate revision` during the Vercel build.
-
-**Fix:** before pushing, merge `preview` into the feature branch:
-```bash
-git fetch origin && git merge origin/preview --no-edit
-```
-This brings all preview-only migrations into the feature branch so the migration chain is complete. Do this as part of Step a whenever the base branch is `master`.
-
----
-
 ### Step a: Create branch and worktree — ALWAYS FIRST
 
 **This step is mandatory before any design, code, or test work begins.**
