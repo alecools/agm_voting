@@ -488,9 +488,10 @@ describe("GeneralMeetingDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
     });
-    expect(screen.getByRole("columnheader", { name: "#" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Motion" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Type" })).toBeInTheDocument();
+    // Both the reorder panel and visibility table have "#" — use getAllByRole
+    expect(screen.getAllByRole("columnheader", { name: "#" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole("columnheader", { name: "Motion" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole("columnheader", { name: "Type" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("columnheader", { name: "Visibility" })).toBeInTheDocument();
   });
 
@@ -624,7 +625,8 @@ describe("GeneralMeetingDetailPage", () => {
   it("renders Actions column header in motions table", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("columnheader", { name: "Actions" })).toBeInTheDocument();
+      // Both the reorder panel and visibility table have an "Actions" header
+      expect(screen.getAllByRole("columnheader", { name: "Actions" }).length).toBeGreaterThanOrEqual(1);
     });
   });
 

@@ -6486,7 +6486,7 @@ class TestMotionManagement:
         assert data["motion_type"] == "general"
         assert data["is_visible"] is False
         assert "id" in data
-        assert "order_index" in data
+        assert "display_order" in data
 
     async def test_add_motion_to_pending_meeting_returns_201(
         self, client: AsyncClient, db_session: AsyncSession
@@ -6503,31 +6503,31 @@ class TestMotionManagement:
     async def test_add_motion_first_motion_order_index_zero(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """First motion on a meeting with no existing motions gets order_index=0."""
+        """First motion on a meeting with no existing motions gets display_order=0."""
         agm = await self._create_meeting(db_session, "FirstMotion")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "First"},
         )
         assert response.status_code == 201
-        assert response.json()["order_index"] == 0
+        assert response.json()["display_order"] == 0
 
     async def test_add_motion_order_index_increments(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Second motion gets order_index = max + 1."""
+        """Second motion gets display_order = max + 1."""
         agm, _motion = await self._create_meeting_with_motion(db_session, "IncrOrder", order_index=0)
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Second Motion"},
         )
         assert response.status_code == 201
-        assert response.json()["order_index"] == 1
+        assert response.json()["display_order"] == 1
 
     async def test_add_multiple_motions_sequential_order_indexes(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Adding 3 motions results in order_indexes 0, 1, 2 with no constraint violations."""
+        """Adding 3 motions results in display_orders 0, 1, 2 with no constraint violations."""
         agm = await self._create_meeting(db_session, "SeqOrder")
         indexes = []
         for i in range(3):
@@ -6536,7 +6536,7 @@ class TestMotionManagement:
                 json={"title": f"Motion {i}"},
             )
             assert r.status_code == 201
-            indexes.append(r.json()["order_index"])
+            indexes.append(r.json()["display_order"])
         assert indexes == [0, 1, 2]
 
     async def test_add_motion_motion_type_defaults_to_general(

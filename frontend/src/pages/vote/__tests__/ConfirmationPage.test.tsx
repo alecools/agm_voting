@@ -102,8 +102,8 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m2", motion_title: "Second Motion", display_order: 1, choice: "no", eligible: true },
-                { motion_id: "m1", motion_title: "First Motion", display_order: 0, choice: "yes", eligible: true },
+                { motion_id: "m2", motion_title: "Second Motion", display_order: 2, motion_number: null, choice: "no", eligible: true },
+                { motion_id: "m1", motion_title: "First Motion", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -272,7 +272,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -301,7 +301,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],

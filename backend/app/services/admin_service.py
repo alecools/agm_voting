@@ -1322,7 +1322,8 @@ async def toggle_motion_visibility(
         "id": motion.id,
         "title": motion.title,
         "description": motion.description,
-        "order_index": motion.display_order,
+        "display_order": motion.display_order,
+        "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
         "is_visible": motion.is_visible,
         "tally": {
@@ -1391,7 +1392,8 @@ async def add_motion_to_meeting(
         "id": motion.id,
         "title": motion.title,
         "description": motion.description,
-        "order_index": motion.display_order,
+        "display_order": motion.display_order,
+        "motion_number": motion.motion_number,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
         "is_visible": motion.is_visible,
     }

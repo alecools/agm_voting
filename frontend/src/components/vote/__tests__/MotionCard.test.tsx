@@ -204,10 +204,11 @@ describe("MotionCard", () => {
 
   // --- 1-based motion number display ---
 
-  it("displays motion number as order_index + 1 (1-based)", () => {
+  it("displays 'Motion {position}' fallback when motion_number is null", () => {
     render(
       <MotionCard
-        motion={{ ...motion, order_index: 0 }}
+        motion={{ ...motion, motion_number: null }}
+        position={1}
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}
@@ -217,10 +218,11 @@ describe("MotionCard", () => {
     expect(screen.getByText("Motion 1")).toBeInTheDocument();
   });
 
-  it("displays correct 1-based number for order_index 4", () => {
+  it("displays correct 1-based position number when motion_number is null", () => {
     render(
       <MotionCard
-        motion={{ ...motion, order_index: 4 }}
+        motion={{ ...motion, motion_number: null }}
+        position={5}
         choice={null}
         onChoiceChange={() => {}}
         disabled={false}

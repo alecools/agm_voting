@@ -484,7 +484,7 @@ class TestAuthVerify:
         await db_session.flush()
 
         # One visible motion
-        m = Motion(general_meeting_id=agm.id, title="Motion C3", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion C3", display_order=1, is_visible=True)
         db_session.add(m)
         await db_session.flush()
 
@@ -757,9 +757,9 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=2, is_visible=True)
-        m_hidden = Motion(general_meeting_id=agm.id, title="Hidden Motion", order_index=3, is_visible=False)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2, is_visible=True)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Hidden Motion", display_order=3, is_visible=False)
         db_session.add_all([m1, m2, m_hidden])
         code = await make_otp(db_session, "uvc1@auth.com", agm.id)
         await db_session.commit()
@@ -786,7 +786,7 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Motion C", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion C", display_order=1, is_visible=True)
         db_session.add(m)
         await db_session.flush()
         # Submit a ballot for the lot
@@ -828,8 +828,8 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion X", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion Y", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion X", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion Y", display_order=2, is_visible=True)
         db_session.add_all([m1, m2])
         await db_session.flush()
         # lo_a has submitted a ballot and voted on both motions
@@ -941,8 +941,8 @@ class TestAuthVerify:
         await db_session.flush()
 
         # Two visible motions — lot has only voted on M1
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV1-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV1-B", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV1-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV1-B", display_order=2, is_visible=True)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
@@ -986,10 +986,10 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV2-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV2-B", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV2-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV2-B", display_order=2, is_visible=True)
         # Hidden motion — should NOT block already_submitted
-        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV2-Hidden", order_index=3, is_visible=False)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV2-Hidden", display_order=3, is_visible=False)
         db_session.add_all([m1, m2, m_hidden])
         await db_session.flush()
 
@@ -1036,7 +1036,7 @@ class TestAuthVerify:
         await db_session.flush()
 
         # Only a hidden motion — nothing visible
-        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV3-Hidden", order_index=1, is_visible=False)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV3-Hidden", display_order=1, is_visible=False)
         db_session.add(m_hidden)
         # BallotSubmission exists but no visible motions → should still be False
         sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote3@auth.com")
@@ -1071,7 +1071,7 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m = Motion(general_meeting_id=agm.id, title="Motion RV4-A", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion RV4-A", display_order=1, is_visible=True)
         db_session.add(m)
         # No BallotSubmission, no Vote rows at all
         code = await make_otp(db_session, "revote4@auth.com", agm.id)
@@ -1106,9 +1106,9 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV5-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV5-B", order_index=2, is_visible=True)
-        m3 = Motion(general_meeting_id=agm.id, title="Motion RV5-C", order_index=3, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV5-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV5-B", display_order=2, is_visible=True)
+        m3 = Motion(general_meeting_id=agm.id, title="Motion RV5-C", display_order=3, is_visible=True)
         db_session.add_all([m1, m2, m3])
         await db_session.flush()
 
