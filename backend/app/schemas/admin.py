@@ -364,6 +364,24 @@ class FinancialPositionImportResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Motion reorder schemas
+# ---------------------------------------------------------------------------
+
+
+class MotionReorderItem(BaseModel):
+    motion_id: uuid.UUID
+    display_order: int
+
+
+class MotionReorderRequest(BaseModel):
+    motions: list[MotionReorderItem]
+
+
+class MotionReorderOut(BaseModel):
+    motions: list[MotionOut]
+
+
+# ---------------------------------------------------------------------------
 # Admin auth schemas
 # ---------------------------------------------------------------------------
 

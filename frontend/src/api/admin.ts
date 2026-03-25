@@ -435,3 +435,29 @@ export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to delete meeting: ${res.status}`);
 }
+
+// ---------------------------------------------------------------------------
+// Motion reorder
+// ---------------------------------------------------------------------------
+
+export interface MotionReorderItem {
+  motion_id: string;
+  display_order: number;
+}
+
+export interface MotionReorderOut {
+  motions: MotionOut[];
+}
+
+export async function reorderMotions(
+  meetingId: string,
+  motions: MotionReorderItem[]
+): Promise<MotionReorderOut> {
+  return apiFetch<MotionReorderOut>(
+    `/api/admin/general-meetings/${meetingId}/motions/reorder`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ motions }),
+    }
+  );
+}

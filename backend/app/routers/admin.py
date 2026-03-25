@@ -34,6 +34,8 @@ from app.schemas.admin import (
     LotOwnerImportResult,
     LotOwnerOut,
     LotOwnerUpdate,
+    MotionReorderOut,
+    MotionReorderRequest,
     ProxyImportResult,
     ResendReportOut,
     SetProxyRequest,
@@ -351,6 +353,24 @@ async def get_general_meeting_detail(
 ) -> GeneralMeetingDetail:
     detail = await admin_service.get_general_meeting_detail(general_meeting_id, db)
     return GeneralMeetingDetail(**detail)
+
+
+@router.put(
+    "/general-meetings/{general_meeting_id}/motions/reorder",
+    response_model=MotionReorderOut,
+)
+async def reorder_motions(
+    general_meeting_id: uuid.UUID,
+    data: MotionReorderRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MotionReorderOut:
+    """Bulk reorder motions for a general meeting.
+
+    Replaces all display_order values atomically. The request must include
+    exactly all motion IDs for this meeting.
+    """
+    result = await admin_service.reorder_motions(general_meeting_id, data, db)
+    return MotionReorderOut(**result)
 
 
 @router.post(

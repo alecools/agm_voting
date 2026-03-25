@@ -10,6 +10,8 @@ import type {
   GeneralMeetingOut,
   GeneralMeetingCloseOut,
   GeneralMeetingStartOut,
+  MotionOut,
+  MotionReorderOut,
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
@@ -414,6 +416,40 @@ export const adminHandlers = [
       return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
     }
     const result: ResendReportOut = { queued: true };
+    return HttpResponse.json(result);
+  }),
+
+  http.put(`${BASE}/api/admin/general-meetings/:meetingId/motions/reorder`, async ({ request, params }) => {
+    if (params.meetingId === "agm-closed-reorder") {
+      return HttpResponse.json(
+        { detail: "Cannot reorder motions on a closed General Meeting" },
+        { status: 409 }
+      );
+    }
+    if (params.meetingId === "agm-reorder-error") {
+      return HttpResponse.json(
+        { detail: "Server error" },
+        { status: 500 }
+      );
+    }
+    const body = await request.json() as { motions?: Array<{ motion_id: string; display_order: number }> };
+    const incomingMotions = body?.motions ?? [];
+    // Sort by display_order and return updated motions using ADMIN_MEETING_DETAIL motions as base
+    const sorted = [...incomingMotions].sort((a, b) => a.display_order - b.display_order);
+    const baseMotions = ADMIN_MEETING_DETAIL.motions;
+    const motionMap = new Map(baseMotions.map((m) => [m.id, m]));
+    const reordered: MotionOut[] = sorted.map((item, idx) => {
+      const base = motionMap.get(item.motion_id);
+      return {
+        id: item.motion_id,
+        title: base?.title ?? `Motion ${idx + 1}`,
+        description: base?.description ?? null,
+        display_order: idx + 1,
+        motion_number: base?.motion_number ?? null,
+        motion_type: base?.motion_type ?? "general",
+      };
+    });
+    const result: MotionReorderOut = { motions: reordered };
     return HttpResponse.json(result);
   }),
 ];
