@@ -161,9 +161,9 @@ describe("Voting Flow Integration", () => {
       http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
         HttpResponse.json([
           // Motion 1 was voted on previously (already_voted=true)
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, display_order: 1, motion_type: "general", is_visible: true, already_voted: true },
           // Motion 2 is newly visible — not yet voted
-          { id: MOTION_ID_2, title: "New Motion", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: false },
+          { id: MOTION_ID_2, title: "New Motion", description: null, display_order: 2, motion_type: "special", is_visible: true, already_voted: false },
         ])
       )
     );
@@ -198,8 +198,8 @@ describe("Voting Flow Integration", () => {
     server.use(
       http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
         HttpResponse.json([
-          { id: MOTION_ID_1, title: "Motion 1", description: null, order_index: 0, motion_type: "general", is_visible: true, already_voted: true },
-          { id: MOTION_ID_2, title: "Motion 2", description: null, order_index: 1, motion_type: "special", is_visible: true, already_voted: true },
+          { id: MOTION_ID_1, title: "Motion 1", description: null, display_order: 1, motion_type: "general", is_visible: true, already_voted: true },
+          { id: MOTION_ID_2, title: "Motion 2", description: null, display_order: 2, motion_type: "special", is_visible: true, already_voted: true },
         ])
       )
     );

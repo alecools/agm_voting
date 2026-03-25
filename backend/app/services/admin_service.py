@@ -1350,7 +1350,7 @@ async def add_motion_to_meeting(
 ) -> dict:
     """Add a new motion to an existing General Meeting.
 
-    Assigns order_index = MAX(existing) + 1 (starts at 0 if no motions).
+    Assigns display_order = MAX(existing) + 1 (starts at 0 if no motions).
     New motion is always created with is_visible=False.
 
     Raises 404 if meeting not found.
@@ -1444,7 +1444,7 @@ async def update_motion(
         "id": motion.id,
         "title": motion.title,
         "description": motion.description,
-        "order_index": motion.display_order,
+        "display_order": motion.display_order,
         "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
         "is_visible": motion.is_visible,
     }

@@ -204,7 +204,7 @@ class MotionVisibilityOut(BaseModel):
     id: uuid.UUID
     title: str
     description: str | None
-    order_index: int
+    display_order: int
     motion_type: MotionType
     is_visible: bool
 

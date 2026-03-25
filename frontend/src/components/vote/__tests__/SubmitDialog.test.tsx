@@ -16,8 +16,8 @@ describe("SubmitDialog", () => {
     render(
       <SubmitDialog
         unansweredMotions={[
-          { order_index: 0, title: "Motion A" },
-          { order_index: 1, title: "Motion B" },
+          { display_order: 1, title: "Motion A" },
+          { display_order: 2, title: "Motion B" },
         ]}
         onConfirm={() => {}}
         onCancel={() => {}}

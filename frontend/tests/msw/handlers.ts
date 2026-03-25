@@ -191,7 +191,7 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
       id: "m-hidden",
       title: "Hidden Motion",
       description: "Hidden desc",
-      order_index: 0,
+      display_order: 1,
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -217,7 +217,7 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-visible-1",
       title: "Visible Motion 1",
       description: null,
-      order_index: 0,
+      display_order: 1,
       motion_type: "general" as const,
       is_visible: true,
       tally: {
@@ -233,7 +233,7 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-hidden-1",
       title: "Hidden Motion 1",
       description: null,
-      order_index: 1,
+      display_order: 2,
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -249,7 +249,7 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-hidden-2",
       title: "Hidden Motion 2",
       description: null,
-      order_index: 2,
+      display_order: 3,
       motion_type: "special" as const,
       is_visible: false,
       tally: {
@@ -272,7 +272,7 @@ export const ADMIN_MEETING_DETAIL_ALL_HIDDEN: GeneralMeetingDetail = {
       id: "m-only-hidden",
       title: "Only Hidden Motion",
       description: null,
-      order_index: 0,
+      display_order: 1,
       motion_type: "general" as const,
       is_visible: false,
       tally: {

@@ -517,7 +517,7 @@ export default function GeneralMeetingDetailPage() {
                         className={mutedCell}
                         style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}
                       >
-                        {motion.order_index + 1}
+                        {motion.display_order}
                       </td>
                       <td className={mutedCell}>
                         <span style={{ fontWeight: 500 }}>{motion.title}</span>

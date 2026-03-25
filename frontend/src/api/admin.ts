@@ -496,7 +496,7 @@ export interface MotionVisibilityOut {
   id: string;
   title: string;
   description: string | null;
-  order_index: number;
+  display_order: number;
   motion_type: MotionType;
   is_visible: boolean;
 }
