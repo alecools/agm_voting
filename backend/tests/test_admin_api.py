@@ -361,6 +361,103 @@ class TestListBuildings:
         assert "is_archived" in first
         assert "created_at" in first
 
+    # --- name filter ---
+
+    async def test_name_filter_exact_match(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="Filter Exact Building", manager_email="filterexact@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?name=Filter+Exact+Building")
+        assert response.status_code == 200
+        data = response.json()
+        names = [item["name"] for item in data]
+        assert "Filter Exact Building" in names
+
+    async def test_name_filter_partial_substring_match(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b1 = Building(name="Substring Alpha Corp", manager_email="sub1@test.com")
+        b2 = Building(name="Substring Beta Corp", manager_email="sub2@test.com")
+        b_other = Building(name="Unrelated Corp", manager_email="other@test.com")
+        db_session.add_all([b1, b2, b_other])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?name=Substring")
+        assert response.status_code == 200
+        data = response.json()
+        names = [item["name"] for item in data]
+        assert "Substring Alpha Corp" in names
+        assert "Substring Beta Corp" in names
+        assert "Unrelated Corp" not in names
+
+    async def test_name_filter_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="CaseSensitive Building", manager_email="case@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?name=casesensitive")
+        assert response.status_code == 200
+        data = response.json()
+        names = [item["name"] for item in data]
+        assert "CaseSensitive Building" in names
+
+    async def test_name_filter_no_match_returns_empty(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        response = await client.get("/api/admin/buildings?name=does-not-exist-xyz-99")
+        assert response.status_code == 200
+        data = response.json()
+        assert data == []
+
+    async def test_name_filter_absent_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="No Filter Building", manager_email="nofilter@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings")
+        assert response.status_code == 200
+        data = response.json()
+        names = [item["name"] for item in data]
+        assert "No Filter Building" in names
+
+    async def test_name_filter_empty_string_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="EmptyFilter Building", manager_email="empty@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?name=")
+        assert response.status_code == 200
+        data = response.json()
+        names = [item["name"] for item in data]
+        # empty string matches everything via LIKE '%%'
+        assert "EmptyFilter Building" in names
+
+    async def test_name_filter_combined_with_limit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        for i in range(3):
+            db_session.add(
+                Building(
+                    name=f"LimitFilter Building {i}",
+                    manager_email=f"limit{i}@test.com",
+                )
+            )
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?name=LimitFilter&limit=2")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) <= 2
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}
@@ -1608,6 +1705,167 @@ class TestListAGMs:
             # Check ordering
             for i in range(len(data) - 1):
                 assert data[i]["created_at"] >= data[i + 1]["created_at"]
+
+    # --- name filter ---
+
+    async def test_agm_name_filter_exact_match(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM Name Filter Building", manager_email="agmnf@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Exact Match AGM Title",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=Exact+Match+AGM+Title")
+        assert response.status_code == 200
+        data = response.json()
+        titles = [item["title"] for item in data]
+        assert "Exact Match AGM Title" in titles
+
+    async def test_agm_name_filter_partial_substring_match(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM Substring Building", manager_email="agmsub@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm1 = GeneralMeeting(
+            building_id=b.id,
+            title="SubstringAGM First Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        agm2 = GeneralMeeting(
+            building_id=b.id,
+            title="SubstringAGM Second Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        agm_other = GeneralMeeting(
+            building_id=b.id,
+            title="Unrelated Meeting Title",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add_all([agm1, agm2, agm_other])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=SubstringAGM")
+        assert response.status_code == 200
+        data = response.json()
+        titles = [item["title"] for item in data]
+        assert "SubstringAGM First Meeting" in titles
+        assert "SubstringAGM Second Meeting" in titles
+        assert "Unrelated Meeting Title" not in titles
+
+    async def test_agm_name_filter_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM Case Building", manager_email="agmcase@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="CaseMixed AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=casemixed")
+        assert response.status_code == 200
+        data = response.json()
+        titles = [item["title"] for item in data]
+        assert "CaseMixed AGM" in titles
+
+    async def test_agm_name_filter_no_match_returns_empty(
+        self, client: AsyncClient
+    ):
+        response = await client.get(
+            "/api/admin/general-meetings?name=does-not-exist-xyz-agm-99"
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_agm_name_filter_absent_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM No Filter Building", manager_email="agmnof@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="No Filter AGM Title",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings")
+        assert response.status_code == 200
+        data = response.json()
+        titles = [item["title"] for item in data]
+        assert "No Filter AGM Title" in titles
+
+    async def test_agm_name_filter_empty_string_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM Empty Filter Building", manager_email="agmempty@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="EmptyFilter AGM Title",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=")
+        assert response.status_code == 200
+        data = response.json()
+        titles = [item["title"] for item in data]
+        # empty string matches everything via LIKE '%%'
+        assert "EmptyFilter AGM Title" in titles
+
+    async def test_agm_name_filter_combined_with_limit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        b = Building(name="AGM Limit Filter Building", manager_email="agmlimit@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        for i in range(3):
+            db_session.add(
+                GeneralMeeting(
+                    building_id=b.id,
+                    title=f"LimitFilterAGM Meeting {i}",
+                    status=GeneralMeetingStatus.open,
+                    meeting_at=meeting_dt(),
+                    voting_closes_at=closing_dt(),
+                )
+            )
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=LimitFilterAGM&limit=2")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) <= 2
 
 
 # ---------------------------------------------------------------------------

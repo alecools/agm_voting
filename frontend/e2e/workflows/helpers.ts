@@ -70,9 +70,12 @@ export async function seedBuilding(
   name: string,
   managerEmail: string
 ): Promise<string> {
-  const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+  const buildingsRes = await api.get(
+    `/api/admin/buildings?name=${encodeURIComponent(name)}`
+  );
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-  let building = buildings.find((b) => b.name === name);
+  // name filter is a substring match — use exact-name guard as safety net
+  let building = buildings.find((b) => b.name === name) ?? null;
   if (!building) {
     const res = await api.post("/api/admin/buildings", {
       data: { name, manager_email: managerEmail },
@@ -187,7 +190,9 @@ export async function createOpenMeeting(
   motions: MotionSeed[]
 ): Promise<string> {
   // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?name=${encodeURIComponent(title)}`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
@@ -244,7 +249,9 @@ export async function createPendingMeeting(
   motions: MotionSeed[]
 ): Promise<string> {
   // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?name=${encodeURIComponent(title)}`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;

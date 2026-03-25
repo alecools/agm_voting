@@ -233,8 +233,16 @@ async def create_building(name: str, manager_email: str, db: AsyncSession) -> Bu
     return building
 
 
-async def list_buildings(db: AsyncSession, limit: int = 100, offset: int = 0) -> list[Building]:
-    result = await db.execute(select(Building).order_by(Building.created_at).offset(offset).limit(limit))
+async def list_buildings(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    name: str | None = None,
+) -> list[Building]:
+    q = select(Building).order_by(Building.created_at)
+    if name is not None:
+        q = q.where(func.lower(Building.name).contains(name.lower()))
+    result = await db.execute(q.offset(offset).limit(limit))
     return list(result.scalars().all())
 
 
@@ -1026,14 +1034,20 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     }
 
 
-async def list_general_meetings(db: AsyncSession, limit: int = 100, offset: int = 0) -> list[dict]:
-    result = await db.execute(
+async def list_general_meetings(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    name: str | None = None,
+) -> list[dict]:
+    q = (
         select(GeneralMeeting, Building.name.label("building_name"))
         .join(Building, GeneralMeeting.building_id == Building.id)
         .order_by(GeneralMeeting.created_at.desc())
-        .offset(offset)
-        .limit(limit)
     )
+    if name is not None:
+        q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
+    result = await db.execute(q.offset(offset).limit(limit))
     rows = result.all()
     items = []
     for general_meeting, building_name in rows:
