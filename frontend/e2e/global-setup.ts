@@ -303,7 +303,7 @@ export default async function globalSetup(_config: FullConfig) {
           {
             title: "E2E Test Motion 1",
             description: "Do you approve this E2E test motion?",
-            order_index: 1,
+            display_order: 1,
           },
         ],
       },
@@ -375,7 +375,7 @@ export default async function globalSetup(_config: FullConfig) {
           {
             title: "Admin Test Motion 1",
             description: "Admin-only test motion — do not vote on this.",
-            order_index: 1,
+            display_order: 1,
           },
         ],
       },

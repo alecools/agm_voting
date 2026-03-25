@@ -48,7 +48,7 @@ export interface MotionTally {
 export interface MotionDetail {
   id: string;
   title: string;
-  order_index: number;
+  display_order: number;
   motion_type: string;
   tally: MotionTally;
   voter_lists: {
@@ -222,7 +222,7 @@ export async function createOpenMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
       })),
     },
@@ -284,7 +284,7 @@ export async function createPendingMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
       })),
     },
@@ -326,7 +326,7 @@ export async function seedPendingMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
       })),
     },
