@@ -172,9 +172,10 @@ async def create_building(
 async def list_buildings(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
+    name: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[BuildingOut]:
-    buildings = await admin_service.list_buildings(db, limit=limit, offset=offset)
+    buildings = await admin_service.list_buildings(db, limit=limit, offset=offset, name=name)
     return [BuildingOut.model_validate(b) for b in buildings]
 
 
@@ -488,9 +489,13 @@ async def create_general_meeting(
 async def list_general_meetings(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
+    name: str | None = Query(default=None),
+    building_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[GeneralMeetingListItem]:
-    items = await admin_service.list_general_meetings(db, limit=limit, offset=offset)
+    items = await admin_service.list_general_meetings(
+        db, limit=limit, offset=offset, name=name, building_id=building_id
+    )
     return [GeneralMeetingListItem(**item) for item in items]
 
 

@@ -70,9 +70,12 @@ export async function seedBuilding(
   name: string,
   managerEmail: string
 ): Promise<string> {
-  const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+  const buildingsRes = await api.get(
+    `/api/admin/buildings?name=${encodeURIComponent(name)}`
+  );
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-  let building = buildings.find((b) => b.name === name);
+  // name filter is a substring match — use exact-name guard as safety net
+  let building = buildings.find((b) => b.name === name) ?? null;
   if (!building) {
     const res = await api.post("/api/admin/buildings", {
       data: { name, manager_email: managerEmail },
@@ -186,15 +189,20 @@ export async function createOpenMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
-  // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+  // Close any existing open/pending meetings for this building.
+  // Query by building_id (not name) so we catch meetings with different titles
+  // that would otherwise block the new meeting from being created (the backend
+  // enforces one open/pending meeting per building).
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
     building_id: string;
   }[];
   const openAgms = agms.filter(
-    (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+    (a) => a.status === "open" || a.status === "pending"
   );
   for (const agm of openAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
@@ -243,15 +251,20 @@ export async function createPendingMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
-  // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
+  // Close any existing open/pending meetings for this building.
+  // Query by building_id (not name) so we catch meetings with different titles
+  // that would otherwise block the new meeting from being created (the backend
+  // enforces one open/pending meeting per building).
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
     building_id: string;
   }[];
   const openAgms = agms.filter(
-    (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+    (a) => a.status === "open" || a.status === "pending"
   );
   for (const agm of openAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
