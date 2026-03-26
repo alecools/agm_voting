@@ -644,12 +644,17 @@ export const adminHandlers = [
     if (body?.title === "add-fail") {
       return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
     }
+    // Mirror backend behaviour: auto-assign motion_number from display_order when omitted
+    const autoDisplayOrder = 3;
+    const motionNumber = (body?.motion_number !== undefined && body?.motion_number !== null)
+      ? (body.motion_number.trim() || null)
+      : String(autoDisplayOrder);
     return HttpResponse.json({
       id: "motion-new",
       title: body?.title ?? "New Motion",
       description: body?.description ?? null,
-      display_order: 3,
-      motion_number: body?.motion_number ?? null,
+      display_order: autoDisplayOrder,
+      motion_number: motionNumber,
       motion_type: body?.motion_type ?? "general",
       is_visible: false,
     }, { status: 201 });

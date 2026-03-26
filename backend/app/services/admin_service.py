@@ -1376,8 +1376,14 @@ async def add_motion_to_meeting(
     max_index = max_result.scalar_one_or_none()
     next_index = (max_index + 1) if max_index is not None else 0
 
-    motion_number = data.motion_number.strip() if data.motion_number else None
-    motion_number = motion_number if motion_number else None
+    # Auto-populate motion_number from display_order when caller omits it (None).
+    # If caller provides an explicit value (including empty string), use that
+    # (empty/whitespace → stored as NULL, preserving existing behaviour).
+    if data.motion_number is None:
+        motion_number: str | None = str(next_index)
+    else:
+        stripped = data.motion_number.strip()
+        motion_number = stripped if stripped else None
     motion = Motion(
         general_meeting_id=general_meeting_id,
         title=data.title.strip(),

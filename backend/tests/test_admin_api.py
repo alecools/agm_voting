@@ -6024,6 +6024,73 @@ class TestReorderMotions:
         assert returned[1]["display_order"] == 2
         assert returned[2]["display_order"] == 3
 
+    async def test_reorder_does_not_change_motion_numbers(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Reordering motions must not change their motion_number values.
+
+        Uses the auto-assign feature: create two motions without explicit
+        motion_number so the backend assigns "0" and "1" respectively.
+        After reversing the display order, the motion_number values must
+        remain "0" and "1" tied to their original motions.
+        """
+        from app.models import Building as _Building, GeneralMeeting as _GM, Motion as _Motion, GeneralMeetingStatus as _GMS, MotionType as _MT
+        from datetime import timezone
+
+        b = _Building(name="ReorderNoMN", manager_email="rnmn@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = _GM(
+            building_id=b.id,
+            title="Reorder No MN Test",
+            status=_GMS.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+
+        # Add two motions without motion_number — backend auto-assigns "0" and "1"
+        r1 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "First Motion"},
+        )
+        assert r1.status_code == 201
+        assert r1.json()["motion_number"] == "0"
+        m1_id = r1.json()["id"]
+
+        r2 = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Second Motion"},
+        )
+        assert r2.status_code == 201
+        assert r2.json()["motion_number"] == "1"
+        m2_id = r2.json()["id"]
+
+        # Reverse the display order
+        response = await client.put(
+            f"/api/admin/general-meetings/{agm.id}/motions/reorder",
+            json={
+                "motions": [
+                    {"motion_id": m2_id, "display_order": 1},
+                    {"motion_id": m1_id, "display_order": 2},
+                ]
+            },
+        )
+        assert response.status_code == 200
+        returned = response.json()["motions"]
+
+        # m2 is now first (display_order=1), but its motion_number is still "1"
+        assert returned[0]["id"] == m2_id
+        assert returned[0]["display_order"] == 1
+        assert returned[0]["motion_number"] == "1"
+
+        # m1 is now second (display_order=2), but its motion_number is still "0"
+        assert returned[1]["id"] == m1_id
+        assert returned[1]["display_order"] == 2
+        assert returned[1]["motion_number"] == "0"
+
 
 class TestToggleMotionVisibility:
     """Tests for the motion visibility toggle endpoint."""
@@ -6610,17 +6677,20 @@ class TestMotionManagement:
         assert motion is not None
         assert motion.motion_number == "SR-1"
 
-    async def test_add_motion_without_motion_number_is_null(
+    async def test_add_motion_without_motion_number_auto_assigns_display_order(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """motion_number is null when not supplied in the add-motion payload."""
+        """When motion_number is omitted, it is auto-assigned to str(display_order)."""
         agm = await self._create_meeting(db_session, "AddNoMotionNumber")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Unnumbered Motion"},
         )
         assert response.status_code == 201
-        assert response.json()["motion_number"] is None
+        data = response.json()
+        # display_order is 0 for the first motion on an empty meeting
+        assert data["display_order"] == 0
+        assert data["motion_number"] == "0"
 
     async def test_add_motion_whitespace_motion_number_stored_as_null(
         self, client: AsyncClient, db_session: AsyncSession
@@ -6655,23 +6725,38 @@ class TestMotionManagement:
         assert r2.status_code == 409
         assert "already exists" in r2.json()["detail"].lower()
 
-    async def test_add_motion_duplicate_motion_number_null_allowed(
+    async def test_add_motion_explicit_motion_number_overrides_auto(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Adding two motions both with motion_number=null succeeds; nulls are not unique-constrained."""
-        agm = await self._create_meeting(db_session, "NullMotionNum")
+        """When motion_number is explicitly provided, it overrides the auto-assigned value."""
+        agm = await self._create_meeting(db_session, "ExplicitMotionNum")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Explicitly Numbered", "motion_number": "SR-1"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["motion_number"] == "SR-1"
+
+    async def test_add_motion_two_omitted_numbers_auto_assigns_sequential(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adding two motions without motion_number auto-assigns sequential display_order strings."""
+        agm = await self._create_meeting(db_session, "AutoSeqMotionNum")
         r1 = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
-            json={"title": "First Null Number"},
+            json={"title": "First Auto Number"},
         )
         assert r1.status_code == 201
-        assert r1.json()["motion_number"] is None
+        # First motion gets display_order=0 → motion_number="0"
+        assert r1.json()["motion_number"] == "0"
         r2 = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
-            json={"title": "Second Null Number"},
+            json={"title": "Second Auto Number"},
         )
         assert r2.status_code == 201
-        assert r2.json()["motion_number"] is None
+        # Second motion gets display_order=1 → motion_number="1"
+        assert r2.json()["motion_number"] == "1"
 
     # --- Input validation (add) ---
 

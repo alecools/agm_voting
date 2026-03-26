@@ -609,6 +609,7 @@ export default function GeneralMeetingDetailPage() {
                   id="add-motion-number"
                   className="field__input"
                   type="text"
+                  placeholder={`Auto (e.g. ${(meeting.motions.length + 1).toString()})`}
                   value={addMotionForm.motion_number}
                   onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
