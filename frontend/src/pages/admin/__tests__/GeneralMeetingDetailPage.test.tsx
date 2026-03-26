@@ -1568,6 +1568,217 @@ describe("Delete motion", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fix 1: Visibility toggle optimistic update
+// ---------------------------------------------------------------------------
+
+describe("Visibility toggle optimistic update", () => {
+  function renderPage(meetingId = "agm1") {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
+          <Routes>
+            <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("toggle changes state immediately (optimistic) before server response arrives", async () => {
+    // Use a handler that never resolves so the server response never arrives
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async () => {
+        await new Promise(() => {}); // never resolves — keeps mutation in-flight
+      })
+    );
+    // agm-hidden-motion has a single hidden motion (is_visible: false)
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Motions")).toBeInTheDocument();
+    });
+
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    // Initially unchecked (motion is hidden)
+    expect(checkbox).not.toBeChecked();
+
+    // Click to show — the optimistic update should flip it immediately
+    await user.click(checkbox);
+
+    // The checkbox must be checked immediately after the click,
+    // without waiting for the (never-arriving) server response.
+    await waitFor(() => {
+      expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
+    });
+  });
+
+  it("toggle reverts when server returns an error", async () => {
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+        return HttpResponse.json({ detail: "Internal server error" }, { status: 500 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("agm-hidden-motion");
+    await waitFor(() => {
+      expect(screen.getByText("Motions")).toBeInTheDocument();
+    });
+
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+
+    // After error, the optimistic update should be reverted
+    await waitFor(() => {
+      expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 2: Reorder buttons are in the Actions column alongside Edit/Delete
+// ---------------------------------------------------------------------------
+
+describe("Reorder buttons in Actions column", () => {
+  function renderPage(meetingId: string) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
+          <Routes>
+            <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("reorder and Edit/Delete buttons are in the same table cell", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-reorder-actions-test") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-reorder-actions-test",
+            motions: [
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "ra1", display_order: 1, title: "Action Motion 1", is_visible: false },
+              {
+                id: "ra2",
+                title: "Action Motion 2",
+                description: null,
+                display_order: 2,
+                motion_number: null,
+                motion_type: "general",
+                is_visible: false,
+                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
+                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+              },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-reorder-actions-test");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Move Action Motion 1 to bottom" })).toBeInTheDocument();
+    });
+
+    const moveToBottomBtn = screen.getByRole("button", { name: "Move Action Motion 1 to bottom" });
+    const editBtn = screen.getAllByRole("button", { name: "Edit" })[0];
+    const deleteBtn = screen.getAllByRole("button", { name: "Delete" })[0];
+
+    // All three buttons must be in the same <td>
+    expect(moveToBottomBtn.closest("td")).toBe(editBtn.closest("td"));
+    expect(moveToBottomBtn.closest("td")).toBe(deleteBtn.closest("td"));
+  });
+
+  it("Move to top button is in the same cell as Edit/Delete", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-reorder-cell-test") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-reorder-cell-test",
+            motions: [
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "rc1", display_order: 1, title: "Cell Motion 1", is_visible: false },
+              {
+                id: "rc2",
+                title: "Cell Motion 2",
+                description: null,
+                display_order: 2,
+                motion_number: null,
+                motion_type: "general",
+                is_visible: false,
+                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
+                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+              },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-reorder-cell-test");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Move Cell Motion 2 to top" })).toBeInTheDocument();
+    });
+
+    const moveToTopBtn = screen.getByRole("button", { name: "Move Cell Motion 2 to top" });
+    const editBtns = screen.getAllByRole("button", { name: "Edit" });
+    const editBtn = editBtns[editBtns.length - 1]; // second row's Edit button
+
+    expect(moveToTopBtn.closest("td")).toBe(editBtn.closest("td"));
+  });
+
+  it("Move up and Move down buttons are in the same cell as Edit/Delete", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-updown-cell-test") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-updown-cell-test",
+            motions: [
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "ud1", display_order: 1, title: "UD Motion 1", is_visible: false },
+              {
+                id: "ud2",
+                title: "UD Motion 2",
+                description: null,
+                display_order: 2,
+                motion_number: null,
+                motion_type: "general",
+                is_visible: false,
+                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
+                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+              },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-updown-cell-test");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Move UD Motion 1 down" })).toBeInTheDocument();
+    });
+
+    const moveDownBtn = screen.getByRole("button", { name: "Move UD Motion 1 down" });
+    const moveUpBtn = screen.getByRole("button", { name: "Move UD Motion 2 up" });
+    const firstEditBtn = screen.getAllByRole("button", { name: "Edit" })[0];
+    const secondEditBtn = screen.getAllByRole("button", { name: "Edit" })[1];
+
+    expect(moveDownBtn.closest("td")).toBe(firstEditBtn.closest("td"));
+    expect(moveUpBtn.closest("td")).toBe(secondEditBtn.closest("td"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Bulk motion visibility — Show All / Hide All
 // ---------------------------------------------------------------------------
 

@@ -118,59 +118,15 @@ function SortableRow({
       {isEditable && (
         <td className="admin-table__drag-handle">
           {total > 1 && (
-            <>
-              <span
-                {...attributes}
-                {...listeners}
-                aria-label={`Drag to reorder ${motion.title}`}
-                data-testid={`drag-handle-${motion.id}`}
-                style={{ cursor: isReorderPending ? "not-allowed" : "grab", fontSize: "1.2rem", userSelect: "none" }}
-              >
-                &#x2807;
-              </span>
-              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ padding: "2px 6px", fontSize: "0.75rem" }}
-                  aria-label={`Move ${motion.title} to top`}
-                  onClick={onMoveTop}
-                  disabled={isFirst || isReorderPending}
-                >
-                  &#x2912;
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ padding: "2px 6px", fontSize: "0.75rem" }}
-                  aria-label={`Move ${motion.title} up`}
-                  onClick={onMoveUp}
-                  disabled={isFirst || isReorderPending}
-                >
-                  &#x2191;
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ padding: "2px 6px", fontSize: "0.75rem" }}
-                  aria-label={`Move ${motion.title} down`}
-                  onClick={onMoveDown}
-                  disabled={isLast || isReorderPending}
-                >
-                  &#x2193;
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ padding: "2px 6px", fontSize: "0.75rem" }}
-                  aria-label={`Move ${motion.title} to bottom`}
-                  onClick={onMoveBottom}
-                  disabled={isLast || isReorderPending}
-                >
-                  &#x2913;
-                </button>
-              </div>
-            </>
+            <span
+              {...attributes}
+              {...listeners}
+              aria-label={`Drag to reorder ${motion.title}`}
+              data-testid={`drag-handle-${motion.id}`}
+              style={{ cursor: isReorderPending ? "not-allowed" : "grab", fontSize: "1.2rem", userSelect: "none" }}
+            >
+              &#x2807;
+            </span>
           )}
         </td>
       )}
@@ -222,6 +178,46 @@ function SortableRow({
       {!isClosed && (
         <td>
           <div style={{ display: "flex", gap: 6 }}>
+            {isEditable && total > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  aria-label={`Move ${motion.title} to top`}
+                  onClick={onMoveTop}
+                  disabled={isFirst || isReorderPending}
+                >
+                  &#x2912;
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  aria-label={`Move ${motion.title} up`}
+                  onClick={onMoveUp}
+                  disabled={isFirst || isReorderPending}
+                >
+                  &#x2191;
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  aria-label={`Move ${motion.title} down`}
+                  onClick={onMoveDown}
+                  disabled={isLast || isReorderPending}
+                >
+                  &#x2193;
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  aria-label={`Move ${motion.title} to bottom`}
+                  onClick={onMoveBottom}
+                  disabled={isLast || isReorderPending}
+                >
+                  &#x2913;
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="btn btn--secondary"
@@ -275,7 +271,16 @@ export default function MotionManagementTable({
 
   if (
     motions.length !== localOrder.length ||
-    motions.some((m, i) => m.id !== localOrder[i]?.id || m.display_order !== localOrder[i]?.display_order)
+    motions.some(
+      (m, i) =>
+        m.id !== localOrder[i]?.id ||
+        m.display_order !== localOrder[i]?.display_order ||
+        m.is_visible !== localOrder[i]?.is_visible ||
+        m.title !== localOrder[i]?.title ||
+        m.description !== localOrder[i]?.description ||
+        m.motion_type !== localOrder[i]?.motion_type ||
+        m.motion_number !== localOrder[i]?.motion_number
+    )
   ) {
     setLocalOrder(motions);
   }
@@ -311,6 +316,12 @@ export default function MotionManagementTable({
     applyMove(arrayMove(localOrder, fromIndex, toIndex));
   }
 
+  // Build a lookup map from the authoritative `motions` prop so that
+  // volatile fields (is_visible, title, description, motion_type, motion_number)
+  // always reflect the latest React Query cache, even during the render cycle
+  // where `localOrder` has not yet been synced (e.g. during optimistic visibility updates).
+  const motionsPropMap = new Map(motions.map((m) => [m.id, m]));
+
   return (
     <div>
       {reorderError && (
@@ -340,29 +351,35 @@ export default function MotionManagementTable({
                 </tr>
               </thead>
               <tbody>
-                {localOrder.map((motion, index) => (
-                  <SortableRow
-                    key={motion.id}
-                    motion={motion}
-                    index={index}
-                    total={localOrder.length}
-                    isEditable={isEditable}
-                    isReorderPending={isReorderPending}
-                    meetingStatus={meetingStatus}
-                    pendingVisibilityMotionId={pendingVisibilityMotionId}
-                    isBulkLoading={isBulkLoading}
-                    motionsWithVotes={motionsWithVotes}
-                    visibilityErrors={visibilityErrors}
-                    onToggleVisibility={onToggleVisibility}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                    deleteMotionErrors={deleteMotionErrors}
-                    onMoveTop={() => moveItem(index, 0)}
-                    onMoveUp={() => moveItem(index, index - 1)}
-                    onMoveDown={() => moveItem(index, index + 1)}
-                    onMoveBottom={() => moveItem(index, localOrder.length - 1)}
-                  />
-                ))}
+                {localOrder.map((motion, index) => {
+                  // Merge latest prop data (is_visible etc.) over the localOrder entry
+                  // so optimistic cache updates propagate immediately without waiting
+                  // for the localOrder sync check to trigger another render.
+                  const latestMotion = motionsPropMap.get(motion.id) ?? motion;
+                  return (
+                    <SortableRow
+                      key={motion.id}
+                      motion={latestMotion}
+                      index={index}
+                      total={localOrder.length}
+                      isEditable={isEditable}
+                      isReorderPending={isReorderPending}
+                      meetingStatus={meetingStatus}
+                      pendingVisibilityMotionId={pendingVisibilityMotionId}
+                      isBulkLoading={isBulkLoading}
+                      motionsWithVotes={motionsWithVotes}
+                      visibilityErrors={visibilityErrors}
+                      onToggleVisibility={onToggleVisibility}
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                      deleteMotionErrors={deleteMotionErrors}
+                      onMoveTop={() => moveItem(index, 0)}
+                      onMoveUp={() => moveItem(index, index - 1)}
+                      onMoveDown={() => moveItem(index, index + 1)}
+                      onMoveBottom={() => moveItem(index, localOrder.length - 1)}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
