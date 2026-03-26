@@ -1079,7 +1079,10 @@ describe("Edit motion modal", () => {
     expect(capturedBody).toHaveProperty("motion_number", "M-99");
   });
 
-  it("whitespace-only motion_number sends null", async () => {
+  it("whitespace-only motion_number sends empty string (backend clears the field)", async () => {
+    // The frontend sends the trimmed value ("") rather than null so that the
+    // backend's partial-update guard (which skips null fields) does not skip
+    // the motion_number update. The backend converts "" to null in the DB.
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
       http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
@@ -1101,7 +1104,8 @@ describe("Edit motion modal", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
-    expect(capturedBody).toHaveProperty("motion_number", null);
+    // Trimmed whitespace sends "" — backend interprets this as "clear"
+    expect(capturedBody).toHaveProperty("motion_number", "");
   });
 
   it("Save Changes button calls PATCH and closes modal on success", async () => {

@@ -887,13 +887,22 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
 test.describe("Voter — motion position labels with hidden motions", () => {
   test.describe.configure({ mode: "serial" });
 
-  const BUILDING = `WF-Hidden Motion-${RUN_SUFFIX}`;
-  const VOTER_EMAIL = `wf-hidden-voter-${RUN_SUFFIX}@test.com`;
+  // Use separate buildings for Scenarios D and E so their open meetings do not
+  // conflict. createOpenMeeting closes all open meetings for a building before
+  // creating a new one — if both meetings shared a building, creating Meeting E
+  // would close Meeting D, causing the OTP lookup to target the wrong meeting.
+  const BUILDING_D = `WF-Hidden Motion D-${RUN_SUFFIX}`;
+  const BUILDING_E = `WF-Custom Number E-${RUN_SUFFIX}`;
+  // Use a fixed short email instead of deriving from RUN_SUFFIX to avoid
+  // truncation issues when the branch name suffix exceeds email length limits.
+  const VOTER_EMAIL = "wf-hidden-voter-mpos@test.com";
   const MOTION_VISIBLE = "Visible Motion Only";
   const MOTION_CUSTOM_NUMBER = "Custom Numbered Motion";
 
   let meetingIdHidden = "";
   let meetingIdCustomNumber = "";
+  let buildingIdD = "";
+  let buildingIdE = "";
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -903,9 +912,18 @@ test.describe("Voter — motion position labels with hidden motions", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BUILDING, "wf-hidden-mgr@test.com");
+    // Building D — used exclusively for Scenario D (hidden motion test)
+    buildingIdD = await seedBuilding(api, BUILDING_D, "wf-hidden-mgr-d@test.com");
+    await seedLotOwner(api, buildingIdD, {
+      lotNumber: "HIDDEN-1",
+      emails: [VOTER_EMAIL],
+      unitEntitlement: 50,
+      financialPosition: "normal",
+    });
 
-    await seedLotOwner(api, buildingId, {
+    // Building E — used exclusively for Scenario E (custom motion number test)
+    buildingIdE = await seedBuilding(api, BUILDING_E, "wf-hidden-mgr-e@test.com");
+    await seedLotOwner(api, buildingIdE, {
       lotNumber: "HIDDEN-1",
       emails: [VOTER_EMAIL],
       unitEntitlement: 50,
@@ -913,7 +931,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
     });
 
     // Meeting D: two motions, first one hidden. Voter sees only motion 2.
-    meetingIdHidden = await createOpenMeeting(api, buildingId, `WF Hidden Motion D-${RUN_SUFFIX}`, [
+    meetingIdHidden = await createOpenMeeting(api, buildingIdD, `WF Hidden Motion D-${RUN_SUFFIX}`, [
       {
         title: "Hidden First Motion",
         description: "This motion is hidden from voters.",
@@ -928,38 +946,35 @@ test.describe("Voter — motion position labels with hidden motions", () => {
       },
     ]);
 
-    // Make motion 2 (display_order=2) visible; leave motion 1 hidden
+    // Motions default to is_visible=true. Explicitly hide motion 1 and ensure
+    // motion 2 is visible so Scenario D sees exactly one motion card.
     const detailD = await api.get(`/api/admin/general-meetings/${meetingIdHidden}`);
     const detailDData = await detailD.json() as { motions: { id: string; display_order: number }[] };
+    const hiddenMotion = detailDData.motions.find((m) => m.display_order === 1);
     const visibleMotion = detailDData.motions.find((m) => m.display_order === 2);
+    if (hiddenMotion) {
+      await api.patch(`/api/admin/motions/${hiddenMotion.id}/visibility`, {
+        data: { is_visible: false },
+      });
+    }
     if (visibleMotion) {
       await api.patch(`/api/admin/motions/${visibleMotion.id}/visibility`, {
         data: { is_visible: true },
       });
     }
 
-    // Meeting E: one motion with a custom motion_number "BBB"
-    meetingIdCustomNumber = await createOpenMeeting(api, buildingId, `WF Custom Number E-${RUN_SUFFIX}`, [
+    // Meeting E: one motion with a custom motion_number "BBB", set at creation time.
+    // The motionNumber is included in the creation payload so there is no need for
+    // a separate PATCH — this avoids any potential race/Lambda caching issues.
+    meetingIdCustomNumber = await createOpenMeeting(api, buildingIdE, `WF Custom Number E-${RUN_SUFFIX}`, [
       {
         title: MOTION_CUSTOM_NUMBER,
         description: "This motion has a custom number.",
         orderIndex: 1,
         motionType: "general",
+        motionNumber: "BBB",
       },
     ]);
-
-    // Set motion_number="BBB" and make it visible
-    const detailE = await api.get(`/api/admin/general-meetings/${meetingIdCustomNumber}`);
-    const detailEData = await detailE.json() as { motions: { id: string }[] };
-    const motionE = detailEData.motions[0];
-    if (motionE) {
-      await api.patch(`/api/admin/motions/${motionE.id}`, {
-        data: { motion_number: "BBB" },
-      });
-      await api.patch(`/api/admin/motions/${motionE.id}/visibility`, {
-        data: { is_visible: true },
-      });
-    }
 
     await api.dispose();
   }, { timeout: 60000 });
@@ -975,7 +990,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    await goToAuthPage(page, BUILDING);
+    await goToAuthPage(page, BUILDING_D);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingIdHidden));
     await api.dispose();
 
@@ -1002,7 +1017,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    await goToAuthPage(page, BUILDING);
+    await goToAuthPage(page, BUILDING_E);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingIdCustomNumber));
     await api.dispose();
 

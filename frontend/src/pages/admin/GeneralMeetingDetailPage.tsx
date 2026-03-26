@@ -345,7 +345,11 @@ export default function GeneralMeetingDetailPage() {
         title: editForm.title || undefined,
         description: editForm.description || undefined,
         motion_type: editForm.motion_type,
-        motion_number: editForm.motion_number.trim() || null,
+        // Send trimmed string (possibly empty ""); empty string is handled by
+        // the backend as "clear the motion number" (sets motion_number = null).
+        // We must NOT send null here because the backend skips the field when
+        // motion_number is null (partial-update semantics).
+        motion_number: editForm.motion_number.trim(),
       },
     });
   }

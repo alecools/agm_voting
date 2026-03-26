@@ -427,13 +427,19 @@ test.describe("Admin General Meetings — motion number workflows", () => {
       },
     ]);
 
-    // Set motion_number on the first motion via the API
+    // Set motion_number on the first motion via the API, and ensure it is hidden
+    // so the Edit button is enabled (UI requires motion to be hidden before editing).
     const detailRes = await api.get(`/api/admin/general-meetings/${meetingId}`);
     const detail = await detailRes.json() as { motions: { id: string }[] };
     const motionId = detail.motions[0]?.id;
     if (motionId) {
       await api.patch(`/api/admin/motions/${motionId}`, {
         data: { motion_number: "1" },
+      });
+      // Motions default to is_visible=false, but explicitly set it to ensure
+      // the Edit button is enabled (it is disabled when is_visible=true).
+      await api.patch(`/api/admin/motions/${motionId}/visibility`, {
+        data: { is_visible: false },
       });
     }
 

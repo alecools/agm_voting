@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures";
+import { ADMIN_AUTH_PATH } from "../workflows/helpers";
 
 /**
  * E2E tests for the Admin Settings (tenant branding) page.
@@ -209,7 +210,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     const api = await playwrightRequest.newContext({
       baseURL,
       ignoreHTTPSErrors: true,
-      storageState: "../.auth/admin.json",
+      storageState: ADMIN_AUTH_PATH,
     });
     const configRes = await api.get("/api/admin/config");
     const config = await configRes.json() as { logo_url?: string };

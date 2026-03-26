@@ -30,6 +30,7 @@ export interface MotionSeed {
   description: string;
   orderIndex: number;
   motionType: "general" | "special";
+  motionNumber?: string;
 }
 
 export interface TallyCount {
@@ -224,6 +225,7 @@ export async function createOpenMeeting(
         description: m.description,
         display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
@@ -286,6 +288,7 @@ export async function createPendingMeeting(
         description: m.description,
         display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
@@ -328,6 +331,7 @@ export async function seedPendingMeeting(
         description: m.description,
         display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
