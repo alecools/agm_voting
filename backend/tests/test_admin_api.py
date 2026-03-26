@@ -6705,17 +6705,18 @@ class TestMotionManagement:
         assert data["display_order"] == 0
         assert data["motion_number"] == "0"
 
-    async def test_add_motion_whitespace_motion_number_stored_as_null(
+    async def test_add_motion_whitespace_motion_number_auto_assigned(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Whitespace-only motion_number is normalised to null."""
+        """Whitespace-only motion_number is treated as absent — auto-assigned from display_order."""
         agm = await self._create_meeting(db_session, "AddWhitespaceNumber")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Whitespace Number Motion", "motion_number": "   "},
         )
         assert response.status_code == 201
-        assert response.json()["motion_number"] is None
+        # Whitespace is treated same as omitted — auto-assigns from display_order (0 for first motion)
+        assert response.json()["motion_number"] == "0"
 
     # --- State / precondition errors (duplicate motion_number) ---
 
@@ -6846,6 +6847,107 @@ class TestMotionManagement:
                 json={"title": "Unauth"},
             )
             assert response.status_code == 401
+
+    # --- motion_number auto-assign (add) ---
+
+    async def test_add_motion_no_motion_number_auto_assigns_from_display_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When motion_number is omitted, it is auto-assigned to str(display_order)."""
+        agm = await self._create_meeting(db_session, "AutoNumOmit")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Auto Number"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        # First motion on a meeting with no motions → display_order=0, motion_number="0"
+        assert data["motion_number"] == str(data["display_order"])
+
+    async def test_add_motion_null_motion_number_auto_assigns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When motion_number is explicitly null, it is auto-assigned to str(display_order)."""
+        agm = await self._create_meeting(db_session, "AutoNumNull")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Null MN", "motion_number": None},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["motion_number"] == str(data["display_order"])
+
+    async def test_add_motion_empty_string_motion_number_auto_assigns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When the frontend sends motion_number='', it is auto-assigned to str(display_order).
+
+        This is the core bug scenario: the frontend sends an empty string when the field
+        is left blank. Previously the service stored null instead of auto-assigning.
+        """
+        agm = await self._create_meeting(db_session, "AutoNumEmpty")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Empty MN", "motion_number": ""},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["motion_number"] == str(data["display_order"])
+
+    async def test_add_motion_explicit_motion_number_preserved(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When motion_number is explicitly provided, it is preserved as-is."""
+        agm = await self._create_meeting(db_session, "ExplicitMN")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Custom MN", "motion_number": "SR-5"},
+        )
+        assert response.status_code == 201
+        assert response.json()["motion_number"] == "SR-5"
+
+    async def test_add_motion_whitespace_only_motion_number_auto_assigns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Whitespace-only motion_number is treated as blank and auto-assigned."""
+        agm = await self._create_meeting(db_session, "WsMN")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Whitespace MN", "motion_number": "   "},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["motion_number"] == str(data["display_order"])
+
+    async def test_add_motion_second_motion_auto_assigns_correct_number(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Second motion auto-assigns motion_number = str(display_order) = '1'."""
+        agm, _first = await self._create_meeting_with_motion(db_session, "SecondAutoMN", order_index=0)
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Second Auto"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["display_order"] == 1
+        assert data["motion_number"] == "1"
+
+    async def test_add_motion_motion_number_persisted_in_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Auto-assigned motion_number is stored correctly in the DB row."""
+        agm = await self._create_meeting(db_session, "PersistMN")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "DB Check MN"},
+        )
+        assert response.status_code == 201
+        motion_id = uuid.UUID(response.json()["id"])
+        result = await db_session.execute(select(Motion).where(Motion.id == motion_id))
+        motion = result.scalar_one_or_none()
+        assert motion is not None
+        assert motion.motion_number == "0"
 
     # --- Happy path (update) ---
 
