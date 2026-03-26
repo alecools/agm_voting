@@ -6705,17 +6705,18 @@ class TestMotionManagement:
         assert data["display_order"] == 0
         assert data["motion_number"] == "0"
 
-    async def test_add_motion_whitespace_motion_number_stored_as_null(
+    async def test_add_motion_whitespace_motion_number_auto_assigned(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Whitespace-only motion_number is normalised to null."""
+        """Whitespace-only motion_number is treated as absent — auto-assigned from display_order."""
         agm = await self._create_meeting(db_session, "AddWhitespaceNumber")
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Whitespace Number Motion", "motion_number": "   "},
         )
         assert response.status_code == 201
-        assert response.json()["motion_number"] is None
+        # Whitespace is treated same as omitted — auto-assigns from display_order (0 for first motion)
+        assert response.json()["motion_number"] == "0"
 
     # --- State / precondition errors (duplicate motion_number) ---
 
