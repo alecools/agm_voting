@@ -1667,11 +1667,11 @@ class TestCreateAGM:
         assert motions[0]["motion_number"] == "1"
         assert motions[1]["motion_number"] == "2"
 
-    async def test_create_agm_with_null_motion_numbers(
+    async def test_create_agm_motions_without_motion_number_auto_assigned(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """AGM with null motion_numbers on multiple motions is accepted (201); nulls don't conflict."""
-        b = Building(name="Null MN Bldg", manager_email="nullmn@test.com")
+        """Motions created without motion_number get auto-assigned str(display_order)."""
+        b = Building(name="Auto MN Bldg", manager_email="automn@test.com")
         db_session.add(b)
         await db_session.commit()
 
@@ -1679,12 +1679,33 @@ class TestCreateAGM:
         payload["motions"] = [
             {"title": "Motion A", "display_order": 1},
             {"title": "Motion B", "display_order": 2},
+            {"title": "Motion C", "display_order": 3},
         ]
         response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 201
         motions = response.json()["motions"]
-        assert motions[0]["motion_number"] is None
-        assert motions[1]["motion_number"] is None
+        assert motions[0]["motion_number"] == "1"
+        assert motions[1]["motion_number"] == "2"
+        assert motions[2]["motion_number"] == "3"
+
+    async def test_create_agm_motions_explicit_motion_number_preserved(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Explicit motion_number is preserved and not overwritten by auto-assign."""
+        b = Building(name="Explicit MN Bldg", manager_email="explmn@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        payload = self._agm_payload(b.id)
+        payload["motions"] = [
+            {"title": "Motion A", "display_order": 1, "motion_number": "SR-1"},
+            {"title": "Motion B", "display_order": 2},
+        ]
+        response = await client.post("/api/admin/general-meetings", json=payload)
+        assert response.status_code == 201
+        motions = response.json()["motions"]
+        assert motions[0]["motion_number"] == "SR-1"
+        assert motions[1]["motion_number"] == "2"
 
     async def test_create_agm_with_duplicate_motion_numbers_returns_409(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1696,8 +1717,8 @@ class TestCreateAGM:
 
         payload = self._agm_payload(b.id)
         payload["motions"] = [
-            {"title": "Motion A", "display_order": 1, "motion_number": "1"},
-            {"title": "Motion B", "display_order": 2, "motion_number": "1"},
+            {"title": "Motion A", "display_order": 1, "motion_number": "SR-1"},
+            {"title": "Motion B", "display_order": 2, "motion_number": "SR-1"},
         ]
         response = await client.post("/api/admin/general-meetings", json=payload)
         assert response.status_code == 409

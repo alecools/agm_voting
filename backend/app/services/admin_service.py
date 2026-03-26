@@ -998,8 +998,8 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
                 )
             seen_motion_numbers.add(mn)
     for position, motion_data in enumerate(sorted_motions, start=1):
-        motion_number = motion_data.motion_number.strip() if motion_data.motion_number else None
-        motion_number = motion_number if motion_number else None
+        raw = (motion_data.motion_number or "").strip()
+        motion_number = raw if raw else str(position)
         motion = Motion(
             general_meeting_id=general_meeting.id,
             title=motion_data.title,

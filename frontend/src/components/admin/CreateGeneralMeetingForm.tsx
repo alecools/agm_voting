@@ -59,7 +59,7 @@ export default function CreateGeneralMeetingForm() {
         title: m.title.trim(),
         description: m.description.trim() || null,
         display_order: i + 1,
-        motion_number: m.motion_number.trim() || null,
+        motion_number: m.motion_number?.trim() || null,
         motion_type: m.motion_type,
       })),
     });
