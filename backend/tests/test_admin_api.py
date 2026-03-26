@@ -22,7 +22,7 @@ import openpyxl
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -5946,16 +5946,21 @@ class TestReorderMotions:
 
     # --- Edge cases ---
 
-    async def test_reorder_preserves_motion_numbers(
+    async def test_reorder_does_not_change_motion_numbers(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Reorder does not change motion_number values."""
-        b = Building(name="ReorderMN", manager_email="rmn@test.com")
+        """Reordering motions must never mutate motion_number — it is a stable identifier.
+
+        Creates 2 motions with explicit motion_numbers "1" and "2", swaps their
+        display_order, then asserts that each motion still carries its original
+        motion_number even though display_order has changed.
+        """
+        b = Building(name="ReorderMN2", manager_email="rmn2@test.com")
         db_session.add(b)
         await db_session.flush()
         agm = GeneralMeeting(
             building_id=b.id,
-            title="Reorder MN Test",
+            title="Reorder MN Test 2",
             status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
@@ -5966,13 +5971,13 @@ class TestReorderMotions:
             general_meeting_id=agm.id,
             title="Alpha",
             display_order=1,
-            motion_number="A",
+            motion_number="1",
         )
         m2 = Motion(
             general_meeting_id=agm.id,
             title="Beta",
             display_order=2,
-            motion_number="B",
+            motion_number="2",
         )
         db_session.add_all([m1, m2])
         await db_session.flush()
@@ -5980,7 +5985,7 @@ class TestReorderMotions:
         await db_session.refresh(m2)
         await db_session.commit()
 
-        # Swap order
+        # Move m1 (motion_number="1", currently display_order=1) down to position 2
         payload = {
             "motions": [
                 {"motion_id": str(m2.id), "display_order": 1},
@@ -5993,11 +5998,19 @@ class TestReorderMotions:
         )
         assert response.status_code == 200
         returned = response.json()["motions"]
-        # m2 is now first, should still have motion_number "B"
+
+        # m2 is now first (display_order=1) but still has motion_number "2"
         assert returned[0]["id"] == str(m2.id)
-        assert returned[0]["motion_number"] == "B"
+        assert returned[0]["display_order"] == 1
+        assert returned[0]["motion_number"] == "2", (
+            "motion_number must not change when display_order changes"
+        )
+        # m1 is now second (display_order=2) but still has motion_number "1"
         assert returned[1]["id"] == str(m1.id)
-        assert returned[1]["motion_number"] == "A"
+        assert returned[1]["display_order"] == 2
+        assert returned[1]["motion_number"] == "1", (
+            "motion_number must not change when display_order changes"
+        )
 
     async def test_reorder_same_order_is_idempotent(
         self, client: AsyncClient, db_session: AsyncSession
@@ -7158,3 +7171,162 @@ class TestMotionManagement:
         ) as unauthenticated_client:
             response = await unauthenticated_client.delete(f"/api/admin/motions/{motion.id}")
             assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Migration 888085a72643 — backfill motion_number from display_order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestBackfillMotionNumber:
+    """Tests for migration 888085a72643.
+
+    The migration runs:
+        UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)
+        WHERE motion_number IS NULL
+
+    We verify this SQL directly against the test DB so the migration logic is
+    covered independently of the Alembic runner.
+    """
+
+    # --- Happy path ---
+
+    async def test_null_motion_number_is_backfilled_to_display_order(
+        self, db_session: AsyncSession
+    ):
+        """A motion with motion_number=NULL gets backfilled to str(display_order)."""
+        b = Building(name="BackfillMN1", manager_email="bmn1@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Backfill Test 1",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="Old Motion",
+            display_order=3,
+            motion_number=None,  # pre-feature state
+        )
+        db_session.add(m)
+        await db_session.flush()
+
+        # Run the exact migration SQL
+        await db_session.execute(
+            text(
+                "UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)"
+                " WHERE motion_number IS NULL"
+            )
+        )
+
+        await db_session.refresh(m)
+        assert m.motion_number == "3", (
+            "motion_number should be backfilled to str(display_order)"
+        )
+
+    async def test_existing_motion_number_is_not_overwritten(
+        self, db_session: AsyncSession
+    ):
+        """A motion with an existing motion_number is untouched by the backfill."""
+        b = Building(name="BackfillMN2", manager_email="bmn2@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Backfill Test 2",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="Numbered Motion",
+            display_order=1,
+            motion_number="SR-1",  # already has a value
+        )
+        db_session.add(m)
+        await db_session.flush()
+
+        # Run the exact migration SQL
+        await db_session.execute(
+            text(
+                "UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)"
+                " WHERE motion_number IS NULL"
+            )
+        )
+
+        await db_session.refresh(m)
+        assert m.motion_number == "SR-1", (
+            "motion_number must not be overwritten when it already has a value"
+        )
+
+    # --- Boundary values ---
+
+    async def test_multiple_null_motions_all_backfilled(
+        self, db_session: AsyncSession
+    ):
+        """Multiple NULL motion_number rows are all backfilled in one UPDATE."""
+        b = Building(name="BackfillMN3", manager_email="bmn3@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Backfill Test 3",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        m1 = Motion(
+            general_meeting_id=agm.id, title="M1", display_order=1, motion_number=None
+        )
+        m2 = Motion(
+            general_meeting_id=agm.id, title="M2", display_order=2, motion_number=None
+        )
+        m3 = Motion(
+            general_meeting_id=agm.id, title="M3", display_order=5, motion_number=None
+        )
+        db_session.add_all([m1, m2, m3])
+        await db_session.flush()
+
+        await db_session.execute(
+            text(
+                "UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)"
+                " WHERE motion_number IS NULL"
+            )
+        )
+
+        for motion, expected in [(m1, "1"), (m2, "2"), (m3, "5")]:
+            await db_session.refresh(motion)
+            assert motion.motion_number == expected
+
+    # --- Edge cases ---
+
+    async def test_migration_on_empty_motions_table_is_a_no_op(
+        self, db_session: AsyncSession
+    ):
+        """Running the UPDATE when no NULL rows exist does not error."""
+        # First, ensure any existing NULL rows are already set (simulate post-migration state)
+        await db_session.execute(
+            text(
+                "UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)"
+                " WHERE motion_number IS NULL"
+            )
+        )
+        # Running a second time is idempotent — no rows to update, no error
+        result = await db_session.execute(
+            text(
+                "UPDATE motions SET motion_number = CAST(display_order AS VARCHAR)"
+                " WHERE motion_number IS NULL"
+            )
+        )
+        assert result.rowcount == 0

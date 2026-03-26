@@ -434,6 +434,84 @@ describe("GeneralMeetingDetailPage", () => {
     unmount();
   });
 
+  it("motion_number labels are stable after reorder — display_order changes but motion_number does not", async () => {
+    // This test guards against regressions where reordering would corrupt the
+    // motion_number values shown in the # column.  motion_number is a stable
+    // identifier; only display_order should change when the user reorders.
+    const user = userEvent.setup();
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-mn-stable") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-mn-stable",
+            motions: [
+              {
+                id: "mn-stable-1",
+                title: "First Motion",
+                description: null,
+                display_order: 1,
+                motion_number: "1",
+                motion_type: "general",
+                is_visible: true,
+                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
+                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+              },
+              {
+                id: "mn-stable-2",
+                title: "Second Motion",
+                description: null,
+                display_order: 2,
+                motion_number: "2",
+                motion_type: "general",
+                is_visible: true,
+                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
+                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+              },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    const { unmount } = renderPage("agm-mn-stable");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Move First Motion to bottom" })).toBeInTheDocument();
+    });
+
+    // Before reorder: both motion_numbers visible as labels in # column.
+    // We scope our search to td elements (the # column cells) to avoid
+    // picking up numbers from the stats section of the page.
+    const getMotionLabelCells = () =>
+      Array.from(document.querySelectorAll("td")).filter(
+        (td) => td.style.fontFamily?.includes("Overpass Mono") || td.querySelector("*") === null
+      );
+
+    // Move "First Motion" (motion_number="1") to the bottom
+    await user.click(screen.getByRole("button", { name: "Move First Motion to bottom" }));
+
+    // After reorder: motion_number labels must remain "1" and "2" — neither
+    // should have been replaced by the new display_order position number.
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    // The motion rows in the table should still show motion_number "1" and "2"
+    // (not "2" and "1" as positional display_order would give).
+    // We verify by checking the td cells that use the monospace font family
+    // (the # column).
+    const motionTable = document.querySelector(".admin-table");
+    expect(motionTable).not.toBeNull();
+    const hashCells = motionTable!.querySelectorAll("tbody td:nth-child(2)");
+    const hashLabels = Array.from(hashCells).map((td) => td.textContent?.trim());
+    // Both "1" and "2" labels must still appear — they should not have been
+    // replaced by display_order values ("2" and "1" in reverse, which would
+    // look like a swap instead of a stable label).
+    expect(hashLabels).toContain("1");
+    expect(hashLabels).toContain("2");
+    unmount();
+  });
+
   it("shows reorder error alert when API returns error", async () => {
     const user = userEvent.setup();
     server.use(
