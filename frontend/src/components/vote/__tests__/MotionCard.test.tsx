@@ -289,7 +289,7 @@ describe("MotionCard", () => {
 
   // --- motion_number label tests ---
 
-  it("displays motion_number when it is set", () => {
+  it("displays motion_number prefixed with 'Motion' when it is set", () => {
     render(
       <MotionCard
         motion={motionWithNumber}
@@ -300,7 +300,7 @@ describe("MotionCard", () => {
         highlight={false}
       />
     );
-    expect(screen.getByText("SR-1")).toBeInTheDocument();
+    expect(screen.getByText("Motion SR-1")).toBeInTheDocument();
   });
 
   it("falls back to 'Motion {position}' label when motion_number is null", () => {
