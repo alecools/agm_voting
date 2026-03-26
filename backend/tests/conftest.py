@@ -12,10 +12,14 @@ the test database (agm_test_gw0, agm_test_gw1, etc.) to avoid cross-worker
 contention on the same schema.  When running without xdist (PYTEST_XDIST_WORKER
 not set), the original agm_test DB is used as before.
 """
+import csv
+import io
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
+import openpyxl
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -27,7 +31,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.database import get_db
-from app.models import Base
+from app.models import Base, Building, LotOwner
+from app.models.lot_owner_email import LotOwnerEmail
 
 # Use the test database URL from environment or fall back to default
 _BASE_DATABASE_URL = os.getenv(
@@ -173,3 +178,92 @@ def app(db_session: AsyncSession):
     application.dependency_overrides[require_admin] = lambda: None
     yield application
     application.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Shared test helpers — used by multiple admin test modules
+# ---------------------------------------------------------------------------
+
+
+def make_csv(headers: list[str], rows: list[list[str]]) -> bytes:
+    """Build a CSV file as bytes from a header row and data rows."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue().encode()
+
+
+def make_excel(headers: list, rows: list[list]) -> bytes:
+    """Build an xlsx file as bytes from a header row and data rows."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def future_dt(days: int = 1) -> datetime:
+    return datetime.now(UTC) + timedelta(days=days)
+
+
+def meeting_dt() -> datetime:
+    """Return a past meeting_at so meetings are effectively open (not pending)."""
+    return datetime.now(UTC) - timedelta(hours=1)
+
+
+def closing_dt() -> datetime:
+    return datetime.now(UTC) + timedelta(days=2)
+
+
+# ---------------------------------------------------------------------------
+# Shared DB fixtures — used by multiple admin test modules
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def client(app):
+    """HTTP client that shares the test db_session with the app (via conftest app fixture)."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def building(db_session: AsyncSession) -> Building:
+    b = Building(name="Test Building", manager_email="manager@test.com")
+    db_session.add(b)
+    await db_session.flush()
+    await db_session.refresh(b)
+    return b
+
+
+@pytest_asyncio.fixture
+async def building_with_owners(db_session: AsyncSession) -> Building:
+    b = Building(name="Building With Owners", manager_email="mgr@bwo.com")
+    db_session.add(b)
+    await db_session.flush()
+    lo1 = LotOwner(
+        building_id=b.id,
+        lot_number="1A",
+        unit_entitlement=100,
+    )
+    lo2 = LotOwner(
+        building_id=b.id,
+        lot_number="2B",
+        unit_entitlement=50,
+    )
+    db_session.add_all([lo1, lo2])
+    await db_session.flush()
+    lo1_email = LotOwnerEmail(lot_owner_id=lo1.id, email="voter1@test.com")
+    lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="voter2@test.com")
+    db_session.add_all([lo1_email, lo2_email])
+    await db_session.flush()
+    await db_session.refresh(b)
+    return b
