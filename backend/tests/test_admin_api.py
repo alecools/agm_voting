@@ -5946,16 +5946,21 @@ class TestReorderMotions:
 
     # --- Edge cases ---
 
-    async def test_reorder_preserves_motion_numbers(
+    async def test_reorder_does_not_change_motion_numbers(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Reorder does not change motion_number values."""
-        b = Building(name="ReorderMN", manager_email="rmn@test.com")
+        """Reordering motions must never mutate motion_number — it is a stable identifier.
+
+        Creates 2 motions with explicit motion_numbers "1" and "2", swaps their
+        display_order, then asserts that each motion still carries its original
+        motion_number even though display_order has changed.
+        """
+        b = Building(name="ReorderMN2", manager_email="rmn2@test.com")
         db_session.add(b)
         await db_session.flush()
         agm = GeneralMeeting(
             building_id=b.id,
-            title="Reorder MN Test",
+            title="Reorder MN Test 2",
             status=GeneralMeetingStatus.open,
             meeting_at=meeting_dt(),
             voting_closes_at=closing_dt(),
@@ -5966,13 +5971,13 @@ class TestReorderMotions:
             general_meeting_id=agm.id,
             title="Alpha",
             display_order=1,
-            motion_number="A",
+            motion_number="1",
         )
         m2 = Motion(
             general_meeting_id=agm.id,
             title="Beta",
             display_order=2,
-            motion_number="B",
+            motion_number="2",
         )
         db_session.add_all([m1, m2])
         await db_session.flush()
@@ -5980,7 +5985,7 @@ class TestReorderMotions:
         await db_session.refresh(m2)
         await db_session.commit()
 
-        # Swap order
+        # Move m1 (motion_number="1", currently display_order=1) down to position 2
         payload = {
             "motions": [
                 {"motion_id": str(m2.id), "display_order": 1},
@@ -5993,11 +5998,19 @@ class TestReorderMotions:
         )
         assert response.status_code == 200
         returned = response.json()["motions"]
-        # m2 is now first, should still have motion_number "B"
+
+        # m2 is now first (display_order=1) but still has motion_number "2"
         assert returned[0]["id"] == str(m2.id)
-        assert returned[0]["motion_number"] == "B"
+        assert returned[0]["display_order"] == 1
+        assert returned[0]["motion_number"] == "2", (
+            "motion_number must not change when display_order changes"
+        )
+        # m1 is now second (display_order=2) but still has motion_number "1"
         assert returned[1]["id"] == str(m1.id)
-        assert returned[1]["motion_number"] == "A"
+        assert returned[1]["display_order"] == 2
+        assert returned[1]["motion_number"] == "1", (
+            "motion_number must not change when display_order changes"
+        )
 
     async def test_reorder_same_order_is_idempotent(
         self, client: AsyncClient, db_session: AsyncSession
