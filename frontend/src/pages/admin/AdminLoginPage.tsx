@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { adminLogin } from "../../api/admin";
+import { useBranding } from "../../context/BrandingContext";
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { config } = useBranding();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +32,11 @@ export default function AdminLoginPage() {
     <div className="admin-login-page">
       <div className="admin-login-card">
         <div className="admin-login-card__header">
-          <picture>
-            <source srcSet="/logo.webp" type="image/webp" />
-            <img src="/logo.png" alt="General Meeting Vote" className="admin-login-card__logo" />
-          </picture>
+          {config.logo_url ? (
+            <img src={config.logo_url} alt={config.app_name} className="admin-login-card__logo" />
+          ) : (
+            <img src="/logo.png" alt={config.app_name} className="admin-login-card__logo" />
+          )}
           <h1 className="admin-login-card__title">Admin Portal</h1>
           <p className="admin-login-card__subtitle">Sign in to manage buildings and General Meetings</p>
         </div>
