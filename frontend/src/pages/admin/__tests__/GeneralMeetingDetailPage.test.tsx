@@ -176,7 +176,7 @@ describe("GeneralMeetingDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Results Report")).toBeInTheDocument();
     });
-    // "Motion 1" appears in both the Motions reorder table/visibility section and the report view
+    // "Motion 1" appears in both the merged motions table and the report view
     expect(screen.getAllByText(/Motion 1/).length).toBeGreaterThanOrEqual(1);
   });
 
@@ -344,10 +344,25 @@ describe("GeneralMeetingDetailPage", () => {
     });
   });
 
-  it("shows move buttons for open meeting motions", async () => {
-    renderPage();
+  it("shows move buttons for open meeting with multiple motions", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-multi") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL,
+            id: "agm-multi",
+            motions: [
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "m1", display_order: 1, title: "Motion 1" },
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "m2", display_order: 2, title: "Motion 2" },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-multi");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Move Motion 1 to top/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Move Motion 1 to bottom/ })).toBeInTheDocument();
     });
   });
 
@@ -359,21 +374,30 @@ describe("GeneralMeetingDetailPage", () => {
     expect(screen.queryByRole("button", { name: /Move .* to top/ })).not.toBeInTheDocument();
   });
 
-  it("shows move buttons for pending meeting", async () => {
-    renderPage("agm-pending");
+  it("shows move buttons for pending meeting with multiple motions", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+        if (params.meetingId === "agm-pending-multi") {
+          return HttpResponse.json({
+            ...ADMIN_MEETING_DETAIL_PENDING,
+            id: "agm-pending-multi",
+            motions: [
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "m1", display_order: 1, title: "Motion 1" },
+              { ...ADMIN_MEETING_DETAIL.motions[0], id: "m2", display_order: 2, title: "Motion 2" },
+            ],
+          });
+        }
+        return HttpResponse.json({ detail: "not found" }, { status: 404 });
+      })
+    );
+    renderPage("agm-pending-multi");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Move Motion 1 to top/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Move Motion 1 to bottom/ })).toBeInTheDocument();
     });
   });
 
   it("clicking 'Move to bottom' calls reorder API and updates display", async () => {
     const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Move Motion 1 to bottom/ })).toBeInTheDocument();
-    });
-    // There is only 1 motion in the test fixture so this button is disabled —
-    // use a fixture with 2+ motions via server override
     server.use(
       http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-reorder-test") {
@@ -389,6 +413,7 @@ describe("GeneralMeetingDetailPage", () => {
                 display_order: 2,
                 motion_number: null,
                 motion_type: "general",
+                is_visible: true,
                 tally: ADMIN_MEETING_DETAIL.motions[0].tally,
                 voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
               },
@@ -403,9 +428,7 @@ describe("GeneralMeetingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Move First Motion to bottom" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Move First Motion to bottom" }));
-    // After clicking, reorderMutation fires — the button click should have been processed
     await waitFor(() => {
-      // The mutation fires asynchronously; verify no error alert is shown
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     unmount();
@@ -597,22 +620,21 @@ describe("GeneralMeetingDetailPage", () => {
 
   // --- Motion visibility toggle ---
 
-  it("renders motion visibility section with table headers", async () => {
+  it("renders merged motions table with all column headers", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
-    // Both the reorder panel and visibility table have "#" — use getAllByRole
-    expect(screen.getAllByRole("columnheader", { name: "#" }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("columnheader", { name: "Motion" }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("columnheader", { name: "Type" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("columnheader", { name: "#" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Motion" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Type" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Visibility" })).toBeInTheDocument();
   });
 
   it("renders toggle checkbox checked for visible motion", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     // The checkbox for a visible motion should be checked
     const checkboxes = screen.getAllByRole("checkbox");
@@ -629,7 +651,7 @@ describe("GeneralMeetingDetailPage", () => {
   it("toggle is disabled when meeting is closed", async () => {
     renderPage("agm2");
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     const checkboxes = screen.getAllByRole("checkbox");
     expect(checkboxes[0]).toBeDisabled();
@@ -639,7 +661,7 @@ describe("GeneralMeetingDetailPage", () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     const checkbox = screen.getAllByRole("checkbox")[0];
     await user.click(checkbox);
@@ -661,7 +683,7 @@ describe("GeneralMeetingDetailPage", () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     const checkbox = screen.getAllByRole("checkbox")[0];
     await user.click(checkbox);
@@ -683,7 +705,7 @@ describe("GeneralMeetingDetailPage", () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     const checkbox = screen.getAllByRole("checkbox")[0];
     await user.click(checkbox);
@@ -705,7 +727,7 @@ describe("GeneralMeetingDetailPage", () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
     const checkbox = screen.getAllByRole("checkbox")[0];
     await user.click(checkbox);
@@ -739,17 +761,15 @@ describe("GeneralMeetingDetailPage", () => {
   it("renders Actions column header in motions table", async () => {
     renderPage();
     await waitFor(() => {
-      // The Motion Visibility table has an "Actions" header (reorder buttons moved here)
-      expect(screen.getAllByRole("columnheader", { name: "Actions" }).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole("columnheader", { name: "Actions" })).toBeInTheDocument();
     });
   });
 
   it("renders Edit and Delete buttons for each motion row", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Motion Visibility")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
   });
 
@@ -785,20 +805,20 @@ describe("GeneralMeetingDetailPage", () => {
     );
   });
 
-  it("Edit button is disabled for closed meeting", async () => {
+  it("Edit button is hidden for closed meeting", async () => {
     renderPage("agm2");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("Delete button is disabled for closed meeting", async () => {
+  it("Delete button is hidden for closed meeting", async () => {
     renderPage("agm2");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 });
 
@@ -844,6 +864,7 @@ describe("Add Motion form", () => {
     expect(screen.getByRole("dialog", { name: "Add Motion" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title *")).toBeInTheDocument();
     expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(screen.getByLabelText("Motion number (optional)")).toBeInTheDocument();
     expect(screen.getByLabelText("Motion Type")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Motion" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
@@ -861,6 +882,37 @@ describe("Add Motion form", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
     });
+  });
+
+  it("submitting add motion with motion_number sends it in the payload", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({
+          id: "motion-new",
+          title: capturedBody.title,
+          description: capturedBody.description ?? null,
+          display_order: 3,
+          motion_number: capturedBody.motion_number ?? null,
+          motion_type: capturedBody.motion_type ?? "general",
+          is_visible: false,
+        }, { status: 201 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await user.type(screen.getByLabelText("Title *"), "Test Motion");
+    await user.type(screen.getByLabelText("Motion number (optional)"), "S-1");
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", "S-1");
   });
 
   // --- Input validation ---
@@ -1068,6 +1120,66 @@ describe("Edit motion modal", () => {
     expect(capturedBody!.motion_number).toBe("SR-1");
   });
 
+  it("modal pre-fills motion_number from the motion being edited", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Motion number (optional)")).toHaveValue("M-42");
+  });
+
+  it("submitting edit sends updated motion_number value", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
+        return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const input = screen.getByLabelText("Motion number (optional)");
+    await user.clear(input);
+    await user.type(input, "M-99");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", "M-99");
+  });
+
+  it("whitespace-only motion_number sends null", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
+        return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const input = screen.getByLabelText("Motion number (optional)");
+    await user.clear(input);
+    await user.type(input, "   ");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", null);
+  });
+
   it("Save Changes button calls PATCH and closes modal on success", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1104,7 +1216,7 @@ describe("Edit motion modal", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
   });
 
-  it("Edit button is disabled when meeting is closed", async () => {
+  it("Edit button is hidden when meeting is closed", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -1118,9 +1230,9 @@ describe("Edit motion modal", () => {
       </QueryClientProvider>
     );
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("disabled Edit button has correct title tooltip", async () => {
@@ -1329,7 +1441,7 @@ describe("Delete motion", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
   });
 
-  it("Delete button is disabled when meeting is closed", async () => {
+  it("Delete button is hidden when meeting is closed", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -1343,9 +1455,9 @@ describe("Delete motion", () => {
       </QueryClientProvider>
     );
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+      expect(screen.getByText("Motions")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   it("disabled Delete button has correct title tooltip", async () => {

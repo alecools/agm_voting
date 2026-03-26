@@ -192,7 +192,7 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
       title: "Hidden Motion",
       description: "Hidden desc",
       display_order: 1,
-      motion_number: "3",
+      motion_number: "M-42",
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -636,7 +636,7 @@ export const adminHandlers = [
 
   // Add motion
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
     if (body?.title === "add-fail") {
       return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
     }
@@ -645,7 +645,7 @@ export const adminHandlers = [
       title: body?.title ?? "New Motion",
       description: body?.description ?? null,
       display_order: 3,
-      motion_number: null,
+      motion_number: body?.motion_number ?? null,
       motion_type: body?.motion_type ?? "general",
       is_visible: false,
     }, { status: 201 });

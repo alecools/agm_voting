@@ -18,7 +18,7 @@ import StartGeneralMeetingButton from "../../components/admin/StartGeneralMeetin
 import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
-import MotionReorderPanel from "../../components/admin/MotionReorderPanel";
+import MotionManagementTable from "../../components/admin/MotionManagementTable";
 
 interface DeleteMeetingConfirmModalProps {
   meetingTitle: string;
@@ -171,10 +171,11 @@ export default function GeneralMeetingDetailPage() {
 
   // Add motion state
   const [showAddMotionModal, setShowAddMotionModal] = useState(false);
-  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
+  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string }>({
     title: "",
     description: "",
     motion_type: "general",
+    motion_number: "",
   });
   const [addMotionError, setAddMotionError] = useState<string | null>(null);
 
@@ -196,7 +197,7 @@ export default function GeneralMeetingDetailPage() {
     onSuccess: () => {
       setShowAddMotionModal(false);
       setAddMotionError(null);
-      setAddMotionForm({ title: "", description: "", motion_type: "general" });
+      setAddMotionForm({ title: "", description: "", motion_type: "general", motion_number: "" });
       void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
     },
     onError: (error: Error) => {
@@ -327,7 +328,7 @@ export default function GeneralMeetingDetailPage() {
         title: editForm.title || undefined,
         description: editForm.description || undefined,
         motion_type: editForm.motion_type,
-        motion_number: editForm.motion_number,
+        motion_number: editForm.motion_number.trim() || null,
       },
     });
   }
@@ -442,242 +443,75 @@ export default function GeneralMeetingDetailPage() {
       )}
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motions</h2>
-      <MotionReorderPanel
-        motions={displayMotions}
-        meetingStatus={meeting.status}
-        onReorder={handleReorder}
-        isPending={reorderMutation.isPending}
-        error={reorderError}
-      />
-
-      <h2 style={{ fontSize: "1.25rem", marginTop: 32, marginBottom: 16 }}>Motion Visibility</h2>
-      <div style={{ marginBottom: 24 }}>
-        {meeting.status !== "closed" && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+      {meeting.status !== "closed" && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+          >
+            Add Motion
+          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
               type="button"
-              className="btn btn--primary"
-              onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || displayMotions.every((m) => m.is_visible)}
+              onClick={() => void handleShowAll()}
             >
-              Add Motion
+              {isBulkLoading ? "Working\u2026" : "Show All"}
             </button>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                disabled={isBulkLoading || meeting.motions.every((m) => m.is_visible)}
-                onClick={() => void handleShowAll()}
-              >
-                {isBulkLoading ? "Working…" : "Show All"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                disabled={isBulkLoading || meeting.motions.every((m) => !m.is_visible) || meeting.motions.filter((m) => m.is_visible).length === 0}
-                onClick={() => void handleHideAll()}
-              >
-                {isBulkLoading ? "Working…" : "Hide All"}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || displayMotions.every((m) => !m.is_visible) || displayMotions.filter((m) => m.is_visible).length === 0}
+              onClick={() => void handleHideAll()}
+            >
+              {isBulkLoading ? "Working\u2026" : "Hide All"}
+            </button>
           </div>
-        )}
-        {meeting.motions.length === 0 ? (
-          <p className="state-message">No motions.</p>
-        ) : (
-          <div className="admin-table-wrapper">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Motion</th>
-                  <th>Type</th>
-                  <th>Visibility</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {meeting.motions.map((motion, motionIndex) => {
-                  const isVisLoading = pendingVisibilityMotionId === motion.id;
-                  const isVisDisabled =
-                    meeting.status === "closed" ||
-                    motionsWithVotes.has(motion.id) ||
-                    isVisLoading ||
-                    isBulkLoading;
-                  const disabledReason =
-                    meeting.status === "closed"
-                      ? "Meeting is closed"
-                      : motionsWithVotes.has(motion.id)
-                      ? "Motion has received votes"
-                      : undefined;
-                  const isEditDeleteDisabled = motion.is_visible || meeting.status === "closed";
-                  const editDeleteTitle = isEditDeleteDisabled ? "Hide this motion first to edit or delete" : undefined;
-                  const mutedCell = !motion.is_visible ? "admin-table__cell--muted" : undefined;
-                  const isReorderDisabled = meeting.status === "closed" || reorderMutation.isPending;
-                  const isFirst = motionIndex === 0;
-                  const isLast = motionIndex === meeting.motions.length - 1;
-                  return (
-                    <tr
-                      key={motion.id}
-                    >
-                      <td
-                        className={mutedCell}
-                        style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}
-                      >
-                        {motion.display_order}
-                      </td>
-                      <td className={mutedCell}>
-                        <span style={{ fontWeight: 500 }}>{motion.title}</span>
-                        {motion.description && (
-                          <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                            {motion.description}
-                          </p>
-                        )}
-                      </td>
-                      <td className={mutedCell}>
-                        <span
-                          className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
-                          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
-                        >
-                          {motion.motion_type === "special" ? "Special" : "General"}
-                        </span>
-                      </td>
-                      <td className={mutedCell}>
-                        <label
-                          className={`motion-visibility-toggle${isVisDisabled ? " motion-visibility-toggle--disabled" : ""}${isVisLoading ? " motion-visibility-toggle--loading" : ""}`}
-                          title={disabledReason}
-                        >
-                          <input
-                            type="checkbox"
-                            className="motion-visibility-toggle__input"
-                            checked={motion.is_visible}
-                            disabled={isVisDisabled}
-                            onChange={() => {
-                              setVisibilityErrors((prev) => {
-                                const next = { ...prev };
-                                delete next[motion.id];
-                                return next;
-                              });
-                              visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
-                            }}
-                          />
-                          <span className="motion-visibility-toggle__track" />
-                          <span className="motion-visibility-toggle__label">
-                            {motion.is_visible ? "Visible" : "Hidden"}
-                          </span>
-                        </label>
-                        {visibilityErrors[motion.id] && (
-                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                            {visibilityErrors[motion.id]}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            className="btn btn--secondary"
-                            style={{ padding: "5px 14px", fontSize: "0.8rem" }}
-                            disabled={isEditDeleteDisabled}
-                            title={editDeleteTitle}
-                            onClick={() => {
-                              setEditingMotion(motion);
-                              setEditForm({
-                                title: motion.title,
-                                description: motion.description ?? "",
-                                motion_type: motion.motion_type,
-                                motion_number: motion.motion_number ?? "",
-                              });
-                              setEditMotionError(null);
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--danger btn--sm"
-                            disabled={isEditDeleteDisabled}
-                            title={editDeleteTitle}
-                            onClick={() => {
-                              if (window.confirm("Delete this motion? This cannot be undone.")) {
-                                deleteMotionMutation.mutate(motion.id);
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                          {meeting.status !== "closed" && (
-                            <>
-                              <button
-                                type="button"
-                                className="btn btn--admin"
-                                style={{ padding: "5px 10px", fontSize: "0.8rem" }}
-                                aria-label={`Move ${motion.title} to top`}
-                                disabled={isFirst || isReorderDisabled}
-                                onClick={() => {
-                                  const without = displayMotions.filter((m) => m.id !== motion.id);
-                                  handleReorder([motion, ...without]);
-                                }}
-                              >
-                                ⤒
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--admin"
-                                style={{ padding: "5px 10px", fontSize: "0.8rem" }}
-                                aria-label={`Move ${motion.title} up`}
-                                disabled={isFirst || isReorderDisabled}
-                                onClick={() => {
-                                  const newOrder = [...displayMotions];
-                                  [newOrder[motionIndex - 1], newOrder[motionIndex]] = [newOrder[motionIndex], newOrder[motionIndex - 1]];
-                                  handleReorder(newOrder);
-                                }}
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--admin"
-                                style={{ padding: "5px 10px", fontSize: "0.8rem" }}
-                                aria-label={`Move ${motion.title} down`}
-                                disabled={isLast || isReorderDisabled}
-                                onClick={() => {
-                                  const newOrder = [...displayMotions];
-                                  [newOrder[motionIndex], newOrder[motionIndex + 1]] = [newOrder[motionIndex + 1], newOrder[motionIndex]];
-                                  handleReorder(newOrder);
-                                }}
-                              >
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--admin"
-                                style={{ padding: "5px 10px", fontSize: "0.8rem" }}
-                                aria-label={`Move ${motion.title} to bottom`}
-                                disabled={isLast || isReorderDisabled}
-                                onClick={() => {
-                                  const without = displayMotions.filter((m) => m.id !== motion.id);
-                                  handleReorder([...without, motion]);
-                                }}
-                              >
-                                ⤓
-                              </button>
-                            </>
-                          )}
-                        </div>
-                        {deleteMotionErrors[motion.id] && (
-                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                            {deleteMotionErrors[motion.id]}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+      {displayMotions.length === 0 ? (
+        <p className="state-message">No motions.</p>
+      ) : (
+        <MotionManagementTable
+          motions={displayMotions}
+          meetingStatus={meeting.status}
+          onReorder={handleReorder}
+          isReorderPending={reorderMutation.isPending}
+          reorderError={reorderError}
+          pendingVisibilityMotionId={pendingVisibilityMotionId}
+          isBulkLoading={isBulkLoading}
+          motionsWithVotes={motionsWithVotes}
+          visibilityErrors={visibilityErrors}
+          onToggleVisibility={(motionId, isVisible) => {
+            setVisibilityErrors((prev) => {
+              const next = { ...prev };
+              delete next[motionId];
+              return next;
+            });
+            visibilityMutation.mutate({ motionId, isVisible });
+          }}
+          onEdit={(motion) => {
+            setEditingMotion(motion);
+            setEditForm({
+              title: motion.title,
+              description: motion.description ?? "",
+              motion_type: motion.motion_type,
+              motion_number: motion.motion_number ?? "",
+            });
+            setEditMotionError(null);
+          }}
+          onDelete={(motionId) => {
+            if (window.confirm("Delete this motion? This cannot be undone.")) {
+              deleteMotionMutation.mutate(motionId);
+            }
+          }}
+          deleteMotionErrors={deleteMotionErrors}
+        />
+      )}
+
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
@@ -730,6 +564,7 @@ export default function GeneralMeetingDetailPage() {
                   title: addMotionForm.title,
                   description: addMotionForm.description || null,
                   motion_type: addMotionForm.motion_type,
+                  motion_number: addMotionForm.motion_number.trim() || null,
                 });
               }}
             >
@@ -749,6 +584,16 @@ export default function GeneralMeetingDetailPage() {
                   className="field__input"
                   value={addMotionForm.description}
                   onChange={(e) => setAddMotionForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-number">Motion number (optional)</label>
+                <input
+                  id="add-motion-number"
+                  className="field__input"
+                  type="text"
+                  value={addMotionForm.motion_number}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
               </div>
               <div className="field">
@@ -848,6 +693,16 @@ export default function GeneralMeetingDetailPage() {
                   className="field__input"
                   value={editForm.description}
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="modal-edit-motion-number">Motion number (optional)</label>
+                <input
+                  id="modal-edit-motion-number"
+                  className="field__input"
+                  type="text"
+                  value={editForm.motion_number}
+                  onChange={(e) => setEditForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
               </div>
               <div className="field">
