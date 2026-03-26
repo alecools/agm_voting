@@ -1375,12 +1375,15 @@ async def add_motion_to_meeting(
     max_index = max_result.scalar_one_or_none()
     next_index = (max_index + 1) if max_index is not None else 0
 
+    motion_number = data.motion_number.strip() if data.motion_number else None
+    motion_number = motion_number if motion_number else None
     motion = Motion(
         general_meeting_id=general_meeting_id,
         title=data.title.strip(),
         description=data.description,
         display_order=next_index,
         motion_type=data.motion_type,
+        motion_number=motion_number,
         is_visible=False,
     )
     db.add(motion)

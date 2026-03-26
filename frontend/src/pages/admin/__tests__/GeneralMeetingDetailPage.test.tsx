@@ -509,82 +509,6 @@ describe("GeneralMeetingDetailPage", () => {
     unmount();
   });
 
-  it("clicking 'Move up' in visibility table calls reorder API", async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
-        if (params.meetingId === "agm-move-up-test") {
-          return HttpResponse.json({
-            ...ADMIN_MEETING_DETAIL,
-            id: "agm-move-up-test",
-            motions: [
-              { ...ADMIN_MEETING_DETAIL.motions[0], id: "mu1", display_order: 1, title: "Motion Alpha" },
-              {
-                id: "mu2",
-                title: "Motion Beta",
-                description: null,
-                display_order: 2,
-                motion_number: null,
-                motion_type: "general",
-                is_visible: true,
-                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
-                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
-              },
-            ],
-          });
-        }
-        return HttpResponse.json({ detail: "not found" }, { status: 404 });
-      })
-    );
-    const { unmount } = renderPage("agm-move-up-test");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Move Motion Beta up" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Move Motion Beta up" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-    unmount();
-  });
-
-  it("clicking 'Move down' in visibility table calls reorder API", async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
-        if (params.meetingId === "agm-move-down-test") {
-          return HttpResponse.json({
-            ...ADMIN_MEETING_DETAIL,
-            id: "agm-move-down-test",
-            motions: [
-              { ...ADMIN_MEETING_DETAIL.motions[0], id: "md1", display_order: 1, title: "Motion Gamma" },
-              {
-                id: "md2",
-                title: "Motion Delta",
-                description: null,
-                display_order: 2,
-                motion_number: null,
-                motion_type: "general",
-                is_visible: true,
-                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
-                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
-              },
-            ],
-          });
-        }
-        return HttpResponse.json({ detail: "not found" }, { status: 404 });
-      })
-    );
-    const { unmount } = renderPage("agm-move-down-test");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Move Motion Gamma down" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Move Motion Gamma down" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-    unmount();
-  });
-
   it("Escape key closes delete modal without navigating", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
@@ -1737,45 +1661,6 @@ describe("Reorder buttons in Actions column", () => {
     expect(moveToTopBtn.closest("td")).toBe(editBtn.closest("td"));
   });
 
-  it("Move up and Move down buttons are in the same cell as Edit/Delete", async () => {
-    server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
-        if (params.meetingId === "agm-updown-cell-test") {
-          return HttpResponse.json({
-            ...ADMIN_MEETING_DETAIL,
-            id: "agm-updown-cell-test",
-            motions: [
-              { ...ADMIN_MEETING_DETAIL.motions[0], id: "ud1", display_order: 1, title: "UD Motion 1", is_visible: false },
-              {
-                id: "ud2",
-                title: "UD Motion 2",
-                description: null,
-                display_order: 2,
-                motion_number: null,
-                motion_type: "general",
-                is_visible: false,
-                tally: ADMIN_MEETING_DETAIL.motions[0].tally,
-                voter_lists: ADMIN_MEETING_DETAIL.motions[0].voter_lists,
-              },
-            ],
-          });
-        }
-        return HttpResponse.json({ detail: "not found" }, { status: 404 });
-      })
-    );
-    renderPage("agm-updown-cell-test");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Move UD Motion 1 down" })).toBeInTheDocument();
-    });
-
-    const moveDownBtn = screen.getByRole("button", { name: "Move UD Motion 1 down" });
-    const moveUpBtn = screen.getByRole("button", { name: "Move UD Motion 2 up" });
-    const firstEditBtn = screen.getAllByRole("button", { name: "Edit" })[0];
-    const secondEditBtn = screen.getAllByRole("button", { name: "Edit" })[1];
-
-    expect(moveDownBtn.closest("td")).toBe(firstEditBtn.closest("td"));
-    expect(moveUpBtn.closest("td")).toBe(secondEditBtn.closest("td"));
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -6592,6 +6592,48 @@ class TestMotionManagement:
         assert motion.title == "Persist Check"
         assert motion.is_visible is False
 
+    async def test_add_motion_with_motion_number_persists(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """motion_number supplied in add-motion payload is saved to DB and returned."""
+        agm = await self._create_meeting(db_session, "AddMotionNumber")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Numbered Motion", "motion_number": "SR-1"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["motion_number"] == "SR-1"
+        motion_id = uuid.UUID(data["id"])
+        result = await db_session.execute(select(Motion).where(Motion.id == motion_id))
+        motion = result.scalar_one_or_none()
+        assert motion is not None
+        assert motion.motion_number == "SR-1"
+
+    async def test_add_motion_without_motion_number_is_null(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """motion_number is null when not supplied in the add-motion payload."""
+        agm = await self._create_meeting(db_session, "AddNoMotionNumber")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Unnumbered Motion"},
+        )
+        assert response.status_code == 201
+        assert response.json()["motion_number"] is None
+
+    async def test_add_motion_whitespace_motion_number_stored_as_null(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Whitespace-only motion_number is normalised to null."""
+        agm = await self._create_meeting(db_session, "AddWhitespaceNumber")
+        response = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/motions",
+            json={"title": "Whitespace Number Motion", "motion_number": "   "},
+        )
+        assert response.status_code == 201
+        assert response.json()["motion_number"] is None
+
     # --- Input validation (add) ---
 
     async def test_add_motion_missing_title_returns_422(

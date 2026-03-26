@@ -713,16 +713,6 @@ export default function GeneralMeetingDetailPage() {
                 />
               </div>
               <div className="field">
-                <label className="field__label" htmlFor="modal-edit-motion-number">Motion number (optional)</label>
-                <input
-                  id="modal-edit-motion-number"
-                  className="field__input"
-                  type="text"
-                  value={editForm.motion_number}
-                  onChange={(e) => setEditForm((f) => ({ ...f, motion_number: e.target.value }))}
-                />
-              </div>
-              <div className="field">
                 <label className="field__label" htmlFor="modal-edit-type">Motion Type</label>
                 <select
                   id="modal-edit-type"

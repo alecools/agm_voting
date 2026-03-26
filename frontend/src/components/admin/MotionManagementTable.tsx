@@ -50,8 +50,6 @@ interface SortableRowProps {
   onDelete: (motionId: string) => void;
   deleteMotionErrors: Record<string, string>;
   onMoveTop: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   onMoveBottom: () => void;
 }
 
@@ -71,8 +69,6 @@ function SortableRow({
   onDelete,
   deleteMotionErrors,
   onMoveTop,
-  onMoveUp,
-  onMoveDown,
   onMoveBottom,
 }: SortableRowProps) {
   const {
@@ -188,24 +184,6 @@ function SortableRow({
                   disabled={isFirst || isReorderPending}
                 >
                   &#x2912;
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--sm"
-                  aria-label={`Move ${motion.title} up`}
-                  onClick={onMoveUp}
-                  disabled={isFirst || isReorderPending}
-                >
-                  &#x2191;
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--sm"
-                  aria-label={`Move ${motion.title} down`}
-                  onClick={onMoveDown}
-                  disabled={isLast || isReorderPending}
-                >
-                  &#x2193;
                 </button>
                 <button
                   type="button"
@@ -374,8 +352,6 @@ export default function MotionManagementTable({
                       onDelete={onDelete}
                       deleteMotionErrors={deleteMotionErrors}
                       onMoveTop={() => moveItem(index, 0)}
-                      onMoveUp={() => moveItem(index, index - 1)}
-                      onMoveDown={() => moveItem(index, index + 1)}
                       onMoveBottom={() => moveItem(index, localOrder.length - 1)}
                     />
                   );

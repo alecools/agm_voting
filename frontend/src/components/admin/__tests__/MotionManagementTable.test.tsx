@@ -177,63 +177,37 @@ describe("MotionManagementTable", () => {
 
   // --- Move buttons: disabled states ---
 
-  it("'Move to top' and 'Move up' disabled for first motion", () => {
+  it("'Move to top' disabled for first motion", () => {
     renderTable();
     expect(screen.getByRole("button", { name: "Move Alpha Motion to top" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Alpha Motion up" })).toBeDisabled();
   });
 
-  it("'Move down' and 'Move to bottom' disabled for last motion", () => {
+  it("'Move to bottom' disabled for last motion", () => {
     renderTable();
-    expect(screen.getByRole("button", { name: "Move Gamma Motion down" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Gamma Motion to bottom" })).toBeDisabled();
   });
 
-  it("middle motion's all four buttons are enabled", () => {
+  it("middle motion's top and bottom buttons are enabled", () => {
     renderTable();
     expect(screen.getByRole("button", { name: "Move Beta Motion to top" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Beta Motion up" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Beta Motion down" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Beta Motion to bottom" })).not.toBeDisabled();
   });
 
   it("no move buttons rendered on closed meeting", () => {
     renderTable({ meetingStatus: "closed" });
-    expect(screen.queryByRole("button", { name: /Move .* up/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Move .* down/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move .* to top/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move .* to bottom/ })).not.toBeInTheDocument();
   });
 
   it("all move buttons disabled when isReorderPending is true", () => {
     renderTable({ isReorderPending: true });
-    const upBtn = screen.getByRole("button", { name: "Move Beta Motion up" });
-    const downBtn = screen.getByRole("button", { name: "Move Beta Motion down" });
-    expect(upBtn).toBeDisabled();
-    expect(downBtn).toBeDisabled();
+    const topBtn = screen.getByRole("button", { name: "Move Beta Motion to top" });
+    const bottomBtn = screen.getByRole("button", { name: "Move Beta Motion to bottom" });
+    expect(topBtn).toBeDisabled();
+    expect(bottomBtn).toBeDisabled();
   });
 
   // --- Move button interactions ---
-
-  it("clicking 'Move up' calls onReorder with correct order", async () => {
-    const user = userEvent.setup();
-    const { props } = renderTable();
-    await user.click(screen.getByRole("button", { name: "Move Beta Motion up" }));
-    expect(props.onReorder).toHaveBeenCalledOnce();
-    const newOrder: MotionDetail[] = (props.onReorder as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(newOrder[0].id).toBe("m2");
-    expect(newOrder[1].id).toBe("m1");
-    expect(newOrder[2].id).toBe("m3");
-  });
-
-  it("clicking 'Move down' calls onReorder with correct order", async () => {
-    const user = userEvent.setup();
-    const { props } = renderTable();
-    await user.click(screen.getByRole("button", { name: "Move Beta Motion down" }));
-    expect(props.onReorder).toHaveBeenCalledOnce();
-    const newOrder: MotionDetail[] = (props.onReorder as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(newOrder[0].id).toBe("m1");
-    expect(newOrder[1].id).toBe("m3");
-    expect(newOrder[2].id).toBe("m2");
-  });
 
   it("clicking 'Move to top' calls onReorder placing item first", async () => {
     const user = userEvent.setup();

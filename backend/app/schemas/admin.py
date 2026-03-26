@@ -216,6 +216,7 @@ class MotionAddRequest(BaseModel):
     title: str
     description: str | None = None
     motion_type: MotionType = MotionType.general
+    motion_number: str | None = None
 
     @field_validator("title")
     @classmethod
