@@ -49,8 +49,8 @@ export interface AuthVerifyResponse {
 }
 
 export interface SessionRestoreRequest {
-  session_token: string;
   general_meeting_id: string;
+  session_token?: string;
 }
 
 export interface MotionOut {
@@ -176,5 +176,11 @@ export function restoreSession(req: SessionRestoreRequest): Promise<AuthVerifyRe
   return apiFetch<AuthVerifyResponse>("/api/auth/session", {
     method: "POST",
     body: JSON.stringify(req),
+  });
+}
+
+export function logout(): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/auth/logout", {
+    method: "POST",
   });
 }

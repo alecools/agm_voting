@@ -5,13 +5,13 @@ from pydantic import BaseModel, field_validator
 
 
 class SessionRestoreRequest(BaseModel):
-    session_token: str
     general_meeting_id: uuid.UUID
+    session_token: Optional[str] = None
 
     @field_validator("session_token")
     @classmethod
-    def token_not_empty(cls, v: str) -> str:
-        if not v.strip():
+    def token_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.strip():
             raise ValueError("session_token must not be empty")
         return v
 

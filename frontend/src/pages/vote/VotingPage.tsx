@@ -66,16 +66,15 @@ export function VotingPage() {
     }
   }, [meetingId]);
 
-  // On every VotingPage mount: if a session token is present, call restoreSession to
-  // get server-authoritative voted_motion_ids from the DB. This ensures that:
+  // On every VotingPage mount: call restoreSession via the HttpOnly agm_session cookie
+  // to get server-authoritative voted_motion_ids from the DB. This ensures that:
   // - voted_motion_ids is not stale from a previous session
   // - isLotSubmitted() derives lock state from fresh data on re-mount
+  // The cookie is sent automatically by the browser — no localStorage needed.
   useEffect(() => {
     if (!meetingId) return;
-    const token = localStorage.getItem(`agm_session_${meetingId}`);
-    if (!token) return;
 
-    restoreSession({ session_token: token, general_meeting_id: meetingId })
+    restoreSession({ general_meeting_id: meetingId })
       .then((response) => {
         const freshLots = response.lots;
         setAllLots(freshLots);

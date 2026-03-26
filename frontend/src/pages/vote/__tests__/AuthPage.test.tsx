@@ -8,6 +8,7 @@ import { server } from "../../../../tests/msw/server";
 import { AuthPage } from "../AuthPage";
 import { AGM_ID } from "../../../../tests/msw/handlers";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
+import { logout } from "../../../api/voter";
 
 const BASE = "http://localhost:8000";
 
@@ -65,18 +66,29 @@ async function fillStep1(email: string) {
 
 describe("AuthPage", () => {
   beforeEach(() => {
-    localStorage.clear();
+    // Session restore is attempted on every mount via the HttpOnly cookie.
+    // The default MSW handler for /api/auth/session returns 401 so tests that
+    // don't seed a valid session fall back to the OTP form immediately.
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
   });
 
   // --- Happy path ---
-  it("renders 'Verify your identity' heading immediately", () => {
+  it("renders 'Verify your identity' heading after session restore fails", async () => {
     renderPage();
-    expect(screen.getByRole("heading", { name: "Verify your identity" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Verify your identity" })).toBeInTheDocument();
+    });
   });
 
-  it("'Send Verification Code' button is enabled immediately on render", () => {
+  it("'Send Verification Code' button is enabled after session restore fails", async () => {
     renderPage();
-    expect(screen.getByRole("button", { name: "Send Verification Code" })).toBeEnabled();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Send Verification Code" })).toBeEnabled();
+    });
   });
 
   it("navigates to voting page on success (not already submitted)", async () => {
@@ -284,9 +296,11 @@ describe("AuthPage", () => {
   });
 
   // --- UI structure ---
-  it("renders back button", () => {
+  it("renders back button after session restore fails", async () => {
     renderPage();
-    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    });
   });
 
   it("back button navigates to home", async () => {
@@ -329,43 +343,26 @@ describe("AuthPage", () => {
     });
   });
 
-  // --- Session persistence (localStorage) ---
+  // --- Session token is now in HttpOnly cookie (no localStorage) ---
 
-  it("stores session_token in localStorage after successful OTP verify", async () => {
+  it("does not write session_token to localStorage after successful OTP verify", async () => {
+    // The session token is set as an HttpOnly cookie by the backend — frontend must not
+    // write it to localStorage.
     mockNavigate.mockClear();
-    renderPage();
-    await fillAndSubmit("owner@example.com");
-    await waitFor(() => {
-      expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBe("test-session-token-abc123");
-    });
-  });
-
-  it("does not store token in localStorage when session_token is empty", async () => {
-    server.use(
-      http.post(`${BASE}/api/auth/verify`, () =>
-        HttpResponse.json({
-          lots: [{ lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false }],
-          voter_email: "owner@example.com",
-          agm_status: "open",
-          building_name: "B",
-          meeting_title: "T",
-          unvoted_visible_count: 1,
-          session_token: "",
-        })
-      )
-    );
     renderPage();
     await fillAndSubmit("owner@example.com");
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
+    // localStorage must remain empty — no session token written
     expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
   });
 
-  // --- Session restore on mount ---
+  // --- Session restore on mount (via HttpOnly cookie) ---
 
-  it("shows loading indicator when restoring session from localStorage", async () => {
-    // Delay the session restore response to observe the loading state
+  it("shows loading indicator while attempting session restore via cookie", async () => {
+    // Delay the session restore response to observe the loading state.
+    // No localStorage seed needed — cookie is sent automatically by the browser.
     let resolveRestore!: () => void;
     server.use(
       http.post(`${BASE}/api/auth/session`, () =>
@@ -383,7 +380,6 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Resuming your session…")).toBeInTheDocument();
@@ -391,8 +387,20 @@ describe("AuthPage", () => {
     resolveRestore();
   });
 
-  it("skips OTP form and navigates to voting when valid token in localStorage", async () => {
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+  it("navigates to voting when cookie-based session restore succeeds", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({
+          lots: [{ lot_owner_id: "lo-e2e", lot_number: "E2E-1", financial_position: "normal", already_submitted: false, is_proxy: false }],
+          voter_email: "owner@example.com",
+          agm_status: "open",
+          building_name: "Sunset Towers",
+          meeting_title: "2024 AGM",
+          unvoted_visible_count: 1,
+          session_token: "new-session-token-xyz789",
+        })
+      )
+    );
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -416,7 +424,6 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -438,7 +445,6 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -462,7 +468,6 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -470,42 +475,20 @@ describe("AuthPage", () => {
     });
   });
 
-  it("updates localStorage with new token returned from session restore", async () => {
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
-    renderPage();
-    await waitFor(() => {
-      expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBe("new-session-token-xyz789");
-    });
-  });
-
-  it("clears stale token and shows OTP form when restore returns 401", async () => {
-    server.use(
-      http.post(`${BASE}/api/auth/session`, () =>
-        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
-      )
-    );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "invalid-token");
+  it("shows OTP form when cookie-based restore returns 401 (no valid cookie)", async () => {
+    // beforeEach already sets session endpoint to return 401
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText("Email address")).toBeInTheDocument();
     });
+    // localStorage must not have been written at any point
     expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
   });
 
-  it("clears stale token and shows OTP form on network error during restore", async () => {
+  it("shows OTP form when cookie-based restore fails with a network error", async () => {
     server.use(
       http.post(`${BASE}/api/auth/session`, () => HttpResponse.error())
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
-    });
-    expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBeNull();
-  });
-
-  it("shows OTP form immediately when no token in localStorage (no restore attempt)", async () => {
-    // No token set in localStorage — restore should not run
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText("Email address")).toBeInTheDocument();
@@ -514,15 +497,34 @@ describe("AuthPage", () => {
 
   // --- Support email (branding) ---
 
-  it("shows support email link when support_email is set in branding config", () => {
+  it("shows support email link when support_email is set in branding config", async () => {
+    // Session restore fires on mount; wait for the OTP form to appear (restore failed)
+    // before asserting the support email block is visible.
     renderPage(AGM_ID, "help@example.com");
-    expect(screen.getByRole("link", { name: "help@example.com" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "help@example.com" })).toBeInTheDocument();
+    });
     expect(screen.getByText(/Need help/)).toBeInTheDocument();
   });
 
-  it("does not show support email block when support_email is empty", () => {
+  it("does not show support email block when support_email is empty", async () => {
+    // Session restore fires on mount; wait for the form to settle before asserting.
     renderPage(AGM_ID, "");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    });
     expect(screen.queryByRole("link", { name: /mailto/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Need help/)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// voter API — logout()
+// ---------------------------------------------------------------------------
+
+describe("voter API: logout", () => {
+  it("POST /api/auth/logout returns {ok: true}", async () => {
+    const result = await logout();
+    expect(result).toEqual({ ok: true });
   });
 });
