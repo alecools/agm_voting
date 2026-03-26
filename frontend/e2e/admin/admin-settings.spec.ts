@@ -85,6 +85,17 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
 
+    // Poll until /api/config reflects the new app_name — Lambda caching can cause
+    // the refetch to lag. Only assert the sidebar once the API confirms the change
+    // so we don't race against network latency on the preview deployment.
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    for (let i = 0; i < 20; i++) {
+      const res = await page.request.get(`${baseURL}/api/config`);
+      const cfg = await res.json() as { app_name: string };
+      if (cfg.app_name === testAppName) break;
+      await page.waitForTimeout(500);
+    }
+
     // After invalidateQueries triggers a refetch, the sidebar span should update.
     // Use a generous timeout to allow for Lambda re-fetch latency.
     await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(testAppName, {
@@ -199,7 +210,7 @@ test.describe("Admin Settings — favicon upload", () => {
 // ── Admin Settings — login page logo reflects branding ────────────────────────
 
 test.describe("Admin Settings — login page logo reflects branding", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — each test sets its own logo_url and restores the original at the end
 
   // Track original logo_url so we can restore it after the test
   let originalLogoUrl = "";

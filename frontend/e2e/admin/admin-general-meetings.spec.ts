@@ -25,6 +25,14 @@ test.describe("Admin General Meetings", () => {
       return;
     }
 
+    // Verify the meeting is still open before navigating — a concurrent test run
+    // may have closed it between the list fetch and the navigation.
+    const verifyRes = await request.get(`/api/admin/general-meetings/${openMeeting.id}`);
+    if (!verifyRes.ok() || (await verifyRes.json() as any).status !== "open") {
+      test.skip();
+      return;
+    }
+
     await page.goto(`/admin/general-meetings/${openMeeting.id}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("button", { name: "Close Voting" })).toBeVisible({ timeout: 10000 });
@@ -36,6 +44,14 @@ test.describe("Admin General Meetings", () => {
     const openMeeting = meetings.find((a) => a.status === "open");
 
     if (!openMeeting) {
+      test.skip();
+      return;
+    }
+
+    // Verify the meeting is still open before navigating — a concurrent test run
+    // may have closed it between the list fetch and the navigation.
+    const verifyRes = await request.get(`/api/admin/general-meetings/${openMeeting.id}`);
+    if (!verifyRes.ok() || (await verifyRes.json() as any).status !== "open") {
       test.skip();
       return;
     }
@@ -88,7 +104,7 @@ test.describe("Admin General Meetings", () => {
 // ── New tests: motion type badge, delete meeting, absent count ────────────────
 
 test.describe("Admin General Meetings — motion type badges", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — single test with its own beforeAll that seeds independent data
 
   const BUILDING_NAME = `AGM Badge Test Building-${Date.now()}`;
   let buildingId = "";
@@ -157,7 +173,7 @@ test.describe("Admin General Meetings — motion type badges", () => {
 });
 
 test.describe("Admin General Meetings — delete meeting button", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — each test creates its own meeting inline and is idempotent
 
   const BUILDING_NAME = `AGM Delete Test Building-${Date.now()}`;
   let buildingId = "";
@@ -294,7 +310,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
 });
 
 test.describe("Admin General Meetings — absent count", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — single test with its own beforeAll that seeds independent data
 
   const BUILDING_NAME = `AGM Absent Test Building-${Date.now()}`;
   let buildingId = "";

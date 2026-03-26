@@ -10,7 +10,7 @@ export default defineConfig({
   // Retry once on deployed targets (cold-start flakiness); twice in CI
   retries: process.env.CI ? 2 : isDeployed ? 1 : 0,
   // Limit parallelism on deployed targets to avoid hammering the Lambda
-  workers: process.env.CI ? 1 : isDeployed ? 2 : undefined,
+  workers: process.env.CI ? 2 : isDeployed ? 4 : undefined,
   reporter: "html",
   globalSetup: "./e2e/global-setup.ts",
   // Increase default expect/action timeout for deployed Lambda targets: API
