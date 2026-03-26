@@ -88,7 +88,7 @@ async def add_email(db: AsyncSession, lo: LotOwner, email: str) -> LotOwnerEmail
 
 
 def make_motion(agm: GeneralMeeting, title: str = "Motion 1", order_index: int = 1) -> Motion:
-    return Motion(general_meeting_id=agm.id, title=title, order_index=order_index)
+    return Motion(general_meeting_id=agm.id, title=title, display_order=order_index)
 
 
 async def make_otp(db: AsyncSession, email: str, meeting_id: uuid.UUID) -> str:
@@ -484,7 +484,7 @@ class TestAuthVerify:
         await db_session.flush()
 
         # One visible motion
-        m = Motion(general_meeting_id=agm.id, title="Motion C3", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion C3", display_order=1, is_visible=True)
         db_session.add(m)
         await db_session.flush()
 
@@ -757,9 +757,9 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=2, is_visible=True)
-        m_hidden = Motion(general_meeting_id=agm.id, title="Hidden Motion", order_index=3, is_visible=False)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2, is_visible=True)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Hidden Motion", display_order=3, is_visible=False)
         db_session.add_all([m1, m2, m_hidden])
         code = await make_otp(db_session, "uvc1@auth.com", agm.id)
         await db_session.commit()
@@ -786,7 +786,7 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Motion C", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion C", display_order=1, is_visible=True)
         db_session.add(m)
         await db_session.flush()
         # Submit a ballot for the lot
@@ -828,8 +828,8 @@ class TestAuthVerify:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion X", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion Y", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion X", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion Y", display_order=2, is_visible=True)
         db_session.add_all([m1, m2])
         await db_session.flush()
         # lo_a has submitted a ballot and voted on both motions
@@ -941,8 +941,8 @@ class TestAuthVerify:
         await db_session.flush()
 
         # Two visible motions — lot has only voted on M1
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV1-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV1-B", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV1-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV1-B", display_order=2, is_visible=True)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
@@ -986,10 +986,10 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV2-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV2-B", order_index=2, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV2-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV2-B", display_order=2, is_visible=True)
         # Hidden motion — should NOT block already_submitted
-        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV2-Hidden", order_index=3, is_visible=False)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV2-Hidden", display_order=3, is_visible=False)
         db_session.add_all([m1, m2, m_hidden])
         await db_session.flush()
 
@@ -1036,7 +1036,7 @@ class TestAuthVerify:
         await db_session.flush()
 
         # Only a hidden motion — nothing visible
-        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV3-Hidden", order_index=1, is_visible=False)
+        m_hidden = Motion(general_meeting_id=agm.id, title="Motion RV3-Hidden", display_order=1, is_visible=False)
         db_session.add(m_hidden)
         # BallotSubmission exists but no visible motions → should still be False
         sub = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="revote3@auth.com")
@@ -1071,7 +1071,7 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m = Motion(general_meeting_id=agm.id, title="Motion RV4-A", order_index=1, is_visible=True)
+        m = Motion(general_meeting_id=agm.id, title="Motion RV4-A", display_order=1, is_visible=True)
         db_session.add(m)
         # No BallotSubmission, no Vote rows at all
         code = await make_otp(db_session, "revote4@auth.com", agm.id)
@@ -1106,9 +1106,9 @@ class TestAuthVerify:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion RV5-A", order_index=1, is_visible=True)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion RV5-B", order_index=2, is_visible=True)
-        m3 = Motion(general_meeting_id=agm.id, title="Motion RV5-C", order_index=3, is_visible=True)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion RV5-A", display_order=1, is_visible=True)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion RV5-B", display_order=2, is_visible=True)
+        m3 = Motion(general_meeting_id=agm.id, title="Motion RV5-C", display_order=3, is_visible=True)
         db_session.add_all([m1, m2, m3])
         await db_session.flush()
 
@@ -1161,9 +1161,9 @@ class TestListMotions:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion One", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion Two", order_index=2)
-        m3 = Motion(general_meeting_id=agm.id, title="Motion Three", order_index=3)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion One", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion Two", display_order=2)
+        m3 = Motion(general_meeting_id=agm.id, title="Motion Three", display_order=3)
         db_session.add_all([m1, m2, m3])
         await db_session.flush()
 
@@ -1190,7 +1190,7 @@ class TestListMotions:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Fields Motion", order_index=1, description="desc")
+        m = Motion(general_meeting_id=agm.id, title="Fields Motion", display_order=1, description="desc")
         db_session.add(m)
         await db_session.flush()
 
@@ -1207,9 +1207,9 @@ class TestListMotions:
         assert "id" in motion
         assert "title" in motion
         assert "description" in motion
-        assert "order_index" in motion
+        assert "display_order" in motion
 
-    async def test_motions_ordered_by_order_index(self, transport, db_session: AsyncSession):
+    async def test_motions_ordered_by_display_order(self, transport, db_session: AsyncSession):
         b = make_building("Motion Order Building")
         db_session.add(b)
         await db_session.flush()
@@ -1221,9 +1221,9 @@ class TestListMotions:
         db_session.add(agm)
         await db_session.flush()
         # Add in reverse order
-        m3 = Motion(general_meeting_id=agm.id, title="Third", order_index=3)
-        m1 = Motion(general_meeting_id=agm.id, title="First", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Second", order_index=2)
+        m3 = Motion(general_meeting_id=agm.id, title="Third", display_order=3)
+        m1 = Motion(general_meeting_id=agm.id, title="First", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Second", display_order=2)
         db_session.add_all([m3, m1, m2])
         await db_session.flush()
 
@@ -1319,7 +1319,7 @@ class TestListMotions:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Cookie Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="Cookie Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -1351,7 +1351,7 @@ class TestSaveDraft:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Draft Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="Draft Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
         return b, lo, agm, m, email
@@ -1453,7 +1453,7 @@ class TestSaveDraft:
         agm2 = make_agm(b2)
         db_session.add(agm2)
         await db_session.flush()
-        m_other = Motion(general_meeting_id=agm2.id, title="Other GeneralMeeting Motion", order_index=1)
+        m_other = Motion(general_meeting_id=agm2.id, title="Other GeneralMeeting Motion", display_order=1)
         db_session.add(m_other)
         await db_session.commit()
 
@@ -1504,7 +1504,7 @@ class TestSaveDraft:
         agm.closed_at = utcnow()
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Closed Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="Closed Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -1540,8 +1540,8 @@ class TestGetDrafts:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="M1", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="M2", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="M1", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="M2", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
@@ -1599,7 +1599,7 @@ class TestGetDrafts:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Null Draft Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="Null Draft Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -1641,8 +1641,8 @@ class TestSubmitBallot:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="M1", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="M2", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="M1", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="M2", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
         return b, lo, agm, m1, m2, email
@@ -1813,7 +1813,7 @@ class TestSubmitBallot:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="NM", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="NM", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -1880,8 +1880,8 @@ class TestMyBallot:
         agm = make_agm(b, title="My Ballot GeneralMeeting")
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion 1", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion 2", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion 1", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion 2", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
@@ -1910,7 +1910,7 @@ class TestMyBallot:
         assert len(data["submitted_lots"]) == 1
         assert len(data["submitted_lots"][0]["votes"]) == 2
 
-    async def test_ballot_ordered_by_motion_order_index(self, transport, db_session: AsyncSession):
+    async def test_ballot_ordered_by_motion_display_order(self, transport, db_session: AsyncSession):
         b = make_building("Ordered Ballot Building")
         db_session.add(b)
         await db_session.flush()
@@ -1921,9 +1921,9 @@ class TestMyBallot:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m3 = Motion(general_meeting_id=agm.id, title="Third", order_index=3)
-        m1 = Motion(general_meeting_id=agm.id, title="First", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Second", order_index=2)
+        m3 = Motion(general_meeting_id=agm.id, title="Third", display_order=3)
+        m1 = Motion(general_meeting_id=agm.id, title="First", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Second", display_order=2)
         db_session.add_all([m3, m1, m2])
         await db_session.flush()
 
@@ -1979,7 +1979,7 @@ class TestMyBallot:
 
     # --- Edge cases ---
 
-    async def test_ballot_fields_include_order_index(self, transport, db_session: AsyncSession):
+    async def test_ballot_fields_include_display_order(self, transport, db_session: AsyncSession):
         b = make_building("Order Index Ballot Building")
         db_session.add(b)
         await db_session.flush()
@@ -1990,7 +1990,7 @@ class TestMyBallot:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="Test Motion", order_index=5)
+        m = Motion(general_meeting_id=agm.id, title="Test Motion", display_order=5)
         db_session.add(m)
         await db_session.flush()
 
@@ -2008,7 +2008,7 @@ class TestMyBallot:
             )
 
         vote_item = response.json()["submitted_lots"][0]["votes"][0]
-        assert vote_item["order_index"] == 5
+        assert vote_item["display_order"] == 5
         assert vote_item["choice"] == "no"
 
     async def test_remaining_lot_owner_ids_populated(self, transport, db_session: AsyncSession):
@@ -2026,7 +2026,7 @@ class TestMyBallot:
         agm = make_agm(b, title="Remaining Lots GeneralMeeting")
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="RL Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="RL Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -2067,8 +2067,8 @@ class TestFullJourney:
         agm = make_agm(b, title="Full Journey GeneralMeeting")
         db_session.add(agm)
         await db_session.flush()
-        m1 = Motion(general_meeting_id=agm.id, title="Motion Alpha", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion Beta", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion Alpha", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion Beta", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
         otp_code = await make_otp(db_session, "journey@full.com", agm.id)
@@ -2170,13 +2170,13 @@ class TestInArrearVoting:
         m_general = Motion(
             general_meeting_id=agm.id,
             title="General Motion",
-            order_index=1,
+            display_order=1,
             motion_type=MotionType.general,
         )
         m_special = Motion(
             general_meeting_id=agm.id,
             title="Special Motion",
-            order_index=2,
+            display_order=2,
             motion_type=MotionType.special,
         )
         db_session.add_all([m_general, m_special])
@@ -2248,13 +2248,13 @@ class TestInArrearVoting:
         m_general = Motion(
             general_meeting_id=agm.id,
             title="General Motion",
-            order_index=1,
+            display_order=1,
             motion_type=MotionType.general,
         )
         m_special = Motion(
             general_meeting_id=agm.id,
             title="Special Motion",
-            order_index=2,
+            display_order=2,
             motion_type=MotionType.special,
         )
         db_session.add_all([m_general, m_special])
@@ -2330,7 +2330,7 @@ class TestInArrearVoting:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="SL Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="SL Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -2382,7 +2382,7 @@ class TestInArrearVoting:
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
-        m = Motion(general_meeting_id=agm.id, title="FV Motion", order_index=1)
+        m = Motion(general_meeting_id=agm.id, title="FV Motion", display_order=1)
         db_session.add(m)
         await db_session.flush()
 
@@ -2438,8 +2438,8 @@ class TestInArrearVoting:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="MF Motion 1", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="MF Motion 2", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="MF Motion 1", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="MF Motion 2", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
@@ -2516,13 +2516,13 @@ class TestInArrearVoting:
         m_general = Motion(
             general_meeting_id=agm.id,
             title="General Motion DB",
-            order_index=1,
+            display_order=1,
             motion_type=MotionType.general,
         )
         m_special = Motion(
             general_meeting_id=agm.id,
             title="Special Motion DB",
-            order_index=2,
+            display_order=2,
             motion_type=MotionType.special,
         )
         db_session.add_all([m_general, m_special])

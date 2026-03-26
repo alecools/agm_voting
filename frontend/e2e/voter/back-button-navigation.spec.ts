@@ -95,9 +95,11 @@ test.describe("Back button navigation from VotingPage", () => {
       localStorage.removeItem(`agm_session_${mid}`);
     }, meetingId);
 
-    // Reload so React re-initialises without the token — the in-memory session
-    // state is not affected by localStorage mutations alone.
-    await page.reload();
+    // Hard-navigate to the same URL so React re-initialises without the token.
+    // page.reload() races against React's in-memory session state which may
+    // restore before the reload settles. page.goto(url) forces a full page
+    // lifecycle and does not inherit in-memory state from the previous load.
+    await page.goto(page.url());
 
     // Auth page must render (email input visible)
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 20000 });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { adminLogout } from "../../api/admin";
+import { useBranding } from "../../context/BrandingContext";
 
 function NavContent({ onNavClick }: { onNavClick?: () => void }) {
   return (
@@ -29,6 +30,17 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
             General Meetings
           </NavLink>
         </li>
+        <li className="admin-nav__item">
+          <NavLink
+            to="/admin/settings"
+            className={({ isActive }) =>
+              `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
+            }
+            onClick={onNavClick}
+          >
+            Settings
+          </NavLink>
+        </li>
       </ul>
       <div style={{ marginTop: "auto", padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
         <Link to="/" className="admin-nav__link" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={onNavClick}>
@@ -43,6 +55,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isNavOpen, setIsNavOpen] = useState(false);
+  const { config } = useBranding();
 
   async function handleLogout() {
     try {
@@ -57,10 +70,11 @@ export default function AdminLayout() {
     <div className="admin-layout">
       <nav className="admin-sidebar">
         <div className="admin-sidebar__header">
-          <picture>
-            <source srcSet="/logo.webp" type="image/webp" />
-            <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
-          </picture>
+          {config.logo_url ? (
+            <img src={config.logo_url} alt={config.app_name} className="admin-sidebar__logo" />
+          ) : (
+            <span className="admin-sidebar__app-name">{config.app_name}</span>
+          )}
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <NavContent />
@@ -88,10 +102,11 @@ export default function AdminLayout() {
         data-testid="admin-nav-drawer"
       >
         <div className="admin-sidebar__header">
-          <picture>
-            <source srcSet="/logo.webp" type="image/webp" />
-            <img src="/logo.png" alt="General Meeting Vote" className="admin-sidebar__logo" />
-          </picture>
+          {config.logo_url ? (
+            <img src={config.logo_url} alt={config.app_name} className="admin-sidebar__logo" />
+          ) : (
+            <span className="admin-sidebar__app-name">{config.app_name}</span>
+          )}
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
         <button

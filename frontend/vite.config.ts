@@ -13,7 +13,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ["react", "react-dom", "react-router-dom"],
-          xlsx: ["xlsx"],
+          // xlsx is NOT listed here — it is pulled in only via dynamic imports
+          // inside parseMotionsExcel.ts, so it will only be downloaded by admins.
         },
       },
     },
@@ -45,6 +46,9 @@ export default defineConfig({
         // Phase D public summary
         "src/api/public.ts",
         "src/pages/GeneralMeetingSummaryPage.tsx",
+        // Tenant branding
+        "src/api/config.ts",
+        "src/context/BrandingContext.tsx",
       ],
       thresholds: {
         // Per-file thresholds for Phase 4 vote files
@@ -57,6 +61,10 @@ export default defineConfig({
         "src/utils/parseMotionsExcel.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/api/public.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/pages/GeneralMeetingSummaryPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Tenant branding
+        "src/api/config.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/context/BrandingContext.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/pages/admin/SettingsPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },

@@ -30,6 +30,7 @@ export interface MotionSeed {
   description: string;
   orderIndex: number;
   motionType: "general" | "special";
+  motionNumber?: string;
 }
 
 export interface TallyCount {
@@ -48,7 +49,7 @@ export interface MotionTally {
 export interface MotionDetail {
   id: string;
   title: string;
-  order_index: number;
+  display_order: number;
   motion_type: string;
   tally: MotionTally;
   voter_lists: {
@@ -70,9 +71,12 @@ export async function seedBuilding(
   name: string,
   managerEmail: string
 ): Promise<string> {
-  const buildingsRes = await api.get("/api/admin/buildings");
+  const buildingsRes = await api.get(
+    `/api/admin/buildings?name=${encodeURIComponent(name)}`
+  );
   const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-  let building = buildings.find((b) => b.name === name);
+  // name filter is a substring match — use exact-name guard as safety net
+  let building = buildings.find((b) => b.name === name) ?? null;
   if (!building) {
     const res = await api.post("/api/admin/buildings", {
       data: { name, manager_email: managerEmail },
@@ -186,15 +190,20 @@ export async function createOpenMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
-  // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings");
+  // Close any existing open/pending meetings for this building.
+  // Query by building_id (not name) so we catch meetings with different titles
+  // that would otherwise block the new meeting from being created (the backend
+  // enforces one open/pending meeting per building).
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
     building_id: string;
   }[];
   const openAgms = agms.filter(
-    (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+    (a) => a.status === "open" || a.status === "pending"
   );
   for (const agm of openAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
@@ -214,8 +223,9 @@ export async function createOpenMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
@@ -243,15 +253,20 @@ export async function createPendingMeeting(
   title: string,
   motions: MotionSeed[]
 ): Promise<string> {
-  // Close any existing open/pending meetings for this building
-  const agmsRes = await api.get("/api/admin/general-meetings");
+  // Close any existing open/pending meetings for this building.
+  // Query by building_id (not name) so we catch meetings with different titles
+  // that would otherwise block the new meeting from being created (the backend
+  // enforces one open/pending meeting per building).
+  const agmsRes = await api.get(
+    `/api/admin/general-meetings?building_id=${encodeURIComponent(buildingId)}&limit=100`
+  );
   const agms = (await agmsRes.json()) as {
     id: string;
     status: string;
     building_id: string;
   }[];
   const openAgms = agms.filter(
-    (a) => a.building_id === buildingId && (a.status === "open" || a.status === "pending")
+    (a) => a.status === "open" || a.status === "pending"
   );
   for (const agm of openAgms) {
     await api.post(`/api/admin/general-meetings/${agm.id}/close`);
@@ -271,8 +286,9 @@ export async function createPendingMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
@@ -313,8 +329,9 @@ export async function seedPendingMeeting(
       motions: motions.map((m) => ({
         title: m.title,
         description: m.description,
-        order_index: m.orderIndex,
+        display_order: m.orderIndex,
         motion_type: m.motionType,
+        ...(m.motionNumber ? { motion_number: m.motionNumber } : {}),
       })),
     },
   });
@@ -533,4 +550,66 @@ export async function submitBallot(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Submit ballot" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Submit ballot" }).last().click();
+}
+
+/**
+ * Submit a ballot for the given lots and motions via the backend API, bypassing the
+ * browser UI. Useful for seeding pre-vote state in beforeAll / beforeEach blocks so
+ * that serial tests are idempotent across retries.
+ *
+ * Flow:
+ *   1. Request an OTP for (email, meetingId) with skip_email=true
+ *   2. Retrieve the OTP from the test-only endpoint
+ *   3. POST /api/auth/verify to get a session token
+ *   4. POST /api/general-meeting/{meetingId}/submit with the session token
+ *
+ * @param api      Admin-authenticated APIRequestContext (used for OTP retrieval only)
+ * @param email    Voter email address
+ * @param meetingId  General meeting UUID
+ * @param lotOwnerIds  Array of lot_owner_id UUIDs to submit on behalf of
+ * @param votes    Array of { motion_id, choice } objects (choice: "yes" | "no" | "abstained")
+ */
+export async function submitBallotViaApi(
+  api: APIRequestContext,
+  email: string,
+  meetingId: string,
+  lotOwnerIds: string[],
+  votes: { motion_id: string; choice: string }[]
+): Promise<void> {
+  // 1. Request OTP (no email sent)
+  const otpReqRes = await api.post("/api/auth/request-otp", {
+    data: { email, general_meeting_id: meetingId, skip_email: true },
+  });
+  if (!otpReqRes.ok()) {
+    throw new Error(`submitBallotViaApi: OTP request failed (${otpReqRes.status()}): ${await otpReqRes.text()}`);
+  }
+
+  // 2. Retrieve OTP
+  const otpRes = await api.get(
+    `/api/test/latest-otp?email=${encodeURIComponent(email)}&meeting_id=${meetingId}`
+  );
+  if (!otpRes.ok()) {
+    throw new Error(`submitBallotViaApi: OTP retrieval failed (${otpRes.status()}): ${await otpRes.text()}`);
+  }
+  const { code } = (await otpRes.json()) as { code: string };
+
+  // 3. Verify OTP → get session token (unauthenticated context needed, but the admin context
+  //    also works since /api/auth/verify is a public endpoint)
+  const verifyRes = await api.post("/api/auth/verify", {
+    data: { email, code, general_meeting_id: meetingId },
+  });
+  if (!verifyRes.ok()) {
+    throw new Error(`submitBallotViaApi: verify failed (${verifyRes.status()}): ${await verifyRes.text()}`);
+  }
+  const { session_token } = (await verifyRes.json()) as { session_token: string };
+
+  // 4. Submit ballot using Authorization header (bypasses cookie requirement)
+  const submitRes = await api.post(`/api/general-meeting/${meetingId}/submit`, {
+    headers: { Authorization: `Bearer ${session_token}` },
+    data: { lot_owner_ids: lotOwnerIds, votes },
+  });
+  if (!submitRes.ok() && submitRes.status() !== 409) {
+    // 409 = already submitted — acceptable in idempotent setup steps
+    throw new Error(`submitBallotViaApi: submit failed (${submitRes.status()}): ${await submitRes.text()}`);
+  }
 }

@@ -10,11 +10,32 @@ import type {
   GeneralMeetingOut,
   GeneralMeetingCloseOut,
   GeneralMeetingStartOut,
+  MotionOut,
+  MotionReorderOut,
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
+import type { TenantConfig } from "../../src/api/config";
 
 const BASE = "http://localhost:8000";
+
+export let configFixture: TenantConfig = {
+  app_name: "AGM Voting",
+  logo_url: "",
+  favicon_url: null,
+  primary_colour: "#005f73",
+  support_email: "",
+};
+
+export function resetConfigFixture() {
+  configFixture = {
+    app_name: "AGM Voting",
+    logo_url: "",
+    favicon_url: null,
+    primary_colour: "#005f73",
+    support_email: "",
+  };
+}
 
 export const ADMIN_BUILDINGS: Building[] = [
   {
@@ -30,6 +51,13 @@ export const ADMIN_BUILDINGS: Building[] = [
     manager_email: "beta@example.com",
     is_archived: false,
     created_at: "2024-02-01T00:00:00Z",
+  },
+  {
+    id: "b3",
+    name: "Gamma House",
+    manager_email: "gamma@example.com",
+    is_archived: true,
+    created_at: "2022-01-01T00:00:00Z",
   },
 ];
 
@@ -106,7 +134,8 @@ export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
       id: "m1",
       title: "Motion 1",
       description: "Description 1",
-      order_index: 0,
+      display_order: 1,
+      motion_number: null,
       motion_type: "general" as const,
       is_visible: true,
       tally: {
@@ -162,7 +191,8 @@ export const ADMIN_MEETING_DETAIL_HIDDEN_MOTION: GeneralMeetingDetail = {
       id: "m-hidden",
       title: "Hidden Motion",
       description: "Hidden desc",
-      order_index: 0,
+      display_order: 1,
+      motion_number: "M-42",
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -188,7 +218,8 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-visible-1",
       title: "Visible Motion 1",
       description: null,
-      order_index: 0,
+      display_order: 1,
+      motion_number: null,
       motion_type: "general" as const,
       is_visible: true,
       tally: {
@@ -204,7 +235,8 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-hidden-1",
       title: "Hidden Motion 1",
       description: null,
-      order_index: 1,
+      display_order: 2,
+      motion_number: null,
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -220,7 +252,8 @@ export const ADMIN_MEETING_DETAIL_MIXED_VISIBILITY: GeneralMeetingDetail = {
       id: "m-hidden-2",
       title: "Hidden Motion 2",
       description: null,
-      order_index: 2,
+      display_order: 3,
+      motion_number: null,
       motion_type: "special" as const,
       is_visible: false,
       tally: {
@@ -243,7 +276,8 @@ export const ADMIN_MEETING_DETAIL_ALL_HIDDEN: GeneralMeetingDetail = {
       id: "m-only-hidden",
       title: "Only Hidden Motion",
       description: null,
-      order_index: 0,
+      display_order: 1,
+      motion_number: null,
       motion_type: "general" as const,
       is_visible: false,
       tally: {
@@ -270,7 +304,8 @@ export const ADMIN_CREATED_MEETING: GeneralMeetingOut = {
       id: "m-new",
       title: "First Motion",
       description: null,
-      order_index: 0,
+      display_order: 1,
+      motion_number: null,
       motion_type: "general" as const,
       is_visible: true,
     },
@@ -299,6 +334,14 @@ export const adminHandlers = [
 
   http.get(`${BASE}/api/admin/buildings`, () => {
     return HttpResponse.json(ADMIN_BUILDINGS);
+  }),
+
+  http.get(`${BASE}/api/admin/buildings/:buildingId`, ({ params }) => {
+    const building = ADMIN_BUILDINGS.find((b) => b.id === params.buildingId);
+    if (!building) {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    return HttpResponse.json(building);
   }),
 
   http.post(`${BASE}/api/admin/buildings`, async ({ request }) => {
@@ -541,6 +584,41 @@ export const adminHandlers = [
     return HttpResponse.json(result);
   }),
 
+  http.put(`${BASE}/api/admin/general-meetings/:meetingId/motions/reorder`, async ({ request, params }) => {
+    if (params.meetingId === "agm-closed-reorder") {
+      return HttpResponse.json(
+        { detail: "Cannot reorder motions on a closed General Meeting" },
+        { status: 409 }
+      );
+    }
+    if (params.meetingId === "agm-reorder-error") {
+      return HttpResponse.json(
+        { detail: "Server error" },
+        { status: 500 }
+      );
+    }
+    const body = await request.json() as { motions?: Array<{ motion_id: string; display_order: number }> };
+    const incomingMotions = body?.motions ?? [];
+    // Sort by display_order and return updated motions using ADMIN_MEETING_DETAIL motions as base
+    const sorted = [...incomingMotions].sort((a, b) => a.display_order - b.display_order);
+    const baseMotions = ADMIN_MEETING_DETAIL.motions;
+    const motionMap = new Map(baseMotions.map((m) => [m.id, m]));
+    const reordered: MotionOut[] = sorted.map((item, idx) => {
+      const base = motionMap.get(item.motion_id);
+      return {
+        id: item.motion_id,
+        title: base?.title ?? `Motion ${idx + 1}`,
+        description: base?.description ?? null,
+        display_order: idx + 1,
+        motion_number: base?.motion_number ?? null,
+        motion_type: base?.motion_type ?? "general",
+        is_visible: base?.is_visible ?? true,
+      };
+    });
+    const result: MotionReorderOut = { motions: reordered };
+    return HttpResponse.json(result);
+  }),
+
   http.patch(`${BASE}/api/admin/motions/:motionId/visibility`, async ({ params, request }) => {
     if (params.motionId === "motion-closed") {
       return HttpResponse.json({ detail: "Cannot change visibility on a closed meeting" }, { status: 409 });
@@ -562,15 +640,21 @@ export const adminHandlers = [
 
   // Add motion
   http.post(`${BASE}/api/admin/general-meetings/:meetingId/motions`, async ({ request }) => {
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
     if (body?.title === "add-fail") {
       return HttpResponse.json({ detail: "Cannot add a motion to a closed meeting" }, { status: 409 });
     }
+    // Mirror backend behaviour: auto-assign motion_number from display_order when omitted
+    const autoDisplayOrder = 3;
+    const motionNumber = (body?.motion_number !== undefined && body?.motion_number !== null)
+      ? (body.motion_number.trim() || null)
+      : String(autoDisplayOrder);
     return HttpResponse.json({
       id: "motion-new",
       title: body?.title ?? "New Motion",
       description: body?.description ?? null,
-      order_index: 3,
+      display_order: autoDisplayOrder,
+      motion_number: motionNumber,
       motion_type: body?.motion_type ?? "general",
       is_visible: false,
     }, { status: 201 });
@@ -584,7 +668,7 @@ export const adminHandlers = [
     if (params.motionId === "motion-edit-fail") {
       return HttpResponse.json({ detail: "Server error" }, { status: 500 });
     }
-    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string };
+    const body = await request.json() as { title?: string; description?: string | null; motion_type?: string; motion_number?: string | null };
     const motion = ADMIN_MEETING_DETAIL.motions[0];
     return HttpResponse.json({
       ...motion,
@@ -592,6 +676,7 @@ export const adminHandlers = [
       title: body?.title ?? motion.title,
       description: body?.description ?? motion.description,
       motion_type: body?.motion_type ?? motion.motion_type,
+      motion_number: body?.motion_number !== undefined ? body.motion_number : motion.motion_number,
     });
   }),
 
@@ -604,6 +689,37 @@ export const adminHandlers = [
       return HttpResponse.json({ detail: "Server error" }, { status: 500 });
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Tenant config — admin endpoints
+  http.get(`${BASE}/api/admin/config`, () => {
+    return HttpResponse.json(configFixture);
+  }),
+
+  http.post(`${BASE}/api/admin/config/logo`, () => {
+    return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo-test.png" });
+  }),
+
+  http.post(`${BASE}/api/admin/config/favicon`, () => {
+    return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon-test.png" });
+  }),
+
+  http.put(`${BASE}/api/admin/config`, async ({ request }) => {
+    const body = await request.json() as Partial<TenantConfig>;
+    if (!body?.app_name || !body.app_name.trim()) {
+      return HttpResponse.json({ detail: "app_name must not be empty" }, { status: 422 });
+    }
+    if (!body?.primary_colour || !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(body.primary_colour)) {
+      return HttpResponse.json({ detail: "primary_colour must be a valid CSS hex colour" }, { status: 422 });
+    }
+    configFixture = {
+      app_name: body.app_name,
+      logo_url: body.logo_url ?? "",
+      favicon_url: (body as Partial<TenantConfig>).favicon_url ?? null,
+      primary_colour: body.primary_colour,
+      support_email: body.support_email ?? "",
+    };
+    return HttpResponse.json(configFixture);
   }),
 ];
 
@@ -618,8 +734,8 @@ export const agmSummaryFixture: GeneralMeetingSummaryData = {
   voting_closes_at: "2024-06-01T18:00:00Z",
   building_name: "Sunset Towers",
   motions: [
-    { order_index: 0, title: "Motion 1", description: "Approve the budget" },
-    { order_index: 1, title: "Motion 2", description: null },
+    { display_order: 1, motion_number: null, title: "Motion 1", description: "Approve the budget" },
+    { display_order: 2, motion_number: null, title: "Motion 2", description: null },
   ],
 };
 
@@ -663,7 +779,9 @@ export const motionFixtures = [
     id: MOTION_ID_1,
     title: "Motion 1",
     description: "Approve the budget",
-    order_index: 0,
+    display_order: 1,
+    motion_number: null,
+    motion_type: "general" as const,
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
@@ -672,7 +790,9 @@ export const motionFixtures = [
     id: MOTION_ID_2,
     title: "Motion 2",
     description: null,
-    order_index: 1,
+    display_order: 2,
+    motion_number: null,
+    motion_type: "general" as const,
     is_visible: true,
     already_voted: false,
     submitted_choice: null,
@@ -692,14 +812,16 @@ export const myBallotFixture = {
         {
           motion_id: MOTION_ID_1,
           motion_title: "Motion 1",
-          order_index: 0,
+          display_order: 1,
+          motion_number: null,
           choice: "yes" as const,
           eligible: true,
         },
         {
           motion_id: MOTION_ID_2,
           motion_title: "Motion 2",
-          order_index: 1,
+          display_order: 2,
+          motion_number: null,
           choice: "no" as const,
           eligible: true,
         },
@@ -711,6 +833,11 @@ export const myBallotFixture = {
 
 export const handlers = [
   ...adminHandlers,
+  // Tenant config — public endpoint
+  http.get(`${BASE}/api/config`, () => {
+    return HttpResponse.json(configFixture);
+  }),
+
   http.get(`${BASE}/api/server-time`, () =>
     HttpResponse.json({ utc: "2024-06-01T10:00:00Z" })
   ),

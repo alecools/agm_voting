@@ -3,10 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { requestOtp, verifyAuth, restoreSession } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
+import { useBranding } from "../../context/BrandingContext";
 
 export function AuthPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
+  const { config } = useBranding();
   const [authError, setAuthError] = useState("");
   const [authStep, setAuthStep] = useState<"email" | "code">("email");
   const [otpEmail, setOtpEmail] = useState("");
@@ -125,6 +127,12 @@ export function AuthPage() {
         otpEmail={otpEmail}
         error={authError}
       />
+      {config.support_email && (
+        <p className="support-contact">
+          Need help? Contact{" "}
+          <a href={`mailto:${config.support_email}`}>{config.support_email}</a>
+        </p>
+      )}
     </main>
   );
 }

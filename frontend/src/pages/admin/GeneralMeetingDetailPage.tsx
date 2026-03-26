@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getGeneralMeetingDetail,
   deleteGeneralMeeting,
+  reorderMotions,
   toggleMotionVisibility,
   addMotionToMeeting,
   updateMotion,
@@ -17,6 +18,125 @@ import StartGeneralMeetingButton from "../../components/admin/StartGeneralMeetin
 import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
+import MotionManagementTable from "../../components/admin/MotionManagementTable";
+
+interface DeleteMeetingConfirmModalProps {
+  meetingTitle: string;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+interface DeleteMotionConfirmModalProps {
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteMotionConfirmModal({ onConfirm, onCancel }: DeleteMotionConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Motion"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete this motion?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This cannot be undone.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteMeetingConfirmModal({ meetingTitle, deleting, onConfirm, onCancel }: DeleteMeetingConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !deleting) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleting, onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Meeting"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete "{meetingTitle}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This action cannot be undone. All motions, votes, and ballot submissions for this meeting will be permanently deleted.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete Meeting"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -24,12 +144,70 @@ export default function GeneralMeetingDetailPage() {
   const queryClient = useQueryClient();
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
+  const [showDeleteMeetingModal, setShowDeleteMeetingModal] = useState(false);
+
+  // Optimistic motions list — updated immediately on reorder, confirmed on API response
+  const [optimisticMotions, setOptimisticMotions] = useState<MotionDetail[] | null>(null);
+  const [reorderError, setReorderError] = useState<string | null>(null);
 
   const { data: meeting, isLoading, error } = useQuery<GeneralMeetingDetail>({
     queryKey: ["admin", "general-meetings", meetingId],
     queryFn: () => getGeneralMeetingDetail(meetingId!),
     enabled: !!meetingId,
   });
+
+  // Reset optimistic state whenever fresh data arrives
+  if (meeting && optimisticMotions !== null) {
+    const serverIds = meeting.motions.map((m) => m.id).join(",");
+    const optimisticIds = optimisticMotions.map((m) => m.id).join(",");
+    if (serverIds === optimisticIds) {
+      // Server confirmed our optimistic order — clear it so we use server data
+      setOptimisticMotions(null);
+    }
+  }
+
+  const reorderMutation = useMutation({
+    mutationFn: (newOrder: MotionDetail[]) => {
+      const items = newOrder.map((m, idx) => ({
+        motion_id: m.id,
+        display_order: idx + 1,
+      }));
+      return reorderMotions(meetingId!, items);
+    },
+    onSuccess: (result) => {
+      // Build updated meeting with new motion order
+      queryClient.setQueryData(
+        ["admin", "general-meetings", meetingId],
+        (old: GeneralMeetingDetail | undefined) => {
+          if (!old) return old;
+          // Merge new display_order values into existing motion objects
+          const orderMap = new Map(result.motions.map((m) => [m.id, m.display_order]));
+          const merged = [...old.motions]
+            .map((m) => ({ ...m, display_order: orderMap.get(m.id) ?? m.display_order }))
+            .sort((a, b) => a.display_order - b.display_order);
+          return { ...old, motions: merged };
+        }
+      );
+      setOptimisticMotions(null);
+      setReorderError(null);
+    },
+    onError: (err: Error, _previousOrder) => {
+      // Revert optimistic update
+      if (meeting) {
+        setOptimisticMotions(meeting.motions);
+        /* c8 ignore next 3 -- meeting is always defined when reorder is triggered from the UI; else branch unreachable in practice */
+      } else {
+        setOptimisticMotions(null);
+      }
+      setReorderError(err.message ?? "Failed to reorder motions");
+    },
+  });
+
+  function handleReorder(newOrder: MotionDetail[]) {
+    setReorderError(null);
+    setOptimisticMotions(newOrder);
+    reorderMutation.mutate(newOrder);
+  }
 
   function handleCloseSuccess() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
@@ -51,31 +229,36 @@ export default function GeneralMeetingDetailPage() {
 
   // Add motion state
   const [showAddMotionModal, setShowAddMotionModal] = useState(false);
-  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
+  const [addMotionForm, setAddMotionForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string }>({
     title: "",
     description: "",
     motion_type: "general",
+    motion_number: "",
   });
   const [addMotionError, setAddMotionError] = useState<string | null>(null);
 
   // Edit motion state
   const [editingMotion, setEditingMotion] = useState<MotionDetail | null>(null);
-  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType }>({
+  const [editForm, setEditForm] = useState<{ title: string; description: string; motion_type: MotionType; motion_number: string }>({
     title: "",
     description: "",
     motion_type: "general",
+    motion_number: "",
   });
   const [editMotionError, setEditMotionError] = useState<string | null>(null);
 
   // Delete motion error state (per motion)
   const [deleteMotionErrors, setDeleteMotionErrors] = useState<Record<string, string>>({});
 
+  // Delete motion confirmation state
+  const [pendingDeleteMotionId, setPendingDeleteMotionId] = useState<string | null>(null);
+
   const addMotionMutation = useMutation({
     mutationFn: (data: AddMotionRequest) => addMotionToMeeting(meetingId!, data),
     onSuccess: () => {
       setShowAddMotionModal(false);
       setAddMotionError(null);
-      setAddMotionForm({ title: "", description: "", motion_type: "general" });
+      setAddMotionForm({ title: "", description: "", motion_type: "general", motion_number: "" });
       void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
     },
     onError: (error: Error) => {
@@ -116,11 +299,24 @@ export default function GeneralMeetingDetailPage() {
       setPendingVisibilityMotionId(motionId);
       return toggleMotionVisibility(motionId, isVisible);
     },
-    onSuccess: () => {
-      setPendingVisibilityMotionId(null);
-      void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    onMutate: async ({ motionId, isVisible }) => {
+      await queryClient.cancelQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+      const previous = queryClient.getQueryData(["admin", "general-meetings", meetingId]);
+      queryClient.setQueryData(["admin", "general-meetings", meetingId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          motions: old.motions.map((m: any) =>
+            m.id === motionId ? { ...m, is_visible: isVisible } : m
+          ),
+        };
+      });
+      return { previous };
     },
-    onError: (error: Error, variables) => {
+    onError: (error: Error, variables, context: any) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["admin", "general-meetings", meetingId], context.previous);
+      }
       setPendingVisibilityMotionId(null);
       const isVotesError = error.message.includes("received votes");
       if (isVotesError) {
@@ -132,6 +328,10 @@ export default function GeneralMeetingDetailPage() {
         ? "Cannot change visibility on a closed meeting"
         : "Failed to update visibility";
       setVisibilityErrors((prev) => ({ ...prev, [variables.motionId]: msg }));
+    },
+    onSuccess: () => {
+      setPendingVisibilityMotionId(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
     },
   });
 
@@ -189,9 +389,12 @@ export default function GeneralMeetingDetailPage() {
   }
 
   function handleDelete() {
-    if (window.confirm("Delete this meeting? This cannot be undone.")) {
-      deleteMutation.mutate();
-    }
+    setShowDeleteMeetingModal(true);
+  }
+
+  function handleDeleteMeetingConfirm() {
+    deleteMutation.mutate();
+    setShowDeleteMeetingModal(false);
   }
 
   function handleEditSubmit(e: React.FormEvent) {
@@ -203,6 +406,11 @@ export default function GeneralMeetingDetailPage() {
         title: editForm.title || undefined,
         description: editForm.description || undefined,
         motion_type: editForm.motion_type,
+        // Send trimmed string (possibly empty ""); empty string is handled by
+        // the backend as "clear the motion number" (sets motion_number = null).
+        // We must NOT send null here because the backend skips the field when
+        // motion_number is null (partial-update semantics).
+        motion_number: editForm.motion_number.trim(),
       },
     });
   }
@@ -225,6 +433,9 @@ export default function GeneralMeetingDetailPage() {
   const showEmailBanner =
     meeting.status === "closed" &&
     meetingExtended.email_delivery?.status === "failed";
+
+  // Use optimistic motions for the reorder panel; fall back to server data
+  const displayMotions = optimisticMotions ?? meeting.motions;
 
   return (
     <div>
@@ -313,175 +524,98 @@ export default function GeneralMeetingDetailPage() {
         />
       )}
 
-      <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motion Visibility</h2>
-      <div style={{ marginBottom: 24 }}>
-        {meeting.status !== "closed" && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+      <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motions</h2>
+      {meeting.status !== "closed" && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+          >
+            Add Motion
+          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
               type="button"
-              className="btn btn--primary"
-              onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || displayMotions.every((m) => m.is_visible)}
+              onClick={() => void handleShowAll()}
             >
-              Add Motion
+              {isBulkLoading ? "Working\u2026" : "Show All"}
             </button>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                disabled={isBulkLoading || meeting.motions.every((m) => m.is_visible)}
-                onClick={() => void handleShowAll()}
-              >
-                {isBulkLoading ? "Working…" : "Show All"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                disabled={isBulkLoading || meeting.motions.every((m) => !m.is_visible) || meeting.motions.filter((m) => m.is_visible).length === 0}
-                onClick={() => void handleHideAll()}
-              >
-                {isBulkLoading ? "Working…" : "Hide All"}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={isBulkLoading || displayMotions.every((m) => !m.is_visible) || displayMotions.filter((m) => m.is_visible).length === 0}
+              onClick={() => void handleHideAll()}
+            >
+              {isBulkLoading ? "Working\u2026" : "Hide All"}
+            </button>
           </div>
-        )}
-        {meeting.motions.length === 0 ? (
-          <p className="state-message">No motions.</p>
-        ) : (
-          <div className="admin-table-wrapper">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Motion</th>
-                  <th>Type</th>
-                  <th>Visibility</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {meeting.motions.map((motion) => {
-                  const isVisLoading = pendingVisibilityMotionId === motion.id;
-                  const isVisDisabled =
-                    meeting.status === "closed" ||
-                    motionsWithVotes.has(motion.id) ||
-                    isVisLoading ||
-                    isBulkLoading;
-                  const disabledReason =
-                    meeting.status === "closed"
-                      ? "Meeting is closed"
-                      : motionsWithVotes.has(motion.id)
-                      ? "Motion has received votes"
-                      : undefined;
-                  const isEditDeleteDisabled = motion.is_visible || meeting.status === "closed";
-                  const editDeleteTitle = isEditDeleteDisabled ? "Hide this motion first to edit or delete" : undefined;
-                  const mutedCell = !motion.is_visible ? "admin-table__cell--muted" : undefined;
-                  return (
-                    <tr
-                      key={motion.id}
-                    >
-                      <td
-                        className={mutedCell}
-                        style={{ fontFamily: "'Overpass Mono', monospace", color: "var(--text-muted)" }}
-                      >
-                        {motion.order_index + 1}
-                      </td>
-                      <td className={mutedCell}>
-                        <span style={{ fontWeight: 500 }}>{motion.title}</span>
-                        {motion.description && (
-                          <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                            {motion.description}
-                          </p>
-                        )}
-                      </td>
-                      <td className={mutedCell}>
-                        <span
-                          className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
-                          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
-                        >
-                          {motion.motion_type === "special" ? "Special" : "General"}
-                        </span>
-                      </td>
-                      <td className={mutedCell}>
-                        <label
-                          className={`motion-visibility-toggle${isVisDisabled ? " motion-visibility-toggle--disabled" : ""}${isVisLoading ? " motion-visibility-toggle--loading" : ""}`}
-                          title={disabledReason}
-                        >
-                          <input
-                            type="checkbox"
-                            className="motion-visibility-toggle__input"
-                            checked={motion.is_visible}
-                            disabled={isVisDisabled}
-                            onChange={() => {
-                              setVisibilityErrors((prev) => {
-                                const next = { ...prev };
-                                delete next[motion.id];
-                                return next;
-                              });
-                              visibilityMutation.mutate({ motionId: motion.id, isVisible: !motion.is_visible });
-                            }}
-                          />
-                          <span className="motion-visibility-toggle__track" />
-                          <span className="motion-visibility-toggle__label">
-                            {motion.is_visible ? "Visible" : "Hidden"}
-                          </span>
-                        </label>
-                        {visibilityErrors[motion.id] && (
-                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                            {visibilityErrors[motion.id]}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            type="button"
-                            className="btn btn--secondary"
-                            style={{ padding: "5px 14px", fontSize: "0.8rem" }}
-                            disabled={isEditDeleteDisabled}
-                            title={editDeleteTitle}
-                            onClick={() => {
-                              setEditingMotion(motion);
-                              setEditForm({
-                                title: motion.title,
-                                description: motion.description ?? "",
-                                motion_type: motion.motion_type,
-                              });
-                              setEditMotionError(null);
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--danger btn--sm"
-                            disabled={isEditDeleteDisabled}
-                            title={editDeleteTitle}
-                            onClick={() => {
-                              if (window.confirm("Delete this motion? This cannot be undone.")) {
-                                deleteMotionMutation.mutate(motion.id);
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        {deleteMotionErrors[motion.id] && (
-                          <span style={{ display: "block", color: "var(--red)", fontSize: "0.875rem", marginTop: 4 }} role="alert">
-                            {deleteMotionErrors[motion.id]}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+      {displayMotions.length === 0 ? (
+        <p className="state-message">No motions.</p>
+      ) : (
+        <MotionManagementTable
+          motions={displayMotions}
+          meetingStatus={meeting.status}
+          onReorder={handleReorder}
+          isReorderPending={reorderMutation.isPending}
+          reorderError={reorderError}
+          pendingVisibilityMotionId={pendingVisibilityMotionId}
+          isBulkLoading={isBulkLoading}
+          motionsWithVotes={motionsWithVotes}
+          visibilityErrors={visibilityErrors}
+          onToggleVisibility={(motionId, isVisible) => {
+            setVisibilityErrors((prev) => {
+              const next = { ...prev };
+              delete next[motionId];
+              return next;
+            });
+            visibilityMutation.mutate({ motionId, isVisible });
+          }}
+          onEdit={(motion) => {
+            setEditingMotion(motion);
+            setEditForm({
+              title: motion.title,
+              description: motion.description ?? "",
+              motion_type: motion.motion_type,
+              motion_number: motion.motion_number ?? "",
+            });
+            setEditMotionError(null);
+          }}
+          onDelete={(motionId) => {
+            setPendingDeleteMotionId(motionId);
+          }}
+          deleteMotionErrors={deleteMotionErrors}
+        />
+      )}
+
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+
+      {/* Delete Motion Modal */}
+      {pendingDeleteMotionId && (
+        <DeleteMotionConfirmModal
+          onConfirm={() => {
+            deleteMotionMutation.mutate(pendingDeleteMotionId);
+            setPendingDeleteMotionId(null);
+          }}
+          onCancel={() => setPendingDeleteMotionId(null)}
+        />
+      )}
+
+      {/* Delete Meeting Modal */}
+      {showDeleteMeetingModal && meeting && (
+        <DeleteMeetingConfirmModal
+          meetingTitle={meeting.title}
+          deleting={deleteMutation.isPending}
+          onConfirm={handleDeleteMeetingConfirm}
+          onCancel={() => setShowDeleteMeetingModal(false)}
+        />
+      )}
 
       {/* Add Motion Modal */}
       {showAddMotionModal && (
@@ -521,6 +655,7 @@ export default function GeneralMeetingDetailPage() {
                   title: addMotionForm.title,
                   description: addMotionForm.description || null,
                   motion_type: addMotionForm.motion_type,
+                  motion_number: addMotionForm.motion_number.trim() || null,
                 });
               }}
             >
@@ -540,6 +675,17 @@ export default function GeneralMeetingDetailPage() {
                   className="field__input"
                   value={addMotionForm.description}
                   onChange={(e) => setAddMotionForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="add-motion-number">Motion number (optional)</label>
+                <input
+                  id="add-motion-number"
+                  className="field__input"
+                  type="text"
+                  placeholder={`Auto (e.g. ${(meeting.motions.length + 1).toString()})`}
+                  value={addMotionForm.motion_number}
+                  onChange={(e) => setAddMotionForm((f) => ({ ...f, motion_number: e.target.value }))}
                 />
               </div>
               <div className="field">
@@ -619,6 +765,17 @@ export default function GeneralMeetingDetailPage() {
                   required
                   value={editForm.title}
                   onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="modal-edit-motion-number">Motion number (optional)</label>
+                <input
+                  id="modal-edit-motion-number"
+                  className="field__input"
+                  type="text"
+                  value={editForm.motion_number}
+                  onChange={(e) => setEditForm((f) => ({ ...f, motion_number: e.target.value }))}
+                  placeholder="e.g. 1, SR-1"
                 />
               </div>
               <div className="field">

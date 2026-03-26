@@ -3,6 +3,7 @@ import type { MotionType } from "../../types";
 export interface MotionFormEntry {
   title: string;
   description: string;
+  motion_number: string | null;
   motion_type: MotionType;
 }
 
@@ -13,7 +14,7 @@ interface MotionEditorProps {
 
 export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
   function addMotion() {
-    onChange([...motions, { title: "", description: "", motion_type: "general" }]);
+    onChange([...motions, { title: "", description: "", motion_number: "", motion_type: "general" }]);
   }
 
   function removeMotion(index: number) {
@@ -38,6 +39,17 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
               type="text"
               value={motion.title}
               onChange={(e) => updateMotion(index, "title", e.target.value)}
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label className="field__label" htmlFor={`motion-number-${index}`}>Motion number (optional)</label>
+            <input
+              id={`motion-number-${index}`}
+              className="field__input"
+              type="text"
+              value={motion.motion_number ?? ""}
+              onChange={(e) => updateMotion(index, "motion_number", e.target.value)}
+              placeholder="e.g. 1, SR-1"
             />
           </div>
           <div className="field" style={{ marginBottom: 8 }}>

@@ -1,18 +1,6 @@
-> **ORCHESTRATOR MODE — READ FIRST**
->
-> This session is an **orchestrator**. You must NEVER call tools (Read, Grep, Glob, Bash, Edit, Write, Agent, etc.) directly.
-> Every task — file reads, code changes, test runs, git operations, CI checks — must be delegated to a sub-agent.
->
-> Workflow for any feature or fix:
-> 1. Spawn `agm-design` agent → updates PRD + writes design doc in `tasks/design/`
-> 2. Spawn `agm-implement` agent (in a worktree) → implements code, runs tests at 100% coverage, commits
-> 3. Grant push slot → spawn `agm-test` agent → pushes branch, waits for Vercel, runs full E2E suite
-> 4. After E2E passes → spawn sub-agent to raise PR and merge into `preview`
-> 5. Spawn `agm-cleanup` agent → removes worktree, Neon branch, Vercel env vars
->
-> Agent definitions live in `.claude/agents/`. Read `agm-orchestrate.md` for the full coordination protocol.
->
-> **Violating this rule (e.g. reading a file "just to check") is the most common failure mode. Do not do it.**
+> **For any feature, bug fix, or task — invoke the `/orchestrate-feature-dev` skill as the entry point.**
+> The skill runs in the main session and coordinates all sub-agents (design, implement, test, cleanup) via the `Agent` tool.
+> See `.claude/skills/orchestrate-feature-dev/SKILL.md` for the full protocol.
 
 ---
 
@@ -41,83 +29,108 @@ Key decisions that must not be inadvertently reversed:
 - **Lot owner import uses upsert** — matched by `lot_number` within building. Delete-all-then-insert would cascade-delete `AGMLotWeight` records and zero out vote tallies for existing AGMs.
 - **`AGMLotWeight` is a snapshot** — entitlements are captured at AGM creation time and never updated by subsequent lot owner edits or imports.
 - **Auth on closed AGMs** — `POST /api/auth/verify` returns 200 (not 403) for closed AGMs. The response includes `agm_status: str` so the frontend can route to the confirmation page instead of blocking entry.
-- **`voter_email` is case-sensitive** — `AGMLotWeight.voter_email` and `BallotSubmission.voter_email` must match exactly. Auth enforces this via `LotOwner.email == request.email` in SQL.
+- **Ballots are keyed on `lot_owner_id`** — `BallotSubmission` and `Vote` unique constraints use `(general_meeting_id, lot_owner_id)`, not `voter_email`. `voter_email` is retained on both tables for audit only. Auth resolves lots via `LotOwnerEmail` records, then all operations key on `lot_owner_id`.
 - **Migrations run during Vercel build (`buildCommand`)** — `vercel.json`'s `buildCommand` runs `alembic upgrade head` once before the Lambda goes live. The Lambda cold start performs no DB operations. If the migration step fails, the Vercel build fails and the deploy is blocked (desirable).
 - **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. The build script does this transformation; `api/index.py` does it for the runtime `DATABASE_URL` used by the app.
+- **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `preview`) to avoid migration conflicts on the shared preview DB. The `agm-test` agent creates it before pushing; `agm-cleanup` deletes it after merge.
+- **Branch-scoped Vercel env vars** — `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are set as Vercel preview env vars scoped to the feature branch so the branch deployment migrates against its own Neon DB. Removed by `agm-cleanup` after merge.
+
+---
+
+## Project Infrastructure
+
+| Constant | Value |
+|---|---|
+| Neon project ID | `divine-dust-41291876` |
+| Vercel project ID | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
+| Local test DB URL | `postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test` |
+| Main repo path | `/Users/stevensun/personal/agm_survey` |
+| Worktree path pattern | `/Users/stevensun/personal/agm_survey/.worktree/<branch>` |
+
+Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain under the service name `agm-survey`.
+
+---
+
+## Codebase Structure
+
+| Path | Contents |
+|---|---|
+| `backend/app/models/` | SQLAlchemy models |
+| `backend/app/routers/` | FastAPI route handlers |
+| `backend/app/services/` | Business logic / service layer |
+| `backend/alembic/versions/` | DB migration files |
+| `frontend/src/pages/` | React page components |
+| `frontend/src/components/` | Shared React components |
+| `frontend/src/api/` | TypeScript API client functions |
+| `frontend/tests/msw/handlers.ts` | MSW mock handlers for tests |
+| `tasks/design/design-system.md` | Frontend design system — read before writing any UI |
+
+---
+
+## Domain Knowledge
+
+### Persona journeys
+
+| Persona | Flow |
+|---|---|
+| **Voter** | auth → lot selection → voting → confirmation |
+| **Proxy voter** | proxy auth → proxied lots → voting → confirmation |
+| **In-arrear lot** | auth → lot with in-arrear badge → `not_eligible` motion handling → confirmation |
+| **Admin** | login → building/meeting management → report viewing → close meeting |
+
+When a change affects an existing journey, update the existing tests for that journey — do not only add new scenarios.
+
+### Key domain test scenarios
+
+#### Authentication (`POST /api/auth/verify`)
+- Valid email + building → success with lot list
+- Email not found → 401
+- Proxy email → lots include `is_proxy: true`
+- Closed or past-close-date meeting → `agm_status: "closed"` in response
+
+#### Vote submission (`POST /api/agm/{id}/submit`)
+- All motions answered → success
+- Re-submission after already voted → 409
+- Submission after meeting is closed → 403
+- Proxy submits → `BallotSubmission.proxy_email` set in DB
+- In-arrear lot on General Motion → `not_eligible` recorded
+
+#### Meeting close (`POST /api/admin/agms/{id}/close`)
+- Close an open meeting → success + email triggered + absent records created for non-voters
+- Close an already-closed meeting → 409
+- Close a meeting that does not exist → 404
+
+#### Lot owner import (`POST /api/admin/buildings/{id}/import`)
+- Valid file → success, returns upserted count
+- Missing required columns → 422
+- Duplicate lot numbers → 422 with details
+- Extra/unknown columns → silently ignored
+- Non-CSV/Excel file → 422
+
+#### Weighted vote tallies
+- All lots vote Yes → entitlement sum equals total building entitlement
+- Mix of Yes/No → verify weighted sums, not lot counts
+- Absent lots → counted in absent tally, not abstained
+
+---
+
+## Test Data Conventions
+
+E2E tests seed data using these naming patterns — the cleanup agent deletes them after runs:
+- **Test meetings**: titles matching `WF*`, `E2E*`, `Test*`, `Delete Test*`
+- **Test buildings**: names matching `E2E*`, `WF*`, `Test*`
+
+Do NOT delete/archive real production data. Known real buildings: "The Vale", "SBT", "Sandridge Bay Towers".
 
 ---
 
 ## Development Workflow
 
-> See user-level `~/.claude/CLAUDE.md` for: PRD-before-code rule and design-first decomposition process.
+Invoke `/orchestrate-feature-dev` to coordinate all work — design → implement → test → cleanup. The skill runs in the main session and spawns `agm-design`, `agm-implement`, `agm-test`, and `agm-cleanup` sub-agents. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
 
-Workflow is managed by the project's custom agents in `.claude/agents/`. The orchestrator spawns agents based on the task:
+### Worktree-first rule
 
-| Agent | File | Trigger / When to spawn |
-|---|---|---|
-| `agm-orchestrate` | `.claude/agents/agm-orchestrate.md` | User requests a new feature, bug fix, or any multi-step work — this is the entry point; coordinates all other agents and the push slot queue |
-| `agm-design` | `.claude/agents/agm-design.md` | First step of every feature: update or create the PRD, write the technical design doc in `tasks/design/`, sketch E2E scenarios — never writes implementation code |
-| `agm-implement` | `.claude/agents/agm-implement.md` | After design doc is written: implement backend + frontend changes in a worktree, run unit and integration tests at 100% coverage, commit, then signal "Ready for push slot" |
-| `agm-test` | `.claude/agents/agm-test.md` | After implementation is committed and the push slot is granted: push the branch, wait for Vercel deployment, run the full Playwright E2E suite once to completion, report all results, release the slot |
-| `agm-cleanup` | `.claude/agents/agm-cleanup.md` | After a PR merges to `preview`: remove git worktree, delete local and remote branch, delete Neon DB branch (if created), remove Vercel branch-scoped env vars, clean test data from preview DB |
-
-For full workflow details, see `.claude/agents/agm-orchestrate.md`.
-
-### Task folder structure
-
-| Folder | Contents |
-|---|---|
-| `tasks/prd/` | Product requirements documents (`prd-*.md`) |
-| `tasks/design/` | Technical design docs (`design-<feature>.md`) — one per feature, written by the design agent before implementation begins |
-
-**Design agents must write their output to `tasks/design/design-<feature>.md`** before reporting back to the orchestrator. Implementation agents must read this file before writing any code. Both files (PRD update + design doc) must be committed and included in the PR.
-
-### Definition of Done
-
-1. All local tests pass at 100% coverage (backend pytest + frontend vitest)
-2. Branch pushed, Vercel deployed, full E2E passes against the branch preview URL
-3. PR raised and merged into `preview`
-4. Post-merge cleanup complete (Neon branch, Vercel env vars, worktree, local + remote git branch)
-
----
-
-### Isolated DB for schema-migration branches
-
-Every branch with schema migrations MUST have its own Neon DB branch to avoid migration conflicts on the shared preview DB.
-
-**Neon API key:** `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
-
-**Setup (once, when creating the branch):**
-
-1. Create a Neon branch off `preview` (named after the feature) via the Neon dashboard
-2. Note the pooled + unpooled connection strings
-3. Set branch-scoped Vercel env vars:
-
-   ```bash
-   PROJECT_ID=$(cat .vercel/project.json | python3 -c "import sys,json; print(json.load(sys.stdin)['projectId'])")
-
-   python3 - <<'EOF'
-   import urllib.request, json, os
-   token = os.environ["VERCEL_TOKEN"]
-   project_id = os.environ["PROJECT_ID"]
-   branch = "feat/my-feature"
-   pooled_url   = "postgresql://...?sslmode=require&channel_binding=require"
-   unpooled_url = "postgresql://...?sslmode=require&channel_binding=require"
-   for key, value in [("DATABASE_URL", pooled_url), ("DATABASE_URL_UNPOOLED", unpooled_url)]:
-       body = json.dumps({"key": key, "value": value, "type": "encrypted",
-                          "target": ["preview"], "gitBranch": branch}).encode()
-       req = urllib.request.Request(
-           f"https://api.vercel.com/v10/projects/{project_id}/env", data=body,
-           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-           method="POST")
-       print(f"{key}: {urllib.request.urlopen(req).status}")
-   EOF
-   ```
-
-4. Push the branch — Vercel build runs `alembic upgrade head` against the branch-scoped Neon DB before the Lambda goes live
-5. After merge: delete the Neon branch and remove branch-scoped Vercel env vars (delegate to the `agm-cleanup` agent)
-
-> When a PR merges to `preview`, the Vercel build runs `alembic upgrade head` against the shared preview DB as part of the build step.
+A branch worktree must be created before any design, implementation, or test work begins. All agents work exclusively inside that worktree — never the main repo root, which may be on a different branch. See `.claude/skills/orchestrate-feature-dev/SKILL.md` (Step a) for the full protocol and commands.
 
 ---
 
@@ -140,54 +153,6 @@ Every branch with schema migrations MUST have its own Neon DB branch to avoid mi
 
 ---
 
-## Testing Standards
-
-> See user-level `~/.claude/CLAUDE.md` for coverage targets, backend/frontend/Playwright standards. Project-specific requirements are below.
-
-### Scope review before writing tests
-
-Before writing tests for any new requirement, identify which existing persona journeys are affected and update those tests:
-
-- **Voter journey** — authentication -> lot selection -> voting -> confirmation. Changes to auth, lot resolution, vote submission, or UI routing must be reflected in the voter E2E spec.
-- **Admin journey** — login -> building/meeting management -> report viewing -> close meeting. Changes to admin API responses, report data, or admin UI must be reflected in admin E2E and integration tests.
-- **Proxy voter journey** — authentication via proxy email -> lot selection showing proxied lots -> voting -> confirmation. Changes to auth or vote submission must verify proxy flows are unaffected.
-- **In-arrear lot journey** — authentication -> lot selection with in-arrear badge -> voting with not_eligible motions -> confirmation. Changes to vote eligibility must verify in-arrear behaviour is preserved.
-
-When a change affects an existing E2E scenario (new page in the voter flow, changed API response shape, renamed route), update the E2E spec — do not only add new unit tests.
-
-### Key test scenarios by domain
-
-#### Authentication (`POST /api/auth/verify`)
-- Valid email + building -> success with lot list
-- Email not found -> 401
-- Proxy email -> lots include `is_proxy: true`
-- Closed or past-close-date meeting -> `agm_status: "closed"` in response
-
-#### Vote submission (`POST /api/agm/{id}/submit`)
-- All motions answered -> success
-- Re-submission after already voted -> 409
-- Submission after meeting is closed -> 403
-- Proxy submits -> `BallotSubmission.proxy_email` set in DB
-- In-arrear lot on General Motion -> `not_eligible` recorded
-
-#### Meeting close (`POST /api/admin/agms/{id}/close`)
-- Close an open meeting -> success + email triggered + absent records created for non-voters
-- Close an already-closed meeting -> 409
-- Close a meeting that does not exist -> 404
-
-#### Lot owner import (`POST /api/admin/buildings/{id}/import`)
-- Valid file -> success, returns upserted count
-- Missing required columns -> 422
-- Duplicate lot numbers -> 422 with details
-- Extra/unknown columns -> silently ignored
-- Non-CSV/Excel file -> 422
-
-#### Weighted vote tallies
-- All lots vote Yes -> entitlement sum equals total building entitlement
-- Mix of Yes/No -> verify weighted sums, not lot counts
-- Absent lots -> counted in absent tally, not abstained
-
----
 
 ## Example Files
 
@@ -202,7 +167,7 @@ Three example files live in `examples/` at the project root. Use these as test f
 | `Lot#` | `LotOwner.lot_number` | |
 | `Unit#` | _(ignored)_ | |
 | `UOE2` | `LotOwner.unit_entitlement` | Used for weighted voting |
-| `Email` | `LotOwner.email` | |
+| `Email` | `LotOwnerEmail.email` | Stored in the `lot_owner_emails` table; multiple lots may share an email |
 
 147 data rows under "Sandridge Bay Towers (Building 6,7 & 8)". Multiple lots share an email (intentional). Extra columns silently ignored.
 

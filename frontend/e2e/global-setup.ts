@@ -198,13 +198,14 @@ export default async function globalSetup(_config: FullConfig) {
     throw new Error(`${url} did not return 200 after ${maxAttempts} attempts. Last error: ${lastErr}`);
   };
 
-  // Fetch the building list once — shared by both seeding tasks below.
-  const buildingsRes = await retryGet("/api/admin/buildings");
-  const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
-
   // ── Task A: voting-test building ────────────────────────────────────────────
   async function seedVotingBuilding() {
-    let building = buildings.find((b) => b.name === E2E_BUILDING_NAME);
+    const buildingsRes = await retryGet(
+      `/api/admin/buildings?name=${encodeURIComponent(E2E_BUILDING_NAME)}`
+    );
+    const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
+    // name filter is a substring match — use exact-name guard as safety net
+    let building = buildings.find((b) => b.name === E2E_BUILDING_NAME) ?? null;
 
     if (!building) {
       const created = await api.post("/api/admin/buildings", {
@@ -265,7 +266,9 @@ export default async function globalSetup(_config: FullConfig) {
     // close any existing open E2E AGMs first (so the lot owner has no submitted
     // ballot on the new AGM), then create a new one. The just-closed AGM
     // satisfies the "AGM closed state" test which looks for any closed AGM.
-    const agmsRes = await retryGet("/api/admin/general-meetings");
+    const agmsRes = await retryGet(
+      `/api/admin/general-meetings?name=${encodeURIComponent(E2E_AGM_TITLE)}`
+    );
     const agms = (await agmsRes.json()) as {
       id: string;
       title: string;
@@ -300,7 +303,7 @@ export default async function globalSetup(_config: FullConfig) {
           {
             title: "E2E Test Motion 1",
             description: "Do you approve this E2E test motion?",
-            order_index: 1,
+            display_order: 1,
           },
         ],
       },
@@ -320,7 +323,12 @@ export default async function globalSetup(_config: FullConfig) {
   // AFTER the voting-test AGM, it becomes the newest and therefore the first
   // result — keeping admin tests away from the voting-test AGM.
   async function seedAdminBuilding() {
-    let adminBuilding = buildings.find((b) => b.name === E2E_ADMIN_BUILDING_NAME);
+    const adminBuildingsRes = await retryGet(
+      `/api/admin/buildings?name=${encodeURIComponent(E2E_ADMIN_BUILDING_NAME)}`
+    );
+    const adminBuildings = (await adminBuildingsRes.json()) as { id: string; name: string }[];
+    // name filter is a substring match — use exact-name guard as safety net
+    let adminBuilding = adminBuildings.find((b) => b.name === E2E_ADMIN_BUILDING_NAME) ?? null;
     if (!adminBuilding) {
       const created = await api.post("/api/admin/buildings", {
         data: { name: E2E_ADMIN_BUILDING_NAME, manager_email: "e2e-admin-mgr@test.com" },
@@ -338,7 +346,10 @@ export default async function globalSetup(_config: FullConfig) {
     }
 
     // Close any existing open AGMs for the admin-test building, then create a fresh one
-    const allAgmsRes = await retryGet("/api/admin/general-meetings");
+    const adminAgmTitle = `E2E Admin Test AGM-${RUN_SUFFIX}`;
+    const allAgmsRes = await retryGet(
+      `/api/admin/general-meetings?name=${encodeURIComponent(adminAgmTitle)}`
+    );
     const allAgms = (await allAgmsRes.json()) as { id: string; building_id: string; status: string }[];
     // Include "pending" in the filter — same reason as the voter-test AGM above.
     const openAdminAgms = allAgms.filter(
@@ -357,14 +368,14 @@ export default async function globalSetup(_config: FullConfig) {
     await api.post("/api/admin/general-meetings", {
       data: {
         building_id: adminBuilding.id,
-        title: `E2E Admin Test AGM-${RUN_SUFFIX}`,
+        title: adminAgmTitle,
         meeting_at: adminMeetingStarted.toISOString(),
         voting_closes_at: adminClosesAt.toISOString(),
         motions: [
           {
             title: "Admin Test Motion 1",
             description: "Admin-only test motion — do not vote on this.",
-            order_index: 1,
+            display_order: 1,
           },
         ],
       },

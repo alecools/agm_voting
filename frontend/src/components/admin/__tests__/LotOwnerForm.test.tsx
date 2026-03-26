@@ -144,6 +144,37 @@ describe("LotOwnerForm - Add mode", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it("renders the add dialog with role=dialog and aria-modal", () => {
+    renderAddForm();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("calls onCancel when Escape key is pressed in add modal", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderAddForm(vi.fn(), onCancel);
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("calls onCancel when clicking the backdrop overlay outside the add dialog", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderAddForm(vi.fn(), onCancel);
+    const overlay = screen.getByRole("dialog");
+    await user.click(overlay);
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("does not call onCancel when clicking inside the add dialog content", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    renderAddForm(vi.fn(), onCancel);
+    await user.click(screen.getByRole("heading", { name: "Add Lot Owner" }));
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

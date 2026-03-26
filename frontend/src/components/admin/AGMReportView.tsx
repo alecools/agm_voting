@@ -32,7 +32,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
   function handleExportCSV() {
     const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE)"];
     for (const motion of motions) {
-      const motionLabel = `${motion.order_index + 1}. ${motion.title.replace(/"/g, '""')}`;
+      const motionLabel = `${motion.motion_number?.trim() || String(motion.display_order)}. ${motion.title.replace(/"/g, '""')}`;
       for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
         for (const v of motion.voter_lists[cat]) {
           rows.push(`"${motionLabel}","${CATEGORY_LABELS[cat]}","${v.lot_number}",${v.entitlement}`);
@@ -66,7 +66,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
         <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
           <div className="admin-card__header">
             <h3 className="admin-card__title">
-              {motion.order_index + 1}. {motion.title}
+              {motion.motion_number?.trim() || String(motion.display_order)}. {motion.title}
             </h3>
             <span
               className={`motion-type-badge${motion.motion_type === "special" ? " motion-type-badge--special" : " motion-type-badge--general"}`}
@@ -81,7 +81,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
             )}
           </div>
           {motion.description && (
-            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem" }}>
+            <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem", padding: "0 20px" }}>
               {motion.description}
             </p>
           )}

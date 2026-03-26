@@ -1,7 +1,8 @@
 import { apiFetch } from "./client";
 
 export interface GeneralMeetingSummaryMotion {
-  order_index: number;
+  display_order: number;
+  motion_number: string | null;
   title: string;
   description: string | null;
 }

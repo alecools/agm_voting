@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -156,7 +156,12 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("shows Building label when building not found in cache", async () => {
+  it("shows Building label when building is not found", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+      })
+    );
     renderPage("b-unknown");
     await waitFor(() => {
       expect(screen.getByText("Building")).toBeInTheDocument();
@@ -188,8 +193,30 @@ describe("BuildingDetailPage", () => {
     });
   });
 
-  it("archives building and navigates away on confirm", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  it("opens archive confirm modal when Archive Building clicked", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("dialog", { name: "Archive Building" })).toBeInTheDocument();
+    expect(screen.getByText(/Archived buildings will no longer appear/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("shows building name in archive modal heading", async () => {
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("heading", { level: 2, name: /Alpha Tower/ })).toBeInTheDocument();
+  });
+
+  it("closes archive modal on Cancel without archiving", async () => {
     mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage("b1");
@@ -197,25 +224,27 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    expect(screen.getByRole("dialog", { name: "Archive Building" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Archive Building" })).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("archives building and navigates away when Archive confirmed", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
     });
   });
 
-  it("does not archive when confirm is cancelled", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(false);
-    mockNavigate.mockClear();
-    const user = userEvent.setup();
-    renderPage("b1");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Archive Building" }));
-    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
-  });
-
   it("shows archive error when API fails", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     server.use(
       http.post("http://localhost:8000/api/admin/buildings/:buildingId/archive", () => {
         return HttpResponse.json({ detail: "Already archived" }, { status: 409 });
@@ -227,6 +256,7 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Archive Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Archive Building" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => {
       expect(screen.getByText(/Already archived/i)).toBeInTheDocument();
     });
@@ -310,16 +340,14 @@ describe("BuildingDetailPage", () => {
 
   it("does not show Archive Building button for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     renderPage("b1");
@@ -459,16 +487,14 @@ describe("BuildingDetailPage", () => {
 
   it("shows Delete Building button only for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     renderPage("b1");
@@ -486,19 +512,16 @@ describe("BuildingDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Delete Building" })).not.toBeInTheDocument();
   });
 
-  it("shows confirm dialog when Delete Building clicked", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+  it("opens delete confirm modal when Delete Building clicked", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       })
     );
     const user = userEvent.setup();
@@ -507,23 +530,122 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete Building" }));
-    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Delete Building" })).toBeInTheDocument();
+    expect(screen.getByText(/This action cannot be undone/)).toBeInTheDocument();
+  });
+
+  it("shows building name in delete modal heading", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(screen.getByRole("heading", { level: 2, name: /Alpha Tower/ })).toBeInTheDocument();
+  });
+
+  it("closes delete modal on Cancel without deleting", async () => {
+    mockNavigate.mockClear();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(screen.getByRole("dialog", { name: "Delete Building" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Delete Building" })).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("closes delete modal on Escape without deleting", async () => {
+    mockNavigate.mockClear();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(screen.getByRole("dialog", { name: "Delete Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Building" })).not.toBeInTheDocument();
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
+  });
+
+  it("closes delete modal on backdrop click without deleting", async () => {
+    mockNavigate.mockClear();
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Building" });
+    expect(dialog).toBeInTheDocument();
+    await user.click(dialog);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete Building" })).not.toBeInTheDocument();
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
   });
 
   it("navigates to buildings list on successful delete", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       }),
       http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
         return new HttpResponse(null, { status: 204 });
@@ -535,49 +657,23 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Building" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Building" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin/buildings");
     });
   });
 
-  it("does not delete when confirm is cancelled", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(false);
-    mockNavigate.mockClear();
-    server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
-      })
-    );
-    const user = userEvent.setup();
-    renderPage("b1");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Delete Building" }));
-    expect(mockNavigate).not.toHaveBeenCalledWith("/admin/buildings");
-  });
-
   it("shows delete error when API returns error", async () => {
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([
-          {
-            id: "b1",
-            name: "Alpha Tower",
-            manager_email: "alpha@example.com",
-            is_archived: true,
-            created_at: "2024-01-01T00:00:00Z",
-          },
-        ]);
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
       }),
       http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json(
@@ -592,8 +688,29 @@ describe("BuildingDetailPage", () => {
       expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Building" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Building" }));
     await waitFor(() => {
       expect(screen.getByText(/409/)).toBeInTheDocument();
     });
+  });
+
+  it("Delete Building button uses btn--danger class", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete Building" })).toHaveClass("btn--danger");
   });
 });

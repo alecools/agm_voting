@@ -22,6 +22,7 @@ from app.models.lot_owner import LotOwner
 from app.models.lot_owner_email import LotOwnerEmail
 from app.models.lot_proxy import LotProxy
 from app.models.motion import Motion
+from app.models.otp_rate_limit import OTPRateLimit
 from app.models.session_record import SessionRecord
 from app.models.vote import Vote, VoteStatus
 from app.schemas.auth import (
@@ -40,9 +41,10 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# In-memory rate limiter: (email, meeting_id) → last request timestamp
+# Rate-limit constants
 # ---------------------------------------------------------------------------
-_otp_rate_limit: dict[tuple, datetime] = {}
+_OTP_RATE_LIMIT_WINDOW_SECONDS = 60
+_OTP_RATE_LIMIT_MAX_ATTEMPTS = 1  # one successful request per window
 
 # ---------------------------------------------------------------------------
 # OTP alphabet — excludes visually ambiguous characters O, 0, I, 1
@@ -52,6 +54,38 @@ _OTP_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 def _generate_otp_code() -> str:
     return "".join(secrets.choice(_OTP_ALPHABET) for _ in range(8))
+
+
+async def _upsert_rate_limit(
+    db: AsyncSession,
+    email: str,
+    building_id: uuid.UUID,
+    now: datetime,
+) -> None:
+    """Insert or update the OTPRateLimit row for (email, building_id).
+
+    Resets the window on each call — caller is responsible for checking the
+    limit BEFORE calling this function.
+    """
+    rl_result = await db.execute(
+        select(OTPRateLimit).where(
+            OTPRateLimit.email == email,
+            OTPRateLimit.building_id == building_id,
+        )
+    )
+    rl_record = rl_result.scalar_one_or_none()
+    if rl_record is None:
+        db.add(OTPRateLimit(
+            email=email,
+            building_id=building_id,
+            attempt_count=1,
+            first_attempt_at=now,
+            last_attempt_at=now,
+        ))
+    else:
+        rl_record.attempt_count += 1
+        rl_record.last_attempt_at = now
+    await db.flush()
 
 
 @router.post("/auth/request-otp", response_model=OtpRequestResponse)
@@ -71,15 +105,23 @@ async def request_otp(
     if meeting is None:
         raise HTTPException(status_code=404, detail="General Meeting not found")
 
-    # 2. Rate limit: 60 seconds between requests for same (email, meeting_id).
+    # 2. Rate limit: 60 seconds between requests for same (email, building_id).
+    #    Stored in the DB so the limit survives process restarts and applies
+    #    across all Lambda instances.
     #    Disabled in testing_mode so E2E tests can re-request OTPs immediately
     #    after setup (beforeAll) without hitting the 429 rate limit.
-    rate_key = (body.email, body.general_meeting_id)
     if not settings.testing_mode:
-        last_sent = _otp_rate_limit.get(rate_key)
-        if last_sent is not None:
-            elapsed = (datetime.now(UTC) - last_sent).total_seconds()
-            if elapsed < 60:
+        now_for_rate = datetime.now(UTC)
+        rl_result = await db.execute(
+            select(OTPRateLimit).where(
+                OTPRateLimit.email == body.email,
+                OTPRateLimit.building_id == meeting.building_id,
+            )
+        )
+        rl_record = rl_result.scalar_one_or_none()
+        if rl_record is not None:
+            elapsed = (now_for_rate - rl_record.last_attempt_at.replace(tzinfo=UTC)).total_seconds()
+            if elapsed < _OTP_RATE_LIMIT_WINDOW_SECONDS:
                 raise HTTPException(
                     status_code=429,
                     detail="Please wait before requesting another code",
@@ -90,6 +132,7 @@ async def request_otp(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == body.email,
             LotOwner.building_id == meeting.building_id,
         )
@@ -129,8 +172,10 @@ async def request_otp(
         db.add(otp)
         await db.commit()
 
-        # 6. Update rate limit tracker
-        _otp_rate_limit[rate_key] = datetime.now(UTC)
+        # 6. Upsert DB rate-limit record (reset window on each successful OTP issue)
+        now_rl = datetime.now(UTC)
+        if not settings.testing_mode:
+            await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
 
         # 7. Send the OTP email (skipped when skip_email=True, e.g. in E2E test helpers)
         if not body.skip_email:
@@ -149,7 +194,9 @@ async def request_otp(
     else:
         # Still update the rate limit so attackers can't use "no rate limit" as
         # a signal that the email was not found.
-        _otp_rate_limit[rate_key] = datetime.now(UTC)
+        if not settings.testing_mode:
+            now_rl = datetime.now(UTC)
+            await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
 
     return OtpRequestResponse(sent=True)
 
@@ -209,6 +256,7 @@ async def verify_auth(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == request.email,
             LotOwner.building_id == building_id,
         )
@@ -396,6 +444,7 @@ async def restore_session(
         select(LotOwnerEmail)
         .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
         .where(
+            LotOwnerEmail.email.isnot(None),
             LotOwnerEmail.email == voter_email,
             LotOwner.building_id == building_id,
         )

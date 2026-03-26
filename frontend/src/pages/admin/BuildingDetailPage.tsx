@@ -1,13 +1,125 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listBuildings, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
+import { getBuilding, listLotOwners, archiveBuilding, updateBuilding, deleteBuilding } from "../../api/admin";
 import type { Building, LotOwner } from "../../types";
 import LotOwnerTable from "../../components/admin/LotOwnerTable";
 import LotOwnerForm from "../../components/admin/LotOwnerForm";
 import LotOwnerCSVUpload from "../../components/admin/LotOwnerCSVUpload";
 import ProxyNominationsUpload from "../../components/admin/ProxyNominationsUpload";
 import FinancialPositionUpload from "../../components/admin/FinancialPositionUpload";
+
+interface DeleteBuildingConfirmModalProps {
+  buildingName: string;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteBuildingConfirmModal({ buildingName, deleting, onConfirm, onCancel }: DeleteBuildingConfirmModalProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !deleting) onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleting, onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Delete Building"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete "{buildingName}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          This action cannot be undone. All lot owners, meetings, and votes for this building will be permanently deleted.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete Building"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ArchiveConfirmModalProps {
+  buildingName: string;
+  archiving: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ArchiveConfirmModal({ buildingName, archiving, onConfirm, onCancel }: ArchiveConfirmModalProps) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Archive Building"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 480,
+          width: "100%",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 16 }}>Archive "{buildingName}"?</h2>
+        <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+          Archived buildings will no longer appear in the voter portal. Lot owners who belong only
+          to this building will also be archived.
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={archiving}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={onConfirm} disabled={archiving}>
+            {archiving ? "Archiving…" : "Archive"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface BuildingEditModalProps {
   building: Building;
@@ -120,16 +232,17 @@ export default function BuildingDetailPage() {
   const [showForm, setShowForm] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  const { data: buildings = [] } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings"],
-    queryFn: listBuildings,
+  const { data: building } = useQuery<Building>({
+    queryKey: ["admin", "buildings", buildingId],
+    queryFn: () => getBuilding(buildingId!),
+    enabled: !!buildingId,
   });
-
-  const building = buildings.find((b) => b.id === buildingId);
 
   const {
     data: lotOwners = [],
@@ -167,40 +280,38 @@ export default function BuildingDetailPage() {
   }
 
   function handleEditBuildingSuccess() {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
     setShowEditModal(false);
   }
 
-  async function handleArchive() {
+  async function handleArchiveConfirm() {
     if (!buildingId) return;
-    const confirmed = window.confirm(
-      `Archive "${building?.name ?? "this building"}"?\n\nArchived buildings will no longer appear in the voter portal. Lot owners who belong only to this building will also be archived.`
-    );
-    if (!confirmed) return;
     setArchiveError(null);
     setArchiving(true);
     try {
       await archiveBuilding(buildingId);
-      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
       navigate("/admin/buildings");
     } catch (e) {
       setArchiveError(e instanceof Error ? e.message : "Failed to archive building.");
     } finally {
       setArchiving(false);
+      setShowArchiveModal(false);
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
+    setShowDeleteModal(true);
+  }
+
+  async function handleDeleteConfirm() {
     if (!buildingId) return;
-    const confirmed = window.confirm(
-      `Permanently delete "${building?.name ?? "this building"}"?\n\nThis action cannot be undone. All lot owners, meetings, and votes will be deleted.`
-    );
-    if (!confirmed) return;
     setDeleteError(null);
     setDeleting(true);
+    setShowDeleteModal(false);
     try {
       await deleteBuilding(buildingId);
-      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "buildings", buildingId] });
       navigate("/admin/buildings");
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Failed to delete building.");
@@ -252,16 +363,16 @@ export default function BuildingDetailPage() {
           {!building?.is_archived && (
             <button
               className="btn btn--secondary"
-              onClick={() => { void handleArchive(); }}
+              onClick={() => setShowArchiveModal(true)}
               disabled={archiving}
             >
-              {archiving ? "Archiving…" : "Archive Building"}
+              Archive Building
             </button>
           )}
           {building?.is_archived && (
             <button
-              className="btn btn--secondary"
-              onClick={() => { void handleDelete(); }}
+              className="btn btn--danger"
+              onClick={handleDelete}
               disabled={deleting}
             >
               {deleting ? "Deleting…" : "Delete Building"}
@@ -308,11 +419,29 @@ export default function BuildingDetailPage() {
         onSuccess={handleCSVSuccess}
       />
 
+      {showDeleteModal && building && (
+        <DeleteBuildingConfirmModal
+          buildingName={building.name}
+          deleting={deleting}
+          onConfirm={() => { void handleDeleteConfirm(); }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
+
       {showEditModal && building && (
         <BuildingEditModal
           building={building}
           onSuccess={handleEditBuildingSuccess}
           onCancel={() => setShowEditModal(false)}
+        />
+      )}
+
+      {showArchiveModal && (
+        <ArchiveConfirmModal
+          buildingName={building?.name ?? "this building"}
+          archiving={archiving}
+          onConfirm={() => { void handleArchiveConfirm(); }}
+          onCancel={() => setShowArchiveModal(false)}
         />
       )}
     </div>

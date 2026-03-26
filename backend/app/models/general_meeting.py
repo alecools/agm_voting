@@ -39,13 +39,21 @@ def get_effective_status(meeting: "GeneralMeeting") -> GeneralMeetingStatus:
     if meeting.voting_closes_at is not None:
         closes_at = meeting.voting_closes_at
         if closes_at.tzinfo is None:
+            # Naive datetime: assume UTC (defensive fallback — DB columns use timezone=True)
             closes_at = closes_at.replace(tzinfo=timezone.utc)
+        else:
+            # Already tz-aware: normalise to UTC without discarding the offset
+            closes_at = closes_at.astimezone(timezone.utc)
         if closes_at < now:
             return GeneralMeetingStatus.closed
     if meeting.meeting_at is not None:
         starts_at = meeting.meeting_at
         if starts_at.tzinfo is None:
+            # Naive datetime: assume UTC (defensive fallback — DB columns use timezone=True)
             starts_at = starts_at.replace(tzinfo=timezone.utc)
+        else:
+            # Already tz-aware: normalise to UTC without discarding the offset
+            starts_at = starts_at.astimezone(timezone.utc)
         if starts_at > now:
             return GeneralMeetingStatus.pending
     return GeneralMeetingStatus.open

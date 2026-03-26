@@ -11,6 +11,8 @@ from app.models.ballot_submission import BallotSubmission
 from app.models.lot_proxy import LotProxy
 from app.models.session_record import SessionRecord
 from app.models.email_delivery import EmailDelivery, EmailDeliveryStatus
+from app.models.tenant_config import TenantConfig
+from app.models.otp_rate_limit import OTPRateLimit
 
 __all__ = [
     "Base",
@@ -35,4 +37,6 @@ __all__ = [
     "SessionRecord",
     "EmailDelivery",
     "EmailDeliveryStatus",
+    "TenantConfig",
+    "OTPRateLimit",
 ]

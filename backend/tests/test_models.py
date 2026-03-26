@@ -6,7 +6,7 @@ Covers:
 - LotOwner: create, lot_number uniqueness per building, unit_entitlement >= 0
 - LotOwnerEmail: create, unique constraint (lot_owner_id, email)
 - GeneralMeeting: create open status default, voting_closes_at > meeting_at constraint
-- Motion: create, order_index uniqueness per GeneralMeeting
+- Motion: create, display_order uniqueness per GeneralMeeting
 - GeneralMeetingLotWeight: create, UniqueConstraint(general_meeting_id, lot_owner_id), financial_position_snapshot
 - Vote: create draft, UniqueConstraint(agm_id, motion_id, voter_email), status transitions
 - BallotSubmission: create, UniqueConstraint(general_meeting_id, lot_owner_id), proxy_email nullable
@@ -76,7 +76,7 @@ def make_agm(building: Building, title: str = "GeneralMeeting 2026") -> GeneralM
 
 
 def make_motion(agm: GeneralMeeting, title: str = "Motion 1", order_index: int = 1) -> Motion:
-    return Motion(general_meeting_id=agm.id, title=title, order_index=order_index)
+    return Motion(general_meeting_id=agm.id, title=title, display_order=order_index)
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +617,7 @@ class TestMotion:
         assert motion.id is not None
         assert motion.general_meeting_id == agm.id
         assert motion.title == "Motion 1"
-        assert motion.order_index == 1
+        assert motion.display_order == 1
         assert motion.description is None
 
     async def test_motion_with_description(self, db_session: AsyncSession):
@@ -629,7 +629,7 @@ class TestMotion:
         db_session.add(agm)
         await db_session.flush()
 
-        motion = Motion(general_meeting_id=agm.id, title="Approve Budget", description="Approve the 2026 budget of $500k", order_index=1)
+        motion = Motion(general_meeting_id=agm.id, title="Approve Budget", description="Approve the 2026 budget of $500k", display_order=1)
         db_session.add(motion)
         await db_session.flush()
         assert motion.description == "Approve the 2026 budget of $500k"
@@ -644,13 +644,13 @@ class TestMotion:
         await db_session.flush()
 
         for i in range(1, 6):
-            db_session.add(Motion(general_meeting_id=agm.id, title=f"Motion {i}", order_index=i))
+            db_session.add(Motion(general_meeting_id=agm.id, title=f"Motion {i}", display_order=i))
         await db_session.flush()  # Should succeed
 
     # --- Input validation / constraints ---
 
-    async def test_order_index_uniqueness_per_agm(self, db_session: AsyncSession):
-        """Two motions with the same order_index in the same GeneralMeeting violate the unique constraint."""
+    async def test_display_order_uniqueness_per_agm(self, db_session: AsyncSession):
+        """Two motions with the same display_order in the same GeneralMeeting violate the unique constraint."""
         b = make_building("Order Index Bldg")
         db_session.add(b)
         await db_session.flush()
@@ -659,16 +659,16 @@ class TestMotion:
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1)
         db_session.add(m1)
         await db_session.flush()
 
-        m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=1)
         db_session.add(m2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
 
-    async def test_same_order_index_different_agms_allowed(self, db_session: AsyncSession):
+    async def test_same_display_order_different_agms_allowed(self, db_session: AsyncSession):
         b = make_building("Cross GeneralMeeting Motion Bldg")
         db_session.add(b)
         await db_session.flush()
@@ -678,15 +678,15 @@ class TestMotion:
         db_session.add_all([agm1, agm2])
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm1.id, title="Motion 1", order_index=1)
-        m2 = Motion(general_meeting_id=agm2.id, title="Motion 1", order_index=1)
+        m1 = Motion(general_meeting_id=agm1.id, title="Motion 1", display_order=1)
+        m2 = Motion(general_meeting_id=agm2.id, title="Motion 1", display_order=1)
         db_session.add_all([m1, m2])
         await db_session.flush()  # Should NOT raise
         assert m1.id != m2.id
 
     # --- Boundary values ---
 
-    async def test_motion_order_index_zero(self, db_session: AsyncSession):
+    async def test_motion_display_order_zero(self, db_session: AsyncSession):
         b = make_building("Zero Index Bldg")
         db_session.add(b)
         await db_session.flush()
@@ -695,10 +695,81 @@ class TestMotion:
         db_session.add(agm)
         await db_session.flush()
 
-        m = Motion(general_meeting_id=agm.id, title="Preamble", order_index=0)
+        m = Motion(general_meeting_id=agm.id, title="Preamble", display_order=0)
         db_session.add(m)
         await db_session.flush()
-        assert m.order_index == 0
+        assert m.display_order == 0
+
+    # --- motion_number uniqueness (partial unique index) ---
+
+    async def test_motion_number_unique_per_agm(self, db_session: AsyncSession):
+        """Two motions with the same non-null motion_number in the same AGM violate the partial unique index."""
+        b = make_building("Motion Number Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1, motion_number="1")
+        db_session.add(m1)
+        await db_session.flush()
+
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2, motion_number="1")
+        db_session.add(m2)
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
+
+    async def test_motion_number_null_does_not_conflict(self, db_session: AsyncSession):
+        """Multiple motions with null motion_number in the same AGM do NOT conflict (partial index excludes nulls)."""
+        b = make_building("Null Motion Number Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1, motion_number=None)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2, motion_number=None)
+        db_session.add_all([m1, m2])
+        await db_session.flush()  # Should NOT raise
+        assert m1.motion_number is None
+        assert m2.motion_number is None
+
+    async def test_same_motion_number_different_agms_allowed(self, db_session: AsyncSession):
+        """Same motion_number is allowed across different AGMs."""
+        b = make_building("Cross AGM Motion Number Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm1 = make_agm(b, title="AGM One")
+        agm2 = make_agm(b, title="AGM Two")
+        db_session.add_all([agm1, agm2])
+        await db_session.flush()
+
+        m1 = Motion(general_meeting_id=agm1.id, title="Budget", display_order=1, motion_number="1")
+        m2 = Motion(general_meeting_id=agm2.id, title="Budget", display_order=1, motion_number="1")
+        db_session.add_all([m1, m2])
+        await db_session.flush()  # Should NOT raise
+        assert m1.motion_number == "1"
+        assert m2.motion_number == "1"
+
+    async def test_motion_number_stored_and_retrieved(self, db_session: AsyncSession):
+        """motion_number value is persisted and returned correctly."""
+        b = make_building("Motion Number Store Bldg")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = make_agm(b)
+        db_session.add(agm)
+        await db_session.flush()
+
+        m = Motion(general_meeting_id=agm.id, title="Special Resolution", display_order=1, motion_number="SR-1")
+        db_session.add(m)
+        await db_session.flush()
+        assert m.motion_number == "SR-1"
 
 
 # ---------------------------------------------------------------------------
@@ -858,6 +929,10 @@ class TestVote:
         db_session.add(b)
         await db_session.flush()
 
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
@@ -866,17 +941,18 @@ class TestVote:
         db_session.add(motion)
         await db_session.flush()
 
-        return b, agm, motion
+        return b, lo, agm, motion
 
     # --- Happy path ---
 
     async def test_create_draft_vote(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Draft")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Draft")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="voter@example.com",
+            lot_owner_id=lo.id,
         )
         db_session.add(vote)
         await db_session.flush()
@@ -886,12 +962,13 @@ class TestVote:
         assert vote.choice is None
 
     async def test_create_vote_with_yes_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Yes")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Yes")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="yes@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
         )
         db_session.add(vote)
@@ -899,12 +976,13 @@ class TestVote:
         assert vote.choice == VoteChoice.yes
 
     async def test_create_vote_with_no_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " No")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " No")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="no@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.no,
         )
         db_session.add(vote)
@@ -912,12 +990,13 @@ class TestVote:
         assert vote.choice == VoteChoice.no
 
     async def test_create_vote_with_abstained_choice(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Abstain")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Abstain")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="abs@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.abstained,
         )
         db_session.add(vote)
@@ -925,12 +1004,13 @@ class TestVote:
         assert vote.choice == VoteChoice.abstained
 
     async def test_draft_to_submitted_status_transition(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Transition")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Transition")
 
         vote = Vote(
             general_meeting_id=agm.id,
             motion_id=motion.id,
             voter_email="transition@example.com",
+            lot_owner_id=lo.id,
             choice=VoteChoice.yes,
         )
         db_session.add(vote)
@@ -945,7 +1025,7 @@ class TestVote:
 
     async def test_unique_constraint_agm_motion_lot_owner(self, db_session: AsyncSession):
         """Same (agm_id, motion_id, lot_owner_id) raises IntegrityError."""
-        b, agm, motion = await self._setup_vote_context(db_session, " Dup")
+        b, lo, agm, motion = await self._setup_vote_context(db_session, " Dup")
 
         lo = make_lot_owner(b, lot_number="Dup1")
         db_session.add(lo)
@@ -965,35 +1045,36 @@ class TestVote:
         db_session.add(b)
         await db_session.flush()
 
+        lo = make_lot_owner(b)
+        db_session.add(lo)
+        await db_session.flush()
+
         agm = make_agm(b)
         db_session.add(agm)
         await db_session.flush()
 
-        m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1)
-        m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=2)
+        m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1)
+        m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2)
         db_session.add_all([m1, m2])
         await db_session.flush()
 
-        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email="multi@example.com", choice=VoteChoice.yes)
-        v2 = Vote(general_meeting_id=agm.id, motion_id=m2.id, voter_email="multi@example.com", choice=VoteChoice.no)
+        v1 = Vote(general_meeting_id=agm.id, motion_id=m1.id, voter_email="multi@example.com", lot_owner_id=lo.id, choice=VoteChoice.yes)
+        v2 = Vote(general_meeting_id=agm.id, motion_id=m2.id, voter_email="multi@example.com", lot_owner_id=lo.id, choice=VoteChoice.no)
         db_session.add_all([v1, v2])
         await db_session.flush()  # Should NOT raise
 
     async def test_vote_timestamps_set(self, db_session: AsyncSession):
-        _, agm, motion = await self._setup_vote_context(db_session, " Timestamps")
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " Timestamps")
 
-        vote = Vote(general_meeting_id=agm.id, motion_id=motion.id, voter_email="ts@example.com")
+        vote = Vote(general_meeting_id=agm.id, motion_id=motion.id, voter_email="ts@example.com", lot_owner_id=lo.id)
         db_session.add(vote)
         await db_session.flush()
         assert vote.created_at is not None
         assert vote.updated_at is not None
 
     async def test_vote_with_lot_owner_id(self, db_session: AsyncSession):
-        b, agm, motion = await self._setup_vote_context(db_session, " LotOwner")
-
-        lo = make_lot_owner(b)
-        db_session.add(lo)
-        await db_session.flush()
+        # _setup_vote_context already creates a LotOwner; use it directly
+        _, lo, agm, motion = await self._setup_vote_context(db_session, " LotOwner")
 
         vote = Vote(
             general_meeting_id=agm.id,

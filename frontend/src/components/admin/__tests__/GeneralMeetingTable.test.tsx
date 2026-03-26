@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import GeneralMeetingTable from "../GeneralMeetingTable";
 import type { GeneralMeetingListItem } from "../../../api/admin";
+import { ADMIN_MEETING_LIST } from "../../../../tests/msw/handlers";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -14,28 +15,8 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-const meetings: GeneralMeetingListItem[] = [
-  {
-    id: "agm1",
-    building_id: "b1",
-    building_name: "Alpha Tower",
-    title: "2024 AGM",
-    status: "open",
-    meeting_at: "2024-06-01T10:00:00Z",
-    voting_closes_at: "2024-06-01T12:00:00Z",
-    created_at: "2024-01-01T00:00:00Z",
-  },
-  {
-    id: "agm2",
-    building_id: "b2",
-    building_name: "Beta Court",
-    title: "2023 AGM",
-    status: "closed",
-    meeting_at: "2023-06-01T10:00:00Z",
-    voting_closes_at: "2023-06-01T12:00:00Z",
-    created_at: "2023-01-01T00:00:00Z",
-  },
-];
+// Use the open + closed entries from the shared MSW fixture (first two items).
+const meetings: GeneralMeetingListItem[] = ADMIN_MEETING_LIST.slice(0, 2);
 
 function makeMeetings(count: number): GeneralMeetingListItem[] {
   return Array.from({ length: count }, (_, i) => ({

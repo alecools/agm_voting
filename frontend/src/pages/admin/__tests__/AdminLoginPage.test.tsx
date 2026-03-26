@@ -6,6 +6,8 @@ import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import AdminLoginPage from "../AdminLoginPage";
+import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
+import type { TenantConfig } from "../../../api/config";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -16,20 +18,24 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage() {
+function renderPage(config: TenantConfig = DEFAULT_CONFIG) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <AdminLoginPage />
-      </MemoryRouter>
-    </QueryClientProvider>
+    <BrandingContext.Provider value={{ config, isLoading: false }}>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminLoginPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BrandingContext.Provider>
   );
 }
 
 describe("AdminLoginPage", () => {
+  // --- Happy path ---
+
   it("renders username and password fields", () => {
     renderPage();
     expect(screen.getByLabelText("Username")).toBeInTheDocument();
@@ -53,6 +59,31 @@ describe("AdminLoginPage", () => {
     });
   });
 
+  // --- Branding: logo rendering ---
+
+  it("renders dynamic logo img when logo_url is set", () => {
+    renderPage({ ...DEFAULT_CONFIG, logo_url: "https://example.com/custom-logo.png", app_name: "My AGM" });
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("src", "https://example.com/custom-logo.png");
+    expect(img).toHaveAttribute("alt", "My AGM");
+    expect(img).toHaveClass("admin-login-card__logo");
+  });
+
+  it("falls back to /logo.png when logo_url is empty", () => {
+    renderPage({ ...DEFAULT_CONFIG, logo_url: "", app_name: "AGM Voting" });
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("src", "/logo.png");
+    expect(img).toHaveAttribute("alt", "AGM Voting");
+    expect(img).toHaveClass("admin-login-card__logo");
+  });
+
+  it("uses config app_name as alt text on fallback logo", () => {
+    renderPage({ ...DEFAULT_CONFIG, logo_url: "", app_name: "Corp Vote" });
+    expect(screen.getByRole("img")).toHaveAttribute("alt", "Corp Vote");
+  });
+
+  // --- Input validation ---
+
   it("shows error message on invalid credentials", async () => {
     server.use(
       http.post("http://localhost:8000/api/admin/auth/login", () => {
@@ -69,6 +100,8 @@ describe("AdminLoginPage", () => {
     });
     expect(screen.getByText("Invalid username or password.")).toBeInTheDocument();
   });
+
+  // --- State / precondition errors ---
 
   it("shows Signing in… while loading", async () => {
     let resolve!: (value: Response) => void;
@@ -101,6 +134,8 @@ describe("AdminLoginPage", () => {
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
     resolve(HttpResponse.json({ ok: true }) as unknown as Response);
   });
+
+  // --- Navigation ---
 
   it("renders Back to home button", () => {
     renderPage();

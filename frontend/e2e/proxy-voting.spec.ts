@@ -78,7 +78,7 @@ test.describe("Proxy voter journey", () => {
 
     // ── Seed Scenario 2 data: mixed voter building ────────────────────────────
     {
-      const buildingsRes = await api.get("/api/admin/buildings");
+      const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
       const buildings = (await buildingsRes.json()) as {
         id: string;
         name: string;
@@ -155,7 +155,7 @@ test.describe("Proxy voter journey", () => {
       const proxyCsv = `Lot#,Proxy Email\n${MIXED_LOT_C_NUMBER},${MIXED_LOT_A_OWNER_EMAIL}\n`;
       await uploadProxyCsv(api, mixedBuildingId, proxyCsv);
 
-      const agmsRes = await api.get("/api/admin/general-meetings");
+      const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
       const agms = (await agmsRes.json()) as {
         id: string;
         status: string;
@@ -185,7 +185,7 @@ test.describe("Proxy voter journey", () => {
             {
               title: "Mixed Proxy Test Motion — Bylaw",
               description: "Do you approve the bylaw change?",
-              order_index: 1,
+              display_order: 1,
               motion_type: "general",
             },
           ],

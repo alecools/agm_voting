@@ -20,14 +20,7 @@ You are the design agent for the AGM voting app. Your job is to analyse the task
 - UI stories must include "Verify in browser using dev-browser skill" in acceptance criteria
 
 ### 3. Explore the codebase
-Before writing the design doc, read relevant existing code to understand:
-- Existing models: `backend/app/models/`
-- Existing routes: `backend/app/routers/`
-- Existing services: `backend/app/services/`
-- Frontend pages: `frontend/src/pages/`
-- Frontend components: `frontend/src/components/`
-- Frontend API clients: `frontend/src/api/`
-- Existing migrations: `backend/alembic/versions/`
+Before writing the design doc, read relevant existing code. Codebase paths are in CLAUDE.md `## Codebase Structure`.
 
 ### 4. Write the technical design doc
 Save to `tasks/design/design-<feature-name>.md`.
@@ -46,7 +39,9 @@ At the end of the design doc, add a section `## E2E Test Scenarios` listing the 
 - Happy path
 - Error/edge cases
 - State-based scenarios (e.g. open vs closed meeting)
-These become the spec for whoever writes the Playwright tests.
+These become the spec for the Playwright tests.
+
+Persona journeys are in CLAUDE.md `## Domain Knowledge`. Identify which journeys your feature touches and explicitly note that the existing E2E spec for each affected journey must be updated — not just new scenarios added alongside it.
 
 ### 6. Check for vertical slice decomposition
 If the feature touches both backend and frontend independently, note whether it can be split into parallel implementation slices. Each slice must be independently testable.

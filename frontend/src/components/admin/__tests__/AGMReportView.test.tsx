@@ -8,7 +8,8 @@ const motions: MotionDetail[] = [
     id: "m1",
     title: "Motion 1",
     description: "First motion description",
-    order_index: 0,
+    display_order: 1,
+    motion_number: null,
     motion_type: "general" as const,
     is_visible: true,
     tally: {
@@ -36,7 +37,8 @@ const motions: MotionDetail[] = [
     id: "m2",
     title: "Motion 2",
     description: null,
-    order_index: 1,
+    display_order: 2,
+    motion_number: null,
     motion_type: "special" as const,
     is_visible: true,
     tally: {

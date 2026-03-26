@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -122,20 +122,58 @@ export function VotingPage() {
     enabled: !!meetingId,
   });
 
-  // Seed choices state from submitted_choice when motions load (revote scenario)
+  // Derive selectedLots early so that readOnlyReferenceLots and isMotionReadOnly can be
+  // defined before the choices seeding effect that depends on them.
+  // useMemo ensures selectedLots is a stable reference (only changes when allLots or
+  // selectedIds identity changes), preventing isMotionReadOnly from being recreated on
+  // every render and causing an infinite loop in the choices seeding useEffect.
+  const selectedLots = useMemo(
+    () => allLots.filter((l) => selectedIds.has(l.lot_owner_id)),
+    [allLots, selectedIds]
+  );
+
+  // A motion is read-only when every currently-selected lot has already voted on it.
+  // If any selected lot has not yet voted on this motion, it remains interactive so
+  // the voter can submit on behalf of that lot.
+  // When selectedLots is empty (all lots are already_submitted), fall back to allLots so
+  // that motions remain locked rather than becoming editable again.
+  // useMemo stabilises the reference so that useCallback([readOnlyReferenceLots]) only
+  // creates a new isMotionReadOnly when the underlying lots actually change.
+  const readOnlyReferenceLots = useMemo(
+    () => (selectedLots.length > 0 ? selectedLots : allLots),
+    [selectedLots, allLots]
+  );
+  const isMotionReadOnly = useCallback(
+    (m: { id: string }) =>
+      readOnlyReferenceLots.length > 0 &&
+      readOnlyReferenceLots.every((lot) => (lot.voted_motion_ids ?? []).includes(m.id)),
+    [readOnlyReferenceLots]
+  );
+
+  // Seed choices state from submitted_choice when motions load (revote scenario).
+  // Only pre-fill a motion when it is locked (isMotionReadOnly is true), meaning every
+  // selected lot has already voted on it. Unlocked (interactive) motions must start blank
+  // so the voter is not misled into thinking a prior choice has been recorded for their
+  // remaining lots.
   useEffect(() => {
     if (!motions) return;
     setChoices((prev) => {
       const seeded: Record<string, VoteChoice | null> = { ...prev };
       for (const m of motions) {
-        // Only seed if not already set in state (avoid overwriting user interactions)
-        if (m.already_voted && m.submitted_choice !== null && !(m.id in seeded)) {
+        // Only seed if: not already set in state (avoid overwriting user interactions)
+        // AND the motion is locked (all selected lots have voted on it).
+        if (
+          m.already_voted &&
+          m.submitted_choice !== null &&
+          !(m.id in seeded) &&
+          isMotionReadOnly(m)
+        ) {
           seeded[m.id] = m.submitted_choice;
         }
       }
       return seeded;
     });
-  }, [motions]);
+  }, [motions, isMotionReadOnly]);
 
   // --- Dynamic already-submitted derivation (BUG-NM-01-B fix) ---
   //
@@ -204,7 +242,7 @@ export function VotingPage() {
       const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
       const votes = Object.entries(choices)
         .filter(([, choice]) => choice !== null)
-        .map(([motion_id, choice]) => ({ motion_id, choice: choice as string }));
+        .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
       return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes });
     },
     onSuccess: () => {
@@ -287,7 +325,7 @@ export function VotingPage() {
   const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
 
   // In-arrear warning banner: computed from the currently selected lots
-  const selectedLots = allLots.filter((l) => selectedIds.has(l.lot_owner_id));
+  // (selectedLots is defined earlier to satisfy the isMotionReadOnly useCallback dependency order)
   const selectedInArrearCount = selectedLots.filter((l) => l.financial_position === "in_arrear").length;
   const selectedNormalCount = selectedLots.filter((l) => l.financial_position !== "in_arrear").length;
   const arrearBannerMode: "none" | "mixed" | "all" =
@@ -341,16 +379,6 @@ export function VotingPage() {
   const handleChoiceChange = (motionId: string, choice: VoteChoice | null) => {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
-
-  // A motion is read-only when every currently-selected lot has already voted on it.
-  // If any selected lot has not yet voted on this motion, it remains interactive so
-  // the voter can submit on behalf of that lot.
-  // When selectedLots is empty (all lots are already_submitted), fall back to allLots so
-  // that motions remain locked rather than becoming editable again.
-  const readOnlyReferenceLots = selectedLots.length > 0 ? selectedLots : allLots;
-  const isMotionReadOnly = (m: { id: string }) =>
-    readOnlyReferenceLots.length > 0 &&
-    readOnlyReferenceLots.every((lot) => (lot.voted_motion_ids ?? []).includes(m.id));
 
   // Only count motions the voter can still interact with towards the progress bar.
   const unvotedMotions = motions ? motions.filter((m) => !isMotionReadOnly(m)) : [];
@@ -664,6 +692,7 @@ export function VotingPage() {
                     <MotionCard
                       key={motion.id}
                       motion={motion}
+                      position={motion.display_order}
                       choice={choices[motion.id] ?? null}
                       onChoiceChange={handleChoiceChange}
                       disabled={isClosed}
@@ -710,7 +739,7 @@ export function VotingPage() {
       )}
       {showDialog && (
         <SubmitDialog
-          unansweredTitles={unansweredMotions.map((m) => m.title)}
+          unansweredMotions={unansweredMotions.map((m) => ({ display_order: m.display_order, motion_number: m.motion_number, title: m.title }))}
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />

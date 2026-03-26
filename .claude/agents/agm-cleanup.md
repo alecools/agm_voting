@@ -7,13 +7,13 @@ description: Cleanup agent for the AGM voting app. Removes git worktrees, delete
 
 You are the cleanup agent for the AGM voting app. Your job is to remove all resources created for a feature branch after it merges to `preview`.
 
-## Project constants
+## Secrets (retrieve from macOS Keychain)
 - Neon API key: `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
-- Neon project ID: `divine-dust-41291876`
-- Vercel project ID: `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L`
-- Preview base URL: `https://agm-voting-git-preview-ocss.vercel.app`
-- Admin credentials: `ADMIN_USERNAME=ocss_admin`, `ADMIN_PASSWORD=ocss123!@#`
-- Vercel bypass token: `7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE`
+- Admin username: `security find-generic-password -s "agm-survey" -a "admin-username" -w`
+- Admin password: `security find-generic-password -s "agm-survey" -a "admin-password" -w`
+- Vercel bypass token: `security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w`
+
+Project IDs, URLs, and paths are in CLAUDE.md `## Project Infrastructure`.
 
 ## Your workflow
 
@@ -40,7 +40,6 @@ git remote prune origin
 ### 2. Delete Neon DB branch (if one was created)
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
-
 # List branches to find the right one
 curl -s -H "Authorization: Bearer $NEON_API_KEY" \
   "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
@@ -58,16 +57,20 @@ Use the Vercel dashboard or REST API to remove `DATABASE_URL` and `DATABASE_URL_
 
 ### 4. Clean test data from preview DB (always run after any E2E run against preview)
 ```bash
+BYPASS_TOKEN=$(security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w)
+ADMIN_USER=$(security find-generic-password -s "agm-survey" -a "admin-username" -w)
+ADMIN_PASS=$(security find-generic-password -s "agm-survey" -a "admin-password" -w)
+
 # Login to preview
 curl -s -c /tmp/agm_cookies.txt \
-  -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+  -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   -X POST "https://agm-voting-git-preview-ocss.vercel.app/api/admin/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"ocss_admin","password":"ocss123!@#"}'
+  -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}"
 
 # List all meetings
 curl -s -b /tmp/agm_cookies.txt \
-  -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+  -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   "https://agm-voting-git-preview-ocss.vercel.app/api/admin/general-meetings"
 ```
 
@@ -78,23 +81,23 @@ Delete meetings with test-pattern titles (`WF*`, `E2E*`, `Test*`, `Delete Test*`
 
 ```bash
 # Close an open meeting
-curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   -X POST "https://agm-voting-git-preview-ocss.vercel.app/api/admin/general-meetings/<id>/close"
 
 # Delete a meeting
-curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   -X DELETE "https://agm-voting-git-preview-ocss.vercel.app/api/admin/general-meetings/<id>"
 ```
 
-Archive test buildings (names matching `E2E*`, `WF*`, `Test*`). Do NOT archive real buildings (e.g. "The Vale", "SBT", "Sandridge Bay Towers"):
+Archive test buildings (naming patterns and real buildings to protect are in CLAUDE.md `## Test Data Conventions`):
 ```bash
 # List buildings
 curl -s -b /tmp/agm_cookies.txt \
-  -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+  -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   "https://agm-voting-git-preview-ocss.vercel.app/api/admin/buildings"
 
 # Archive a test building
-curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: 7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE" \
+curl -s -b /tmp/agm_cookies.txt -H "x-vercel-protection-bypass: $BYPASS_TOKEN" \
   -X POST "https://agm-voting-git-preview-ocss.vercel.app/api/admin/buildings/<id>/archive"
 ```
 

@@ -27,21 +27,34 @@ Determine:
 - Is a design phase needed? (skip for trivial frontend-only changes or if implementing an existing complete PRD)
 - Does the feature require schema migrations? (flag for testing agent)
 - Can the feature be split into parallel vertical slices?
+- Is this a **styling-only change**? (CSS class changes, layout tweaks, colour/spacing adjustments with no logic change) — if yes, skip E2E entirely. Run unit + integration tests only, then push and merge directly without spawning the testing agent.
 
-### Step a: Create branch and worktree
-Spawn a sub-agent to:
+### Step a: Create branch and worktree — ALWAYS FIRST
+
+**This step is mandatory before any design, code, or test work begins.**
+
+Spawn a sub-agent to create a worktree from the correct base branch. The base is usually `master` for new features and `preview` for fixes/hotfixes — confirm with the user if unclear.
+
 ```bash
 cd /Users/stevensun/personal/agm_survey
-git checkout preview && git pull origin preview
-git checkout -b feat/<name>
-git worktree add /Users/stevensun/personal/agm_survey-feat-<name> feat/<name>
+git fetch origin
+git worktree add .claude/worktree/<slug> -b <branch-name> <base-branch>
+# Example (feature from master):
+git worktree add .claude/worktree/my-feature -b feat/my-feature master
+# Example (fix from preview):
+git worktree add .claude/worktree/my-fix -b fix/my-fix preview
 ```
+
+Worktree lives at: `/Users/stevensun/personal/agm_survey/.claude/worktree/<slug>`
+
+**All subsequent agents — design, implement, test — must work exclusively inside this worktree.** The main repo root (`/Users/stevensun/personal/agm_survey`) may be on a completely different branch (e.g. `preview` is 136+ commits ahead of `master`). Reading files from the wrong location produces an incorrect design and broken code.
 
 ### Step b: Spawn the design agent
 Use `subagent_type: "agm-design"`. Provide:
 - The task description
-- The worktree path
-- The PRD file path (if implementing an existing PRD)
+- The worktree path (e.g. `/Users/stevensun/personal/agm_survey/.claude/worktree/<slug>`)
+- The PRD file path **inside the worktree** (if implementing an existing PRD)
+- Explicit instruction: **read all source files from the worktree path, not the main repo root**
 
 Wait for the design agent to report "Design complete" before proceeding.
 

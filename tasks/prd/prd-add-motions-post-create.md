@@ -39,10 +39,12 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
   {
     "title": "string (required, non-empty)",
     "description": "string | null (optional)",
-    "motion_type": "general | special (default: general)"
+    "motion_type": "general | special (default: general)",
+    "motion_number": "string | null (optional)"
   }
   ```
-- `order_index` is auto-assigned as `MAX(existing order_index) + 1`. If the meeting has no motions, `order_index` starts at 0.
+- `display_order` is auto-assigned as `MAX(existing display_order) + 1`. If the meeting has no motions, `display_order` starts at 1.
+- `motion_number` is auto-assigned as `str(display_order)` if omitted or null (e.g. "1", "2", "3"). Whitespace-only input is treated as null. A duplicate non-null `motion_number` within the same meeting returns 409.
 - `is_visible` is always set to `false` for newly added motions.
 - Returns **201 Created** with the created motion in `MotionOut` shape.
 - Returns **404** if the meeting does not exist.
@@ -103,10 +105,13 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
   {
     "title": "string | null (optional)",
     "description": "string | null (optional)",
-    "motion_type": "general | special | null (optional)"
+    "motion_type": "general | special | null (optional)",
+    "motion_number": "string | null (optional)"
   }
   ```
 - At least one field must be provided; a body with all fields null/absent returns **422**.
+- Empty string for `motion_number` clears the field to `null`.
+- A duplicate non-null `motion_number` within the same meeting returns 409.
 - Only the fields present in the request body are updated; omitted fields are left unchanged.
 - Returns **200** with the updated motion in `MotionVisibilityOut` shape (id, title, description, order_index, motion_type, is_visible).
 - Returns **404** if the motion does not exist.
@@ -173,9 +178,9 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
   - If the API call fails, an inline error message is shown in the form.
   - The Save button is disabled while the mutation is pending.
 - Clicking **Delete** (on a hidden motion in a non-closed meeting):
-  - Shows a browser `confirm()` dialog: "Delete this motion? This cannot be undone."
+  - Shows a modal confirmation dialog (not a browser `confirm()` popup) with the motion title, "Delete" and "Cancel" buttons.
   - On confirm: calls `DELETE /api/admin/motions/{motion_id}`, then on success invalidates the meeting detail query (the row disappears).
-  - On cancel (confirm dismissed): no API call is made.
+  - On cancel (dialog dismissed): no API call is made.
   - If the API call fails, an inline error message is shown near the row.
 - Typecheck (`tsc --noEmit`) and lint pass with no errors.
 - Verify correct rendering and interaction in browser using dev-browser skill.
@@ -186,13 +191,13 @@ Admins may also edit or delete motions, but only while the motion is hidden (`is
 
 | ID | Requirement |
 |----|-------------|
-| FR-1 | `POST /api/admin/general-meetings/{meeting_id}/motions` creates a motion with auto-assigned `order_index` (max+1, starting at 0) and `is_visible=false`. |
+| FR-1 | `POST /api/admin/general-meetings/{meeting_id}/motions` creates a motion with auto-assigned `display_order` (max+1, starting at 1) and `is_visible=false`. `motion_number` is auto-assigned as `str(display_order)` when omitted. |
 | FR-2 | Creating a motion on a meeting whose effective status is `closed` returns 409. |
 | FR-3 | The Admin UI shows "Add Motion" form only for `pending` or `open` meetings. |
 | FR-4 | New motions are hidden from voters by default; the admin must use the existing visibility toggle to reveal them. |
-| FR-5 | The unique constraint `uq_motions_general_meeting_order` on `(general_meeting_id, order_index)` must never be violated — always use `MAX(order_index) + 1`. |
-| FR-6 | `PATCH /api/admin/motions/{id}` updates title/description/motion_type; blocked (409) if motion is visible or meeting is closed. |
-| FR-7 | `DELETE /api/admin/motions/{id}` deletes the motion; blocked (409) if motion is visible or meeting is closed. |
+| FR-5 | The unique constraint `uq_motions_meeting_display_order` on `(general_meeting_id, display_order)` must never be violated — always use `MAX(display_order) + 1`. A partial unique index `uq_motions_general_meeting_motion_number` on `(general_meeting_id, motion_number) WHERE motion_number IS NOT NULL` prevents duplicate motion numbers; violations return 409. |
+| FR-6 | `PATCH /api/admin/motions/{id}` updates title/description/motion_type/motion_number; blocked (409) if motion is visible or meeting is closed. |
+| FR-7 | `DELETE /api/admin/motions/{id}` deletes the motion; blocked (409) if motion is visible or meeting is closed. The admin UI shows a modal confirmation dialog (not a browser `confirm()` popup) before calling the endpoint. |
 | FR-8 | Edit and Delete buttons in the admin UI are only active when `is_visible = false` and meeting is not `closed`. |
 
 ---

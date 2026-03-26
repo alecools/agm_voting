@@ -16,11 +16,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test.describe("Admin General Meetings", () => {
   test("open General Meeting shows Close Voting button", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const openMeeting = meetings.find((a) => a.status === "open");
 
     if (!openMeeting) {
+      test.skip();
+      return;
+    }
+
+    // Verify the meeting is still open before navigating — a concurrent test run
+    // may have closed it between the list fetch and the navigation.
+    const verifyRes = await request.get(`/api/admin/general-meetings/${openMeeting.id}`);
+    if (!verifyRes.ok() || (await verifyRes.json() as any).status !== "open") {
       test.skip();
       return;
     }
@@ -31,11 +39,19 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("Close Voting shows confirmation dialog", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const openMeeting = meetings.find((a) => a.status === "open");
 
     if (!openMeeting) {
+      test.skip();
+      return;
+    }
+
+    // Verify the meeting is still open before navigating — a concurrent test run
+    // may have closed it between the list fetch and the navigation.
+    const verifyRes = await request.get(`/api/admin/general-meetings/${openMeeting.id}`);
+    if (!verifyRes.ok() || (await verifyRes.json() as any).status !== "open") {
       test.skip();
       return;
     }
@@ -48,7 +64,7 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("closed General Meeting does not show Close Voting button", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];
     const closedMeeting = meetings.find((a) => a.status === "closed");
 
@@ -63,7 +79,7 @@ test.describe("Admin General Meetings", () => {
   });
 
   test("General Meeting detail page shows Results Report section", async ({ page, request }) => {
-    const meetingsRes = await request.get("/api/admin/general-meetings");
+    const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string }[];
     const meeting = meetings[0];
 
@@ -88,7 +104,7 @@ test.describe("Admin General Meetings", () => {
 // ── New tests: motion type badge, delete meeting, absent count ────────────────
 
 test.describe("Admin General Meetings — motion type badges", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — single test with its own beforeAll that seeds independent data
 
   const BUILDING_NAME = `AGM Badge Test Building-${Date.now()}`;
   let buildingId = "";
@@ -157,7 +173,7 @@ test.describe("Admin General Meetings — motion type badges", () => {
 });
 
 test.describe("Admin General Meetings — delete meeting button", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — each test creates its own meeting inline and is idempotent
 
   const BUILDING_NAME = `AGM Delete Test Building-${Date.now()}`;
   let buildingId = "";
@@ -235,9 +251,12 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     // Delete Meeting button is visible for pending meetings
     await expect(page.getByRole("button", { name: "Delete Meeting" })).toBeVisible({ timeout: 10000 });
 
-    // Accept the confirm dialog and click delete
-    page.on("dialog", (dialog) => dialog.accept());
+    // Click Delete Meeting — this opens the custom confirmation modal (not a native dialog)
     await page.getByRole("button", { name: "Delete Meeting" }).click();
+
+    // Confirm deletion in the modal — the modal contains a "Delete Meeting" button in the footer
+    await expect(page.getByRole("dialog", { name: "Delete Meeting" })).toBeVisible({ timeout: 5000 });
+    await page.getByRole("dialog", { name: "Delete Meeting" }).getByRole("button", { name: "Delete Meeting" }).click();
 
     // Should be redirected to the meetings list
     await expect(page).toHaveURL(/\/admin\/general-meetings$/, { timeout: 15000 });
@@ -291,7 +310,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
 });
 
 test.describe("Admin General Meetings — absent count", () => {
-  test.describe.configure({ mode: "serial" });
+  // No serial needed — single test with its own beforeAll that seeds independent data
 
   const BUILDING_NAME = `AGM Absent Test Building-${Date.now()}`;
   let buildingId = "";
@@ -375,6 +394,150 @@ test.describe("Admin General Meetings — absent count", () => {
     const absentCountAfterClose = absentRowAfterClose.getByRole("cell").nth(1);
     // 2 lots, neither voted → absent count should be 2
     await expect(absentCountAfterClose).not.toHaveText("0", { timeout: 5000 });
+  });
+
+  test.afterAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+    await api.delete(`/api/admin/general-meetings/${meetingId}`);
+    await api.dispose();
+  });
+});
+
+// ── Admin General Meetings — motion number workflows ──────────────────────────
+
+test.describe("Admin General Meetings — motion number workflows", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const BUILDING_NAME = `E2E Motion Number Building-${Date.now()}`;
+  let buildingId = "";
+  let meetingId = "";
+
+  test.beforeAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    buildingId = await seedBuilding(api, BUILDING_NAME, "mn-mgr@test.com");
+    await seedLotOwner(api, buildingId, {
+      lotNumber: "MN-1",
+      emails: ["mn-voter@test.com"],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+
+    // Create an open meeting with one hidden motion that has motion_number "1"
+    meetingId = await createOpenMeeting(api, buildingId, `Test Motion Number AGM-${Date.now()}`, [
+      {
+        title: "Initial Motion",
+        description: "A motion for the motion number test.",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
+
+    // Set motion_number on the first motion via the API, and ensure it is hidden
+    // so the Edit button is enabled (UI requires motion to be hidden before editing).
+    const detailRes = await api.get(`/api/admin/general-meetings/${meetingId}`);
+    const detail = await detailRes.json() as { motions: { id: string }[] };
+    const motionId = detail.motions[0]?.id;
+    if (motionId) {
+      await api.patch(`/api/admin/motions/${motionId}`, {
+        data: { motion_number: "1" },
+      });
+      // Motions default to is_visible=false, but explicitly set it to ensure
+      // the Edit button is enabled (it is disabled when is_visible=true).
+      await api.patch(`/api/admin/motions/${motionId}/visibility`, {
+        data: { is_visible: false },
+      });
+    }
+
+    await api.dispose();
+  }, { timeout: 60000 });
+
+  // Scenario A — Edit motion number persists
+  test("Scenario A: editing motion number to SR-1 persists after page refresh", async ({ page }) => {
+    test.setTimeout(120000);
+
+    await page.goto(`/admin/general-meetings/${meetingId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+
+    // Motion must be hidden to enable Edit button
+    const editBtn = page.getByRole("button", { name: "Edit" });
+    await expect(editBtn).toBeVisible({ timeout: 10000 });
+    await expect(editBtn).toBeEnabled({ timeout: 5000 });
+    await editBtn.click();
+
+    // The edit modal opens — clear the motion number field and type SR-1
+    const motionNumberInput = page.getByLabel("Motion number (optional)");
+    await expect(motionNumberInput).toBeVisible({ timeout: 5000 });
+    await motionNumberInput.fill("");
+    await motionNumberInput.fill("SR-1");
+
+    // Save
+    await page.getByRole("button", { name: "Save Changes" }).click();
+
+    // Motion table should show SR-1 in the # column without page refresh
+    await expect(page.getByRole("cell", { name: "SR-1" })).toBeVisible({ timeout: 10000 });
+
+    // Refresh and assert it persisted
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("cell", { name: "SR-1" })).toBeVisible({ timeout: 10000 });
+  });
+
+  // Scenario B — Add motion with motion number
+  test("Scenario B: adding a motion with motion number 5a shows in table", async ({ page }) => {
+    test.setTimeout(120000);
+
+    await page.goto(`/admin/general-meetings/${meetingId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+
+    // Open the Add Motion dialog
+    await page.getByRole("button", { name: "Add Motion" }).click();
+    await expect(page.getByRole("dialog", { name: "Add Motion" })).toBeVisible({ timeout: 5000 });
+
+    // Fill in title and motion number
+    await page.getByLabel("Title *").fill("Test Motion B");
+    await page.getByLabel("Motion number (optional)").fill("5a");
+
+    // Save
+    await page.getByRole("button", { name: "Save Motion" }).click();
+
+    // New motion should appear in the table with motion number 5a
+    await expect(page.getByRole("cell", { name: "5a" })).toBeVisible({ timeout: 10000 });
+  });
+
+  // Scenario C — Motion number cleared stores null (blank)
+  test("Scenario C: clearing motion number leaves the column blank", async ({ page }) => {
+    test.setTimeout(120000);
+
+    await page.goto(`/admin/general-meetings/${meetingId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+
+    // Find the motion with SR-1 motion_number (from Scenario A) and edit it
+    const editBtns = page.getByRole("button", { name: "Edit" });
+    await expect(editBtns.first()).toBeVisible({ timeout: 10000 });
+    await expect(editBtns.first()).toBeEnabled({ timeout: 5000 });
+    await editBtns.first().click();
+
+    // Clear the motion number field
+    const motionNumberInput = page.getByLabel("Motion number (optional)");
+    await expect(motionNumberInput).toBeVisible({ timeout: 5000 });
+    await motionNumberInput.fill("");
+
+    // Save
+    await page.getByRole("button", { name: "Save Changes" }).click();
+
+    // The SR-1 cell should no longer be present
+    await expect(page.getByRole("cell", { name: "SR-1" })).not.toBeVisible({ timeout: 10000 });
   });
 
   test.afterAll(async () => {

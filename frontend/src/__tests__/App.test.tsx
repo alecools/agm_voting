@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../App";
@@ -56,9 +56,13 @@ describe("App", () => {
     expect(screen.getByTestId("voter-shell")).toBeInTheDocument();
   });
 
-  it("renders admin routes at /admin/anything", () => {
+  it("renders admin routes at /admin/anything", async () => {
+    // AdminRoutes is lazily loaded via React.lazy, so we must wait for the
+    // Suspense boundary to resolve before asserting.
     renderApp("/admin/buildings");
-    expect(screen.getByTestId("admin-routes")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-routes")).toBeInTheDocument();
+    });
   });
 
   it("renders general meeting summary page at /general-meeting/:meetingId/summary", () => {

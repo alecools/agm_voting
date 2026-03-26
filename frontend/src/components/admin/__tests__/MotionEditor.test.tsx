@@ -5,8 +5,8 @@ import MotionEditor from "../MotionEditor";
 import type { MotionFormEntry } from "../MotionEditor";
 
 const initialMotions: MotionFormEntry[] = [
-  { title: "Motion 1", description: "Desc 1", motion_type: "general" },
-  { title: "Motion 2", description: "", motion_type: "special" },
+  { title: "Motion 1", description: "Desc 1", motion_number: "", motion_type: "general" },
+  { title: "Motion 2", description: "", motion_number: "SR-1", motion_type: "special" },
 ];
 
 describe("MotionEditor", () => {
@@ -29,7 +29,7 @@ describe("MotionEditor", () => {
     await user.click(screen.getByRole("button", { name: "+ Add Motion" }));
     expect(onChange).toHaveBeenCalledWith([
       ...initialMotions,
-      { title: "", description: "", motion_type: "general" },
+      { title: "", description: "", motion_number: "", motion_type: "general" },
     ]);
   });
 
@@ -83,5 +83,22 @@ describe("MotionEditor", () => {
     await user.selectOptions(selects[0], "special");
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(lastCall[0].motion_type).toBe("special");
+  });
+
+  it("renders motion number input with correct initial value", () => {
+    render(<MotionEditor motions={initialMotions} onChange={() => {}} />);
+    const inputs = screen.getAllByLabelText("Motion number (optional)") as HTMLInputElement[];
+    expect(inputs[0].value).toBe("");
+    expect(inputs[1].value).toBe("SR-1");
+  });
+
+  it("calls onChange with updated motion_number when motion number input changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MotionEditor motions={initialMotions} onChange={onChange} />);
+    const inputs = screen.getAllByLabelText("Motion number (optional)");
+    await user.type(inputs[0], "1");
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall[0].motion_number).toBe("1");
   });
 });

@@ -179,15 +179,17 @@ class LotOwnerImportResult(BaseModel):
 class MotionCreate(BaseModel):
     title: str
     description: str | None = None
-    order_index: int
+    display_order: int
     motion_type: MotionType = MotionType.general
+    motion_number: str | None = None
 
 
 class MotionOut(BaseModel):
     id: uuid.UUID
     title: str
     description: str | None
-    order_index: int
+    display_order: int
+    motion_number: str | None
     motion_type: MotionType
     is_visible: bool = True
 
@@ -202,7 +204,8 @@ class MotionVisibilityOut(BaseModel):
     id: uuid.UUID
     title: str
     description: str | None
-    order_index: int
+    display_order: int
+    motion_number: str | None
     motion_type: MotionType
     is_visible: bool
 
@@ -213,6 +216,7 @@ class MotionAddRequest(BaseModel):
     title: str
     description: str | None = None
     motion_type: MotionType = MotionType.general
+    motion_number: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -226,10 +230,16 @@ class MotionUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     motion_type: MotionType | None = None
+    motion_number: str | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "MotionUpdateRequest":
-        if self.title is None and self.description is None and self.motion_type is None:
+        if (
+            self.title is None
+            and self.description is None
+            and self.motion_type is None
+            and self.motion_number is None
+        ):
             raise ValueError("At least one field must be provided")
         return self
 
@@ -328,7 +338,8 @@ class MotionDetail(BaseModel):
     id: uuid.UUID
     title: str
     description: str | None
-    order_index: int
+    display_order: int
+    motion_number: str | None
     motion_type: MotionType
     is_visible: bool = True
     tally: MotionTally
@@ -407,6 +418,24 @@ class ProxyImportResult(BaseModel):
 class FinancialPositionImportResult(BaseModel):
     updated: int
     skipped: int
+
+
+# ---------------------------------------------------------------------------
+# Motion reorder schemas
+# ---------------------------------------------------------------------------
+
+
+class MotionReorderItem(BaseModel):
+    motion_id: uuid.UUID
+    display_order: int
+
+
+class MotionReorderRequest(BaseModel):
+    motions: list[MotionReorderItem]
+
+
+class MotionReorderOut(BaseModel):
+    motions: list[MotionOut]
 
 
 # ---------------------------------------------------------------------------

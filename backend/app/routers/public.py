@@ -18,8 +18,17 @@ from app.models.building import Building
 from app.models.motion import Motion
 from app.schemas.agm import GeneralMeetingOut, GeneralMeetingSummaryOut, MotionSummaryOut
 from app.schemas.building import BuildingOut
+from app.schemas.config import TenantConfigOut
+from app.services import config_service
 
 router = APIRouter()
+
+
+@router.get("/config", response_model=TenantConfigOut)
+async def get_public_config(db: AsyncSession = Depends(get_db)) -> TenantConfigOut:
+    """Return current branding config — public, no auth required."""
+    config = await config_service.get_config(db)
+    return TenantConfigOut.model_validate(config)
 
 
 @router.get("/server-time")
@@ -108,7 +117,7 @@ async def get_general_meeting_summary(
     motions_result = await db.execute(
         select(Motion)
         .where(Motion.general_meeting_id == general_meeting_id)
-        .order_by(Motion.order_index)
+        .order_by(Motion.display_order)
     )
     motions = motions_result.scalars().all()
 
@@ -122,7 +131,8 @@ async def get_general_meeting_summary(
         building_name=building.name,
         motions=[
             MotionSummaryOut(
-                order_index=m.order_index,
+                display_order=m.display_order,
+                motion_number=m.motion_number,
                 title=m.title,
                 description=m.description,
                 motion_type=m.motion_type,

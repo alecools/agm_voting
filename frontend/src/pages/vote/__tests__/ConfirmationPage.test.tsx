@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { ConfirmationPage } from "../ConfirmationPage";
 import { AGM_ID } from "../../../../tests/msw/handlers";
+import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
 const BASE = "http://localhost:8000";
 
@@ -16,16 +17,18 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-function renderPage(meetingId = AGM_ID) {
+function renderPage(meetingId = AGM_ID, supportEmail = "") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/vote/${meetingId}/confirmation`]}>
-        <Routes>
-          <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, support_email: supportEmail }, isLoading: false }}>
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/vote/${meetingId}/confirmation`]}>
+          <Routes>
+            <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BrandingContext.Provider>
   );
 }
 
@@ -50,13 +53,42 @@ describe("ConfirmationPage", () => {
     });
   });
 
-  it("renders each motion with vote", async () => {
+  it("renders each motion with vote using display_order when motion_number is null", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText(/Motion 1/)).toBeInTheDocument();
+      expect(screen.getByText("Motion 1. Motion 1")).toBeInTheDocument();
       expect(screen.getByText("For")).toBeInTheDocument();
-      expect(screen.getByText(/Motion 2/)).toBeInTheDocument();
+      expect(screen.getByText("Motion 2. Motion 2")).toBeInTheDocument();
       expect(screen.getByText("Against")).toBeInTheDocument();
+    });
+  });
+
+  it("renders each motion with vote using motion_number when set", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "owner@example.com",
+          meeting_title: "2024 AGM",
+          building_name: "Sunset Towers",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo-e2e",
+              lot_number: "E2E-1",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 1, motion_number: "A1", choice: "yes", eligible: true },
+                { motion_id: "m2", motion_title: "Motion 2", display_order: 2, motion_number: "  BBB  ", choice: "no", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion A1. Motion 1")).toBeInTheDocument();
+      expect(screen.getByText("Motion BBB. Motion 2")).toBeInTheDocument();
     });
   });
 
@@ -86,7 +118,7 @@ describe("ConfirmationPage", () => {
     });
   });
 
-  it("votes are sorted by order_index", async () => {
+  it("votes are sorted by display_order", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
         HttpResponse.json({
@@ -99,8 +131,8 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m2", motion_title: "Second Motion", order_index: 1, choice: "no", eligible: true },
-                { motion_id: "m1", motion_title: "First Motion", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m2", motion_title: "Second Motion", display_order: 2, motion_number: null, choice: "no", eligible: true },
+                { motion_id: "m1", motion_title: "First Motion", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -111,8 +143,8 @@ describe("ConfirmationPage", () => {
     renderPage();
     await waitFor(() => {
       const items = screen.getAllByRole("listitem");
-      expect(items[0]).toHaveTextContent("First Motion");
-      expect(items[1]).toHaveTextContent("Second Motion");
+      expect(items[0]).toHaveTextContent("Motion 1. First Motion");
+      expect(items[1]).toHaveTextContent("Motion 2. Second Motion");
     });
   });
 
@@ -129,7 +161,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "abstained", eligible: true },
+                { motion_id: "m1", motion_title: "Motion", display_order: 0, choice: "abstained", eligible: true },
               ],
             },
           ],
@@ -167,7 +199,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion", order_index: 0, choice: "unknown_choice", eligible: true },
+                { motion_id: "m1", motion_title: "Motion", display_order: 0, choice: "unknown_choice", eligible: true },
               ],
             },
           ],
@@ -194,7 +226,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 0, choice: "yes", eligible: true },
               ],
             },
             {
@@ -202,7 +234,7 @@ describe("ConfirmationPage", () => {
               lot_number: "2B",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "no", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 0, choice: "no", eligible: true },
               ],
             },
           ],
@@ -269,7 +301,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -298,7 +330,7 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "Motion 1", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "Motion 1", display_order: 1, motion_number: null, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -315,6 +347,21 @@ describe("ConfirmationPage", () => {
     expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
   });
 
+  // --- Support email (branding) ---
+
+  it("shows support email link when support_email is set in branding config", async () => {
+    renderPage(AGM_ID, "support@corp.com");
+    await waitFor(() => expect(screen.getByText(/Ballot submitted/)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "support@corp.com" })).toBeInTheDocument();
+    expect(screen.getByText(/Need help/)).toBeInTheDocument();
+  });
+
+  it("does not show support email block when support_email is empty", async () => {
+    renderPage(AGM_ID, "");
+    await waitFor(() => expect(screen.getByText(/Ballot submitted/)).toBeInTheDocument());
+    expect(screen.queryByText(/Need help/)).not.toBeInTheDocument();
+  });
+
   it("shows 'Not eligible' label for not_eligible votes in multi-lot ballot", async () => {
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
@@ -328,8 +375,8 @@ describe("ConfirmationPage", () => {
               lot_number: "1A",
               financial_position: "in_arrear",
               votes: [
-                { motion_id: "m1", motion_title: "General Motion", order_index: 0, choice: "not_eligible", eligible: false },
-                { motion_id: "m2", motion_title: "Special Motion", order_index: 1, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "General Motion", display_order: 0, choice: "not_eligible", eligible: false },
+                { motion_id: "m2", motion_title: "Special Motion", display_order: 1, choice: "yes", eligible: true },
               ],
             },
             {
@@ -337,7 +384,7 @@ describe("ConfirmationPage", () => {
               lot_number: "2B",
               financial_position: "normal",
               votes: [
-                { motion_id: "m1", motion_title: "General Motion", order_index: 0, choice: "yes", eligible: true },
+                { motion_id: "m1", motion_title: "General Motion", display_order: 0, choice: "yes", eligible: true },
               ],
             },
           ],
@@ -349,6 +396,68 @@ describe("ConfirmationPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Lot 1A")).toBeInTheDocument();
       expect(screen.getByText("Not eligible")).toBeInTheDocument();
+    });
+  });
+
+  it("renders multi-lot ballot motion labels using motion_number when set", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Budget Motion", display_order: 1, motion_number: "A1", choice: "yes", eligible: true },
+              ],
+            },
+            {
+              lot_owner_id: "lo2",
+              lot_number: "2B",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Budget Motion", display_order: 1, motion_number: "A1", choice: "no", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getAllByText("Motion A1. Budget Motion")).toHaveLength(2);
+    });
+  });
+
+  it("falls back to display_order when motion_number is whitespace in single-lot ballot", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/my-ballot`, () =>
+        HttpResponse.json({
+          voter_email: "voter@test.com",
+          meeting_title: "Test Meeting",
+          building_name: "Test Building",
+          submitted_lots: [
+            {
+              lot_owner_id: "lo1",
+              lot_number: "1A",
+              financial_position: "normal",
+              votes: [
+                { motion_id: "m1", motion_title: "Motion", display_order: 5, motion_number: "   ", choice: "yes", eligible: true },
+              ],
+            },
+          ],
+          remaining_lot_owner_ids: [],
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Motion 5. Motion")).toBeInTheDocument();
     });
   });
 });

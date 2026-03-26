@@ -95,8 +95,8 @@ async def building_with_agm(db_session: AsyncSession):
     db_session.add(agm)
     await db_session.flush()
 
-    m1 = Motion(general_meeting_id=agm.id, title="P2 Motion 1", order_index=1, description="First")
-    m2 = Motion(general_meeting_id=agm.id, title="P2 Motion 2", order_index=2, description=None)
+    m1 = Motion(general_meeting_id=agm.id, title="P2 Motion 1", display_order=1, description="First")
+    m2 = Motion(general_meeting_id=agm.id, title="P2 Motion 2", display_order=2, description=None)
     db_session.add_all([m1, m2])
     await db_session.flush()
 
@@ -1371,7 +1371,7 @@ class TestListMotions:
         assert "id" in motion
         assert "title" in motion
         assert "description" in motion
-        assert "order_index" in motion
+        assert "display_order" in motion
 
     # --- submitted_choice field (BUG-RV-02) ---
 
@@ -1580,11 +1580,12 @@ class TestSaveDraft:
         )
         assert response.status_code == 200
 
-    async def test_save_draft_without_lot_owner_id(
+    async def test_save_draft_with_lot_owner_id(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Draft can be saved without lot_owner_id (legacy/fallback path)."""
+        """Draft is saved when lot_owner_id is provided."""
         agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
@@ -1593,7 +1594,7 @@ class TestSaveDraft:
 
         response = await client.put(
             f"/api/general-meeting/{agm.id}/draft",
-            json={"motion_id": str(motions[0].id), "choice": "yes"},
+            json={"motion_id": str(motions[0].id), "choice": "yes", "lot_owner_id": str(lo.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -1691,7 +1692,7 @@ class TestSaveDraft:
         db_session.add(closed_agm)
         await db_session.flush()
 
-        motion = Motion(general_meeting_id=closed_agm.id, title="CM1", order_index=1)
+        motion = Motion(general_meeting_id=closed_agm.id, title="CM1", display_order=1)
         db_session.add(motion)
         await db_session.flush()
 
@@ -1721,7 +1722,7 @@ class TestSaveDraft:
         db_session.add(pending_agm)
         await db_session.flush()
 
-        motion = Motion(general_meeting_id=pending_agm.id, title="PM1", order_index=1)
+        motion = Motion(general_meeting_id=pending_agm.id, title="PM1", display_order=1)
         db_session.add(motion)
         await db_session.flush()
 
@@ -1782,25 +1783,33 @@ class TestSaveDraft:
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
         """
-        Bug fix: save_draft must not find and corrupt an already-submitted vote.
+        save_draft must not corrupt an already-submitted vote for a different lot.
 
         Scenario (multi-lot voter):
-        1. Voter has two lots (lo = lot_owner from fixture, lo2 = a second lot).
-        2. Voter submits lot_owner (lo) ballot — submitted Vote row exists with lot_owner_id=lo.id.
-        3. Voter now saves a draft for lot2, WITHOUT a lot_owner_id (NULL/shared-draft path).
-        4. The OLD (unfixed) filter: (agm, motion, voter_email) — no status check — would find
-           the submitted Vote for lo and set its status back to draft, corrupting it.
-        5. The FIXED filter adds Vote.status == VoteStatus.draft, so no submitted vote is found
-           and a new draft row (NULL lot_owner_id) is created instead.
+        1. Voter has two lots (lo = lot from fixture, lo2 = second lot).
+        2. lot_owner lo has a submitted Vote for motion[0].
+        3. Voter saves a draft for lo2 (same motion, same voter_email, different lot_owner_id).
+        4. The save_draft filter (agm, motion, voter_email, status==draft, lot_owner_id==lo2.id)
+           must NOT find or touch the submitted vote for lo.
+        5. A new draft Vote for lo2 is created without affecting lo's submitted vote.
         """
         from sqlalchemy import select as sa_select
         from app.services.voting_service import save_draft as _save_draft
+        from app.models.lot_owner import LotOwner as _LotOwner
+        from app.models.lot_owner_email import LotOwnerEmail as _LOEmail
 
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
         motions = building_with_agm["motions"]
+
+        # Create a second lot for the same voter
+        lo2 = _LotOwner(building_id=building.id, lot_number="DRAFT-LO2", unit_entitlement=50)
+        db_session.add(lo2)
+        await db_session.flush()
+        db_session.add(_LOEmail(lot_owner_id=lo2.id, email=voter_email))
+        await db_session.flush()
 
         # Pre-create a submitted Vote for lot_owner lo (lot_owner_id is set)
         submitted_vote = Vote(
@@ -1814,31 +1823,15 @@ class TestSaveDraft:
         db_session.add(submitted_vote)
         await db_session.flush()
 
-        # Sanity check: submitted vote is in place
-        result = await db_session.execute(
-            sa_select(Vote).where(
-                Vote.general_meeting_id == agm.id,
-                Vote.motion_id == motions[0].id,
-                Vote.voter_email == voter_email,
-                Vote.lot_owner_id == lo.id,
-            )
-        )
-        votes = list(result.scalars().all())
-        assert len(votes) == 1
-        assert votes[0].status == VoteStatus.submitted
-        assert votes[0].choice == VoteChoice.yes
-
-        # Now call save_draft WITHOUT lot_owner_id (the shared/NULL-lot draft path).
-        # The old filter (agm, motion, voter_email) with no status check would find the
-        # submitted vote for `lo` and overwrite its choice + downgrade to draft.
-        # The fixed filter adds status==draft, so it finds nothing and creates a new row.
+        # Now save a draft for lo2 with the same motion and voter_email.
+        # The status==draft filter ensures the submitted vote for lo is never touched.
         await _save_draft(
             db=db_session,
             general_meeting_id=agm.id,
             motion_id=motions[0].id,
             voter_email=voter_email,
             choice=VoteChoice.no,
-            lot_owner_id=None,  # shared-draft (no specific lot)
+            lot_owner_id=lo2.id,
         )
         await db_session.flush()
 
@@ -1856,18 +1849,18 @@ class TestSaveDraft:
         assert submitted_votes[0].status == VoteStatus.submitted, "Submitted vote must not be downgraded to draft"
         assert submitted_votes[0].choice == VoteChoice.yes, "Submitted vote choice must not be overwritten"
 
-        # A new draft row with lot_owner_id=NULL must exist
+        # A new draft row for lo2 must exist
         result_draft = await db_session.execute(
             sa_select(Vote).where(
                 Vote.general_meeting_id == agm.id,
                 Vote.motion_id == motions[0].id,
                 Vote.voter_email == voter_email,
-                Vote.lot_owner_id.is_(None),
+                Vote.lot_owner_id == lo2.id,
                 Vote.status == VoteStatus.draft,
             )
         )
         draft_votes = list(result_draft.scalars().all())
-        assert len(draft_votes) == 1, "A new NULL-lot draft must have been created"
+        assert len(draft_votes) == 1, "A new draft for lo2 must have been created"
         assert draft_votes[0].choice == VoteChoice.no
 
     async def test_no_session_returns_401(
@@ -2344,6 +2337,156 @@ class TestSubmitBallot:
             json={"lot_owner_ids": [str(lo.id)]},
         )
         assert response.status_code == 401
+
+    # --- Input validation ---
+
+    async def test_submit_unknown_motion_id_returns_400(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Inline votes referencing a motion ID from a different meeting → 400."""
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        foreign_motion_id = str(uuid.uuid4())
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [{"motion_id": foreign_motion_id, "choice": "yes"}],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+        assert "Unknown motion IDs" in response.json()["detail"]
+
+    # --- Edge cases ---
+
+    async def test_concurrent_submission_integrity_error_raises_409(
+        self, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """IntegrityError on BallotSubmission flush is caught and re-raised as HTTP 409.
+
+        This is a pure unit test using a fully-mocked AsyncSession. It exercises the
+        IntegrityError handler in submit_ballot (voting_service.py lines 416-419) without
+        touching the shared test session.
+        """
+        import pytest
+        from unittest.mock import AsyncMock, MagicMock
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+        from fastapi import HTTPException
+        from app.services.voting_service import submit_ballot
+        from app.models import GeneralMeetingStatus
+
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        lot_owner_id = lo.id
+        general_meeting_id = agm.id
+
+        # Helper to make a mock result that returns a given scalar or list.
+        def _scalar_result(value):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = value
+            r.scalars.return_value.all.return_value = []
+            r.all.return_value = []
+            return r
+
+        def _scalars_result(items):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = items
+            r.scalar_one_or_none.return_value = None
+            r.all.return_value = []
+            return r
+
+        def _all_result(rows):
+            r = MagicMock()
+            r.all.return_value = rows
+            r.scalars.return_value.all.return_value = rows
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        # Build a mock open GeneralMeeting
+        mock_meeting = MagicMock()
+        mock_meeting.id = general_meeting_id
+        mock_meeting.status = GeneralMeetingStatus.open
+        mock_meeting.voting_closes_at = agm.voting_closes_at
+        mock_meeting.meeting_at = agm.meeting_at
+
+        # LotOwnerEmail row confirming direct ownership
+        mock_email_row = MagicMock()
+        mock_email_row.lot_owner_id = lot_owner_id
+
+        # Mock LotOwner
+        mock_lot_owner = MagicMock()
+        mock_lot_owner.id = lot_owner_id
+        mock_lot_owner.lot_number = lo.lot_number
+
+        flush_count = 0
+
+        async def _flush():
+            nonlocal flush_count
+            flush_count += 1
+            # The service calls flush in this order:
+            #   flush 1: after delete draft votes by lot
+            #   flush 2: (inside per-lot loop) before BallotSubmission insert add — actually
+            #            the first per-lot flush is at line 358 "await db.flush()"
+            #   flush 3: the BallotSubmission insert flush at line 415 "await db.flush()"
+            # Raise on flush 3 to simulate the concurrent duplicate.
+            if flush_count >= 3:
+                raise SAIntegrityError(None, None, Exception("duplicate key value"))
+
+        execute_call_count = 0
+
+        async def _execute(stmt):
+            nonlocal execute_call_count
+            execute_call_count += 1
+            # Call sequence (for 1 lot, no inline votes):
+            # 1: SELECT GeneralMeeting
+            # 2: SELECT LotOwnerEmail (ownership check)
+            # 3: SELECT BallotSubmission FOR UPDATE (existing_subs)
+            # 4: SELECT Vote.motion_id (already voted)
+            # 5: SELECT Motion (visible motions)
+            # 6: SELECT GeneralMeetingLotWeight
+            # 7: SELECT LotOwner
+            # 8: DELETE draft votes by lot
+            # 9: DELETE shared draft votes
+            if execute_call_count == 1:
+                return _scalar_result(mock_meeting)
+            elif execute_call_count == 2:
+                return _scalar_result(mock_email_row)
+            elif execute_call_count == 3:
+                return _scalars_result([])  # no existing submissions
+            elif execute_call_count == 4:
+                return _all_result([])  # no already-voted motions
+            elif execute_call_count == 5:
+                return _scalars_result([])  # no visible motions
+            elif execute_call_count == 6:
+                return _scalars_result([])  # no lot weights
+            elif execute_call_count == 7:
+                return _scalars_result([mock_lot_owner])
+            else:
+                return _all_result([])  # DELETE statements return nothing meaningful
+
+        mock_session = MagicMock()
+        mock_session.execute = _execute
+        mock_session.add = MagicMock()
+        mock_session.flush = _flush
+        mock_session.rollback = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await submit_ballot(
+                db=mock_session,  # type: ignore[arg-type]
+                general_meeting_id=general_meeting_id,
+                voter_email=voter_email,
+                lot_owner_ids=[lot_owner_id],
+                inline_votes={},
+            )
+        # The service converts IntegrityError to HTTP 409
+        assert exc_info.value.status_code == 409
 
 
 # ---------------------------------------------------------------------------

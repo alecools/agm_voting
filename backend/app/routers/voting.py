@@ -122,7 +122,7 @@ async def list_motions(
                 Motion.id.in_(voted_motion_ids),
             ),
         )
-        .order_by(Motion.order_index)
+        .order_by(Motion.display_order)
     )
     motions = result.scalars().all()
     return [
@@ -130,7 +130,8 @@ async def list_motions(
             id=m.id,
             title=m.title,
             description=m.description,
-            order_index=m.order_index,
+            display_order=m.display_order,
+            motion_number=m.motion_number,
             motion_type=m.motion_type,
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,

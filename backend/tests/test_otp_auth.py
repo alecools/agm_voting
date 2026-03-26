@@ -31,9 +31,10 @@ from app.models import (
     GeneralMeetingStatus,
     LotOwner,
     LotProxy,
+    OTPRateLimit,
 )
 from app.models.lot_owner_email import LotOwnerEmail
-from app.routers.auth import _generate_otp_code, _OTP_ALPHABET, _otp_rate_limit
+from app.routers.auth import _generate_otp_code, _OTP_ALPHABET
 
 
 # ---------------------------------------------------------------------------
@@ -301,24 +302,30 @@ class TestRequestOtp:
         """Second request within 60s returns 429 (production mode only)."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
 
-        # Pre-seed the rate limit dict with a recent timestamp
-        rate_key = (voter_email, agm.id)
-        _otp_rate_limit[rate_key] = datetime.now(UTC)
+        # Pre-seed the DB rate limit record with a recent timestamp
+        now = datetime.now(UTC)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=1,
+            first_attempt_at=now,
+            last_attempt_at=now,
+        )
+        db_session.add(rl)
+        await db_session.flush()
 
-        try:
-            # testing_mode=False so the rate limit check is active
-            with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
-                 patch("app.routers.auth.settings") as mock_settings:
-                mock_settings.testing_mode = False
-                response = await client.post(
-                    "/api/auth/request-otp",
-                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
-                )
-            assert response.status_code == 429
-            assert "Please wait" in response.json()["detail"]
-        finally:
-            _otp_rate_limit.pop(rate_key, None)
+        # testing_mode=False so the rate limit check is active
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+        assert response.status_code == 429
+        assert "Please wait" in response.json()["detail"]
 
     async def test_request_otp_rate_limit_bypassed_in_testing_mode(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
@@ -327,24 +334,30 @@ class TestRequestOtp:
         test body to request OTPs for the same email+meeting without 60s wait."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
 
-        # Pre-seed rate limit as if a request was just made
-        rate_key = (voter_email, agm.id)
-        _otp_rate_limit[rate_key] = datetime.now(UTC)
+        # Pre-seed DB rate limit as if a request was just made (still within window)
+        now = datetime.now(UTC)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=1,
+            first_attempt_at=now,
+            last_attempt_at=now,
+        )
+        db_session.add(rl)
+        await db_session.flush()
 
-        try:
-            with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send, \
-                 patch("app.routers.auth.settings") as mock_settings:
-                mock_settings.testing_mode = True
-                response = await client.post(
-                    "/api/auth/request-otp",
-                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
-                )
-            # Must succeed (200), not 429
-            assert response.status_code == 200
-            assert response.json() == {"sent": True}
-        finally:
-            _otp_rate_limit.pop(rate_key, None)
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send, \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = True
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+        # Must succeed (200), not 429
+        assert response.status_code == 200
+        assert response.json() == {"sent": True}
 
     async def test_request_otp_smtp_failure_returns_200(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
@@ -358,7 +371,6 @@ class TestRequestOtp:
         """
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = Exception("SMTP connection refused")
@@ -375,7 +387,6 @@ class TestRequestOtp:
         """When SMTP fails, the OTP row is still in the DB and usable."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = Exception("SMTP connection refused")
@@ -414,8 +425,7 @@ class TestRequestOtp:
         db_session.add(old_otp)
         await db_session.flush()
 
-        # Clear rate limit so we can resend
-        _otp_rate_limit.pop((voter_email, agm.id), None)
+        # Rate limit is not active in testing_mode (default), so no pre-clearing needed
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock):
             await client.post(
@@ -440,8 +450,6 @@ class TestRequestOtp:
         """When skip_email=True, OTP is created but send_otp_email is NOT called."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
-
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             response = await client.post(
                 "/api/auth/request-otp",
@@ -458,7 +466,6 @@ class TestRequestOtp:
         """When skip_email=True, an AuthOtp row is still created in the DB."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock):
             await client.post(
@@ -482,7 +489,6 @@ class TestRequestOtp:
         """When skip_email=False (default), send_otp_email IS called."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             response = await client.post(
@@ -499,7 +505,6 @@ class TestRequestOtp:
         """When skip_email is omitted, it defaults to False and email IS sent."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             response = await client.post(
@@ -516,7 +521,6 @@ class TestRequestOtp:
         """When skip_email=True, email send is bypassed entirely — SMTP errors are never raised."""
         voter_email = building_and_meeting["voter_email"]
         agm = building_and_meeting["agm"]
-        _otp_rate_limit.pop((voter_email, agm.id), None)
 
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = Exception("SMTP refused")
@@ -546,8 +550,6 @@ class TestRequestOtp:
         db_session.add(expired_agm)
         await db_session.flush()
 
-        _otp_rate_limit.pop((voter_email, expired_agm.id), None)
-
         with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
             response = await client.post(
                 "/api/auth/request-otp",
@@ -556,6 +558,98 @@ class TestRequestOtp:
 
         assert response.status_code == 200
         mock_send.assert_awaited_once()
+
+    async def test_request_otp_rate_limit_passes_after_window_expires(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Rate limit does not block if previous attempt was outside the 60s window."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+
+        # Pre-seed a DB rate-limit record that is older than 60 seconds
+        old_time = datetime.now(UTC) - timedelta(seconds=90)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=1,
+            first_attempt_at=old_time,
+            last_attempt_at=old_time,
+        )
+        db_session.add(rl)
+        await db_session.flush()
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send, \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+        assert response.status_code == 200
+        mock_send.assert_awaited_once()
+
+    async def test_request_otp_rate_limit_upsert_increments_existing_record(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """When a rate-limit record already exists and window is expired, attempt_count is incremented."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+
+        # Pre-seed an old (expired-window) rate-limit record
+        old_time = datetime.now(UTC) - timedelta(seconds=120)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=3,
+            first_attempt_at=old_time,
+            last_attempt_at=old_time,
+        )
+        db_session.add(rl)
+        await db_session.flush()
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        # Fetch the updated record — attempt_count should be incremented
+        await db_session.refresh(rl)
+        assert rl.attempt_count == 4
+
+    async def test_request_otp_unknown_email_updates_rate_limit_in_production_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Unknown email still updates rate-limit so attackers cannot use absence of rate-limit
+        as a signal that the email was not found (enumeration protection)."""
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+        unknown_email = "enumeration-probe@unknown.com"
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": unknown_email, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 200
+
+        # A rate-limit record should exist for this email + building
+        result = await db_session.execute(
+            select(OTPRateLimit).where(
+                OTPRateLimit.email == unknown_email,
+                OTPRateLimit.building_id == building.id,
+            )
+        )
+        rl_record = result.scalar_one_or_none()
+        assert rl_record is not None
+        assert rl_record.attempt_count == 1
 
 
 # ---------------------------------------------------------------------------

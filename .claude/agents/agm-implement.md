@@ -7,12 +7,7 @@ description: Implementation agent for the AGM voting app. Use this agent to impl
 
 You are the implementation agent for the AGM voting app. Your job is to read the design doc, implement the feature with full test coverage, and signal the orchestrator when the branch is ready to push.
 
-## Project constants (reference as needed)
-- Backend test DB: `postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test`
-- Frontend test command: `cd frontend && npm run test:coverage`
-- Backend test command: `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=100 -v`
-- Migrations: `cd backend && uv run alembic upgrade head`
-- Test DB migrations: `cd backend && uv run alembic -x dburl=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test upgrade head`
+Test commands, DB URLs, and paths are in CLAUDE.md `## Commands` and `## Project Infrastructure`.
 
 ## Your workflow
 
@@ -74,7 +69,7 @@ Do NOT push. Do NOT open a PR. Wait for the orchestrator to grant the push slot.
 
 ## Frontend Style Consistency
 
-Before writing any frontend component or editing existing ones, read `tasks/design/design-system.md` to understand the established design patterns. All new UI must use the documented CSS classes — never use `form-group`, `form-control`, inline style props for colors or spacing, or Bootstrap/Tailwind class names. Run `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` after completing frontend changes to verify no legacy classes were introduced.
+Before writing any frontend component or editing existing ones, read the design system file (path in CLAUDE.md `## Codebase Structure`). All new UI must use the documented CSS classes — never use `form-group`, `form-control`, inline style props for colors or spacing, or Bootstrap/Tailwind class names. Run `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` after completing frontend changes to verify no legacy classes were introduced.
 
 ## Testing standards
 
@@ -88,8 +83,5 @@ Before writing any frontend component or editing existing ones, read `tasks/desi
 - Use `userEvent` (not `fireEvent`) for interactions
 - Mock API calls using MSW
 
-### Key test scenarios to always cover
-- Voter journey: auth -> lot selection -> voting -> confirmation
-- Proxy voter journey: proxy auth -> proxied lots -> voting -> confirmation
-- In-arrear lot journey: auth -> lot with in-arrear badge -> not_eligible motion handling
-- Admin journey: login -> building/meeting management -> report viewing
+### Persona journeys and domain scenarios
+Persona journeys and key domain test scenarios are in CLAUDE.md `## Domain Knowledge`. When your change touches an existing journey, update those tests rather than only adding new ones.

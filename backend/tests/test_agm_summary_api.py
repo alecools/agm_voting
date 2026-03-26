@@ -66,8 +66,8 @@ async def open_agm_with_motions(db_session: AsyncSession):
     db_session.add(agm)
     await db_session.flush()
 
-    m1 = Motion(general_meeting_id=agm.id, title="Motion One", order_index=1, description="Desc one")
-    m2 = Motion(general_meeting_id=agm.id, title="Motion Two", order_index=2, description=None)
+    m1 = Motion(general_meeting_id=agm.id, title="Motion One", display_order=1, description="Desc one")
+    m2 = Motion(general_meeting_id=agm.id, title="Motion Two", display_order=2, description=None)
     db_session.add_all([m1, m2])
     await db_session.flush()
 
@@ -92,7 +92,7 @@ async def closed_agm(db_session: AsyncSession):
     db_session.add(agm)
     await db_session.flush()
 
-    m = Motion(general_meeting_id=agm.id, title="Closed Motion", order_index=1, description="Details")
+    m = Motion(general_meeting_id=agm.id, title="Closed Motion", display_order=1, description="Details")
     db_session.add(m)
     await db_session.flush()
 
@@ -137,9 +137,9 @@ async def agm_multiple_motions(db_session: AsyncSession):
     await db_session.flush()
 
     # Insert in reverse order to test ORDER BY order_index
-    m3 = Motion(general_meeting_id=agm.id, title="Motion C", order_index=3)
-    m1 = Motion(general_meeting_id=agm.id, title="Motion A", order_index=1)
-    m2 = Motion(general_meeting_id=agm.id, title="Motion B", order_index=2)
+    m3 = Motion(general_meeting_id=agm.id, title="Motion C", display_order=3)
+    m1 = Motion(general_meeting_id=agm.id, title="Motion A", display_order=1)
+    m2 = Motion(general_meeting_id=agm.id, title="Motion B", display_order=2)
     db_session.add_all([m3, m1, m2])
     await db_session.flush()
 
@@ -235,7 +235,7 @@ class TestAGMSummary:
         agm = open_agm_with_motions["agm"]
         response = await client.get(f"/api/general-meeting/{agm.id}/summary")
         motion = response.json()["motions"][0]
-        assert "order_index" in motion
+        assert "display_order" in motion
         assert "title" in motion
         assert "description" in motion
 
@@ -245,7 +245,7 @@ class TestAGMSummary:
         agm = open_agm_with_motions["agm"]
         response = await client.get(f"/api/general-meeting/{agm.id}/summary")
         motions = response.json()["motions"]
-        # First motion (order_index=1) has description
+        # First motion (display_order=1) has description
         assert motions[0]["description"] == "Desc one"
 
     async def test_motion_with_null_description_is_null(
@@ -254,7 +254,7 @@ class TestAGMSummary:
         agm = open_agm_with_motions["agm"]
         response = await client.get(f"/api/general-meeting/{agm.id}/summary")
         motions = response.json()["motions"]
-        # Second motion (order_index=2) has no description
+        # Second motion (display_order=2) has no description
         assert motions[1]["description"] is None
 
     async def test_closed_agm_returns_200(
@@ -286,7 +286,7 @@ class TestAGMSummary:
         agm = agm_multiple_motions["agm"]
         response = await client.get(f"/api/general-meeting/{agm.id}/summary")
         motions = response.json()["motions"]
-        order_indices = [m["order_index"] for m in motions]
+        order_indices = [m["display_order"] for m in motions]
         assert order_indices == sorted(order_indices)
 
     async def test_motions_titles_in_correct_order(

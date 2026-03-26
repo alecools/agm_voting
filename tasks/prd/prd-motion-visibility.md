@@ -187,7 +187,7 @@ Admins running a General Meeting want to control which motions are visible to vo
 
 **Acceptance Criteria:**
 - [x] A "Delete" action is available on each hidden motion row in the admin meeting detail page
-- [x] Clicking "Delete" shows a confirmation prompt before proceeding
+- [x] Clicking "Delete" shows a modal confirmation dialog (not a browser `confirm()` popup) with the motion title and "Delete" / "Cancel" buttons before proceeding
 - [x] On confirmation, `DELETE /api/admin/motions/{id}` is called and the motion is removed from the list
 - [x] Delete is only available when the motion is hidden (`is_visible = false`) — the action is not shown for visible motions
 - [x] The button is disabled and shows "Deleting…" while the request is in flight

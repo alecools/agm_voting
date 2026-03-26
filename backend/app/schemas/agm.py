@@ -18,7 +18,8 @@ class GeneralMeetingOut(BaseModel):
 
 
 class MotionSummaryOut(BaseModel):
-    order_index: int
+    display_order: int
+    motion_number: str | None
     title: str
     description: str | None
     motion_type: MotionType

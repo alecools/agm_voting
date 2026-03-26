@@ -118,6 +118,14 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.getByRole("option", { name: "Beta Court" })).toBeInTheDocument();
   });
 
+  it("does not show archived buildings in the filter dropdown", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("option", { name: "Gamma House" })).not.toBeInTheDocument();
+  });
+
   it("filters meetings when a building is selected", async () => {
     const user = userEvent.setup();
     renderPage();

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
@@ -159,6 +160,7 @@ async def submit_ballot(
     """
     Formally submit the ballot for the specified lot owners.
     Creates one BallotSubmission per lot_owner_id in a single transaction.
+    Raises 400 if any submitted motion IDs are not part of the meeting.
     Raises 403 if meeting is closed.
     Raises 409 if any lot already submitted (no partial commit).
     Raises 403 if any lot_owner_id doesn't belong to authenticated voter_email.
@@ -210,12 +212,15 @@ async def submit_ballot(
                 )
             proxy_email_by_lot[lot_owner_id] = voter_email
 
-    # Get existing submissions for these lots (re-entry is allowed)
+    # Get existing submissions for these lots — use SELECT FOR UPDATE to serialize
+    # concurrent requests on the same (meeting, lot) rows and prevent double-submission.
     existing_subs_result = await db.execute(
-        select(BallotSubmission).where(
+        select(BallotSubmission)
+        .where(
             BallotSubmission.general_meeting_id == general_meeting_id,
             BallotSubmission.lot_owner_id.in_(lot_owner_ids),
         )
+        .with_for_update()
     )
     existing_subs_by_lot: dict[uuid.UUID, BallotSubmission] = {
         s.lot_owner_id: s for s in existing_subs_result.scalars().all()
@@ -240,9 +245,21 @@ async def submit_ballot(
             Motion.general_meeting_id == general_meeting_id,
             Motion.is_visible == True,  # noqa: E712
         )
-        .order_by(Motion.order_index)
+        .order_by(Motion.display_order)
     )
-    motions = list(motions_result.scalars().all())
+    visible_motions = list(motions_result.scalars().all())
+
+    # Validate that every motion_id in the submitted votes belongs to this meeting.
+    # Unknown motion IDs are rejected with a 400 so clients cannot inject votes for
+    # motions that belong to a different meeting.
+    if inline_votes:
+        valid_motion_ids = {m.id for m in visible_motions}
+        unknown = [str(v) for v in inline_votes if v not in valid_motion_ids]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown motion IDs: {unknown}",
+            )
 
     # Get GeneralMeetingLotWeight records for financial position snapshots
     weights_result = await db.execute(
@@ -307,7 +324,7 @@ async def submit_ballot(
         motions_needing_not_eligible: list[Motion] = []
         vote_items: list[VoteSummaryItem] = []
 
-        for motion in motions:
+        for motion in visible_motions:
             # Skip motions this lot has already voted on (re-entry scenario)
             if motion.id in already_voted_for_lot:
                 continue
@@ -378,20 +395,28 @@ async def submit_ballot(
             )
 
         # Re-sort vote_items to match motion order
-        motion_order = {m.id: m.order_index for m in motions}
+        motion_order = {m.id: m.display_order for m in visible_motions}
         vote_items.sort(key=lambda v: motion_order.get(v.motion_id, 0))
 
-        # Reuse existing BallotSubmission if present; otherwise create one
+        # Reuse existing BallotSubmission if present; otherwise create one.
+        # Catch IntegrityError from a concurrent submission that beat us through the
+        # SELECT FOR UPDATE window and convert it to an already-submitted response
+        # rather than a 500 so the client gets a clean 409-equivalent signal.
         if lot_owner_id not in existing_subs_by_lot:
-            submission = BallotSubmission(
-                general_meeting_id=general_meeting_id,
-                lot_owner_id=lot_owner_id,
-                voter_email=voter_email,
-                proxy_email=proxy_email_by_lot.get(lot_owner_id),
-                submitted_at=datetime.now(UTC),
-            )
-            db.add(submission)
-            await db.flush()
+            try:
+                submission = BallotSubmission(
+                    general_meeting_id=general_meeting_id,
+                    lot_owner_id=lot_owner_id,
+                    voter_email=voter_email,
+                    proxy_email=proxy_email_by_lot.get(lot_owner_id),
+                    submitted_at=datetime.now(UTC),
+                )
+                db.add(submission)
+                await db.flush()
+            except IntegrityError:
+                # Concurrent submission beat this request — treat as already submitted
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
 
         lot_results.append(LotBallotResult(
             lot_owner_id=lot_owner_id,
@@ -491,7 +516,14 @@ async def get_my_ballot(
         w.lot_owner_id: w for w in weights_result.scalars().all()
     }
 
-    # Get submitted votes for these lots (only actual Vote records — no fallback to all motions)
+    # Get all motions
+    motions_result = await db.execute(
+        select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.display_order)
+    )
+    motions = list(motions_result.scalars().all())
+
+    # Get submitted votes for these lots
+
     votes_result = await db.execute(
         select(Vote, Motion)
         .join(Motion, Vote.motion_id == Motion.id)
@@ -501,7 +533,7 @@ async def get_my_ballot(
             Vote.lot_owner_id.in_(target_lot_ids),
             Vote.status == VoteStatus.submitted,
         )
-        .order_by(Motion.order_index)
+        .order_by(Motion.display_order)
     )
     rows = votes_result.all()
 
@@ -528,16 +560,47 @@ async def get_my_ballot(
         lot_votes: list[BallotVoteItem] = []
         lot_vote_rows = votes_by_lot.get(lot_owner_id, [])
 
-        # Only show motions for which an actual submitted Vote record exists
-        for vote, motion in lot_vote_rows:
-            eligible = not (is_in_arrear and motion.motion_type == MotionType.general)
-            lot_votes.append(BallotVoteItem(
-                motion_id=motion.id,
-                motion_title=motion.title,
-                order_index=motion.order_index,
-                choice=vote.choice,
-                eligible=eligible,
-            ))
+        voted_motion_ids = {m.id for _, m in lot_vote_rows}
+
+        for motion in motions:
+            if is_in_arrear and motion.motion_type == MotionType.general:
+                # Show as "not eligible" — the DB row should have choice=not_eligible
+                # Find the actual vote for this motion if it exists
+                not_eligible_choice = VoteChoice.not_eligible
+                for vote, m in lot_vote_rows:
+                    if m.id == motion.id:
+                        not_eligible_choice = vote.choice if vote.choice is not None else VoteChoice.not_eligible
+                        break
+                lot_votes.append(BallotVoteItem(
+                    motion_id=motion.id,
+                    motion_title=motion.title,
+                    display_order=motion.display_order,
+                    motion_number=motion.motion_number,
+                    choice=not_eligible_choice,
+                    eligible=False,
+                ))
+            elif motion.id in voted_motion_ids:
+                for vote, m in lot_vote_rows:
+                    if m.id == motion.id:
+                        lot_votes.append(BallotVoteItem(
+                            motion_id=m.id,
+                            motion_title=m.title,
+                            display_order=m.display_order,
+                            motion_number=m.motion_number,
+                            choice=vote.choice,
+                            eligible=True,
+                        ))
+                        break
+            else:
+                # Motion not voted on — show as abstained
+                lot_votes.append(BallotVoteItem(
+                    motion_id=motion.id,
+                    motion_title=motion.title,
+                    display_order=motion.display_order,
+                    motion_number=motion.motion_number,
+                    choice=VoteChoice.abstained,
+                    eligible=True,
+                ))
 
         submitted_lots.append(LotBallotSummary(
             lot_owner_id=lot_owner_id,

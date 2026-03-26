@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import type { MotionFormEntry } from "../components/admin/MotionEditor";
 import type { MotionType } from "../types";
 
@@ -31,8 +30,14 @@ function parseMotionType(raw: unknown): MotionType {
  * Backwards compatibility: files with only Motion + Description columns
  * (old 2-column format) continue to work — Description is used as the title
  * and description is set to empty string.
+ *
+ * The xlsx library is dynamically imported so it is only downloaded when this
+ * function is first called (i.e. when an admin actually uses the import UI).
+ * Voter-flow bundles are never burdened with the ~650 KB xlsx payload.
  */
 export async function parseMotionsExcel(file: File): Promise<ParseResult> {
+  // Dynamic import: xlsx chunk is only fetched on first call.
+  const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
   const sheetName = workbook.SheetNames[0];
@@ -156,6 +161,7 @@ export async function parseMotionsExcel(file: File): Promise<ParseResult> {
   const motions: MotionFormEntry[] = motionEntries.map((e) => ({
     title: e.title,
     description: e.description,
+    motion_number: null,
     motion_type: e.motion_type,
   }));
 

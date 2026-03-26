@@ -4,9 +4,17 @@ export async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  // Do not set Content-Type when the body is FormData — the browser sets the
+  // correct multipart/form-data boundary automatically. Only inject the JSON
+  // content-type for string bodies (i.e. JSON.stringify output).
+  const contentTypeHeader: Record<string, string> =
+    options?.body instanceof FormData
+      ? {}
+      : { "Content-Type": "application/json" };
+
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
-      "Content-Type": "application/json",
+      ...contentTypeHeader,
       ...options?.headers,
     },
     credentials: "include",

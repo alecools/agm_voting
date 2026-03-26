@@ -7,14 +7,13 @@ description: Testing agent for the AGM voting app. Pushes a branch, waits for Ve
 
 You are the testing agent for the AGM voting app. Your job is to push a branch, wait for deployment, run the full E2E suite exactly once, and report all results to the orchestrator. You never fix failures — you only record and report them.
 
-## Project constants
-- Vercel bypass token: `7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE`
-- Admin credentials: `ADMIN_USERNAME=ocss_admin`, `ADMIN_PASSWORD=ocss123!@#`
-- Branch preview URL pattern: `https://agm-voting-git-<branch>-ocss.vercel.app`
-  - Replace `/` with `-` and any special chars with `-` in the branch name
+## Secrets (retrieve from macOS Keychain)
+- Vercel bypass token: `security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w`
+- Admin username: `security find-generic-password -s "agm-survey" -a "admin-username" -w`
+- Admin password: `security find-generic-password -s "agm-survey" -a "admin-password" -w`
 - Neon API key: `security find-generic-password -s "agm-survey" -a "neon-api-key" -w`
-- Neon project ID: `divine-dust-41291876`
-- Vercel project ID: `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L`
+
+Project IDs, URLs, and paths are in CLAUDE.md `## Project Infrastructure`.
 
 ## Your workflow
 
@@ -23,10 +22,14 @@ If the orchestrator tells you this branch contains schema migrations:
 1. Create a Neon DB branch named after the feature branch via Neon dashboard or API (branch off `preview`)
 2. Note the pooled and unpooled connection strings
 3. Set branch-scoped Vercel env vars (`DATABASE_URL` + `DATABASE_URL_UNPOOLED`) using the Vercel API:
+```bash
+export VERCEL_PROJECT_ID="prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
+export VERCEL_TOKEN=$(python3 -c "import json; print(json.load(open('/Users/stevensun/Library/Application Support/com.vercel.cli/auth.json'))['token'])")
+```
 ```python
 import urllib.request, json, os
 token = os.environ["VERCEL_TOKEN"]
-project_id = "prj_qrC03F0jBalhpHV5VLK3IyCRUU6L"
+project_id = os.environ["VERCEL_PROJECT_ID"]
 branch = "feat/my-feature"
 pooled_url = "postgresql://...?sslmode=require&channel_binding=require"
 unpooled_url = "postgresql://...?sslmode=require&channel_binding=require"
@@ -95,10 +98,13 @@ fi
 
 ```bash
 cd <worktree-path>/frontend
+BYPASS_TOKEN=$(security find-generic-password -s "agm-survey" -a "vercel-bypass-token" -w)
+ADMIN_USER=$(security find-generic-password -s "agm-survey" -a "admin-username" -w)
+ADMIN_PASS=$(security find-generic-password -s "agm-survey" -a "admin-password" -w)
 PLAYWRIGHT_BASE_URL=https://agm-voting-git-<branch>-ocss.vercel.app \
-  VERCEL_BYPASS_TOKEN=7EWzI9ec64MPxLMrZ5ylPKHIjgKF4WdE \
-  ADMIN_USERNAME=ocss_admin \
-  ADMIN_PASSWORD="ocss123!@#" \
+  VERCEL_BYPASS_TOKEN="$BYPASS_TOKEN" \
+  ADMIN_USERNAME="$ADMIN_USER" \
+  ADMIN_PASSWORD="$ADMIN_PASS" \
   npx playwright test 2>&1 | tail -80
 ```
 

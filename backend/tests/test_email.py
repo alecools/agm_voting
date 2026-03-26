@@ -49,6 +49,7 @@ from app.services.email_service import (
     _MAX_ATTEMPTS,
     _backoff_seconds,
     _get_jinja_env,
+    _send_with_limit,
 )
 
 
@@ -95,7 +96,7 @@ async def _create_motion(db: AsyncSession, agm: GeneralMeeting, order_index: int
         general_meeting_id=agm.id,
         title=f"Motion {order_index}",
         description=description,
-        order_index=order_index,
+        display_order=order_index,
     )
     db.add(motion)
     await db.flush()
@@ -140,11 +141,13 @@ async def _create_vote(
     motion: Motion,
     email: str,
     choice: VoteChoice = VoteChoice.yes,
+    lot_owner_id=None,
 ) -> Vote:
     v = Vote(
         general_meeting_id=agm.id,
         motion_id=motion.id,
         voter_email=email,
+        lot_owner_id=lot_owner_id,
         choice=choice,
         status=VoteStatus.submitted,
     )
@@ -170,6 +173,25 @@ async def client(app, db_session):
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+# ---------------------------------------------------------------------------
+# _send_with_limit helper
+# ---------------------------------------------------------------------------
+
+
+class TestSendWithLimit:
+    # --- Happy path ---
+
+    async def test_send_with_limit_awaits_coroutine(self):
+        """_send_with_limit acquires the semaphore and awaits the coroutine."""
+        called = []
+
+        async def fake_coro():
+            called.append(True)
+
+        await _send_with_limit(fake_coro())
+        assert called == [True]
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +481,7 @@ class TestSendReport:
         lo = await _create_lot_owner(db_session, building, "voter@example.com", 100)
         await _create_lot_weight(db_session, agm, lo)
         await _create_ballot(db_session, agm, lo, "voter@example.com")
-        await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes)
+        await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes, lot_owner_id=lo.id)
         await db_session.commit()
 
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
@@ -944,7 +966,7 @@ class TestCloseAgmEmailIntegration:
         await db_session.flush()
 
         motion = Motion(
-            general_meeting_id=agm.id, title="M1", description=None, order_index=0
+            general_meeting_id=agm.id, title="M1", description=None, display_order=0
         )
         db_session.add(motion)
         await db_session.commit()

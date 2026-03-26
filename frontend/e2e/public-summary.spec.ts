@@ -42,7 +42,7 @@ test.describe("Public AGM summary page", () => {
     });
 
     // Create or find the building
-    const buildingsRes = await api.get("/api/admin/buildings");
+    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
     const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
     let building = buildings.find((b) => b.name === BUILDING_NAME);
     if (!building) {
@@ -76,7 +76,7 @@ test.describe("Public AGM summary page", () => {
     }
 
     // Close any existing open/pending AGMs for this building, then create a fresh one
-    const agmsRes = await api.get("/api/admin/general-meetings");
+    const agmsRes = await api.get("/api/admin/general-meetings?limit=1000");
     const agms = (await agmsRes.json()) as {
       id: string;
       status: string;
@@ -104,13 +104,13 @@ test.describe("Public AGM summary page", () => {
           {
             title: GENERAL_MOTION_TITLE,
             description: "Do you approve the annual budget?",
-            order_index: 1,
+            display_order: 1,
             motion_type: "general",
           },
           {
             title: SPECIAL_MOTION_TITLE,
             description: "Do you approve the bylaw amendment?",
-            order_index: 2,
+            display_order: 2,
             motion_type: "special",
           },
         ],

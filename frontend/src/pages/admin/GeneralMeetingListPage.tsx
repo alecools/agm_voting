@@ -21,6 +21,8 @@ export default function GeneralMeetingListPage() {
     queryFn: listBuildings,
   });
 
+  const activeBuildings = buildings.filter((b) => !b.is_archived);
+
   const filteredMeetings = meetings
     .filter((m) => !selectedBuildingId || m.building_id === selectedBuildingId)
     .filter((m) => !selectedStatus || m.status === selectedStatus);
@@ -69,7 +71,7 @@ export default function GeneralMeetingListPage() {
                 onChange={handleBuildingChange}
               >
                 <option value="">All buildings</option>
-                {buildings.map((b) => (
+                {activeBuildings.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>

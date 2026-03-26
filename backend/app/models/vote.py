@@ -49,9 +49,9 @@ class Vote(Base):
         nullable=False,
     )
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
-    lot_owner_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("lot_owners.id", ondelete="SET NULL"),
-        nullable=True,
+    lot_owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lot_owners.id", ondelete="CASCADE"),
+        nullable=False,
     )
     choice: Mapped[VoteChoice | None] = mapped_column(
         Enum(VoteChoice, name="votechoice"),

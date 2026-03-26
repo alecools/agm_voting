@@ -32,12 +32,15 @@ export default function BuildingsPage() {
       <div className="admin-page-header">
         <h1>Buildings</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.875rem", cursor: "pointer" }}>
+          <label className="toggle-switch">
             <input
+              id="show-archived-toggle"
+              className="toggle-switch__input"
               type="checkbox"
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
             />
+            <span className="toggle-switch__track" />
             Show archived
           </label>
           {!showCreateForm && (

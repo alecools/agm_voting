@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AdminLayout from "../AdminLayout";
+import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -14,16 +15,18 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderLayout(path = "/admin/buildings") {
+function renderLayout(path = "/admin/buildings", logoUrl = "", appName = "AGM Voting") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <AdminLayout />
-      </MemoryRouter>
-    </QueryClientProvider>
+    <BrandingContext.Provider value={{ config: { ...DEFAULT_CONFIG, logo_url: logoUrl, app_name: appName }, isLoading: false }}>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <AdminLayout />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BrandingContext.Provider>
   );
 }
 
@@ -118,5 +121,28 @@ describe("AdminLayout", () => {
     await user.click(drawerLinks[drawerLinks.length - 1]);
     const drawer = screen.getByTestId("admin-nav-drawer");
     expect(drawer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // --- Settings nav link ---
+
+  it("renders Settings nav link", () => {
+    renderLayout();
+    expect(screen.getAllByRole("link", { name: "Settings" }).length).toBeGreaterThan(0);
+  });
+
+  // --- Branding: logo vs app-name ---
+
+  it("renders app name text when logo_url is empty", () => {
+    renderLayout("/admin/buildings", "", "My AGM");
+    expect(screen.getAllByText("My AGM").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("renders logo img when logo_url is set", () => {
+    renderLayout("/admin/buildings", "https://example.com/logo.png", "My AGM");
+    const imgs = screen.getAllByRole("img");
+    expect(imgs.length).toBeGreaterThan(0);
+    expect(imgs[0]).toHaveAttribute("src", "https://example.com/logo.png");
+    expect(imgs[0]).toHaveAttribute("alt", "My AGM");
   });
 });

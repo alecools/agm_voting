@@ -150,15 +150,102 @@ A web application for body corporates to run voting during Annual General Meetin
 
 **Acceptance Criteria:**
 
-- [ ] Host can create an AGM (from the admin portal) by providing: building selection, meeting title, meeting date/time, scheduled voting close date/time, and one or more motions (each with a title and description)
+- [ ] Host can create an AGM (from the admin portal) by providing: building selection, meeting title, meeting date/time, scheduled voting close date/time, and one or more motions (each with a title, optional description, and optional motion number)
 - [ ] Scheduled voting close date/time must be after the meeting date/time; validation error shown if not
-- [ ] Each motion is stored with an ordered index
+- [ ] Each motion is stored with a display order (1-based integer) and an optional motion number string
 - [ ] AGM is created in "open" status immediately — there is no draft state
 - [ ] On creation, the system snapshots the unit entitlement of every lot in the building into an immutable `agm_lot_weights` record (see FR-14); this snapshot is used for all tally calculations for this AGM regardless of future lot owner data changes
 - [ ] AGM has a shareable URL that the host can copy and send to lot owners
 - [ ] Once created, the AGM and its motions are immutable — no edits are permitted regardless of status (see FR-11)
 - [ ] Only one open AGM may exist per building at a time; attempting to create a second is rejected with a clear error
 - [ ] Typecheck/lint passes
+
+---
+
+### US-MN-01: Custom motion number
+
+**Description:** As a meeting host, I want to assign a custom display label (motion number) to each motion so that the voting page and reports show the official motion numbering from the meeting agenda (e.g. "5", "5a", "5b", "Special Resolution 1") rather than a sequential counter.
+
+**Acceptance Criteria:**
+
+- [ ] The AGM creation form includes an optional "Motion number" text field for each motion; the field accepts any non-empty string up to 100 characters (e.g. "5", "5a", "Special Resolution 1")
+- [ ] Leaving the motion number field blank is valid; if omitted at creation or add-motion time, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3") so every motion always has a non-null number
+- [ ] Whitespace-only input (e.g. spaces only) is treated as blank and stored as `NULL`; the UI placeholder communicates "Auto (e.g. 3)"
+- [ ] On the voter-facing voting page, each motion card label is always rendered as `"MOTION {motion_number}"` — the "MOTION" prefix is always present; `motion_number` is always set (never null) for motions created after the auto-assign feature landed
+- [ ] On the public meeting summary page, each motion is listed with its `motion_number` as the label if set; otherwise `display_order` is used as fallback
+- [ ] In the admin AGM detail page motion table, a "Motion #" column shows the custom motion number (blank if not set)
+- [ ] The AGM results report (admin) uses `motion_number` as the motion label if set; otherwise the positional label
+- [ ] Motion numbers are unique per AGM — adding a motion with a duplicate non-null `motion_number` returns 409; the partial unique index (`WHERE motion_number IS NOT NULL`) enforces this at the database level
+- [ ] Motion number has no effect on display order; changing a motion's number does not change its position in the list
+- [ ] `motion_number` is included in all motion-related API responses: `GET /api/general-meeting/{id}/motions`, `GET /api/general-meeting/{id}/my-ballot`, `GET /api/general-meeting/{id}/summary`, `GET /api/admin/general-meetings/{id}`
+- [ ] When editing a hidden motion via the Edit Motion modal on the admin General Meeting detail page, the admin can change or clear the motion number; the new value is persisted and reflected in the motion table after saving; `PATCH /api/admin/motions/{id}` accepts and persists `motion_number`
+- [ ] `motion_number` is stable across reorders — `PUT /api/admin/general-meetings/{id}/motions/reorder` only updates `display_order`; it never modifies `motion_number`
+- [ ] On the voter-facing voting page, motion position is determined by `display_order`, not array index — a voter who sees motions with `display_order` 2 and 3 (motion 1 hidden) sees headings "MOTION 2" and "MOTION 3", not "MOTION 1" and "MOTION 2"
+- [ ] The confirmation/SubmitDialog shows the same "MOTION {motion_number}" label alongside each motion title in the unanswered-motions list
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MN-02: Admin motion reordering
+
+**Description:** As a meeting host, I want to change the display order of motions so that voters see them in the intended agenda sequence, with drag-and-drop as the primary interaction and keyboard-accessible move buttons as fallback.
+
+**Acceptance Criteria:**
+
+- [ ] On the admin AGM detail page (open or pending meetings only), each row in the motion table has a drag handle that allows the admin to drag and drop it to a new position
+- [ ] On the same page, each motion row has two order-control buttons in the Actions column: "Move to top" (⤒) and "Move to bottom" (⤓); "Move to top" is disabled for the first motion; "Move to bottom" is disabled for the last motion
+- [ ] Reordering takes effect immediately in the UI (optimistic update); the new order is persisted via `PUT /api/admin/general-meetings/{id}/motions/reorder` with the complete ordered list of motion IDs
+- [ ] If the reorder API call fails, the UI reverts to the pre-drag order and shows an error message
+- [ ] Reordering is not available when the meeting is closed — drag handles and move buttons are absent on the closed meeting detail page
+- [ ] After a reorder, the voter-facing voting page shows motions in the new order (sorted by `display_order`)
+- [ ] After a reorder, the public summary page shows motions in the new order
+- [ ] Changing display order does NOT change any motion's `motion_number` — the labels are preserved exactly as set
+- [ ] A meeting with a single motion has no drag handle and no move buttons (nothing to reorder)
+- [ ] `PUT /api/admin/general-meetings/{id}/motions/reorder` returns 409 if the meeting is closed, 422 if the submitted list is incomplete or has duplicate positions, 404 if the meeting does not exist
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MN-03: Unified motion management table
+
+**Description:** As a meeting host, I want reorder controls (drag-and-drop + move buttons) and visibility toggles in a single table so I can manage motion ordering and visibility in one place, rather than switching between two separate panels.
+
+**Acceptance Criteria:**
+
+- [ ] The admin AGM detail page shows a single "Motions" table that combines: drag handle, motion number, title/description, type badge, visibility toggle, and action buttons (Edit/Delete, plus reorder buttons ⤒ ⤓)
+- [ ] The separate "Motion Reorder" panel and "Motion Visibility" heading are removed — all motion management happens in one table
+- [ ] Drag handles and move-to-top/bottom buttons appear in the Actions column when the meeting is open or pending
+- [ ] Drag handles and move buttons are absent when the meeting is closed
+- [ ] Visibility toggles behave identically to the previous standalone table: disabled when closed, disabled when motion has received votes, inline error on failure
+- [ ] Hidden motions appear with muted styling on data cells (#, title, type) but full opacity on the visibility toggle and action buttons
+- [ ] Edit and Delete buttons remain disabled when a motion is visible (must hide first), same as before
+- [ ] "Add Motion", "Show All", and "Hide All" buttons appear above the table (not closed meetings)
+- [ ] All existing reorder and visibility behaviour is preserved — this is a UI consolidation, not a behaviour change
+- [ ] Deleting a motion shows a confirmation modal dialog (not a browser `confirm()` popup); the modal has "Delete" and "Cancel" buttons and shows the motion title
+- [ ] Visibility toggle applies an optimistic UI update immediately on click — the toggle state changes before the API response arrives; on error the toggle reverts
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-MN-04: Admin login page uses tenant branding logo
+
+**Description:** As a meeting host, I want the admin login page to display the configured tenant logo rather than a hardcoded static image, so the login screen is consistent with the rest of the branded app.
+
+**Acceptance Criteria:**
+
+- [ ] The admin login page (`/admin/login`) reads the logo URL from `useBranding()` / `BrandingContext` (the same source used by the admin sidebar and voter shell)
+- [ ] When `logo_url` is a non-empty string, the login card displays `<img src={logo_url}>` — the configured tenant logo
+- [ ] When `logo_url` is empty string or not set, no broken image is displayed; the login card renders without an image
+- [ ] The hardcoded `/logo.png` and `/logo.webp` references are removed from the login page
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+- [ ] Verify in browser using dev-browser skill
 
 ---
 
@@ -477,6 +564,8 @@ A web application for body corporates to run voting during Annual General Meetin
 - FR-13: Motion selections are held entirely in client-side React state — no draft auto-save to the backend occurs. Selections are transmitted to the backend only when the lot owner clicks Submit and confirms the submission dialog. Voters who never submit are recorded as absent when the AGM is closed. (The backend `PUT /api/general-meeting/{id}/draft` endpoint is retained for backward compatibility but the frontend no longer calls it.) Vote choices are passed **inline** in the `POST /api/general-meeting/{id}/submit` request body as a `votes` list of `{motion_id, choice}` objects. The backend does not read draft Vote rows to determine submitted choices; it uses only the inline votes provided. Any draft Vote rows for the submitting lots are deleted before the submitted Vote rows are inserted, preventing unique-constraint conflicts.
 - FR-14: At AGM creation, the system records an immutable weight snapshot (`agm_lot_weights`) containing the `unit_entitlement` of every lot owner in the building at that moment. All tally calculations and the results report use this snapshot exclusively. Subsequent changes to lot owner data (CSV/Excel import, manual edit, PropertyIQ sync) do not alter existing snapshots. The lot owner import uses upsert semantics (matched by `lot_number`) rather than delete-all-then-insert, ensuring that database IDs — and therefore the foreign-key references from `agm_lot_weights` — are preserved for unchanged lots.
 - FR-15: The server exposes the current server UTC time via an API endpoint. The voting page fetches this on load, computes the offset from client time, and uses the corrected time for the countdown timer and 5-minute warning to eliminate client clock skew.
+- FR-16: Each motion has a `motion_number` (VARCHAR). When explicitly provided by the admin, it is a free-text display label (e.g. "5", "5a", "Special Resolution 1"). When omitted on creation or add-motion, `motion_number` is auto-assigned as `str(display_order)` (e.g. "1", "2", "3"), ensuring every motion always has a non-null number. Whitespace-only input is treated as blank and stored as `NULL`. `motion_number` is unique per AGM (partial unique index `WHERE motion_number IS NOT NULL`) — a duplicate non-null value returns 409. `motion_number` has no effect on display order; reordering motions never modifies `motion_number`. On the voter-facing voting page, every motion card always renders `"MOTION {motion_number}"` as its label. On the confirmation/SubmitDialog, the same `"MOTION {motion_number}"` label is used. A NULL `motion_number` (legacy motions predating the auto-assign feature) causes the UI to fall back to a positional label based on `display_order`.
+- FR-17: Motions have a `display_order` (INTEGER, 1-based, unique per meeting) that determines the sequence in which they are rendered on the voting page, public summary, and admin detail pages. The admin can reorder motions via `PUT /api/admin/general-meetings/{id}/motions/reorder` which accepts the complete ordered list of motion IDs and atomically renormalises `display_order` values to 1, 2, 3, ... Reordering is only permitted on open or pending meetings. Changing `display_order` never modifies `motion_number`, and changing `motion_number` never modifies `display_order`.
 
 ---
 
@@ -711,6 +800,60 @@ sessionStorage, which still has all lots as `already_submitted: false`.
 On the voting screen, motion cards display "Motion N" where N is the raw `order_index` value (0-based). The first motion therefore shows "Motion 0". The fix is a single-line change in `MotionCard.tsx`: display `motion.order_index + 1` instead of `motion.order_index`, making motions read "Motion 1", "Motion 2", etc.
 
 No backend or database changes are required. The `order_index` field remains 0-based in the data model; only the display label is adjusted.
+
+---
+
+---
+
+### US-CFG-01: Admin can view and edit tenant branding settings
+
+**Description:** As a meeting host, I want to configure the app name, logo, primary colour, and support email for my deployment so that the voting app reflects my organisation's identity.
+
+**Acceptance Criteria:**
+
+- [ ] A "Settings" nav item appears in the admin sidebar and navigates to `/admin/settings`
+- [ ] The Settings page loads the current config via `GET /api/admin/config` and displays all four fields: App name, Logo URL, Primary colour, Support email
+- [ ] Admin can edit any combination of the four fields and save via `PUT /api/admin/config`
+- [ ] The form shows "Saving…" on the button while the request is in flight
+- [ ] On success, an inline success message "Settings saved" is shown
+- [ ] Server-side validation errors are shown inline below the relevant field
+- [ ] App name is required; submitting with an empty app name returns 422
+- [ ] Primary colour must be a valid 3- or 6-digit CSS hex string (e.g. `#1a73e8`, `#fff`); submitting an invalid value returns 422
+- [ ] Logo URL and support email are optional; clearing them saves empty strings (treated as "not set")
+- [ ] After a successful save, the admin sidebar branding (app name, logo, primary colour) updates immediately without a page reload — achieved via React Query:  registers the  query key and  invalidates it on save
+- [ ] All tests pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-CFG-02: Branding config applied app-wide via React context
+
+**Description:** As a voter, I want the app to display the configured app name, logo, and primary colour so that the voting experience matches the host organisation's branding.
+
+**Acceptance Criteria:**
+
+- [ ] On app load, the frontend fetches `GET /api/config` (public, no auth) and stores the result in a `BrandingContext`
+- [ ] While the config is loading, the app renders without branding changes (falls back to compile-time defaults)
+- [ ] The browser tab title (`<title>`) is set to the configured app name
+- [ ] The voter shell header displays the configured logo (as an `<img>`) if `logo_url` is non-empty; if empty, the app name is shown as text instead
+- [ ] The admin sidebar header uses the same logo/app name logic as the voter shell
+- [ ] The primary colour CSS custom property (`--color-primary`) is updated in the document root when config loads, applying the colour app-wide
+- [ ] The support email, if non-empty, is shown on the voter auth page and confirmation page as a "Need help? Contact [email]" link
+- [ ] All tests pass at 100% coverage
+- [ ] Verify in browser using dev-browser skill
+
+---
+
+### US-CFG-03: Deployment seeded with default branding on first migration
+
+**Description:** As a developer or operator deploying a new instance, I want the system to start with sensible defaults so the app is usable immediately without any manual configuration step.
+
+**Acceptance Criteria:**
+
+- [ ] The Alembic migration that creates `tenant_config` also inserts a single seed row with: `app_name = "AGM Voting"`, `logo_url = ""`, `primary_colour = "#005f73"`, `support_email = ""`
+- [ ] The seed row is only inserted if the table is empty (idempotent — re-running the migration does not duplicate the row)
+- [ ] `GET /api/config` returns the seed values on a fresh deployment before any admin has edited settings
+- [ ] All tests pass at 100% coverage
 
 ---
 

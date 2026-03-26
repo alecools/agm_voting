@@ -2,7 +2,7 @@ import enum
 import uuid
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -16,7 +16,21 @@ class MotionType(str, enum.Enum):
 class Motion(Base):
     __tablename__ = "motions"
     __table_args__ = (
-        UniqueConstraint("general_meeting_id", "order_index", name="uq_motions_general_meeting_order"),
+        UniqueConstraint(
+            "general_meeting_id",
+            "display_order",
+            name="uq_motions_general_meeting_display_order",
+        ),
+        # Partial unique index: motion_number uniqueness per meeting, NULLs excluded.
+        # Multiple motions may have motion_number = NULL; only non-null values are unique.
+        # Standard UniqueConstraint cannot express a WHERE clause, so Index is used instead.
+        Index(
+            "uq_motions_general_meeting_motion_number",
+            "general_meeting_id",
+            "motion_number",
+            unique=True,
+            postgresql_where=text("motion_number IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -29,7 +43,8 @@ class Motion(Base):
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    motion_number: Mapped[str | None] = mapped_column(String, nullable=True)
     motion_type: Mapped[MotionType] = mapped_column(
         Enum(MotionType, name="motiontype"),
         nullable=False,
