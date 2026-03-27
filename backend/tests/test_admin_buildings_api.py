@@ -443,6 +443,130 @@ class TestCountBuildings:
         assert count_resp.status_code == 200
         assert count_resp.json()["count"] == len(list_resp.json())
 
+    # --- is_archived filter ---
+
+    async def test_is_archived_false_counts_only_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false returns count of only non-archived buildings."""
+        active = Building(name="IsArchFalse Active A", manager_email="iafa@test.com")
+        archived = Building(name="IsArchFalse Archived B", manager_email="iafb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        resp_false = await client.get("/api/admin/buildings/count?is_archived=false")
+        resp_all = await client.get("/api/admin/buildings/count")
+        assert resp_false.status_code == 200
+        assert resp_all.status_code == 200
+        # Active count must be less than total count (archived building excluded)
+        assert resp_false.json()["count"] < resp_all.json()["count"]
+
+    async def test_is_archived_true_counts_only_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=true returns count of only archived buildings."""
+        archived = Building(name="IsArchTrue Archived C", manager_email="iatc@test.com")
+        archived.is_archived = True
+        db_session.add(archived)
+        await db_session.commit()
+
+        resp = await client.get("/api/admin/buildings/count?is_archived=true")
+        assert resp.status_code == 200
+        assert resp.json()["count"] >= 1
+
+    async def test_is_archived_none_counts_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting is_archived returns all buildings regardless of archive status."""
+        active = Building(name="IsArchNone Active", manager_email="iana@test.com")
+        archived = Building(name="IsArchNone Archived", manager_email="ianb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        resp_all = await client.get("/api/admin/buildings/count")
+        resp_false = await client.get("/api/admin/buildings/count?is_archived=false")
+        resp_true = await client.get("/api/admin/buildings/count?is_archived=true")
+        assert resp_all.status_code == 200
+        # total = active + archived
+        assert resp_all.json()["count"] == resp_false.json()["count"] + resp_true.json()["count"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/buildings — is_archived list filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestListBuildingsIsArchivedFilter:
+    # --- Happy path ---
+
+    async def test_is_archived_false_returns_only_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false returns only non-archived buildings."""
+        active = Building(name="ListArchFalse Active", manager_email="lafa@test.com")
+        archived = Building(name="ListArchFalse Archived", manager_email="lafb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=false")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchFalse Active" in names
+        assert "ListArchFalse Archived" not in names
+
+    async def test_is_archived_true_returns_only_archived(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=true returns only archived buildings."""
+        active = Building(name="ListArchTrue Active", manager_email="lata@test.com")
+        archived = Building(name="ListArchTrue Archived", manager_email="latb@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=true")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchTrue Archived" in names
+        assert "ListArchTrue Active" not in names
+
+    async def test_no_is_archived_param_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting is_archived returns all buildings."""
+        active = Building(name="ListArchAll Active", manager_email="laaa@test.com")
+        archived = Building(name="ListArchAll Archived", manager_email="laab@test.com")
+        archived.is_archived = True
+        db_session.add_all([active, archived])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings")
+        assert response.status_code == 200
+        names = [b["name"] for b in response.json()]
+        assert "ListArchAll Active" in names
+        assert "ListArchAll Archived" in names
+
+    # --- Edge cases ---
+
+    async def test_is_archived_false_empty_result_when_no_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?is_archived=false with only archived buildings returns empty list."""
+        # Ensure at least one archived exists with unique name to verify filter works
+        # (shared test DB may have other buildings)
+        archived = Building(name="OnlyArchived X9W2Q", manager_email="onlyarch@test.com")
+        archived.is_archived = True
+        db_session.add(archived)
+        await db_session.commit()
+
+        response = await client.get("/api/admin/buildings?is_archived=false&name=OnlyArchived+X9W2Q")
+        assert response.status_code == 200
+        assert response.json() == []
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}

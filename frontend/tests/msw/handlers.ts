@@ -335,14 +335,29 @@ export const adminHandlers = [
   http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
     const url = new URL(request.url);
     const name = url.searchParams.get("name");
-    const filtered = name
-      ? ADMIN_BUILDINGS.filter((b) => b.name.toLowerCase().includes(name.toLowerCase()))
-      : ADMIN_BUILDINGS;
+    const isArchivedParam = url.searchParams.get("is_archived");
+    let filtered = ADMIN_BUILDINGS;
+    if (name) filtered = filtered.filter((b) => b.name.toLowerCase().includes(name.toLowerCase()));
+    if (isArchivedParam !== null) {
+      const isArchived = isArchivedParam === "true";
+      filtered = filtered.filter((b) => b.is_archived === isArchived);
+    }
     return HttpResponse.json({ count: filtered.length });
   }),
 
-  http.get(`${BASE}/api/admin/buildings`, () => {
-    return HttpResponse.json(ADMIN_BUILDINGS);
+  http.get(`${BASE}/api/admin/buildings`, ({ request }) => {
+    const url = new URL(request.url);
+    const isArchivedParam = url.searchParams.get("is_archived");
+    const limitParam = url.searchParams.get("limit");
+    const offsetParam = url.searchParams.get("offset");
+    let filtered = ADMIN_BUILDINGS;
+    if (isArchivedParam !== null) {
+      const isArchived = isArchivedParam === "true";
+      filtered = filtered.filter((b) => b.is_archived === isArchived);
+    }
+    const offset = offsetParam !== null ? parseInt(offsetParam, 10) : 0;
+    const limit = limitParam !== null ? parseInt(limitParam, 10) : filtered.length;
+    return HttpResponse.json(filtered.slice(offset, offset + limit));
   }),
 
   http.get(`${BASE}/api/admin/buildings/:buildingId`, ({ params }) => {
@@ -497,14 +512,26 @@ export const adminHandlers = [
     const url = new URL(request.url);
     const name = url.searchParams.get("name");
     const buildingId = url.searchParams.get("building_id");
+    const status = url.searchParams.get("status");
     let filtered = ADMIN_MEETING_LIST;
     if (name) filtered = filtered.filter((m) => m.title.toLowerCase().includes(name.toLowerCase()));
     if (buildingId) filtered = filtered.filter((m) => m.building_id === buildingId);
+    if (status) filtered = filtered.filter((m) => m.status === status);
     return HttpResponse.json({ count: filtered.length });
   }),
 
-  http.get(`${BASE}/api/admin/general-meetings`, () => {
-    return HttpResponse.json(ADMIN_MEETING_LIST);
+  http.get(`${BASE}/api/admin/general-meetings`, ({ request }) => {
+    const url = new URL(request.url);
+    const buildingId = url.searchParams.get("building_id");
+    const status = url.searchParams.get("status");
+    const limitParam = url.searchParams.get("limit");
+    const offsetParam = url.searchParams.get("offset");
+    let filtered = ADMIN_MEETING_LIST;
+    if (buildingId) filtered = filtered.filter((m) => m.building_id === buildingId);
+    if (status) filtered = filtered.filter((m) => m.status === status);
+    const offset = offsetParam !== null ? parseInt(offsetParam, 10) : 0;
+    const limit = limitParam !== null ? parseInt(limitParam, 10) : filtered.length;
+    return HttpResponse.json(filtered.slice(offset, offset + limit));
   }),
 
   http.post(`${BASE}/api/admin/general-meetings`, async ({ request }) => {

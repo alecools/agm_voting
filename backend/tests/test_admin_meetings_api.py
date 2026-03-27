@@ -877,6 +877,312 @@ class TestCountGeneralMeetings:
         assert count_resp.status_code == 200
         assert count_resp.json()["count"] == len(list_resp.json())
 
+    # --- status filter ---
+
+    async def test_status_filter_open_counts_only_open(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=open counts only meetings with effective status 'open'."""
+        b = Building(name="StatusCount Building O", manager_email="sco@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusCount Open AGM",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusCount Closed AGM",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        open_resp = await client.get("/api/admin/general-meetings/count?status=open")
+        closed_resp = await client.get("/api/admin/general-meetings/count?status=closed")
+        all_resp = await client.get("/api/admin/general-meetings/count")
+        assert open_resp.status_code == 200
+        assert closed_resp.status_code == 200
+        # open count + closed count must be <= total (there may be pending ones too)
+        assert open_resp.json()["count"] + closed_resp.json()["count"] <= all_resp.json()["count"]
+
+    async def test_status_filter_no_match_returns_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=nonexistent returns 0 — no meeting has that status."""
+        response = await client.get("/api/admin/general-meetings/count?status=nonexistent")
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+
+    async def test_status_filter_none_counts_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting status counts all meetings."""
+        list_resp = await client.get("/api/admin/general-meetings")
+        count_resp = await client.get("/api/admin/general-meetings/count")
+        assert list_resp.status_code == 200
+        assert count_resp.status_code == 200
+        assert count_resp.json()["count"] == len(list_resp.json())
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/general-meetings — status list filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestListGeneralMeetingsStatusFilter:
+    # --- Happy path ---
+
+    async def test_status_filter_open_returns_only_open_meetings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=open returns only open meetings."""
+        b = Building(name="StatusList Building O", manager_email="slbo@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusList Open AGM",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusList Closed AGM",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?status=open")
+        assert response.status_code == 200
+        statuses = [m["status"] for m in response.json()]
+        assert all(s == "open" for s in statuses)
+
+    async def test_status_filter_closed_returns_only_closed_meetings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=closed returns only closed meetings."""
+        b = Building(name="StatusList Building C", manager_email="slbc@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusList Closed Only AGM",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?status=closed")
+        assert response.status_code == 200
+        statuses = [m["status"] for m in response.json()]
+        assert all(s == "closed" for s in statuses)
+
+    async def test_status_filter_no_match_returns_empty(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=nonexistent returns empty list."""
+        response = await client.get("/api/admin/general-meetings?status=nonexistent")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_no_status_filter_returns_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting ?status returns all meetings regardless of status."""
+        b = Building(name="StatusList All Building", manager_email="slab@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusListAll Open",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusListAll Closed",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/admin/general-meetings?name=StatusListAll")
+        assert response.status_code == 200
+        titles = [m["title"] for m in response.json()]
+        assert "StatusListAll Open" in titles
+        assert "StatusListAll Closed" in titles
+
+    # --- Edge cases ---
+
+    async def test_status_and_building_id_filters_combined(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=open&building_id=X returns only open meetings for that building."""
+        b1 = Building(name="StatusCombined B1", manager_email="scb1@test.com")
+        b2 = Building(name="StatusCombined B2", manager_email="scb2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+        open_b1 = GeneralMeeting(
+            building_id=b1.id,
+            title="Open B1 Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        closed_b1 = GeneralMeeting(
+            building_id=b1.id,
+            title="Closed B1 Meeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        open_b2 = GeneralMeeting(
+            building_id=b2.id,
+            title="Open B2 Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add_all([open_b1, closed_b1, open_b2])
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/general-meetings?status=open&building_id={b1.id}"
+        )
+        assert response.status_code == 200
+        titles = [m["title"] for m in response.json()]
+        assert "Open B1 Meeting" in titles
+        assert "Closed B1 Meeting" not in titles
+        assert "Open B2 Meeting" not in titles
+
+    async def test_status_and_name_filters_combined(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """?status=open&name=X returns only open meetings matching the name."""
+        b = Building(name="StatusNameCombined Bldg", manager_email="sncb@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusNameCombo Open UNIQ8X",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="StatusNameCombo Closed UNIQ8X",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/admin/general-meetings?status=open&name=StatusNameCombo"
+        )
+        assert response.status_code == 200
+        titles = [m["title"] for m in response.json()]
+        assert "StatusNameCombo Open UNIQ8X" in titles
+        assert "StatusNameCombo Closed UNIQ8X" not in titles
+
+    async def test_count_with_status_and_name_combined(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """count endpoint: ?status=open&name=X returns only matching count."""
+        b = Building(name="CountStatusName Bldg", manager_email="csnb@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="CountStatusName Open Q4T",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b.id,
+                title="CountStatusName Closed Q4T",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/admin/general-meetings/count?status=open&name=CountStatusName"
+        )
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+
+    async def test_count_with_status_and_building_id_combined(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """count endpoint: ?status=open&building_id=X returns count for that building + status."""
+        b1 = Building(name="CountStatusBldg B1", manager_email="csbb1@test.com")
+        b2 = Building(name="CountStatusBldg B2", manager_email="csbb2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+        db_session.add(
+            GeneralMeeting(
+                building_id=b1.id,
+                title="CountStatusBldg Open B1",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        db_session.add(
+            GeneralMeeting(
+                building_id=b2.id,
+                title="CountStatusBldg Open B2",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+        )
+        await db_session.commit()
+
+        resp_b1 = await client.get(
+            f"/api/admin/general-meetings/count?status=open&building_id={b1.id}"
+        )
+        assert resp_b1.status_code == 200
+        assert resp_b1.json()["count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/general-meetings/{agm_id}

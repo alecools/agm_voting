@@ -247,10 +247,13 @@ async def list_buildings(
     limit: int = 100,
     offset: int = 0,
     name: str | None = None,
+    is_archived: bool | None = None,
 ) -> list[Building]:
     q = select(Building).order_by(Building.created_at.desc())
     if name is not None:
         q = q.where(func.lower(Building.name).contains(name.lower()))
+    if is_archived is not None:
+        q = q.where(Building.is_archived == is_archived)
     result = await db.execute(q.offset(offset).limit(limit))
     return list(result.scalars().all())
 
@@ -258,11 +261,14 @@ async def list_buildings(
 async def count_buildings(
     db: AsyncSession,
     name: str | None = None,
+    is_archived: bool | None = None,
 ) -> int:
-    """Return total count of buildings matching the optional name filter."""
+    """Return total count of buildings matching the optional name and is_archived filters."""
     q = select(func.count()).select_from(Building)
     if name is not None:
         q = q.where(func.lower(Building.name).contains(name.lower()))
+    if is_archived is not None:
+        q = q.where(Building.is_archived == is_archived)
     result = await db.execute(q)
     return result.scalar_one()
 
@@ -1078,6 +1084,7 @@ async def list_general_meetings(
     offset: int = 0,
     name: str | None = None,
     building_id: uuid.UUID | None = None,
+    status: str | None = None,
 ) -> list[dict]:
     q = (
         select(GeneralMeeting, Building.name.label("building_name"))
@@ -1093,13 +1100,17 @@ async def list_general_meetings(
     items = []
     for general_meeting, building_name in rows:
         effective = get_effective_status(general_meeting)
+        effective_str = effective.value if hasattr(effective, "value") else effective
+        # Post-filter by effective status when requested (computed field, not a DB column)
+        if status is not None and effective_str != status:
+            continue
         items.append(
             {
                 "id": general_meeting.id,
                 "building_id": general_meeting.building_id,
                 "building_name": building_name,
                 "title": general_meeting.title,
-                "status": effective.value if hasattr(effective, "value") else effective,
+                "status": effective_str,
                 "meeting_at": general_meeting.meeting_at,
                 "voting_closes_at": general_meeting.voting_closes_at,
                 "created_at": general_meeting.created_at,
@@ -1112,8 +1123,27 @@ async def count_general_meetings(
     db: AsyncSession,
     name: str | None = None,
     building_id: uuid.UUID | None = None,
+    status: str | None = None,
 ) -> int:
     """Return total count of general meetings matching the optional filters."""
+    # When a status filter is applied we must compute effective status in Python,
+    # so we fetch IDs and count them rather than using a SQL COUNT.
+    if status is not None:
+        q = (
+            select(GeneralMeeting)
+            .join(Building, GeneralMeeting.building_id == Building.id)
+        )
+        if name is not None:
+            q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
+        if building_id is not None:
+            q = q.where(GeneralMeeting.building_id == building_id)
+        result = await db.execute(q)
+        meetings = result.scalars().all()
+        return sum(
+            1
+            for m in meetings
+            if (get_effective_status(m).value if hasattr(get_effective_status(m), "value") else get_effective_status(m)) == status
+        )
     q = select(func.count()).select_from(GeneralMeeting)
     if name is not None:
         q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))

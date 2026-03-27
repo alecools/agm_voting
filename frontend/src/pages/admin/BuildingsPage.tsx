@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { listBuildings, createBuilding } from "../../api/admin";
+import { listBuildings, getBuildingsCount, createBuilding } from "../../api/admin";
 import type { Building } from "../../types";
 import BuildingTable from "../../components/admin/BuildingTable";
 import BuildingCSVUpload from "../../components/admin/BuildingCSVUpload";
@@ -17,10 +17,40 @@ export default function BuildingsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const { data: buildings = [], isLoading, error } = useQuery<Building[]>({
-    queryKey: ["admin", "buildings"],
-    queryFn: listBuildings,
+  const { data: countData } = useQuery<{ count: number }>({
+    queryKey: ["admin", "buildings", "count", showArchived],
+    queryFn: () => getBuildingsCount({ is_archived: showArchived ? undefined : false }),
   });
+
+  const totalCount = countData?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+
+  const { data: buildings = [], isLoading, error } = useQuery<Building[]>({
+    queryKey: ["admin", "buildings", "list", safePage, showArchived],
+    queryFn: () =>
+      listBuildings({
+        limit: PAGE_SIZE,
+        offset: (safePage - 1) * PAGE_SIZE,
+        is_archived: showArchived ? undefined : false,
+      }),
+  });
+
+  // Prefetch next page
+  useEffect(() => {
+    const nextOffset = safePage * PAGE_SIZE;
+    if (nextOffset < totalCount) {
+      void queryClient.prefetchQuery({
+        queryKey: ["admin", "buildings", "list", safePage + 1, showArchived],
+        queryFn: () =>
+          listBuildings({
+            limit: PAGE_SIZE,
+            offset: nextOffset,
+            is_archived: showArchived ? undefined : false,
+          }),
+      });
+    }
+  }, [safePage, showArchived, totalCount, queryClient]);
 
   const mutation = useMutation<Building, Error, { name: string; manager_email: string }>({
     mutationFn: (data) => createBuilding(data),
@@ -32,17 +62,6 @@ export default function BuildingsPage() {
       setFormError(err.message);
     },
   });
-
-  const visibleBuildings = showArchived
-    ? buildings
-    : buildings.filter((b) => !b.is_archived);
-
-  const totalPages = Math.max(1, Math.ceil(visibleBuildings.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pagedBuildings = visibleBuildings.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE,
-  );
 
   function handlePageChange(newPage: number) {
     setPage(newPage);
@@ -181,15 +200,15 @@ export default function BuildingsPage() {
         <Pagination
           page={safePage}
           totalPages={totalPages}
-          totalItems={visibleBuildings.length}
+          totalItems={totalCount}
           pageSize={PAGE_SIZE}
           onPageChange={handlePageChange}
         />
-        <BuildingTable buildings={pagedBuildings} isLoading={isLoading} />
+        <BuildingTable buildings={buildings} isLoading={isLoading} />
         <Pagination
           page={safePage}
           totalPages={totalPages}
-          totalItems={visibleBuildings.length}
+          totalItems={totalCount}
           pageSize={PAGE_SIZE}
           onPageChange={handlePageChange}
         />

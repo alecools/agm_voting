@@ -246,9 +246,25 @@ describe("BuildingsPage", () => {
 
   // --- Show archived toggle ---
 
-  it("hides archived buildings by default", async () => {
+  it("hides archived buildings by default (server sends is_archived=false)", async () => {
+    // Default handler filters by is_archived=false — Active Tower returns, Old Tower is archived and excluded
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 1 });
+        }
+        return HttpResponse.json({ count: 2 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json([
+            { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
+          ]);
+        }
         return HttpResponse.json([
           { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
           { id: "b2", name: "Old Tower", manager_email: "o@test.com", is_archived: true, created_at: "2023-01-01T00:00:00Z" },
@@ -262,9 +278,25 @@ describe("BuildingsPage", () => {
     expect(screen.queryByText("Old Tower")).not.toBeInTheDocument();
   });
 
-  it("shows archived buildings when toggle is checked", async () => {
+  it("shows archived buildings when toggle is checked (server receives no is_archived filter)", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 1 });
+        }
+        // no is_archived param → all buildings
+        return HttpResponse.json({ count: 2 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json([
+            { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
+          ]);
+        }
         return HttpResponse.json([
           { id: "b1", name: "Active Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
           { id: "b2", name: "Old Tower", manager_email: "o@test.com", is_archived: true, created_at: "2023-01-01T00:00:00Z" },
@@ -277,13 +309,15 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Tower")).toBeInTheDocument();
     });
     await user.click(screen.getByLabelText("Show archived"));
-    expect(screen.getByText("Old Tower")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Old Tower")).toBeInTheDocument();
+    });
     expect(screen.getByText("Active Tower")).toBeInTheDocument();
   });
 
   it("resets table to page 1 when Show archived filter is toggled", async () => {
-    // 21 active buildings + 1 archived — enough for 2 pages when only active shown (21 active)
-    // and also enough for 2 pages when all shown (22 total)
+    // 21 active buildings — enough for 2 pages when only active shown
+    // toggling archived changes the query key, resetting to page 1
     const activeBuildings = Array.from({ length: 21 }, (_, i) => ({
       id: `active-${i + 1}`,
       name: `Active Building ${i + 1}`,
@@ -299,8 +333,21 @@ describe("BuildingsPage", () => {
       created_at: "2023-01-01T00:00:00Z",
     };
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json([...activeBuildings, archivedBuilding]);
+      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        if (isArchivedParam === "false") {
+          return HttpResponse.json({ count: 21 });
+        }
+        return HttpResponse.json({ count: 22 });
+      }),
+      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+        const url = new URL(request.url);
+        const isArchivedParam = url.searchParams.get("is_archived");
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        const all = isArchivedParam === "false" ? activeBuildings : [...activeBuildings, archivedBuilding];
+        return HttpResponse.json(all.slice(offset, offset + limit));
       })
     );
 
@@ -314,10 +361,12 @@ describe("BuildingsPage", () => {
 
     // Navigate to page 2 (Active Building 21 is on page 2) — two "2" buttons exist (top + bottom)
     await user.click(screen.getAllByRole("button", { name: "2" })[0]);
-    expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Active Building 21")).toBeInTheDocument();
+    });
     expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
 
-    // Toggle "Show archived" — visibleBuildings length changes (21 → 22)
+    // Toggle "Show archived" — query changes, page resets to 1
     await user.click(screen.getByLabelText("Show archived"));
 
     // Table should have reset to page 1

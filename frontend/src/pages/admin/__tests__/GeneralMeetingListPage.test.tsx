@@ -110,7 +110,7 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.getByRole("option", { name: "All buildings" })).toBeInTheDocument();
   });
 
-  it("renders building options from the buildings API", async () => {
+  it("renders building options from the buildings API (only non-archived)", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Alpha Tower" })).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.queryByRole("option", { name: "Gamma House" })).not.toBeInTheDocument();
   });
 
-  it("filters meetings when a building is selected", async () => {
+  it("filters meetings when a building is selected (sends building_id to server)", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
@@ -137,7 +137,9 @@ describe("GeneralMeetingListPage", () => {
     const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b1");
     // Only Alpha Tower meetings (agm1 / 2024 AGM, agm3 / 2026 AGM) should show
-    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
     expect(screen.getByText("2026 AGM")).toBeInTheDocument();
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
   });
@@ -150,7 +152,9 @@ describe("GeneralMeetingListPage", () => {
     });
     const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b2");
-    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
     expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
   });
@@ -163,9 +167,13 @@ describe("GeneralMeetingListPage", () => {
     });
     const select = screen.getByLabelText("Building");
     await user.selectOptions(select, "b2");
-    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    });
     await user.selectOptions(select, "");
-    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     expect(screen.getByText("2026 AGM")).toBeInTheDocument();
   });
@@ -193,10 +201,10 @@ describe("GeneralMeetingListPage", () => {
     expect(select.value).toBe("b1");
   });
 
-  it("shows all meetings when URL param building id does not match any building", async () => {
+  it("shows no meetings when URL param building id does not match any building", async () => {
     renderPage("?building=nonexistent");
     await waitFor(() => {
-      // No match → filteredMeetings is empty — table shows no rows for any meeting
+      // No match → server returns empty
       expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
       expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
       expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
@@ -225,14 +233,16 @@ describe("GeneralMeetingListPage", () => {
     expect(screen.getByRole("option", { name: "Closed" })).toBeInTheDocument();
   });
 
-  it("filters to open meetings only when Open is selected", async () => {
+  it("filters to open meetings only when Open is selected (sends status to server)", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Status"), "open");
-    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
     expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
   });
@@ -244,7 +254,9 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2026 AGM")).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Status"), "pending");
-    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
   });
@@ -256,7 +268,9 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Status"), "closed");
-    expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2023 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
     expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
   });
@@ -268,9 +282,13 @@ describe("GeneralMeetingListPage", () => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByLabelText("Status"), "open");
-    expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
+    });
     await user.selectOptions(screen.getByLabelText("Status"), "");
-    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
     expect(screen.getByText("2023 AGM")).toBeInTheDocument();
     expect(screen.getByText("2026 AGM")).toBeInTheDocument();
   });
@@ -328,7 +346,9 @@ describe("GeneralMeetingListPage", () => {
     // b1 has open (2024 AGM) and pending (2026 AGM); filter to b1 + open
     await user.selectOptions(screen.getByLabelText("Building"), "b1");
     await user.selectOptions(screen.getByLabelText("Status"), "open");
-    expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2026 AGM")).not.toBeInTheDocument();
     expect(screen.queryByText("2023 AGM")).not.toBeInTheDocument();
   });
@@ -356,7 +376,46 @@ describe("GeneralMeetingListPage", () => {
     const buildingSelect = screen.getByLabelText("Building") as HTMLSelectElement;
     expect(buildingSelect.value).toBe("b1");
     // Only the pending b1 meeting should show
-    expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("2026 AGM")).toBeInTheDocument();
+    });
     expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+  });
+
+  // --- Pagination and prefetch ---
+
+  it("prefetches next page when total count exceeds one page", async () => {
+    // 21 meetings so that totalCount > PAGE_SIZE (20) and prefetch triggers
+    const meetings = Array.from({ length: 21 }, (_, i) => ({
+      id: `m${i + 1}`,
+      building_id: "b1",
+      building_name: "Alpha Tower",
+      title: `Meeting ${i + 1}`,
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      created_at: "2024-01-01T00:00:00Z",
+    }));
+
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/count", () => {
+        return HttpResponse.json({ count: 21 });
+      }),
+      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+        const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+        return HttpResponse.json(meetings.slice(offset, offset + limit));
+      })
+    );
+
+    renderPage();
+
+    // Page 1 loads — 20 meetings visible, Meeting 21 is on page 2 (prefetched)
+    await waitFor(() => {
+      expect(screen.getByText("Meeting 1")).toBeInTheDocument();
+    });
+    // Pagination shows 2 pages
+    expect(screen.getAllByRole("button", { name: "2" })[0]).toBeInTheDocument();
   });
 });

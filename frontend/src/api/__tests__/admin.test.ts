@@ -16,7 +16,7 @@ const BASE = "http://localhost:8000";
 describe("getBuildingsCount", () => {
   // --- Happy path ---
 
-  it("returns count without name filter", async () => {
+  it("returns count without any filter", async () => {
     server.use(
       http.get(`${BASE}/api/admin/buildings/count`, () =>
         HttpResponse.json({ count: 42 })
@@ -34,12 +34,49 @@ describe("getBuildingsCount", () => {
         return HttpResponse.json({ count: 3 });
       })
     );
-    const result = await getBuildingsCount("Alpha");
+    const result = await getBuildingsCount({ name: "Alpha" });
     expect(result).toEqual({ count: 3 });
     expect(capturedUrl).toContain("name=Alpha");
   });
 
-  it("does not send name param when undefined", async () => {
+  it("sends is_archived=false query param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ count: 5 });
+      })
+    );
+    await getBuildingsCount({ is_archived: false });
+    expect(capturedUrl).toContain("is_archived=false");
+  });
+
+  it("sends is_archived=true query param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ count: 2 });
+      })
+    );
+    await getBuildingsCount({ is_archived: true });
+    expect(capturedUrl).toContain("is_archived=true");
+  });
+
+  it("sends both name and is_archived params together", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ count: 1 });
+      })
+    );
+    await getBuildingsCount({ name: "Tower", is_archived: false });
+    expect(capturedUrl).toContain("name=Tower");
+    expect(capturedUrl).toContain("is_archived=false");
+  });
+
+  it("does not send params when not provided", async () => {
     let capturedUrl = "";
     server.use(
       http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
@@ -49,6 +86,7 @@ describe("getBuildingsCount", () => {
     );
     await getBuildingsCount(undefined);
     expect(capturedUrl).not.toContain("name");
+    expect(capturedUrl).not.toContain("is_archived");
   });
 });
 
@@ -114,6 +152,32 @@ describe("getGeneralMeetingsCount", () => {
     expect(capturedUrl).not.toContain("name");
     expect(capturedUrl).not.toContain("building_id");
   });
+
+  it("sends status query param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/general-meetings/count`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ count: 3 });
+      })
+    );
+    await getGeneralMeetingsCount({ status: "open" });
+    expect(capturedUrl).toContain("status=open");
+  });
+
+  it("sends status, name, and building_id together", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/general-meetings/count`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ count: 1 });
+      })
+    );
+    await getGeneralMeetingsCount({ status: "closed", name: "AGM", building_id: "b-1" });
+    expect(capturedUrl).toContain("status=closed");
+    expect(capturedUrl).toContain("name=AGM");
+    expect(capturedUrl).toContain("building_id=b-1");
+  });
 });
 
 describe("listBuildings with params", () => {
@@ -167,6 +231,30 @@ describe("listBuildings with params", () => {
     await listBuildings({});
     expect(capturedUrl).not.toContain("?");
   });
+
+  it("sends is_archived=false param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/buildings`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await listBuildings({ is_archived: false });
+    expect(capturedUrl).toContain("is_archived=false");
+  });
+
+  it("sends is_archived=true param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/buildings`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await listBuildings({ is_archived: true });
+    expect(capturedUrl).toContain("is_archived=true");
+  });
 });
 
 describe("listGeneralMeetings with params", () => {
@@ -219,6 +307,33 @@ describe("listGeneralMeetings with params", () => {
     );
     await listGeneralMeetings();
     expect(capturedUrl).not.toContain("?");
+  });
+
+  it("sends status param when provided", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/general-meetings`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await listGeneralMeetings({ status: "open" });
+    expect(capturedUrl).toContain("status=open");
+  });
+
+  it("sends all params together", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/general-meetings`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await listGeneralMeetings({ limit: 20, offset: 40, building_id: "b-1", status: "closed" });
+    expect(capturedUrl).toContain("limit=20");
+    expect(capturedUrl).toContain("offset=40");
+    expect(capturedUrl).toContain("building_id=b-1");
+    expect(capturedUrl).toContain("status=closed");
   });
 });
 

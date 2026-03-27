@@ -241,6 +241,7 @@ export interface ListBuildingsParams {
   limit?: number;
   offset?: number;
   name?: string;
+  is_archived?: boolean;
 }
 
 export async function listBuildings(params?: ListBuildingsParams): Promise<Building[]> {
@@ -248,13 +249,15 @@ export async function listBuildings(params?: ListBuildingsParams): Promise<Build
   if (params?.limit !== undefined) qs.set("limit", String(params.limit));
   if (params?.offset !== undefined) qs.set("offset", String(params.offset));
   if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.is_archived !== undefined) qs.set("is_archived", String(params.is_archived));
   const query = qs.toString();
   return apiFetch<Building[]>(`/api/admin/buildings${query ? `?${query}` : ""}`);
 }
 
-export async function getBuildingsCount(name?: string): Promise<{ count: number }> {
+export async function getBuildingsCount(params?: { name?: string; is_archived?: boolean }): Promise<{ count: number }> {
   const qs = new URLSearchParams();
-  if (name !== undefined) qs.set("name", name);
+  if (params?.name !== undefined) qs.set("name", params.name);
+  if (params?.is_archived !== undefined) qs.set("is_archived", String(params.is_archived));
   const query = qs.toString();
   return apiFetch<{ count: number }>(`/api/admin/buildings/count${query ? `?${query}` : ""}`);
 }
@@ -422,6 +425,7 @@ export interface ListGeneralMeetingsParams {
   offset?: number;
   name?: string;
   building_id?: string;
+  status?: string;
 }
 
 export async function listGeneralMeetings(params?: ListGeneralMeetingsParams): Promise<GeneralMeetingListItem[]> {
@@ -430,14 +434,16 @@ export async function listGeneralMeetings(params?: ListGeneralMeetingsParams): P
   if (params?.offset !== undefined) qs.set("offset", String(params.offset));
   if (params?.name !== undefined) qs.set("name", params.name);
   if (params?.building_id !== undefined) qs.set("building_id", params.building_id);
+  if (params?.status !== undefined) qs.set("status", params.status);
   const query = qs.toString();
   return apiFetch<GeneralMeetingListItem[]>(`/api/admin/general-meetings${query ? `?${query}` : ""}`);
 }
 
-export async function getGeneralMeetingsCount(params?: { name?: string; building_id?: string }): Promise<{ count: number }> {
+export async function getGeneralMeetingsCount(params?: { name?: string; building_id?: string; status?: string }): Promise<{ count: number }> {
   const qs = new URLSearchParams();
   if (params?.name !== undefined) qs.set("name", params.name);
   if (params?.building_id !== undefined) qs.set("building_id", params.building_id);
+  if (params?.status !== undefined) qs.set("status", params.status);
   const query = qs.toString();
   return apiFetch<{ count: number }>(`/api/admin/general-meetings/count${query ? `?${query}` : ""}`);
 }

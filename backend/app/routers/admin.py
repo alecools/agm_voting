@@ -175,19 +175,23 @@ async def list_buildings(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
     name: str | None = Query(default=None),
+    is_archived: bool | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[BuildingOut]:
-    buildings = await admin_service.list_buildings(db, limit=limit, offset=offset, name=name)
+    buildings = await admin_service.list_buildings(
+        db, limit=limit, offset=offset, name=name, is_archived=is_archived
+    )
     return [BuildingOut.model_validate(b) for b in buildings]
 
 
 @router.get("/buildings/count")
 async def count_buildings(
     name: str | None = Query(default=None),
+    is_archived: bool | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
-    """Return the total count of buildings, applying the same name filter as the list endpoint."""
-    count = await admin_service.count_buildings(db, name=name)
+    """Return the total count of buildings, applying the same filters as the list endpoint."""
+    count = await admin_service.count_buildings(db, name=name, is_archived=is_archived)
     return {"count": count}
 
 
@@ -503,10 +507,11 @@ async def list_general_meetings(
     offset: int = Query(default=0, ge=0),
     name: str | None = Query(default=None),
     building_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[GeneralMeetingListItem]:
     items = await admin_service.list_general_meetings(
-        db, limit=limit, offset=offset, name=name, building_id=building_id
+        db, limit=limit, offset=offset, name=name, building_id=building_id, status=status
     )
     return [GeneralMeetingListItem(**item) for item in items]
 
@@ -515,10 +520,13 @@ async def list_general_meetings(
 async def count_general_meetings(
     name: str | None = Query(default=None),
     building_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
     """Return the total count of general meetings, applying the same filters as the list endpoint."""
-    count = await admin_service.count_general_meetings(db, name=name, building_id=building_id)
+    count = await admin_service.count_general_meetings(
+        db, name=name, building_id=building_id, status=status
+    )
     return {"count": count}
 
 
