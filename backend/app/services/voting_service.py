@@ -516,9 +516,12 @@ async def get_my_ballot(
         w.lot_owner_id: w for w in weights_result.scalars().all()
     }
 
-    # Get all motions
+    # Get all visible motions (hidden motions must not appear on the confirmation/summary page)
     motions_result = await db.execute(
-        select(Motion).where(Motion.general_meeting_id == general_meeting_id).order_by(Motion.display_order)
+        select(Motion).where(
+            Motion.general_meeting_id == general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
+        ).order_by(Motion.display_order)
     )
     motions = list(motions_result.scalars().all())
 
