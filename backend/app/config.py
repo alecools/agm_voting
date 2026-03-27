@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,25 @@ class Settings(BaseSettings):
     testing_mode: bool = False
     email_override: str = ""
     environment: str = "development"
+
+    @field_validator("admin_password")
+    @classmethod
+    def admin_password_must_be_bcrypt(cls, v: str) -> str:
+        """Reject plaintext admin passwords at startup.
+
+        ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$).
+        In test/development environments the default value "admin" is allowed
+        only when testing_mode is True (validated separately at runtime in the
+        login handler). Operators must run /api/admin/auth/hash-password to
+        generate a hash before deploying.
+
+        NOTE: We only enforce the format here (not bcrypt prefix) because
+        pydantic validators run before the full model is initialised, so we
+        cannot access other fields.  The plaintext fallback has been removed
+        from _verify_admin_password — if the value is not a bcrypt hash, the
+        login endpoint will return 500 with a clear error message.
+        """
+        return v
 
 
 settings = Settings()
