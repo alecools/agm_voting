@@ -112,13 +112,20 @@ async def make_session(
     general_meeting_id: uuid.UUID,
     expired: bool = False,
 ) -> str:
-    import secrets
+    """Create a session record in the DB and return a signed token.
 
-    token = secrets.token_urlsafe(32)
+    When expired=True, the DB record has an expired expires_at; the returned
+    token is still signed so it passes signature verification, exercising the
+    DB-level expiry path in get_session.
+    """
+    import secrets
+    from app.services.auth_service import _sign_token
+
+    raw_token = secrets.token_urlsafe(32)
     now = utcnow()
     expires_at = now - timedelta(hours=1) if expired else now + timedelta(hours=24)
     session = SessionRecord(
-        session_token=token,
+        session_token=raw_token,
         voter_email=voter_email,
         building_id=building_id,
         general_meeting_id=general_meeting_id,
@@ -126,7 +133,7 @@ async def make_session(
     )
     db.add(session)
     await db.flush()
-    return token
+    return _sign_token(raw_token)
 
 
 @pytest.fixture

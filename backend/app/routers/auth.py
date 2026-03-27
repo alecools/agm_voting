@@ -33,7 +33,7 @@ from app.schemas.auth import (
     OtpRequestResponse,
     SessionRestoreRequest,
 )
-from app.services.auth_service import create_session
+from app.services.auth_service import _unsign_token, create_session
 from app.services.email_service import send_otp_email
 
 logger = get_logger(__name__)
@@ -413,12 +413,15 @@ async def restore_session(
 
     Returns 401 if the token is invalid, expired, or the AGM is closed.
     """
-    # 1. Look up session by token + meeting_id + expiry using get_session logic directly.
-    #    get_session() requires Cookie/Header params so we call the DB directly here.
+    # 1. Verify the signed session token and extract the raw DB token.
+    #    Unsigned or tampered tokens raise 401 immediately without a DB round-trip.
+    raw_token = _unsign_token(request.session_token)
+
+    # 2. Look up session by raw token + meeting_id + expiry.
     now = datetime.now(UTC)
     session_result = await db.execute(
         select(SessionRecord).where(
-            SessionRecord.session_token == request.session_token,
+            SessionRecord.session_token == raw_token,
             SessionRecord.general_meeting_id == request.general_meeting_id,
             SessionRecord.expires_at > now,
         )

@@ -13,6 +13,7 @@ from app.models.session_record import SessionRecord
 from app.models.email_delivery import EmailDelivery, EmailDeliveryStatus
 from app.models.tenant_config import TenantConfig
 from app.models.otp_rate_limit import OTPRateLimit
+from app.models.admin_login_attempt import AdminLoginAttempt
 
 __all__ = [
     "Base",
@@ -39,4 +40,5 @@ __all__ = [
     "EmailDeliveryStatus",
     "TenantConfig",
     "OTPRateLimit",
+    "AdminLoginAttempt",
 ]
