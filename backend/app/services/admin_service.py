@@ -9,6 +9,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timezone
 
+import bleach
 import openpyxl
 
 from fastapi import HTTPException
@@ -45,6 +46,13 @@ from app.schemas.admin import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitise_description(desc: str | None) -> str | None:
+    """Strip all HTML tags from a motion description and return None if blank."""
+    if desc is None:
+        return None
+    return bleach.clean(desc, tags=[], strip=True).strip() or None
 
 
 # ---------------------------------------------------------------------------
@@ -995,7 +1003,7 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
         motion = Motion(
             general_meeting_id=general_meeting.id,
             title=motion_data.title,
-            description=motion_data.description,
+            description=_sanitise_description(motion_data.description),
             display_order=position,
             motion_number=motion_number,
             motion_type=motion_data.motion_type,
@@ -1385,7 +1393,7 @@ async def add_motion_to_meeting(
     motion = Motion(
         general_meeting_id=general_meeting_id,
         title=data.title.strip(),
-        description=data.description,
+        description=_sanitise_description(data.description),
         display_order=next_index,
         motion_number=assigned_motion_number,
         motion_type=data.motion_type,
@@ -1449,7 +1457,7 @@ async def update_motion(
     if data.title is not None:
         motion.title = data.title.strip()
     if data.description is not None:
-        motion.description = data.description
+        motion.description = _sanitise_description(data.description)
     if data.motion_type is not None:
         motion.motion_type = data.motion_type
     if data.motion_number is not None:

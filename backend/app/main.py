@@ -2,7 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
 
 from app.config import settings
 from app.logging_config import configure_logging
@@ -10,6 +12,26 @@ from app.routers.admin import router as admin_router
 from app.routers.admin_auth import router as admin_auth_router
 
 configure_logging()
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.live; "  # unsafe-inline required for Vite module preload polyfill; vercel.live required for Vercel preview feedback widget
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; "  # vercel.live WSS and wildcard subdomains required for Vercel preview feedback widget
+            "frame-ancestors 'none'"
+        )
+        return response
 
 
 @asynccontextmanager
@@ -34,8 +56,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.allowed_origin],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
     )
     app.add_middleware(
         SessionMiddleware,
@@ -43,6 +65,11 @@ def create_app() -> FastAPI:
         https_only=settings.environment == "production",
         same_site="lax",
     )
+    # SecurityHeadersMiddleware runs after CORS (Starlette runs middleware in
+    # reverse registration order, so registering it last means it executes first
+    # on the way in / last on the way out — ensuring headers are set on every
+    # response including CORS preflight responses).
+    app.add_middleware(SecurityHeadersMiddleware)
 
     from app.routers.public import router as public_router
     from app.routers.auth import router as auth_router

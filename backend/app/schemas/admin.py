@@ -183,6 +183,27 @@ class MotionCreate(BaseModel):
     motion_type: MotionType = MotionType.general
     motion_number: str | None = None
 
+    @field_validator("title")
+    @classmethod
+    def title_max_length(cls, v: str) -> str:
+        if len(v) > 500:
+            raise ValueError("title must not exceed 500 characters")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2000:
+            raise ValueError("description must not exceed 2000 characters")
+        return v
+
+    @field_validator("motion_number")
+    @classmethod
+    def motion_number_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 50:
+            raise ValueError("motion_number must not exceed 50 characters")
+        return v
+
 
 class MotionOut(BaseModel):
     id: uuid.UUID
@@ -223,6 +244,22 @@ class MotionAddRequest(BaseModel):
     def title_non_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("title must not be empty")
+        if len(v) > 500:
+            raise ValueError("title must not exceed 500 characters")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2000:
+            raise ValueError("description must not exceed 2000 characters")
+        return v
+
+    @field_validator("motion_number")
+    @classmethod
+    def motion_number_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 50:
+            raise ValueError("motion_number must not exceed 50 characters")
         return v
 
 
@@ -248,6 +285,22 @@ class MotionUpdateRequest(BaseModel):
     def title_non_empty(cls, v: str | None) -> str | None:
         if v is not None and not v.strip():
             raise ValueError("title must not be empty")
+        if v is not None and len(v) > 500:
+            raise ValueError("title must not exceed 500 characters")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2000:
+            raise ValueError("description must not exceed 2000 characters")
+        return v
+
+    @field_validator("motion_number")
+    @classmethod
+    def motion_number_max_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 50:
+            raise ValueError("motion_number must not exceed 50 characters")
         return v
 
 

@@ -78,6 +78,19 @@ test.describe("Voter flow", () => {
   });
 });
 
+test.describe("Security headers", () => {
+  test("API responses include required security headers", async ({ request }) => {
+    const response = await request.get('/api/health');
+    expect(response.status()).toBe(200);
+
+    const headers = response.headers();
+    expect(headers['x-frame-options']).toBe('DENY');
+    expect(headers['x-content-type-options']).toBe('nosniff');
+    expect(headers['strict-transport-security']).toContain('max-age=');
+    expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
+  });
+});
+
 test.describe("Admin flow", () => {
   test("admin login page loads without console errors", async ({ page }) => {
     const consoleErrors: string[] = [];

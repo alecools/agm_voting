@@ -69,4 +69,4 @@ class AuthVerifyResponse(BaseModel):
     building_name: str
     meeting_title: str
     unvoted_visible_count: int = 0
-    session_token: str = ""
+    session_token: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic response model field; empty string is a safe default for optional token field, not a credential

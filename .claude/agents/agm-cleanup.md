@@ -20,7 +20,6 @@ Project IDs, URLs, and paths are in CLAUDE.md `## Project Infrastructure`.
 The orchestrator will tell you:
 - Branch name (e.g. `feat/my-feature`)
 - Worktree path (e.g. `/Users/stevensun/personal/agm_survey-feat-my-feature`)
-- Whether a Neon DB branch was created for this branch
 - Whether Vercel branch-scoped env vars were set
 - Whether this is a post-preview-E2E cleanup (test data cleanup only, no branch cleanup)
 
@@ -37,20 +36,21 @@ git push origin --delete <branch-name>
 git remote prune origin
 ```
 
-### 2. Delete Neon DB branch (if one was created)
+### 2. Delete Neon DB branch (ALWAYS required)
+
+**Neon DB branch cleanup is required after EVERY merge** — not only when the branch contained migrations. Vercel automatically creates a Neon DB branch for every preview deployment. These must be deleted after merge or the project will hit the branch limit and all subsequent deployments will fail.
+
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
-# List branches to find the right one
+# List branches to find the right one (pattern: preview/<branch-name>)
 curl -s -H "Authorization: Bearer $NEON_API_KEY" \
   "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches" \
-  | python3 -c "import sys,json; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
+  | python3 -c "import json,sys; [print(b['id'], b['name']) for b in json.load(sys.stdin)['branches']]"
 
 # Delete by ID
 curl -s -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
   "https://console.neon.tech/api/v2/projects/divine-dust-41291876/branches/<branch_id>"
 ```
-
-Note: Vercel auto-creates a Neon branch for every preview deployment. Always look for and delete branches matching the feature name, even if the orchestrator did not explicitly set one up.
 
 ### 3. Delete Vercel branch-scoped env vars (if created)
 Use the Vercel dashboard or REST API to remove `DATABASE_URL` and `DATABASE_URL_UNPOOLED` scoped to the feature branch.

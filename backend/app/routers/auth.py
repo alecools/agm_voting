@@ -33,7 +33,7 @@ from app.schemas.auth import (
     OtpRequestResponse,
     SessionRestoreRequest,
 )
-from app.services.auth_service import create_session
+from app.services.auth_service import _unsign_token, create_session
 from app.services.email_service import send_otp_email
 
 logger = get_logger(__name__)
@@ -120,7 +120,11 @@ async def request_otp(
         )
         rl_record = rl_result.scalar_one_or_none()
         if rl_record is not None:
-            elapsed = (now_for_rate - rl_record.last_attempt_at.replace(tzinfo=UTC)).total_seconds()
+            # Use first_attempt_at for a fixed window: the window starts when the
+            # first request is made and cannot be reset by subsequent requests.
+            # Using last_attempt_at would let an attacker keep the window open
+            # indefinitely by making a request just before each window expires.
+            elapsed = (now_for_rate - rl_record.first_attempt_at.replace(tzinfo=UTC)).total_seconds()
             if elapsed < _OTP_RATE_LIMIT_WINDOW_SECONDS:
                 raise HTTPException(
                     status_code=429,

@@ -110,8 +110,13 @@ async def create_session(
     building_id: uuid.UUID,
     general_meeting_id: uuid.UUID,
 ) -> str:
-    """Helper to create a session token directly in DB."""
+    """Helper to create a session token directly in DB.
+
+    Returns a signed token (same format as create_session service) so that
+    restore_session and get_session can verify the signature.
+    """
     import secrets
+    from app.services.auth_service import _sign_token
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
     session = SessionRecord(
@@ -123,7 +128,7 @@ async def create_session(
     )
     db_session.add(session)
     await db_session.flush()
-    return token
+    return _sign_token(token)
 
 
 async def make_otp(
@@ -1165,27 +1170,30 @@ class TestSessionRestore:
     async def test_invalid_token_returns_401(
         self, client: AsyncClient, building_with_agm: dict
     ):
-        """A tampered or unknown token returns 401."""
+        """A tampered or unsigned token returns 401 at signature verification."""
         agm = building_with_agm["agm"]
         response = await client.post(
             "/api/auth/session",
             json={"session_token": "totally-invalid-garbage-token", "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 401
-        assert response.json()["detail"] == "Session expired or invalid"
+        # Unsigned/tampered tokens are rejected by _unsign_token before the DB lookup
+        assert response.json()["detail"] == "Session expired. Please authenticate again."
 
     async def test_expired_token_returns_401(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """A token whose expires_at is in the past returns 401."""
+        """A signed token whose DB session expires_at is in the past returns 401."""
         import secrets
+        from app.services.auth_service import _sign_token
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
 
-        token = secrets.token_urlsafe(32)
+        raw_token = secrets.token_urlsafe(32)
+        # Store an expired session in the DB with the raw token
         expired_session = SessionRecord(
-            session_token=token,
+            session_token=raw_token,
             voter_email=voter_email,
             building_id=building.id,
             general_meeting_id=agm.id,
@@ -1194,9 +1202,12 @@ class TestSessionRestore:
         db_session.add(expired_session)
         await db_session.flush()
 
+        # Sign the raw token so it passes signature verification, but the DB record is expired
+        signed_token = _sign_token(raw_token)
+
         response = await client.post(
             "/api/auth/session",
-            json={"session_token": token, "general_meeting_id": str(agm.id)},
+            json={"session_token": signed_token, "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 401
         assert response.json()["detail"] == "Session expired or invalid"
@@ -1425,14 +1436,16 @@ class TestAuthService:
     async def test_expired_session_returns_401(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
+        """A signed token pointing to an expired DB session returns 401."""
+        import secrets
+        from app.services.auth_service import _sign_token
         agm = building_with_agm["agm"]
         voter_email = building_with_agm["voter_email"]
         building = building_with_agm["building"]
 
-        import secrets
-        token = secrets.token_urlsafe(32)
+        raw_token = secrets.token_urlsafe(32)
         expired_session = SessionRecord(
-            session_token=token,
+            session_token=raw_token,
             voter_email=voter_email,
             building_id=building.id,
             general_meeting_id=agm.id,
@@ -1441,11 +1454,80 @@ class TestAuthService:
         db_session.add(expired_session)
         await db_session.flush()
 
+        # Use a signed token so it passes _unsign_token; the DB record is expired
+        signed_token = _sign_token(raw_token)
+
         response = await client.get(
             f"/api/general-meeting/{agm.id}/motions",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {signed_token}"},
         )
         assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Token signing (Fix 6)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenSigning:
+    # --- Happy path ---
+
+    def test_sign_and_unsign_roundtrip(self):
+        """_sign_token and _unsign_token are inverses of each other."""
+        from app.services.auth_service import _sign_token, _unsign_token
+
+        raw = "raw_test_token_abc123"
+        signed = _sign_token(raw)
+        assert signed != raw
+        assert _unsign_token(signed) == raw
+
+    def test_signed_token_is_string(self):
+        from app.services.auth_service import _sign_token
+
+        signed = _sign_token("some_token")
+        assert isinstance(signed, str)
+        assert len(signed) > 0
+
+    # --- State / precondition errors ---
+
+    def test_unsign_unsigned_token_raises_401(self):
+        """Passing a raw (unsigned) token to _unsign_token raises HTTPException 401."""
+        from fastapi import HTTPException
+        from app.services.auth_service import _unsign_token
+        import pytest
+
+        with pytest.raises(HTTPException) as exc_info:
+            _unsign_token("totally-unsigned-raw-token")
+        assert exc_info.value.status_code == 401
+        assert "Session expired" in exc_info.value.detail
+
+    def test_unsign_tampered_token_raises_401(self):
+        """Tampering with a signed token makes _unsign_token raise HTTPException 401."""
+        from fastapi import HTTPException
+        from app.services.auth_service import _sign_token, _unsign_token
+        import pytest
+
+        signed = _sign_token("mytoken")
+        tampered = signed[:-5] + "XXXXX"
+
+        with pytest.raises(HTTPException) as exc_info:
+            _unsign_token(tampered)
+        assert exc_info.value.status_code == 401
+
+    async def test_restore_session_with_unsigned_token_returns_401(
+        self, client: AsyncClient, building_with_agm: dict
+    ):
+        """POST /api/auth/session with an unsigned token returns 401."""
+        agm = building_with_agm["agm"]
+        response = await client.post(
+            "/api/auth/session",
+            json={
+                "session_token": "unsigned_raw_token_xyz",
+                "general_meeting_id": str(agm.id),
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Session expired. Please authenticate again."
 
 
 # ---------------------------------------------------------------------------
