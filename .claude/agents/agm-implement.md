@@ -111,3 +111,15 @@ These rules apply to every implementation task — no exceptions:
 **SAST**
 - After implementing backend changes, run `uv run bandit -r app/ -c pyproject.toml -ll` and fix any medium/high findings before committing
 - After implementing frontend changes, run `npm run lint:security` and fix any errors before committing
+
+**Before committing**, run the security scans and fix any findings:
+```bash
+# Backend
+cd backend && uv run bandit -r app/ -c pyproject.toml -ll
+semgrep --config .semgrep/rules.yml backend/app/
+# Frontend
+cd frontend && npm run lint:security
+semgrep --config .semgrep/rules.yml frontend/src/
+```
+
+If Semgrep reports a finding on a line that is a legitimate false positive, suppress it with an inline `# nosemgrep: <rule-id>` comment (Python) or `// nosemgrep: <rule-id>` (TypeScript/JavaScript) and include a brief justification. Do not suppress findings in production code without a clear rationale.

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import BuildingTable from "../BuildingTable";
 import type { Building } from "../../../types";
+import { ADMIN_BUILDINGS } from "../../../../tests/msw/handlers";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -14,22 +15,8 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-const buildings: Building[] = [
-  {
-    id: "b1",
-    name: "Alpha Tower",
-    manager_email: "alpha@example.com",
-    is_archived: false,
-    created_at: "2024-01-01T00:00:00Z",
-  },
-  {
-    id: "b2",
-    name: "Beta Court",
-    manager_email: "beta@example.com",
-    is_archived: false,
-    created_at: "2024-02-01T00:00:00Z",
-  },
-];
+// Use the first two active (non-archived) buildings from the shared MSW fixture.
+const buildings: Building[] = ADMIN_BUILDINGS.filter((b) => !b.is_archived);
 
 function renderBuildingTable(props: { buildings: Building[]; isLoading?: boolean }) {
   return render(

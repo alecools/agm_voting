@@ -47,8 +47,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First motion text", description: "", motion_number: "", motion_type: "general" },
-        { title: "Second motion text", description: "", motion_number: "", motion_type: "general" },
+        { title: "First motion text", description: "", motion_number: null, motion_type: "general" },
+        { title: "Second motion text", description: "", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -61,7 +61,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Only motion", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Only motion", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -76,9 +76,9 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First", description: "", motion_number: "", motion_type: "general" },
-        { title: "Second", description: "", motion_number: "", motion_type: "general" },
-        { title: "Third", description: "", motion_number: "", motion_type: "general" },
+        { title: "First", description: "", motion_number: null, motion_type: "general" },
+        { title: "Second", description: "", motion_number: null, motion_type: "general" },
+        { title: "Third", description: "", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -96,8 +96,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "Valid motion", description: "", motion_number: "", motion_type: "general" },
-        { title: "Another motion", description: "", motion_number: "", motion_type: "general" },
+        { title: "Valid motion", description: "", motion_number: null, motion_type: "general" },
+        { title: "Another motion", description: "", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -110,7 +110,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion content", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -122,7 +122,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion content", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -135,7 +135,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion content", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion content", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -151,8 +151,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "Sample Motion Title", description: "Full description text shown to voters", motion_number: "", motion_type: "general" },
-        { title: "Another Motion", description: "Description for a special resolution", motion_number: "", motion_type: "special" },
+        { title: "Sample Motion Title", description: "Full description text shown to voters", motion_number: null, motion_type: "general" },
+        { title: "Another Motion", description: "Description for a special resolution", motion_number: null, motion_type: "special" },
       ],
     });
   });
@@ -165,7 +165,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "My Title", description: "My full description", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "My Title", description: "My full description", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -180,9 +180,9 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First", description: "First desc", motion_number: "", motion_type: "general" },
-        { title: "Second", description: "Second desc", motion_number: "", motion_type: "special" },
-        { title: "Third", description: "Third desc", motion_number: "", motion_type: "general" },
+        { title: "First", description: "First desc", motion_number: null, motion_type: "general" },
+        { title: "Second", description: "Second desc", motion_number: null, motion_type: "special" },
+        { title: "Third", description: "Third desc", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -195,7 +195,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "My Title", description: "My desc", motion_number: "", motion_type: "special" }],
+      motions: [{ title: "My Title", description: "My desc", motion_number: null, motion_type: "special" }],
     });
   });
 
@@ -210,8 +210,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "First", description: "First desc", motion_number: "", motion_type: "general" },
-        { title: "Second", description: "Second desc", motion_number: "", motion_type: "special" },
+        { title: "First", description: "First desc", motion_number: null, motion_type: "general" },
+        { title: "Second", description: "Second desc", motion_number: null, motion_type: "special" },
       ],
     });
   });
@@ -226,7 +226,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "My Title", description: "My desc", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "My Title", description: "My desc", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -240,7 +240,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Fallback description used as title", description: "Fallback description used as title", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Fallback description used as title", description: "Fallback description used as title", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -252,7 +252,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Fallback description", description: "Fallback description", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Fallback description", description: "Fallback description", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -264,7 +264,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Fallback description", description: "Fallback description", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Fallback description", description: "Fallback description", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -287,7 +287,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion A", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion A", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -298,7 +298,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Special Motion", description: "", motion_number: "", motion_type: "special" }],
+      motions: [{ title: "Special Motion", description: "", motion_number: null, motion_type: "special" }],
     });
   });
 
@@ -309,7 +309,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Special Motion", description: "", motion_number: "", motion_type: "special" }],
+      motions: [{ title: "Special Motion", description: "", motion_number: null, motion_type: "special" }],
     });
   });
 
@@ -320,7 +320,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "General Motion", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "General Motion", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -331,7 +331,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion A", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion A", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -342,7 +342,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion A", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion A", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -353,7 +353,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Motion A", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Motion A", description: "", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -367,9 +367,9 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "General M", description: "", motion_number: "", motion_type: "general" },
-        { title: "Special M", description: "", motion_number: "", motion_type: "special" },
-        { title: "Default M", description: "", motion_number: "", motion_type: "general" },
+        { title: "General M", description: "", motion_number: null, motion_type: "general" },
+        { title: "Special M", description: "", motion_number: null, motion_type: "special" },
+        { title: "Default M", description: "", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -381,7 +381,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Special Motion", description: "Special desc", motion_number: "", motion_type: "special" }],
+      motions: [{ title: "Special Motion", description: "Special desc", motion_number: null, motion_type: "special" }],
     });
   });
 
@@ -392,7 +392,7 @@ describe("parseMotionsExcel", () => {
     ]);
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "My Title", description: "My desc", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "My Title", description: "My desc", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -579,8 +579,8 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "My Agenda Title", description: "Full description text", motion_number: "", motion_type: "general" },
-        { title: "Another Agenda Item", description: "Another description", motion_number: "", motion_type: "special" },
+        { title: "My Agenda Title", description: "Full description text", motion_number: null, motion_type: "general" },
+        { title: "Another Agenda Item", description: "Another description", motion_number: null, motion_type: "special" },
       ],
     });
   });
@@ -593,7 +593,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Case-insensitive title", description: "Some description", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Case-insensitive title", description: "Some description", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -608,9 +608,9 @@ describe("parseMotionsExcel", () => {
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
       motions: [
-        { title: "Approve minutes", description: "Approve the minutes of the previous AGM", motion_number: "", motion_type: "general" },
-        { title: "Fix levy", description: "Fix the levy amount for the next financial year", motion_number: "", motion_type: "special" },
-        { title: "Elect committee", description: "Elect new committee members", motion_number: "", motion_type: "general" },
+        { title: "Approve minutes", description: "Approve the minutes of the previous AGM", motion_number: null, motion_type: "general" },
+        { title: "Fix levy", description: "Fix the levy amount for the next financial year", motion_number: null, motion_type: "special" },
+        { title: "Elect committee", description: "Elect new committee members", motion_number: null, motion_type: "general" },
       ],
     });
   });
@@ -623,7 +623,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Fallback from blank agenda item", description: "Fallback from blank agenda item", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Fallback from blank agenda item", description: "Fallback from blank agenda item", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -636,7 +636,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "Title value", description: "Full description", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "Title value", description: "Full description", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -649,7 +649,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockFile());
     expect(result).toEqual({
-      motions: [{ title: "My agenda title", description: "Full description here", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "My agenda title", description: "Full description here", motion_number: null, motion_type: "general" }],
     });
   });
 
@@ -663,7 +663,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockCsvFile());
     expect(result).toEqual({
-      motions: [{ title: "CSV motion text", description: "", motion_number: "", motion_type: "general" }],
+      motions: [{ title: "CSV motion text", description: "", motion_number: null, motion_type: "general" }],
     });
     // Verify XLSX.read was called with type: 'array' — the same call that handles both CSV and Excel
     expect(mockedXLSX.read).toHaveBeenCalledWith(expect.any(ArrayBuffer), { type: "array" });
@@ -677,7 +677,7 @@ describe("parseMotionsExcel", () => {
 
     const result = await parseMotionsExcel(makeMockCsvFile());
     expect(result).toEqual({
-      motions: [{ title: "CSV Title", description: "CSV full description", motion_number: "", motion_type: "special" }],
+      motions: [{ title: "CSV Title", description: "CSV full description", motion_number: null, motion_type: "special" }],
     });
   });
 

@@ -9,6 +9,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timezone
 
+import bleach
 import openpyxl
 
 from fastapi import HTTPException
@@ -45,6 +46,13 @@ from app.schemas.admin import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitise_description(desc: str | None) -> str | None:
+    """Strip all HTML tags from a motion description and return None if blank."""
+    if desc is None:
+        return None
+    return bleach.clean(desc, tags=[], strip=True).strip() or None
 
 
 # ---------------------------------------------------------------------------
@@ -990,12 +998,12 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
                 )
             seen_motion_numbers.add(mn)
     for position, motion_data in enumerate(sorted_motions, start=1):
-        motion_number = motion_data.motion_number.strip() if motion_data.motion_number else None
-        motion_number = motion_number if motion_number else None
+        raw = (motion_data.motion_number or "").strip()
+        motion_number = raw if raw else str(position)
         motion = Motion(
             general_meeting_id=general_meeting.id,
             title=motion_data.title,
-            description=motion_data.description,
+            description=_sanitise_description(motion_data.description),
             display_order=position,
             motion_number=motion_number,
             motion_type=motion_data.motion_type,
@@ -1376,21 +1384,19 @@ async def add_motion_to_meeting(
     max_index = max_result.scalar_one_or_none()
     next_index = (max_index + 1) if max_index is not None else 0
 
-    # Auto-populate motion_number from display_order when caller omits it (None).
-    # If caller provides an explicit value (including empty string), use that
-    # (empty/whitespace → stored as NULL, preserving existing behaviour).
-    if data.motion_number is None:
-        motion_number: str | None = str(next_index)
-    else:
-        stripped = data.motion_number.strip()
-        motion_number = stripped if stripped else None
+    # Auto-assign motion_number from next display_order when the field is absent or blank.
+    # The frontend may send null or "" when the user leaves the field empty — treat both
+    # as "no explicit number supplied" and fall back to auto-assign.
+    explicit_number = data.motion_number.strip() if data.motion_number is not None else ""
+    assigned_motion_number = explicit_number if explicit_number else str(next_index)
+
     motion = Motion(
         general_meeting_id=general_meeting_id,
         title=data.title.strip(),
-        description=data.description,
+        description=_sanitise_description(data.description),
         display_order=next_index,
+        motion_number=assigned_motion_number,
         motion_type=data.motion_type,
-        motion_number=motion_number,
         is_visible=False,
     )
     db.add(motion)
@@ -1451,7 +1457,7 @@ async def update_motion(
     if data.title is not None:
         motion.title = data.title.strip()
     if data.description is not None:
-        motion.description = data.description
+        motion.description = _sanitise_description(data.description)
     if data.motion_type is not None:
         motion.motion_type = data.motion_type
     if data.motion_number is not None:

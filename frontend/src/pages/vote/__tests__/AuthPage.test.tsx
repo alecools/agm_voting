@@ -383,7 +383,7 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Resuming your session…")).toBeInTheDocument();
@@ -392,7 +392,7 @@ describe("AuthPage", () => {
   });
 
   it("skips OTP form and navigates to voting when valid token in localStorage", async () => {
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -416,7 +416,7 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -438,7 +438,7 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -462,7 +462,7 @@ describe("AuthPage", () => {
         })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     mockNavigate.mockClear();
     renderPage();
     await waitFor(() => {
@@ -471,7 +471,7 @@ describe("AuthPage", () => {
   });
 
   it("updates localStorage with new token returned from session restore", async () => {
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate a return visit with an existing session token
     renderPage();
     await waitFor(() => {
       expect(localStorage.getItem(`agm_session_${AGM_ID}`)).toBe("new-session-token-xyz789");
@@ -484,7 +484,7 @@ describe("AuthPage", () => {
         HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
       )
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "invalid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "invalid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage with a stale token to verify cleanup on 401 response
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText("Email address")).toBeInTheDocument();
@@ -496,7 +496,7 @@ describe("AuthPage", () => {
     server.use(
       http.post(`${BASE}/api/auth/session`, () => HttpResponse.error())
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to verify cleanup on network error during restore
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText("Email address")).toBeInTheDocument();

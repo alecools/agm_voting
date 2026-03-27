@@ -3,7 +3,7 @@ import type { MotionType } from "../../types";
 export interface MotionFormEntry {
   title: string;
   description: string;
-  motion_number: string;
+  motion_number: string | null;
   motion_type: MotionType;
 }
 
@@ -47,7 +47,7 @@ export default function MotionEditor({ motions, onChange }: MotionEditorProps) {
               id={`motion-number-${index}`}
               className="field__input"
               type="text"
-              value={motion.motion_number}
+              value={motion.motion_number ?? ""}
               onChange={(e) => updateMotion(index, "motion_number", e.target.value)}
               placeholder="e.g. 1, SR-1"
             />

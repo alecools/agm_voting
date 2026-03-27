@@ -917,6 +917,39 @@ describe("Add Motion form", () => {
     expect(capturedBody).toHaveProperty("motion_number", "S-1");
   });
 
+  it("submitting add motion with blank motion_number sends null in the payload", async () => {
+    // Regression test: when the motion number field is left empty the frontend should
+    // send motion_number: null so the backend auto-assigns from display_order.
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({
+          id: "motion-new",
+          title: capturedBody.title,
+          description: capturedBody.description ?? null,
+          display_order: 3,
+          motion_number: capturedBody.motion_number ?? null,
+          motion_type: capturedBody.motion_type ?? "general",
+          is_visible: false,
+        }, { status: 201 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add Motion" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Add Motion" }));
+    await user.type(screen.getByLabelText("Title *"), "No Number Motion");
+    // Leave motion_number field empty — do not type anything
+    await user.click(screen.getByRole("button", { name: "Save Motion" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Save Motion" })).not.toBeInTheDocument();
+    });
+    expect(capturedBody).toHaveProperty("motion_number", null);
+  });
+
   // --- Input validation ---
 
   it("submitting with blank title shows validation error without calling API", async () => {
