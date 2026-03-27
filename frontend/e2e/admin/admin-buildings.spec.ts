@@ -41,4 +41,27 @@ test.describe("Admin Buildings", () => {
       await expect(page.getByText(buildingName)).toBeVisible();
     }
   });
+
+  test("create building via modal dialog", async ({ page }) => {
+    const buildingName = `E2E Modal Building ${Date.now()}`;
+    await page.goto("/admin/buildings");
+    await expect(page.getByRole("heading", { name: "Buildings", exact: true })).toBeVisible();
+
+    // Open modal
+    await page.getByRole("button", { name: "+ New Building" }).click();
+    await expect(page.getByRole("dialog", { name: "New Building" })).toBeVisible();
+
+    // Fill in the form
+    await page.getByLabel("Building Name").fill(buildingName);
+    await page.getByLabel("Manager Email").fill("e2e-modal@test.com");
+
+    // Submit
+    await page.getByRole("button", { name: "Create Building" }).click();
+
+    // Modal closes after success
+    await expect(page.getByRole("dialog", { name: "New Building" })).not.toBeVisible();
+
+    // New building appears in the table
+    await expect(page.getByRole("button", { name: buildingName })).toBeVisible();
+  });
 });

@@ -30,6 +30,8 @@ function renderPage() {
 }
 
 describe("BuildingsPage", () => {
+  // --- Happy path ---
+
   it("shows loading state inline in table while page header remains visible", () => {
     renderPage();
     // Page structure renders immediately
@@ -45,18 +47,6 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Alpha Tower")).toBeInTheDocument();
     });
     expect(screen.getByText("Beta Court")).toBeInTheDocument();
-  });
-
-  it("shows error state when fetch fails", async () => {
-    server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
-        return HttpResponse.json({ detail: "Error" }, { status: 500 });
-      })
-    );
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("Failed to load buildings.")).toBeInTheDocument();
-    });
   });
 
   it("renders CSV upload section", async () => {
@@ -108,15 +98,153 @@ describe("BuildingsPage", () => {
     });
   });
 
-  it("shows create building form when + New Building clicked", async () => {
+  // --- Modal open / close ---
+
+  it("+ New Building button is always visible (not hidden after clicking)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+  });
+
+  it("clicking + New Building opens the modal dialog", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: "+ New Building" }));
-    expect(screen.getByRole("heading", { name: "Create Building" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Building Name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Manager Email")).toBeInTheDocument();
   });
+
+  it("modal has Create Building submit button and Cancel button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("button", { name: "Create Building" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("Cancel button closes modal without submitting", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+  });
+
+  it("clicking backdrop closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    // The backdrop div is the fixed overlay. In jsdom, pointer events on fixed-position
+    // elements work when we target the element directly. The backdrop is the first fixed div.
+    const dialog = screen.getByRole("dialog", { name: "New Building" });
+    // The backdrop is the previous sibling of the dialog panel
+    const backdrop = dialog.previousElementSibling as HTMLElement;
+    await user.click(backdrop);
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+  });
+
+  // --- Input validation ---
+
+  it("shows error when building name is empty on submit", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    expect(screen.getByText("Building name is required.")).toBeInTheDocument();
+  });
+
+  it("shows error when manager email is empty on submit", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Test Tower");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    expect(screen.getByText("Manager email is required.")).toBeInTheDocument();
+  });
+
+  // --- Happy path submit ---
+
+  it("submits the form and closes modal on success", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "New Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+    });
+  });
+
+  // --- State / precondition errors ---
+
+  it("shows API error inline in modal on failure", async () => {
+    server.use(
+      http.post("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json({ detail: "Building already exists" }, { status: 409 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Existing Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    await waitFor(() => {
+      expect(screen.getByText(/409/)).toBeInTheDocument();
+    });
+    // Modal stays open on error
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+  });
+
+  it("form fields are cleared when modal is closed and reopened", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    // Open modal and type something
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Typed Name");
+    await user.type(screen.getByLabelText("Manager Email"), "typed@example.com");
+    // Close
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+    // Reopen — fields should be empty
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByLabelText("Building Name")).toHaveValue("");
+    expect(screen.getByLabelText("Manager Email")).toHaveValue("");
+  });
+
+  // --- Show archived toggle ---
 
   it("hides archived buildings by default", async () => {
     server.use(
@@ -197,5 +325,19 @@ describe("BuildingsPage", () => {
       expect(screen.getByText("Active Building 1")).toBeInTheDocument();
     });
     expect(screen.queryByText("Active Building 21")).not.toBeInTheDocument();
+  });
+
+  // --- Error state ---
+
+  it("shows error state when fetch fails", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings", () => {
+        return HttpResponse.json({ detail: "Error" }, { status: 500 });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load buildings.")).toBeInTheDocument();
+    });
   });
 });
