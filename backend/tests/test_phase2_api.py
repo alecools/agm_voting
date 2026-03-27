@@ -3238,6 +3238,71 @@ class TestMyBallotProxyLots:
 
 
 # ---------------------------------------------------------------------------
+# Hidden motions must not appear on the ballot confirmation page
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestMyBallotHiddenMotions:
+    """Hidden motions (is_visible=False) must be excluded from get_my_ballot."""
+
+    # --- Happy path ---
+
+    async def test_hidden_motion_excluded_from_ballot_response(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """A hidden motion does not appear in any submitted lot's votes list."""
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        motions = building_with_agm["motions"]  # two visible motions from fixture
+
+        # Add a hidden motion to the same AGM
+        hidden_motion = Motion(
+            general_meeting_id=agm.id,
+            title="Hidden Motion",
+            display_order=99,
+            description="Should not appear",
+            is_visible=False,
+        )
+        db_session.add(hidden_motion)
+        await db_session.flush()
+
+        # Submit votes for the two visible motions only
+        for motion in motions:
+            vote = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(vote)
+        bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=voter_email)
+        db_session.add(bs)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/my-ballot",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["submitted_lots"]) == 1
+        votes = data["submitted_lots"][0]["votes"]
+
+        # Only the two visible motions should appear
+        returned_motion_ids = [v["motion_id"] for v in votes]
+        assert len(returned_motion_ids) == 2
+        assert str(hidden_motion.id) not in returned_motion_ids
+
+
+# ---------------------------------------------------------------------------
 # verify_auth returns effective status for past-voting_closes_at AGMs (US-CD03)
 # ---------------------------------------------------------------------------
 
