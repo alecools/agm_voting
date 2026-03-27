@@ -48,6 +48,18 @@ const IGNORED_PATTERNS = [
   /net::ERR_FAILED.*\.(png|svg|ico|jpg|webp)/i,
   /blob\.vercel-storage\.com/i,
   /net::ERR_FAILED.*403/i,
+  // Google Identity Services / FedCM noise: Chrome's browser-level sign-in
+  // API (FedCM) fires these errors when no Google account is logged in or the
+  // provider rejects the request.  These are browser/OS-level signals unrelated
+  // to the application and appear on any direct URL navigation.
+  /Provider's accounts list is empty/i,
+  /GSI_LOGGER/i,
+  /FedCM get\(\) rejects/i,
+  // Generic 403/429 from an empty URL "()": emitted by Chrome when browser-level
+  // credential/sign-in resources are blocked.  Empty URL means it is not from
+  // our /api/ endpoints (which always include the full path).
+  /status of 403 \(\)/i,
+  /status of 429 \(\)/i,
 ];
 
 /**
