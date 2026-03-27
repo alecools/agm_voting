@@ -499,17 +499,14 @@ export async function getTestOtp(
 /**
  * Navigate to the home page, select a building, and click "Enter Voting"
  * to reach the auth form for that building.
+ *
+ * Clears the agm_session HttpOnly cookie so that any prior session does not
+ * auto-restore and skip the OTP form on the next page load.
  */
 export async function goToAuthPage(page: Page, buildingName: string): Promise<void> {
-  await page.evaluate(() => {
-    try {
-      Object.keys(localStorage)
-        .filter(k => k.startsWith('agm_session_'))
-        .forEach(k => localStorage.removeItem(k))
-    } catch (_) {
-      // page not yet on target origin — no session token to clear
-    }
-  })
+  // Clear the session cookie so we always start from a clean (unauthenticated) state.
+  // The session token is now stored in an HttpOnly cookie — localStorage is not used.
+  await page.context().clearCookies({ name: 'agm_session' });
   await page.goto("/");
   const select = page.getByLabel("Select your building");
   await expect(select).toBeVisible();
@@ -529,12 +526,18 @@ export async function goToAuthPage(page: Page, buildingName: string): Promise<vo
  *
  * The `getOtp` callback is typically `() => getTestOtp(api, email, meetingId)`.
  * The test-only endpoint is guarded by TESTING_MODE=true on the backend.
+ *
+ * Clears the agm_session cookie before attempting auth so that any prior
+ * HttpOnly cookie session does not redirect away from the OTP form.
  */
 export async function authenticateVoter(
   page: Page,
   email: string,
   getOtp: () => Promise<string>
 ): Promise<void> {
+  // Clear session cookie so we don't get redirected by session restore.
+  // The session token is stored in an HttpOnly cookie — not localStorage.
+  await page.context().clearCookies({ name: 'agm_session' });
   await page.getByLabel("Email address").fill(email);
   await page.getByRole("button", { name: "Send Verification Code" }).click();
   await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });

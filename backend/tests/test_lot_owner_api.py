@@ -475,7 +475,7 @@ class TestAuthVerify:
                 "code": code,
             })
 
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
 
     async def test_already_submitted_flag(self, transport, db_session: AsyncSession):
         """already_submitted=True only when lot has submitted votes for every visible motion."""
@@ -1336,7 +1336,7 @@ class TestListMotions:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(
                 f"/api/general-meeting/{agm.id}/motions",
-                cookies={"meeting_session": token},
+                cookies={"agm_session": token},
             )
         assert response.status_code == 200
 
@@ -2092,7 +2092,7 @@ class TestFullJourney:
             auth_data = auth_resp.json()
             assert len(auth_data["lots"]) == 1
             lot_owner_id = auth_data["lots"][0]["lot_owner_id"]
-            token = auth_resp.cookies.get("meeting_session")
+            token = auth_resp.cookies.get("agm_session")
             assert token is not None
 
             # 2. Get motions

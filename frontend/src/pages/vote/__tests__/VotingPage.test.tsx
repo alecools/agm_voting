@@ -37,6 +37,15 @@ describe("VotingPage", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Session restore is attempted on every VotingPage mount via the HttpOnly cookie.
+    // Default to 401 so tests that seed sessionStorage with specific lot data don't have
+    // it silently overwritten by the restore response. Individual tests that need a
+    // successful restore can override this handler.
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
   });
 
   afterEach(() => {
@@ -2227,9 +2236,11 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
   });
 
-  // --- restoreSession on mount ---
+  // --- restoreSession on mount (via HttpOnly cookie) ---
 
-  it("restoreSession called on mount if session token present in localStorage", async () => {
+  it("restoreSession is always called on mount via cookie (no localStorage needed)", async () => {
+    // Session restore is triggered on every mount — the agm_session cookie is sent
+    // automatically by the browser, so no localStorage token check is needed.
     const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession").mockResolvedValue({
       lots: [
         { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
@@ -2241,24 +2252,12 @@ describe("VotingPage", () => {
       unvoted_visible_count: 2,
       session_token: "refreshed-token",
     });
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token-abc"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to verify restoreSession is called on mount when a token exists
     renderPage();
     await waitFor(() => {
       expect(restoreSessionSpy).toHaveBeenCalledWith({
-        session_token: "valid-token-abc",
         general_meeting_id: AGM_ID,
       });
     });
-    restoreSessionSpy.mockRestore();
-    localStorage.removeItem(`agm_session_${AGM_ID}`);
-  });
-
-  it("restoreSession NOT called on mount if no session token in localStorage", async () => {
-    const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession");
-    localStorage.removeItem(`agm_session_${AGM_ID}`);
-    renderPage();
-    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    expect(restoreSessionSpy).not.toHaveBeenCalled();
     restoreSessionSpy.mockRestore();
   });
 
@@ -2266,14 +2265,12 @@ describe("VotingPage", () => {
     const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession").mockRejectedValue(
       new Error("Session expired")
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "expired-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage with an expired token to verify graceful rejection handling
     renderPage();
     // Page should still render motions normally after the rejection
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Motion 1" })).toBeInTheDocument();
     });
     restoreSessionSpy.mockRestore();
-    localStorage.removeItem(`agm_session_${AGM_ID}`);
   });
 
   it("restoreSession updates allLots and sessionStorage with fresh voted_motion_ids", async () => {
@@ -2293,7 +2290,6 @@ describe("VotingPage", () => {
       unvoted_visible_count: 2,
       session_token: "refreshed-token",
     });
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate restoreSession being triggered on mount
     // Stale sessionStorage: both lots marked as already_submitted with old voted_motion_ids
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,
@@ -2317,7 +2313,6 @@ describe("VotingPage", () => {
       expect(stored[1]?.voted_motion_ids).toHaveLength(0);
     });
     vi.restoreAllMocks();
-    localStorage.removeItem(`agm_session_${AGM_ID}`);
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 

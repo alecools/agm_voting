@@ -8,7 +8,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -205,6 +205,16 @@ async def request_otp(
     return OtpRequestResponse(sent=True)
 
 
+@router.post("/auth/logout")
+async def logout(response: Response) -> dict:
+    """
+    Clear the voter session cookie.  The frontend calls this instead of
+    localStorage.removeItem() to end a session.
+    """
+    response.delete_cookie(key="agm_session", path="/api")
+    return {"ok": True}
+
+
 @router.post("/auth/verify", response_model=AuthVerifyResponse)
 async def verify_auth(
     request: AuthVerifyRequest,
@@ -381,10 +391,13 @@ async def verify_auth(
     await db.commit()
 
     response.set_cookie(
-        key="meeting_session",
+        key="agm_session",
         value=token,
         httponly=True,
-        samesite="lax",
+        secure=True,
+        samesite="strict",
+        max_age=86400,
+        path="/api",
     )
 
     return AuthVerifyResponse(
@@ -404,24 +417,31 @@ async def verify_auth(
 async def restore_session(
     request: SessionRestoreRequest,
     response: Response,
+    agm_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AuthVerifyResponse:
     """
-    Restore a voter session from a previously issued session token (stored in localStorage).
+    Restore a voter session.  Accepts the session token via:
+      1. The agm_session HttpOnly cookie (preferred — set by POST /api/auth/verify)
+      2. The session_token field in the JSON request body (backward compatibility)
+
     Validates the token, checks that the AGM is still open, and returns the same
     AuthVerifyResponse shape as POST /api/auth/verify so the frontend can skip the OTP flow.
 
     Returns 401 if the token is invalid, expired, or the AGM is closed.
     """
-    # 1. Verify the signed session token and extract the raw DB token.
-    #    Unsigned or tampered tokens raise 401 immediately without a DB round-trip.
-    raw_token = _unsign_token(request.session_token)
+    # Resolve the token: cookie takes priority over request body
+    token_to_use = agm_session or request.session_token
 
-    # 2. Look up session by raw token + meeting_id + expiry.
+    if not token_to_use:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    # 1. Look up session by token + meeting_id + expiry using get_session logic directly.
+    #    get_session() requires Cookie/Header params so we call the DB directly here.
     now = datetime.now(UTC)
     session_result = await db.execute(
         select(SessionRecord).where(
-            SessionRecord.session_token == raw_token,
+            SessionRecord.session_token == token_to_use,
             SessionRecord.general_meeting_id == request.general_meeting_id,
             SessionRecord.expires_at > now,
         )
@@ -546,10 +566,13 @@ async def restore_session(
     await db.commit()
 
     response.set_cookie(
-        key="meeting_session",
+        key="agm_session",
         value=new_token,
         httponly=True,
-        samesite="lax",
+        secure=True,
+        samesite="strict",
+        max_age=86400,
+        path="/api",
     )
 
     return AuthVerifyResponse(

@@ -866,12 +866,14 @@ export const handlers = [
     })
   ),
 
-  http.post(`${BASE}/api/auth/session`, async ({ request }) => {
+  http.post(`${BASE}/api/auth/session`, async ({ request, cookies }) => {
     const body = await request.json() as { session_token?: string; general_meeting_id?: string };
-    if (body?.session_token === "invalid-token" || body?.session_token === "expired-token") {
+    // Accept token from cookie OR body (cookie takes priority)
+    const token = cookies["agm_session"] ?? body?.session_token;
+    if (token === "invalid-token" || token === "expired-token") {
       return HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 });
     }
-    if (body?.session_token === "closed-meeting-token") {
+    if (token === "closed-meeting-token") {
       return HttpResponse.json({ detail: "Session expired — meeting is closed" }, { status: 401 });
     }
     return HttpResponse.json({
@@ -884,6 +886,10 @@ export const handlers = [
       session_token: "new-session-token-xyz789",
     });
   }),
+
+  http.post(`${BASE}/api/auth/logout`, () =>
+    HttpResponse.json({ ok: true })
+  ),
 
   http.get(`${BASE}/api/general-meeting/:meetingId/motions`, () =>
     HttpResponse.json(motionFixtures)

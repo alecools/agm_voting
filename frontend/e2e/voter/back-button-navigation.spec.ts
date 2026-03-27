@@ -83,25 +83,19 @@ test.describe("Back button navigation from VotingPage", () => {
     const meetingIdMatch = votingUrl.match(/\/vote\/([^/]+)\//);
     const meetingId = meetingIdMatch?.[1] ?? bbMeetingId;
 
+    // Clear the session cookie BEFORE clicking Back so that when the /auth page
+    // loads it has no cookie — the restore useEffect returns 401 and the OTP
+    // form is shown instead of redirecting back to /voting.
+    // Session tokens are stored in HttpOnly cookies — not localStorage.
+    await page.context().clearCookies({ name: 'agm_session' });
+
     // Click the in-page Back button
     await page.getByRole("button", { name: "← Back" }).click();
 
     // Must navigate to /auth — not /vote/:meetingId (blank route)
     await expect(page).toHaveURL(`/vote/${meetingId}/auth`, { timeout: 10000 });
 
-    // Clear the persistent session token so AuthPage does not auto-restore the session
-    // and immediately redirect back to /voting before the email input is visible.
-    await page.evaluate((mid) => {
-      localStorage.removeItem(`agm_session_${mid}`);
-    }, meetingId);
-
-    // Hard-navigate to the same URL so React re-initialises without the token.
-    // page.reload() races against React's in-memory session state which may
-    // restore before the reload settles. page.goto(url) forces a full page
-    // lifecycle and does not inherit in-memory state from the previous load.
-    await page.goto(page.url());
-
-    // Auth page must render (email input visible)
+    // Auth page must render (email input visible — no redirect because cookie was cleared)
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 20000 });
 
     // Page must not be blank — main element or body has visible content

@@ -55,7 +55,7 @@ class SubmitBallotRequest(BaseModel):
 async def list_motions(
     general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> list[MotionOut]:
     """List motions for a General Meeting. Requires valid session.
@@ -63,7 +63,7 @@ async def list_motions(
     Returns visible motions PLUS any motions the voter has already submitted votes for.
     Hidden motion titles are never leaked for unvoted motions (server-side filtering).
     """
-    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
     # Verify General Meeting exists
     meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
@@ -146,11 +146,11 @@ async def save_draft_endpoint(
     general_meeting_id: uuid.UUID,
     body: DraftSaveRequest,
     db: AsyncSession = Depends(get_db),
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> DraftSaveResponse:
     """Auto-save a single motion's draft selection. Requires valid session."""
-    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
     await save_draft(
         db=db,
@@ -169,11 +169,11 @@ async def get_drafts_endpoint(
     general_meeting_id: uuid.UUID,
     lot_owner_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> DraftsResponse:
     """Return all saved draft choices for the voter. Requires valid session."""
-    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
     drafts = await get_drafts(
         db=db,
@@ -189,11 +189,11 @@ async def submit_ballot_endpoint(
     general_meeting_id: uuid.UUID,
     body: SubmitBallotRequest,
     db: AsyncSession = Depends(get_db),
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> SubmitResponse:
     """Formally submit the ballot for the specified lots. Requires valid session."""
-    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
     result = await submit_ballot(
         db=db,
@@ -210,10 +210,10 @@ async def submit_ballot_endpoint(
 async def my_ballot_endpoint(
     general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> MyBallotResponse:
     """Return the submitted ballot for the confirmation screen. Requires valid session."""
-    session = await get_session(general_meeting_id=general_meeting_id, db=db, meeting_session=meeting_session, authorization=authorization)
+    session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
     return await get_my_ballot(db=db, general_meeting_id=general_meeting_id, voter_email=session.voter_email)

@@ -84,14 +84,9 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
     await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
     await page.waitForLoadState("networkidle");
 
-    // Step 2: Collect the session token and lot owner IDs from the browser state.
-    // The auth handler writes these to localStorage / sessionStorage.
-    const sessionToken = await page.evaluate(
-      (id) => localStorage.getItem(`agm_session_${id}`),
-      crlMeetingId
-    );
-    expect(sessionToken).toBeTruthy();
-
+    // Step 2: Collect lot owner IDs from sessionStorage.
+    // The auth handler writes lot info to sessionStorage.
+    // The session token is stored in an HttpOnly cookie — not accessible via localStorage.
     const lotsRaw = await page.evaluate(
       (id) => sessionStorage.getItem(`meeting_lots_info_${id}`),
       crlMeetingId

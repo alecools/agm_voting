@@ -1,9 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
+import { server } from "../../../tests/msw/server";
 import { VoteRoutes } from "../VoteRoutes";
 import { AGM_ID } from "../../../tests/msw/handlers";
+
+const BASE = "http://localhost:8000";
 
 function renderRoutes(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -17,6 +21,16 @@ function renderRoutes(path: string) {
 }
 
 describe("VoteRoutes", () => {
+  beforeEach(() => {
+    // Session restore fires on every AuthPage and VotingPage mount via the HttpOnly cookie.
+    // Default to 401 so route render tests are not blocked by a restore redirect.
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
+  });
+
   it("renders BuildingSelectPage at /", async () => {
     renderRoutes("/");
     await waitFor(() => {

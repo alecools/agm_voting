@@ -75,15 +75,15 @@ async def create_session(
 async def get_session(
     general_meeting_id: uuid.UUID,
     db: AsyncSession,
-    meeting_session: str | None = Cookie(default=None),
+    agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
 ) -> SessionRecord:
     """
-    Validate the session token from either the meeting_session cookie or the
+    Validate the session token from either the agm_session cookie or the
     Authorization header (Bearer token). Returns the SessionRecord if valid.
     Raises 401 if no valid session is found.
     """
-    signed_token: str | None = meeting_session
+    signed_token: str | None = agm_session
 
     if signed_token is None and authorization is not None:
         if authorization.startswith("Bearer "):

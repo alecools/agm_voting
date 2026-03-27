@@ -418,7 +418,29 @@ class TestAuthVerify:
             },
         )
         assert response.status_code == 200
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
+
+    async def test_sets_agm_session_cookie_attributes(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """agm_session cookie must be HttpOnly and SameSite=strict."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        code = await make_otp(db_session, voter_email, agm.id)
+
+        response = await client.post(
+            "/api/auth/verify",
+            json={
+                "email": voter_email,
+                "general_meeting_id": str(agm.id),
+                "code": code,
+            },
+        )
+        assert response.status_code == 200
+        cookie_header = response.headers.get("set-cookie", "")
+        assert "agm_session=" in cookie_header
+        assert "HttpOnly" in cookie_header
+        assert "SameSite=strict" in cookie_header or "samesite=strict" in cookie_header.lower()
 
     async def test_lots_contain_lot_info(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -885,10 +907,10 @@ class TestSessionRestore:
         assert isinstance(data["session_token"], str)
         assert len(data["session_token"]) > 0
 
-    async def test_valid_token_sets_meeting_session_cookie(
+    async def test_valid_token_sets_agm_session_cookie(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """Successful session restore sets the meeting_session HttpOnly cookie."""
+        """Successful session restore sets the agm_session HttpOnly cookie."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
@@ -900,7 +922,58 @@ class TestSessionRestore:
             json={"session_token": token, "general_meeting_id": str(agm.id)},
         )
         assert response.status_code == 200
-        assert "meeting_session" in response.cookies
+        assert "agm_session" in response.cookies
+
+    async def test_restore_session_via_cookie(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session restore works when token is passed via agm_session cookie (no body token)."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id)},
+            cookies={"agm_session": token},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["voter_email"] == voter_email
+
+    async def test_restore_session_cookie_takes_priority_over_body_token(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Cookie token takes priority over session_token in request body."""
+        voter_email = building_with_agm["voter_email"]
+        agm = building_with_agm["agm"]
+        building = building_with_agm["building"]
+
+        cookie_token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Pass a non-existent token in the body; the cookie should win
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id), "session_token": "invalid-body-token"},
+            cookies={"agm_session": cookie_token},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["voter_email"] == voter_email
+
+    async def test_restore_session_no_cookie_no_body_token_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Returns 401 when neither cookie nor body token is provided."""
+        agm = building_with_agm["agm"]
+
+        response = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id)},
+        )
+        assert response.status_code == 401
 
     async def test_valid_token_returns_fresh_already_submitted_flags(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -1263,6 +1336,37 @@ class TestSessionRestore:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/auth/logout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestAuthLogout:
+    # --- Happy path ---
+
+    async def test_logout_returns_200_ok(self, client: AsyncClient):
+        """POST /api/auth/logout returns 200 {"ok": true}."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    async def test_logout_clears_agm_session_cookie(self, client: AsyncClient):
+        """Logout response instructs the browser to delete the agm_session cookie."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        # FastAPI's delete_cookie sets max-age=0 or expires in the past
+        set_cookie = response.headers.get("set-cookie", "")
+        # Cookie name must appear in the Set-Cookie header
+        assert "agm_session" in set_cookie
+
+    async def test_logout_idempotent_no_cookie(self, client: AsyncClient):
+        """Calling logout without a cookie still returns 200 — idempotent."""
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # auth_service tests (get_session)
 # ---------------------------------------------------------------------------
 
@@ -1283,6 +1387,22 @@ class TestAuthService:
         response = await client.get(
             f"/api/general-meeting/{agm.id}/motions",
             headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_get_session_with_agm_session_cookie(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """Session can be validated via agm_session cookie."""
+        agm = building_with_agm["agm"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            cookies={"agm_session": token},
         )
         assert response.status_code == 200
 

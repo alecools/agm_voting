@@ -25,13 +25,8 @@ export function AuthPage() {
     sessionStorage.setItem(`meeting_lot_info_${meetingId}`, JSON.stringify(pendingLots));
     sessionStorage.setItem(`meeting_building_name_${meetingId}`, data.building_name);
     sessionStorage.setItem(`meeting_title_${meetingId}`, data.meeting_title);
-    // Persist session token for return-visit restoration (24h or until meeting closes).
-    // The agm_session_ token is a short-lived opaque restore token (not a credential) used only
-    // to skip the OTP flow on return visits. HttpOnly session cookies handle server-side auth;
-    // this token is validated server-side and rejected for closed meetings. (See CLAUDE.md.)
-    if (data.session_token) {
-      localStorage.setItem(`agm_session_${meetingId}`, data.session_token); // nosemgrep: no-localstorage-session-token -- intentional: short-lived session-restore token, not a credential; documented architectural decision
-    }
+    // Session token is now stored in an HttpOnly cookie set by the backend.
+    // No localStorage write needed.
     if (data.agm_status === "pending") {
       navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });
       return;
@@ -48,18 +43,17 @@ export function AuthPage() {
     }
   }
 
-  // On mount: attempt session restore if a token exists in localStorage
+  // On mount: attempt session restore via the HttpOnly agm_session cookie.
+  // The cookie is sent automatically by the browser — no localStorage needed.
   useEffect(() => {
     if (!meetingId) return;
-    const token = localStorage.getItem(`agm_session_${meetingId}`);
-    if (!token) return;
     setIsRestoringSession(true);
-    restoreSession({ session_token: token, general_meeting_id: meetingId })
+    restoreSession({ general_meeting_id: meetingId })
       .then((data) => {
         handleAuthSuccess(data);
       })
       .catch(() => {
-        localStorage.removeItem(`agm_session_${meetingId}`);
+        // Cookie is invalid/expired — show the OTP form instead.
         setIsRestoringSession(false);
       });
   }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
