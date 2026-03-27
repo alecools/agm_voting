@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchVoid } from "./client";
 import type { Building, LotOwner, MotionType } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -306,19 +306,10 @@ export async function adminGetMe(): Promise<AdminMeOut> {
 export async function importBuildings(file: File): Promise<BuildingImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/import`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
-  );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<BuildingImportResult>;
+  return apiFetch<BuildingImportResult>("/api/admin/buildings/import", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -359,19 +350,10 @@ export async function importLotOwners(
 ): Promise<LotOwnerImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<LotOwnerImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<LotOwnerImportResult>;
 }
 
 export async function importProxyNominations(
@@ -380,19 +362,10 @@ export async function importProxyNominations(
 ): Promise<ProxyImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import-proxies`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<ProxyImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import-proxies`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<ProxyImportResult>;
 }
 
 export async function importFinancialPositions(
@@ -401,19 +374,10 @@ export async function importFinancialPositions(
 ): Promise<FinancialPositionImportResult> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"}/api/admin/buildings/${buildingId}/lot-owners/import-financial-positions`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
+  return apiFetch<FinancialPositionImportResult>(
+    `/api/admin/buildings/${buildingId}/lot-owners/import-financial-positions`,
+    { method: "POST", body: formData }
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<FinancialPositionImportResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -478,13 +442,9 @@ export async function resendReport(meetingId: string): Promise<ResendReportOut> 
 }
 
 export async function deleteGeneralMeeting(meetingId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/general-meetings/${meetingId}`, {
+  return apiFetchVoid(`/api/admin/general-meetings/${meetingId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) throw new Error(`Failed to delete meeting: ${res.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -514,16 +474,9 @@ export async function reorderMotions(
 }
 
 export async function deleteBuilding(buildingId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/buildings/${buildingId}`, {
+  return apiFetchVoid(`/api/admin/buildings/${buildingId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
 }
 
 export async function toggleMotionVisibility(
@@ -584,14 +537,7 @@ export async function updateMotion(
 }
 
 export async function deleteMotion(motionId: string): Promise<void> {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const res = await fetch(`${BASE_URL}/api/admin/motions/${motionId}`, {
+  return apiFetchVoid(`/api/admin/motions/${motionId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
 }

@@ -17,13 +17,7 @@ import { SubmitDialog } from "../../components/vote/SubmitDialog";
 import { MixedSelectionWarningDialog } from "../../components/vote/MixedSelectionWarningDialog";
 import { ClosedBanner } from "../../components/vote/ClosedBanner";
 import { useServerTime } from "../../hooks/useServerTime";
-
-function formatLocalDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(iso));
-}
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 export function VotingPage() {
   const { meetingId } = useParams<{ meetingId: string }>();

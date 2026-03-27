@@ -1,11 +1,5 @@
 import type { GeneralMeetingOut } from "../../api/voter";
-
-function formatLocalDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(iso));
-}
+import { formatLocalDateTime } from "../../utils/dateTime";
 
 interface GeneralMeetingListItemProps {
   meeting: GeneralMeetingOut;

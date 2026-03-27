@@ -28,3 +28,31 @@ export async function apiFetch<T>(
 
   return response.json() as Promise<T>;
 }
+
+/**
+ * Like apiFetch but for endpoints that return no body (204 No Content).
+ * Throws on non-2xx responses.
+ */
+export async function apiFetchVoid(
+  path: string,
+  options?: RequestInit
+): Promise<void> {
+  const contentTypeHeader: Record<string, string> =
+    options?.body instanceof FormData
+      ? {}
+      : { "Content-Type": "application/json" };
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    headers: {
+      ...contentTypeHeader,
+      ...options?.headers,
+    },
+    credentials: "include",
+    ...options,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`HTTP ${response.status}: ${text}`);
+  }
+}

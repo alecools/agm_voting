@@ -9,6 +9,10 @@ import {
   deleteGeneralMeeting,
   deleteBuilding,
   deleteMotion,
+  importBuildings,
+  importLotOwners,
+  importProxyNominations,
+  importFinancialPositions,
 } from "../admin";
 
 const BASE = "http://localhost:8000";
@@ -338,6 +342,17 @@ describe("listGeneralMeetings with params", () => {
 });
 
 describe("deleteGeneralMeeting", () => {
+  // --- Happy path ---
+
+  it("resolves without error on 204", async () => {
+    server.use(
+      http.delete(`${BASE}/api/admin/general-meetings/:meetingId`, () =>
+        new HttpResponse(null, { status: 204 })
+      )
+    );
+    await expect(deleteGeneralMeeting("agm-123")).resolves.toBeUndefined();
+  });
+
   // --- State / precondition errors ---
 
   it("throws on non-ok response", async () => {
@@ -351,6 +366,17 @@ describe("deleteGeneralMeeting", () => {
 });
 
 describe("deleteBuilding", () => {
+  // --- Happy path ---
+
+  it("resolves without error on 204", async () => {
+    server.use(
+      http.delete(`${BASE}/api/admin/buildings/:buildingId`, () =>
+        new HttpResponse(null, { status: 204 })
+      )
+    );
+    await expect(deleteBuilding("b-123")).resolves.toBeUndefined();
+  });
+
   // --- State / precondition errors ---
 
   it("throws on non-ok response", async () => {
@@ -364,6 +390,17 @@ describe("deleteBuilding", () => {
 });
 
 describe("deleteMotion", () => {
+  // --- Happy path ---
+
+  it("resolves without error on 204", async () => {
+    server.use(
+      http.delete(`${BASE}/api/admin/motions/:motionId`, () =>
+        new HttpResponse(null, { status: 204 })
+      )
+    );
+    await expect(deleteMotion("m-123")).resolves.toBeUndefined();
+  });
+
   // --- State / precondition errors ---
 
   it("throws on non-ok response", async () => {
@@ -373,5 +410,115 @@ describe("deleteMotion", () => {
       )
     );
     await expect(deleteMotion("m-conflict")).rejects.toThrow("409");
+  });
+});
+
+describe("importBuildings", () => {
+  // --- Happy path ---
+
+  it("posts FormData and returns parsed result", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/import`, () =>
+        HttpResponse.json({ created: 3, updated: 1 })
+      )
+    );
+    const file = new File(["data"], "buildings.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const result = await importBuildings(file);
+    expect(result).toEqual({ created: 3, updated: 1 });
+  });
+
+  // --- State / precondition errors ---
+
+  it("throws on non-ok response", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/import`, () =>
+        HttpResponse.json({ detail: "Invalid file" }, { status: 422 })
+      )
+    );
+    const file = new File(["bad"], "bad.txt");
+    await expect(importBuildings(file)).rejects.toThrow("422");
+  });
+});
+
+describe("importLotOwners", () => {
+  // --- Happy path ---
+
+  it("posts FormData and returns parsed result", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import`, () =>
+        HttpResponse.json({ imported: 10, emails: 8 })
+      )
+    );
+    const file = new File(["data"], "owners.xlsx");
+    const result = await importLotOwners("b-1", file);
+    expect(result).toEqual({ imported: 10, emails: 8 });
+  });
+
+  // --- State / precondition errors ---
+
+  it("throws on non-ok response", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import`, () =>
+        HttpResponse.json({ detail: "Missing columns" }, { status: 422 })
+      )
+    );
+    const file = new File(["bad"], "bad.xlsx");
+    await expect(importLotOwners("b-1", file)).rejects.toThrow("422");
+  });
+});
+
+describe("importProxyNominations", () => {
+  // --- Happy path ---
+
+  it("posts FormData and returns parsed result", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import-proxies`, () =>
+        HttpResponse.json({ upserted: 5, removed: 1, skipped: 0 })
+      )
+    );
+    const file = new File(["data"], "proxies.xlsx");
+    const result = await importProxyNominations("b-1", file);
+    expect(result).toEqual({ upserted: 5, removed: 1, skipped: 0 });
+  });
+
+  // --- State / precondition errors ---
+
+  it("throws on non-ok response", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/buildings/:buildingId/lot-owners/import-proxies`, () =>
+        HttpResponse.json({ detail: "Bad file" }, { status: 422 })
+      )
+    );
+    const file = new File(["bad"], "bad.csv");
+    await expect(importProxyNominations("b-1", file)).rejects.toThrow("422");
+  });
+});
+
+describe("importFinancialPositions", () => {
+  // --- Happy path ---
+
+  it("posts FormData and returns parsed result", async () => {
+    server.use(
+      http.post(
+        `${BASE}/api/admin/buildings/:buildingId/lot-owners/import-financial-positions`,
+        () => HttpResponse.json({ updated: 20, skipped: 2 })
+      )
+    );
+    const file = new File(["data"], "positions.csv");
+    const result = await importFinancialPositions("b-1", file);
+    expect(result).toEqual({ updated: 20, skipped: 2 });
+  });
+
+  // --- State / precondition errors ---
+
+  it("throws on non-ok response", async () => {
+    server.use(
+      http.post(
+        `${BASE}/api/admin/buildings/:buildingId/lot-owners/import-financial-positions`,
+        () => HttpResponse.json({ detail: "Bad CSV" }, { status: 422 })
+      )
+    );
+    const file = new File(["bad"], "bad.csv");
+    await expect(importFinancialPositions("b-1", file)).rejects.toThrow("422");
   });
 });

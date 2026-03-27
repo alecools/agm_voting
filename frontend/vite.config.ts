@@ -43,6 +43,8 @@ export default defineConfig({
         "src/routes/AdminRoutes.tsx",
         // Phase B utilities
         "src/utils/parseMotionsExcel.ts",
+        // Code quality: shared dateTime utility
+        "src/utils/dateTime.ts",
         // Phase D public summary
         "src/api/public.ts",
         "src/pages/GeneralMeetingSummaryPage.tsx",
@@ -59,6 +61,7 @@ export default defineConfig({
         "src/App.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/routes/VoteRoutes.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/utils/parseMotionsExcel.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/utils/dateTime.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/api/public.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/pages/GeneralMeetingSummaryPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         // Tenant branding
