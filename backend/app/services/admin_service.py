@@ -383,21 +383,40 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
     )
     owners = list(result.scalars().all())
 
-    # Load emails and proxy for each owner
+    if not owners:
+        return []
+
+    # Batch-load emails and proxies with IN queries — O(1) queries regardless of owner count.
+    owner_ids = [o.id for o in owners]
+
+    emails_result = await db.execute(
+        select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+            LotOwnerEmail.lot_owner_id.in_(owner_ids)
+        )
+    )
+    emails_by_owner: dict[uuid.UUID, list[str]] = {}
+    for row in emails_result.all():
+        if row[1] is not None:
+            emails_by_owner.setdefault(row[0], []).append(row[1])
+
+    proxies_result = await db.execute(
+        select(LotProxy.lot_owner_id, LotProxy.proxy_email).where(
+            LotProxy.lot_owner_id.in_(owner_ids)
+        )
+    )
+    proxy_by_owner: dict[uuid.UUID, str | None] = {
+        row[0]: row[1] for row in proxies_result.all()
+    }
+
     out = []
     for owner in owners:
-        emails_result = await db.execute(
-            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
-        )
-        emails = [r[0] for r in emails_result.all() if r[0] is not None]
-        proxy_email = await _get_proxy_email(owner.id, db)
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
-            "emails": emails,
+            "emails": emails_by_owner.get(owner.id, []),
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": owner.financial_position.value if hasattr(owner.financial_position, "value") else owner.financial_position,
-            "proxy_email": proxy_email,
+            "proxy_email": proxy_by_owner.get(owner.id),
         })
     return out
 

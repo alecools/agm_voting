@@ -852,10 +852,29 @@ class TestTriggerWithRetry:
 
 
 class TestRequeuePendingOnStartup:
+    # --- Setup helper ---
+
+    async def _clear_pending_deliveries(self, db_session: AsyncSession) -> None:
+        """Delete all pending EmailDelivery records to ensure a clean baseline.
+
+        The shared session-scoped transaction means that committed records from
+        prior tests in the same session (e.g. TestCloseAgmEmailIntegration) are
+        visible here. Clearing pending records before each test in this class
+        ensures the call count assertions are accurate.
+        """
+        from sqlalchemy import delete as sa_delete
+        await db_session.execute(
+            sa_delete(EmailDelivery).where(
+                EmailDelivery.status == EmailDeliveryStatus.pending
+            )
+        )
+        await db_session.commit()
+
     # --- Happy path ---
 
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
         """Pending deliveries with attempts < 30 are re-launched."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -872,6 +891,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_delivered_records(self, db_session: AsyncSession, mocker):
         """Delivered records are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -888,6 +908,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_records_at_max_attempts(self, db_session: AsyncSession, mocker):
         """Records with total_attempts >= 30 are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -904,6 +925,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_ignores_failed_records(self, db_session: AsyncSession, mocker):
         """Failed records are not re-queued."""
+        await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         delivery = await _create_email_delivery(db_session, agm)
@@ -920,6 +942,7 @@ class TestRequeuePendingOnStartup:
 
     async def test_multiple_pending_deliveries_all_requeued(self, db_session: AsyncSession, mocker):
         """Multiple pending deliveries all get re-launched."""
+        await self._clear_pending_deliveries(db_session)
         tasks_created = []
         for _ in range(3):
             building = await _create_building(db_session)

@@ -5,9 +5,11 @@ These tests exercise the module-level code (settings loading, engine creation,
 FastAPI app factory, and the health endpoint) to satisfy 100% coverage.
 """
 import os
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import OperationalError
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +54,23 @@ class TestDatabase:
 
         assert engine is not None
 
+    def test_engine_pool_configuration(self):
+        """Verify the engine is configured with serverless-appropriate pool settings."""
+        from app.database import engine
+
+        pool = engine.pool
+        # NullPool is used in some test configurations and has no size() method.
+        if hasattr(pool, "size"):
+            assert pool.size() == 2
+
+    def test_config_pool_settings_defaults(self):
+        """DB pool settings have correct serverless defaults."""
+        from app.config import settings
+
+        assert settings.db_pool_size == 2
+        assert settings.db_max_overflow == 3
+        assert settings.db_pool_timeout == 10
+
     def test_session_factory_created(self):
         from app.database import AsyncSessionLocal
 
@@ -93,13 +112,80 @@ class TestMain:
         assert app is not None
         assert app.title == "General Meeting Voting App"
 
-    async def test_health_endpoint(self):
+    async def test_health_endpoint_returns_db_connected(self):
+        """Health endpoint returns 200 with db=connected when DB is reachable."""
         from app.main import app
 
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.get("/api/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["db"] == "connected"
+
+    async def test_health_endpoint_returns_503_on_db_failure(self):
+        """Health endpoint returns 503 when the DB query raises an exception."""
+        from app.main import app
+        from app.database import get_db
+
+        async def broken_db():
+            # Simulate a DB session that raises on execute
+            mock_session = AsyncMock()
+            mock_session.execute.side_effect = OperationalError(
+                "Connection refused", None, None
+            )
+            yield mock_session
+
+        app.dependency_overrides[get_db] = broken_db
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health")
+            assert response.status_code == 503
+            detail = response.json()["detail"]
+            assert detail["status"] == "degraded"
+            assert detail["db"] == "unreachable"
+            assert "error" in detail
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+    async def test_health_endpoint_returns_503_on_timeout(self):
+        """Health endpoint returns 503 when the DB query exceeds the 2-second timeout."""
+        from app.main import app
+        from app.database import get_db
+
+        async def slow_db():
+            mock_session = AsyncMock()
+            # Simulate a DB session that never resolves (timeout scenario)
+            async def hang(*args, **kwargs):
+                raise asyncio.TimeoutError()
+            mock_session.execute.side_effect = hang
+            yield mock_session
+
+        app.dependency_overrides[get_db] = slow_db
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health")
+            assert response.status_code == 503
+            detail = response.json()["detail"]
+            assert detail["status"] == "degraded"
+            assert detail["db"] == "unreachable"
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+    async def test_health_live_endpoint(self):
+        """Liveness endpoint always returns 200 without touching the DB."""
+        from app.main import app
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/health/live")
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 

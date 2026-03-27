@@ -49,6 +49,8 @@ Key decisions that must not be inadvertently reversed:
 
 Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain under the service name `agm-survey`.
 
+**Operational docs:** Service level objectives are defined in [`docs/slo.md`](docs/slo.md). Incident runbooks are in [`docs/runbooks/`](docs/runbooks/).
+
 ---
 
 ## Codebase Structure
