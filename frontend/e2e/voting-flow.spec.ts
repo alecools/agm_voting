@@ -1,9 +1,21 @@
-import { test, expect } from "./fixtures";
+import { test, expect, RUN_SUFFIX } from "./fixtures";
 import { E2E_BUILDING_NAME, E2E_LOT_EMAIL } from "./global-setup";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getTestOtp } from "./workflows/helpers";
+import {
+  ADMIN_AUTH_PATH,
+  getTestOtp,
+  seedBuilding,
+  seedLotOwner,
+  createOpenMeeting,
+  closeMeeting,
+  deleteMeeting,
+  clearBallots,
+  goToAuthPage,
+  authenticateVoter,
+  submitBallotViaApi,
+} from "./workflows/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,5 +106,140 @@ test.describe("Lot owner voting flow", () => {
     await expect(
       page.getByRole("button", { name: "View My Submission" }).first()
     ).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// US-TCG-04: Closed meeting auth flow — voter routed to confirmation (not blocked)
+// ---------------------------------------------------------------------------
+// Verifies the CLAUDE.md design decision:
+//   "Auth on closed AGMs — POST /api/auth/verify returns 200 (not 403) for
+//    closed AGMs.  The response includes agm_status: str so the frontend can
+//    route to the confirmation page instead of blocking entry."
+//
+// Two sub-cases:
+//   TCG04-A: Voter who submitted BEFORE close → sees their votes on confirmation.
+//   TCG04-B: Voter who did NOT submit (absent) → sees "You did not submit" message.
+
+test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmation", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const TCG04_BUILDING = `TCG04 Building-${RUN_SUFFIX}`;
+  const TCG04_VOTER_SUBMITTED_EMAIL = `tcg04-submitted-${RUN_SUFFIX}@test.com`;
+  const TCG04_VOTER_ABSENT_EMAIL = `tcg04-absent-${RUN_SUFFIX}@test.com`;
+  const TCG04_MOTION_TITLE = "TCG04 Motion — Closed meeting test";
+  let tcg04MeetingId = "";
+  let tcg04SubmittedLotOwnerId = "";
+
+  test.beforeAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    const buildingId = await seedBuilding(api, TCG04_BUILDING, `tcg04-mgr-${RUN_SUFFIX}@test.com`);
+
+    tcg04SubmittedLotOwnerId = await seedLotOwner(api, buildingId, {
+      lotNumber: "TCG04-S",
+      emails: [TCG04_VOTER_SUBMITTED_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+
+    await seedLotOwner(api, buildingId, {
+      lotNumber: "TCG04-A",
+      emails: [TCG04_VOTER_ABSENT_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+
+    tcg04MeetingId = await createOpenMeeting(api, buildingId, `TCG04 Meeting-${RUN_SUFFIX}`, [
+      {
+        title: TCG04_MOTION_TITLE,
+        description: "Test motion for closed meeting auth flow.",
+        orderIndex: 1,
+        motionType: "general",
+      },
+    ]);
+    await clearBallots(api, tcg04MeetingId);
+
+    // Fetch motions to get the motion ID for the ballot submission
+    const detailRes = await api.get(`/api/admin/general-meetings/${tcg04MeetingId}`);
+    const detail = await detailRes.json() as { motions: { id: string }[] };
+    const motionId = detail.motions[0]?.id;
+
+    // Voter-submitted submits their ballot BEFORE the meeting closes
+    await submitBallotViaApi(
+      api,
+      TCG04_VOTER_SUBMITTED_EMAIL,
+      tcg04MeetingId,
+      [tcg04SubmittedLotOwnerId],
+      [{ motion_id: motionId, choice: "yes" }]
+    );
+
+    // Close the meeting — both voters will now see agm_status="closed" on auth
+    await closeMeeting(api, tcg04MeetingId);
+
+    await api.dispose();
+  }, { timeout: 90000 });
+
+  test.afterAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+    await deleteMeeting(api, tcg04MeetingId);
+    await api.dispose();
+  }, { timeout: 30000 });
+
+  test("TCG04-A: voter who submitted before close is routed to confirmation showing their votes", async ({ page }) => {
+    test.setTimeout(90000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    await goToAuthPage(page, TCG04_BUILDING);
+    await authenticateVoter(
+      page,
+      TCG04_VOTER_SUBMITTED_EMAIL,
+      () => getTestOtp(api, TCG04_VOTER_SUBMITTED_EMAIL, tcg04MeetingId)
+    );
+    await api.dispose();
+
+    // Auth on a closed meeting must route to confirmation (not block at auth)
+    await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
+    await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(TCG04_MOTION_TITLE)).toBeVisible({ timeout: 10000 });
+  });
+
+  test("TCG04-B: absent voter is routed to confirmation showing 'did not submit' message", async ({ page }) => {
+    test.setTimeout(90000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    await goToAuthPage(page, TCG04_BUILDING);
+    await authenticateVoter(
+      page,
+      TCG04_VOTER_ABSENT_EMAIL,
+      () => getTestOtp(api, TCG04_VOTER_ABSENT_EMAIL, tcg04MeetingId)
+    );
+    await api.dispose();
+
+    // Auth on a closed meeting must route to confirmation (not block at auth)
+    await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
+    await expect(
+      page.getByText("You did not submit a ballot for this meeting.")
+    ).toBeVisible({ timeout: 15000 });
   });
 });

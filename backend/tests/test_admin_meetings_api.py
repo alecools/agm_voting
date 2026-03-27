@@ -1,8 +1,10 @@
 """Tests for admin general meeting, motion, and voting endpoints."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -4920,3 +4922,482 @@ class TestBackfillMotionNumber:
             )
         )
         assert result.rowcount == 0
+
+
+# ---------------------------------------------------------------------------
+# US-TCG-02: Concurrent ballot submission race condition
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentBallotSubmission:
+    """Integration tests for US-TCG-02: concurrent POST /submit race condition guard.
+
+    Uses asyncio.gather() to fire multiple simultaneous ballot submissions for the
+    same (meeting_id, lot_owner_id) pair against the real test database.  Exactly
+    one submission must succeed (200); all others must receive 409.  The DB must
+    contain exactly one BallotSubmission row and no duplicate Vote rows.
+    """
+
+    async def _setup_meeting_with_voter(
+        self,
+        session_factory,
+        label: str,
+    ) -> dict:
+        """Create a building, lot owner, open meeting with one motion, and a session token.
+
+        Uses a standalone session (not the shared test session) so the data is visible
+        to other DB connections used by the concurrent requests.  A UUID suffix ensures
+        uniqueness across repeated test runs.
+        """
+        import secrets
+        from app.services.auth_service import _sign_token
+        from app.models.session_record import SessionRecord
+
+        unique_suffix = uuid.uuid4().hex[:8]
+        bname = f"ConcBldg_{label}_{unique_suffix}"
+
+        async with session_factory() as s:
+            b = Building(name=bname, manager_email=f"conc_{unique_suffix}@test.com")
+            s.add(b)
+            await s.flush()
+
+            lo = LotOwner(building_id=b.id, lot_number=f"CC-{unique_suffix}", unit_entitlement=100)
+            s.add(lo)
+            await s.flush()
+
+            lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=f"conc_{unique_suffix}@voter.com")
+            s.add(lo_email)
+
+            agm = GeneralMeeting(
+                building_id=b.id,
+                title=f"Conc Meeting {label} {unique_suffix}",
+                status=GeneralMeetingStatus.open,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+            s.add(agm)
+            await s.flush()
+
+            # Snapshot lot weight
+            weight = GeneralMeetingLotWeight(
+                general_meeting_id=agm.id,
+                lot_owner_id=lo.id,
+                unit_entitlement_snapshot=100,
+            )
+            s.add(weight)
+
+            motion = Motion(
+                general_meeting_id=agm.id,
+                title=f"Conc Motion {label}",
+                display_order=1,
+                is_visible=True,
+            )
+            s.add(motion)
+            await s.flush()
+
+            # Create a valid session record so all 3 concurrent requests can authenticate
+            raw_token = secrets.token_urlsafe(32)
+            session_record = SessionRecord(
+                session_token=raw_token,
+                voter_email=f"conc_{unique_suffix}@voter.com",
+                building_id=b.id,
+                general_meeting_id=agm.id,
+                expires_at=datetime.now(UTC) + timedelta(hours=24),
+            )
+            s.add(session_record)
+            await s.commit()
+
+            # Refresh to get IDs after commit
+            await s.refresh(b)
+            await s.refresh(lo)
+            await s.refresh(agm)
+            await s.refresh(motion)
+
+        signed_token = _sign_token(raw_token)
+        return {
+            "agm_id": agm.id,
+            "building_id": b.id,
+            "lot_owner_id": lo.id,
+            "motion_id": motion.id,
+            "signed_token": signed_token,
+        }
+
+    async def _make_real_app(self, session_factory):
+        """Build a FastAPI app instance wired to the given session_factory."""
+        from app.main import create_app
+        from app.routers.admin_auth import require_admin
+
+        real_app = create_app()
+
+        async def _real_db():
+            async with session_factory() as s:
+                yield s
+
+        real_app.dependency_overrides[get_db] = _real_db
+        real_app.dependency_overrides[require_admin] = lambda: None
+        return real_app
+
+    # --- Happy path ---
+
+    async def test_concurrent_submissions_race_guard(self):
+        """Three concurrent POST /submit requests for the same voter seed one race.
+
+        All three properties are verified against the same asyncio.gather outcome:
+        - Status codes: exactly 1 success (200) and the rest 409 — no 500s
+        - DB consistency: exactly 1 BallotSubmission row after all requests complete
+        - No vote duplication: exactly 1 Vote row per (motion, lot_owner) pair
+
+        Uses the real test DB (separate engine) so the database unique constraints
+        are exercised end-to-end rather than via mocked sessions.
+        """
+        import os
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+        test_db_url = os.getenv(
+            "TEST_DATABASE_URL",
+            "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test",
+        )
+        engine = create_async_engine(test_db_url, echo=False, future=True)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+        setup = await self._setup_meeting_with_voter(session_factory, "Race")
+        agm_id = setup["agm_id"]
+        lot_owner_id = setup["lot_owner_id"]
+        motion_id = setup["motion_id"]
+        signed_token = setup["signed_token"]
+
+        real_app = await self._make_real_app(session_factory)
+
+        payload = {
+            "lot_owner_ids": [str(lot_owner_id)],
+            "votes": [{"motion_id": str(motion_id), "choice": "yes"}],
+        }
+
+        async def _submit() -> int:
+            async with AsyncClient(
+                transport=ASGITransport(app=real_app), base_url="http://test"
+            ) as c:
+                r = await c.post(
+                    f"/api/general-meeting/{agm_id}/submit",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {signed_token}"},
+                )
+                return r.status_code
+
+        # Fire 3 concurrent submissions against the same (meeting, lot) pair
+        statuses = await asyncio.gather(_submit(), _submit(), _submit())
+
+        # Verify DB state using the same engine/session
+        async with session_factory() as s:
+            bs_result = await s.execute(
+                select(BallotSubmission).where(
+                    BallotSubmission.general_meeting_id == agm_id,
+                    BallotSubmission.lot_owner_id == lot_owner_id,
+                )
+            )
+            submissions = list(bs_result.scalars().all())
+
+            votes_result = await s.execute(
+                select(Vote).where(
+                    Vote.general_meeting_id == agm_id,
+                    Vote.lot_owner_id == lot_owner_id,
+                    Vote.motion_id == motion_id,
+                    Vote.status == VoteStatus.submitted,
+                )
+            )
+            votes = list(votes_result.scalars().all())
+
+        await engine.dispose()
+
+        # 1. Status codes: exactly one 200, rest 409, no 500s
+        assert statuses.count(200) == 1, f"Expected 1 success, got statuses={statuses}"
+        assert all(s in (200, 409) for s in statuses), (
+            f"Unexpected status codes (expected 200 or 409 only): {statuses}"
+        )
+
+        # 2. DB consistency: exactly one BallotSubmission
+        assert len(submissions) == 1, (
+            f"Expected exactly 1 BallotSubmission, found {len(submissions)}"
+        )
+
+        # 3. No vote duplication: exactly one Vote row per motion-lot pair
+        assert len(votes) == 1, (
+            f"Expected exactly 1 Vote row (no duplicates), found {len(votes)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# US-TCG-03: Email failure during meeting close
+# ---------------------------------------------------------------------------
+
+
+class TestEmailFailureDuringClose:
+    """Integration tests for US-TCG-03: email service failure during AGM close.
+
+    Tests that:
+    1. The meeting closes successfully (status = closed) even when the email
+       delivery task encounters an exception.
+    2. The EmailDelivery record captures the error in last_error after one failed
+       attempt, with status remaining 'pending' (will retry).
+    3. After _MAX_ATTEMPTS failed attempts, status transitions to 'failed'.
+    4. resend_report transitions a 'failed' delivery back to 'pending'.
+    """
+
+    async def _create_open_agm_for_email_test(
+        self, db_session: AsyncSession, label: str
+    ) -> GeneralMeeting:
+        """Create a building + open AGM for email failure tests."""
+        b = Building(name=f"EmailFail_{label}", manager_email=f"ef_{label}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"EmailFail Meeting {label}",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        await db_session.refresh(agm)
+        return agm
+
+    # --- Happy path ---
+
+    async def test_close_succeeds_even_when_trigger_with_retry_raises(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """close_general_meeting returns 200 even when trigger_with_retry raises.
+
+        The email task is launched via asyncio.create_task() AFTER the DB commit,
+        so the HTTP endpoint always returns 200.  The meeting is closed and the
+        EmailDelivery record is created with status=pending before the async task runs.
+        """
+        agm = await self._create_open_agm_for_email_test(db_session, "CloseOK")
+
+        # Patch at the class level so the instance created inside the router gets the mock
+        with patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+            side_effect=Exception("SMTP connection refused"),
+        ):
+            response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+
+        assert response.status_code == 200
+
+        # Meeting must be closed in the DB
+        await db_session.refresh(agm)
+        assert agm.status == GeneralMeetingStatus.closed
+
+        # EmailDelivery record is created with pending status
+        delivery_result = await db_session.execute(
+            select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm.id)
+        )
+        delivery = delivery_result.scalar_one_or_none()
+        assert delivery is not None
+        assert delivery.status == EmailDeliveryStatus.pending
+
+    async def test_trigger_with_retry_one_failure_leaves_status_pending(
+        self, db_session: AsyncSession
+    ):
+        """A single send_report failure sets last_error but keeps status pending.
+
+        trigger_with_retry uses its own DB session.  We patch _make_session_factory to
+        return a factory connected to the real test DB.  After one failure
+        (total_attempts < 30), status stays 'pending' with last_error set.
+        Data is cleaned up at the end of the test to avoid polluting requeue tests.
+        """
+        import os
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+        from app.services.email_service import EmailService
+
+        test_db_url = os.getenv(
+            "TEST_DATABASE_URL",
+            "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test",
+        )
+        engine = create_async_engine(test_db_url, echo=False, future=True)
+        real_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+        unique_suffix = uuid.uuid4().hex[:8]
+        async with real_session_factory() as s:
+            b = Building(name=f"EmailFail_OFP_{unique_suffix}", manager_email=f"ef_ofp_{unique_suffix}@test.com")
+            s.add(b)
+            await s.flush()
+            agm = GeneralMeeting(
+                building_id=b.id,
+                title=f"EmailFail OneFailPending {unique_suffix}",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+            s.add(agm)
+            await s.flush()
+            delivery = EmailDelivery(
+                general_meeting_id=agm.id,
+                status=EmailDeliveryStatus.pending,
+                total_attempts=0,
+            )
+            s.add(delivery)
+            await s.commit()
+            agm_id = agm.id
+            delivery_id = delivery.id
+
+        email_service = EmailService()
+
+        async def _failing_send_report(_agm_id, _db):
+            raise Exception("SMTP timeout")
+
+        sleep_count = 0
+
+        async def _stop_after_one(delay):
+            nonlocal sleep_count
+            sleep_count += 1
+            raise asyncio.CancelledError()
+
+        with (
+            patch.object(email_service, "send_report", _failing_send_report),
+            patch("app.services.email_service._make_session_factory", return_value=real_session_factory),
+            patch("app.services.email_service.asyncio.sleep", _stop_after_one),
+        ):
+            try:
+                await email_service.trigger_with_retry(agm_id)
+            except asyncio.CancelledError:
+                pass
+
+        async with real_session_factory() as s:
+            result = await s.execute(
+                select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm_id)
+            )
+            updated = result.scalar_one_or_none()
+
+        # Clean up: delete the GeneralMeeting (cascades to EmailDelivery) so that
+        # requeue_pending_on_startup tests are not polluted by test data in pending status.
+        async with real_session_factory() as s:
+            gm = await s.get(GeneralMeeting, agm_id)
+            if gm:
+                await s.delete(gm)
+            await s.commit()
+
+        await engine.dispose()
+
+        assert updated is not None
+        assert updated.status == EmailDeliveryStatus.pending
+        assert updated.last_error is not None
+        assert "SMTP timeout" in updated.last_error
+
+    async def test_trigger_with_retry_max_failures_sets_status_failed(
+        self, db_session: AsyncSession
+    ):
+        """After 30 failed attempts, EmailDelivery.status transitions to 'failed'."""
+        import os
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+        from app.services.email_service import EmailService, _MAX_ATTEMPTS
+
+        test_db_url = os.getenv(
+            "TEST_DATABASE_URL",
+            "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test",
+        )
+        engine = create_async_engine(test_db_url, echo=False, future=True)
+        real_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+        # Pre-seed delivery with MAX_ATTEMPTS - 1 so next attempt exhausts it.
+        # Must use the real DB (separate engine) because trigger_with_retry calls commit()
+        # which would release the savepoint in the shared test session, breaking isolation.
+        unique_suffix = uuid.uuid4().hex[:8]
+        async with real_session_factory() as s:
+            b = Building(name=f"EmailFail_MF_{unique_suffix}", manager_email=f"ef_mf_{unique_suffix}@test.com")
+            s.add(b)
+            await s.flush()
+            agm = GeneralMeeting(
+                building_id=b.id,
+                title=f"EmailFail MaxFails {unique_suffix}",
+                status=GeneralMeetingStatus.closed,
+                meeting_at=meeting_dt(),
+                voting_closes_at=closing_dt(),
+            )
+            s.add(agm)
+            await s.flush()
+            delivery = EmailDelivery(
+                general_meeting_id=agm.id,
+                status=EmailDeliveryStatus.pending,
+                total_attempts=_MAX_ATTEMPTS - 1,  # one attempt remaining
+                last_error="previous error",
+            )
+            s.add(delivery)
+            await s.commit()
+            agm_id = agm.id
+
+        email_service = EmailService()
+
+        async def _always_fail(_agm_id, _db):
+            raise Exception("Final SMTP failure")
+
+        with (
+            patch.object(email_service, "send_report", _always_fail),
+            patch("app.services.email_service._make_session_factory", return_value=real_session_factory),
+        ):
+            # One more attempt → total_attempts reaches MAX → status = failed, returns
+            await email_service.trigger_with_retry(agm_id)
+
+        async with real_session_factory() as s:
+            result = await s.execute(
+                select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm_id)
+            )
+            updated = result.scalar_one_or_none()
+
+        # Clean up: delete the GeneralMeeting (cascades to EmailDelivery) so that
+        # requeue_pending_on_startup tests are not polluted by test data.
+        async with real_session_factory() as s:
+            gm = await s.get(GeneralMeeting, agm_id)
+            if gm:
+                await s.delete(gm)
+            await s.commit()
+
+        await engine.dispose()
+
+        assert updated is not None
+        assert updated.status == EmailDeliveryStatus.failed
+        assert updated.total_attempts == _MAX_ATTEMPTS
+        assert "Final SMTP failure" in updated.last_error
+
+    # --- State / precondition errors ---
+
+    async def test_resend_report_transitions_failed_delivery_to_pending(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST /resend-report on a 'failed' delivery resets it to 'pending'.
+
+        The resend endpoint allows an admin to re-queue a failed email delivery.
+        """
+        agm = await self._create_open_agm_for_email_test(db_session, "ResendFailed")
+
+        # Manually close and set delivery to failed (simulates all retries exhausted)
+        agm.status = GeneralMeetingStatus.closed
+        delivery = EmailDelivery(
+            general_meeting_id=agm.id,
+            status=EmailDeliveryStatus.failed,
+            total_attempts=30,
+            last_error="all retries exhausted",
+        )
+        db_session.add(delivery)
+        await db_session.flush()
+
+        # Patch at the class level so the instance created inside the router gets the mock
+        with patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+        ):
+            response = await client.post(
+                f"/api/admin/general-meetings/{agm.id}/resend-report"
+            )
+
+        assert response.status_code == 200
+
+        # Verify status transitions to pending after resend
+        # Use a fresh query to bypass any session-level identity map caching
+        result = await db_session.execute(
+            select(EmailDelivery.status).where(EmailDelivery.general_meeting_id == agm.id)
+        )
+        status_value = result.scalar_one_or_none()
+        assert status_value == EmailDeliveryStatus.pending

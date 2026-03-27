@@ -551,3 +551,122 @@ test.describe("Admin General Meetings — motion number workflows", () => {
     await api.dispose();
   });
 });
+
+// ── US-TCG-01: Admin hides motion → voter no longer sees it ───────────────────
+
+test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voting page", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const BUILDING_NAME = `TCG01 Building-${Date.now()}`;
+  const LOT_EMAIL = `tcg01-voter-${Date.now()}@test.com`;
+  const MOTION1_TITLE = "TCG01 Motion 1 — Always visible";
+  const MOTION2_TITLE = "TCG01 Motion 2 — Will be hidden";
+  let meetingId = "";
+
+  test.beforeAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    const bId = await seedBuilding(api, BUILDING_NAME, "tcg01-mgr@test.com");
+    await seedLotOwner(api, bId, {
+      lotNumber: "TCG01-1",
+      emails: [LOT_EMAIL],
+      unitEntitlement: 10,
+      financialPosition: "normal",
+    });
+
+    meetingId = await createOpenMeeting(api, bId, `TCG01 Meeting-${Date.now()}`, [
+      {
+        title: MOTION1_TITLE,
+        description: "Always visible motion for TCG01 test.",
+        orderIndex: 1,
+        motionType: "general",
+      },
+      {
+        title: MOTION2_TITLE,
+        description: "This motion will be hidden by the admin.",
+        orderIndex: 2,
+        motionType: "general",
+      },
+    ]);
+    await clearBallots(api, meetingId);
+    await api.dispose();
+  }, { timeout: 60000 });
+
+  test.afterAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+    await api.delete(`/api/admin/general-meetings/${meetingId}`);
+    await api.dispose();
+  });
+
+  test("TCG01.1: voter sees 2 motions before admin hides one", async ({ page }) => {
+    test.setTimeout(90000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    await goToAuthPage(page, BUILDING_NAME);
+    await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
+    await api.dispose();
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
+
+    // Both motions must be visible — each motion card has an h3 title
+    const motionHeadings = page.getByRole("heading", { level: 3 });
+    await expect(motionHeadings).toHaveCount(2, { timeout: 10000 });
+  });
+
+  test("TCG01.2: admin hides motion 2 via visibility toggle in admin UI", async ({ page }) => {
+    test.setTimeout(60000);
+
+    await page.goto(`/admin/general-meetings/${meetingId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(MOTION2_TITLE)).toBeVisible({ timeout: 10000 });
+
+    // Find the row for Motion 2 and click its visibility toggle to hide it.
+    // The toggle is a checkbox whose accessible label (via the wrapping <label>) is
+    // "Visible" when checked.  Use getByRole("checkbox") filtered to the correct row.
+    const motion2Row = page.locator("tr").filter({ hasText: MOTION2_TITLE });
+    const toggle = motion2Row.getByRole("checkbox");
+    await expect(toggle).toBeChecked({ timeout: 5000 }); // currently visible (checked)
+
+    // Click the label element to toggle — the checkbox is styled, label is the click target
+    await toggle.click();
+
+    // Toggle should now be unchecked (hidden) and label text updated
+    await expect(toggle).not.toBeChecked({ timeout: 10000 });
+    await expect(motion2Row.getByText("Hidden")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("TCG01.3: voter sees only 1 motion card after admin hid motion 2", async ({ page }) => {
+    test.setTimeout(90000);
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+    });
+
+    await goToAuthPage(page, BUILDING_NAME);
+    await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
+    await api.dispose();
+    await expect(page).toHaveURL(/vote\/.*\/voting/, { timeout: 20000 });
+
+    // Only motion 1 should be visible — exactly one h3 motion heading
+    const motionHeadings = page.getByRole("heading", { level: 3 });
+    await expect(motionHeadings).toHaveCount(1, { timeout: 10000 });
+    await expect(page.getByText(MOTION1_TITLE)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(MOTION2_TITLE)).not.toBeVisible({ timeout: 5000 });
+  });
+});

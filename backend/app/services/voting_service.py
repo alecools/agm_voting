@@ -354,8 +354,17 @@ async def submit_ballot(
             else:
                 motions_needing_new_vote.append(motion)
 
-        # Flush before inserting not_eligible / abstained rows
-        await db.flush()
+        # Flush before inserting not_eligible / abstained rows.
+        # Catch IntegrityError here: a concurrent submission may have already
+        # inserted Vote rows for this (meeting, lot) pair, causing a unique
+        # constraint violation on (general_meeting_id, motion_id, lot_owner_id).
+        # Treat this as a duplicate-submission signal identical to the
+        # BallotSubmission-level race guard below (US-OPS-08 / US-TCG-02).
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
 
         # Now insert not_eligible votes for in-arrear general motions
         for motion in motions_needing_not_eligible:
@@ -516,17 +525,10 @@ async def get_my_ballot(
         w.lot_owner_id: w for w in weights_result.scalars().all()
     }
 
-    # Get all visible motions (hidden motions must not appear on the confirmation/summary page)
-    motions_result = await db.execute(
-        select(Motion).where(
-            Motion.general_meeting_id == general_meeting_id,
-            Motion.is_visible == True,  # noqa: E712
-        ).order_by(Motion.display_order)
-    )
-    motions = list(motions_result.scalars().all())
-
-    # Get submitted votes for these lots
-
+    # Get submitted votes for these lots, joining to Motion WITHOUT filtering on
+    # is_visible.  The confirmation receipt must show all motions the voter actually
+    # voted on, regardless of whether an admin later hides them (RR2-08 / US-TCG-06).
+    # Using the Vote records as the driving set preserves the legal audit trail.
     votes_result = await db.execute(
         select(Vote, Motion)
         .join(Motion, Vote.motion_id == Motion.id)
@@ -563,47 +565,21 @@ async def get_my_ballot(
         lot_votes: list[BallotVoteItem] = []
         lot_vote_rows = votes_by_lot.get(lot_owner_id, [])
 
-        voted_motion_ids = {m.id for _, m in lot_vote_rows}
-
-        for motion in motions:
-            if is_in_arrear and motion.motion_type == MotionType.general:
-                # Show as "not eligible" — the DB row should have choice=not_eligible
-                # Find the actual vote for this motion if it exists
-                not_eligible_choice = VoteChoice.not_eligible
-                for vote, m in lot_vote_rows:
-                    if m.id == motion.id:
-                        not_eligible_choice = vote.choice if vote.choice is not None else VoteChoice.not_eligible
-                        break
-                lot_votes.append(BallotVoteItem(
-                    motion_id=motion.id,
-                    motion_title=motion.title,
-                    display_order=motion.display_order,
-                    motion_number=motion.motion_number,
-                    choice=not_eligible_choice,
-                    eligible=False,
-                ))
-            elif motion.id in voted_motion_ids:
-                for vote, m in lot_vote_rows:
-                    if m.id == motion.id:
-                        lot_votes.append(BallotVoteItem(
-                            motion_id=m.id,
-                            motion_title=m.title,
-                            display_order=m.display_order,
-                            motion_number=m.motion_number,
-                            choice=vote.choice,
-                            eligible=True,
-                        ))
-                        break
-            else:
-                # Motion not voted on — show as abstained
-                lot_votes.append(BallotVoteItem(
-                    motion_id=motion.id,
-                    motion_title=motion.title,
-                    display_order=motion.display_order,
-                    motion_number=motion.motion_number,
-                    choice=VoteChoice.abstained,
-                    eligible=True,
-                ))
+        # Build the vote items from the voter's actual Vote records (not from the
+        # current motion list).  This preserves the confirmation receipt even after
+        # an admin hides a motion that was already voted on.
+        for vote, motion in lot_vote_rows:
+            eligible = not (
+                is_in_arrear and motion.motion_type == MotionType.general
+            )
+            lot_votes.append(BallotVoteItem(
+                motion_id=motion.id,
+                motion_title=motion.title,
+                display_order=motion.display_order,
+                motion_number=motion.motion_number,
+                choice=vote.choice,
+                eligible=eligible,
+            ))
 
         submitted_lots.append(LotBallotSummary(
             lot_owner_id=lot_owner_id,

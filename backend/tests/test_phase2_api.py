@@ -3296,10 +3296,83 @@ class TestMyBallotHiddenMotions:
         assert len(data["submitted_lots"]) == 1
         votes = data["submitted_lots"][0]["votes"]
 
-        # Only the two visible motions should appear
+        # Only the two visible motions should appear (hidden motion was never voted on)
         returned_motion_ids = [v["motion_id"] for v in votes]
         assert len(returned_motion_ids) == 2
         assert str(hidden_motion.id) not in returned_motion_ids
+
+    async def test_voted_motion_appears_after_being_hidden_post_submission(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """RR2-08: submit ballot on motions A, B, C; hide B; get_my_ballot still shows all 3.
+
+        A voter's confirmation receipt must be immutable — hiding a motion after
+        the voter submits must not erase it from their confirmation page.
+        """
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        motions = building_with_agm["motions"]  # motions A and B from fixture
+
+        # Add a third motion C
+        motion_c = Motion(
+            general_meeting_id=agm.id,
+            title="Motion C",
+            display_order=99,
+            description="Third motion",
+            is_visible=True,
+        )
+        db_session.add(motion_c)
+        await db_session.flush()
+
+        all_motions = [*motions, motion_c]
+
+        # Submit votes on all three motions
+        for motion in all_motions:
+            vote = Vote(
+                general_meeting_id=agm.id,
+                motion_id=motion.id,
+                voter_email=voter_email,
+                lot_owner_id=lo.id,
+                choice=VoteChoice.yes,
+                status=VoteStatus.submitted,
+            )
+            db_session.add(vote)
+        bs = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+        )
+        db_session.add(bs)
+        await db_session.flush()
+
+        # Hide motion B (the second motion) AFTER submission
+        motion_b = motions[1]
+        motion_b.is_visible = False
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/my-ballot",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["submitted_lots"]) == 1
+        votes_in_response = data["submitted_lots"][0]["votes"]
+
+        # All three motions must appear — hiding motion B post-submission must not erase it
+        returned_motion_ids = {v["motion_id"] for v in votes_in_response}
+        assert len(returned_motion_ids) == 3, (
+            f"Expected 3 motions in receipt, got {len(returned_motion_ids)}: {returned_motion_ids}"
+        )
+        assert str(motion_b.id) in returned_motion_ids, (
+            "Motion B (hidden after submission) must still appear in confirmation receipt"
+        )
+        assert str(motion_c.id) in returned_motion_ids
 
 
 # ---------------------------------------------------------------------------
