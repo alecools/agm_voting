@@ -436,12 +436,16 @@ async def restore_session(
     if not token_to_use:
         raise HTTPException(status_code=401, detail="Session expired or invalid")
 
+    # Unsign the token before DB lookup (token in cookie/body is signed;
+    # DB stores the raw token). _unsign_token raises HTTPException 401 on failure.
+    raw_token = _unsign_token(token_to_use)
+
     # 1. Look up session by token + meeting_id + expiry using get_session logic directly.
     #    get_session() requires Cookie/Header params so we call the DB directly here.
     now = datetime.now(UTC)
     session_result = await db.execute(
         select(SessionRecord).where(
-            SessionRecord.session_token == token_to_use,
+            SessionRecord.session_token == raw_token,
             SessionRecord.general_meeting_id == request.general_meeting_id,
             SessionRecord.expires_at > now,
         )

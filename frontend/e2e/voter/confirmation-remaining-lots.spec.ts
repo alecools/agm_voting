@@ -129,21 +129,23 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
     // directly (not through the UI), we must manually update the cached lot info so
     // that VotingPage shows the correct "Already submitted" badge when we navigate back.
     await page.evaluate(
-      ([id, lotAId]) => {
+      ([id, lotAId, motionIdVal]) => {
         const key = `meeting_lots_info_${id}`;
         const raw = sessionStorage.getItem(key);
         if (!raw) return;
         try {
-          const lots = JSON.parse(raw) as Array<{ lot_owner_id: string; already_submitted: boolean }>;
+          const lots = JSON.parse(raw) as Array<{ lot_owner_id: string; already_submitted: boolean; voted_motion_ids: string[] }>;
           const updated = lots.map((l) =>
-            l.lot_owner_id === lotAId ? { ...l, already_submitted: true } : l
+            l.lot_owner_id === lotAId
+              ? { ...l, already_submitted: true, voted_motion_ids: [motionIdVal] }
+              : l
           );
           sessionStorage.setItem(key, JSON.stringify(updated));
         } catch {
           // ignore
         }
       },
-      [crlMeetingId, lotA!.lot_owner_id]
+      [crlMeetingId, lotA!.lot_owner_id, motionId]
     );
 
     // Step 5: Navigate to the confirmation page directly (session already active in the browser).
