@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     email_override: str = ""
     environment: str = "development"
 
+    # DB connection pool settings — tuned for serverless Lambda.
+    # Override via DB_POOL_SIZE / DB_MAX_OVERFLOW / DB_POOL_TIMEOUT env vars
+    # when running in environments with different Neon connection limits.
+    db_pool_size: int = 2
+    db_max_overflow: int = 3
+    db_pool_timeout: int = 10
+
     @field_validator("admin_password")
     @classmethod
     def admin_password_must_be_bcrypt(cls, v: str) -> str:

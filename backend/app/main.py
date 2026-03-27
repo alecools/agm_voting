@@ -1,7 +1,10 @@
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
@@ -82,8 +85,33 @@ def create_app() -> FastAPI:
     app.include_router(admin_auth_router, prefix="/api/admin")
     app.include_router(admin_router, prefix="/api/admin")
 
+    from app.database import get_db
+
     @app.get("/api/health")
-    async def health() -> dict:
+    async def health(db: AsyncSession = Depends(get_db)) -> dict:
+        """Health check that verifies live database connectivity.
+
+        Executes SELECT 1 with a 2-second timeout.
+        Returns 200 {"status": "ok", "db": "connected"} when the DB is reachable.
+        Returns 503 {"status": "degraded", "db": "unreachable", "error": "..."} on
+        any DB failure or timeout.
+        """
+        try:
+            await asyncio.wait_for(db.execute(select(1)), timeout=2.0)
+            return {"status": "ok", "db": "connected"}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"status": "degraded", "db": "unreachable", "error": str(exc)},
+            )
+
+    @app.get("/api/health/live")
+    async def health_live() -> dict:
+        """Process liveness probe — always returns 200 without touching the DB.
+
+        Use this endpoint for container/Lambda process-level liveness checks that
+        must never fail due to transient DB issues.
+        """
         return {"status": "ok"}
 
     return app
