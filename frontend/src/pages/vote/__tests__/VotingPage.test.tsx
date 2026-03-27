@@ -2241,7 +2241,7 @@ describe("VotingPage", () => {
       unvoted_visible_count: 2,
       session_token: "refreshed-token",
     });
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token-abc");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token-abc"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to verify restoreSession is called on mount when a token exists
     renderPage();
     await waitFor(() => {
       expect(restoreSessionSpy).toHaveBeenCalledWith({
@@ -2266,7 +2266,7 @@ describe("VotingPage", () => {
     const restoreSessionSpy = vi.spyOn(voterApi, "restoreSession").mockRejectedValue(
       new Error("Session expired")
     );
-    localStorage.setItem(`agm_session_${AGM_ID}`, "expired-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "expired-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage with an expired token to verify graceful rejection handling
     renderPage();
     // Page should still render motions normally after the rejection
     await waitFor(() => {
@@ -2293,7 +2293,7 @@ describe("VotingPage", () => {
       unvoted_visible_count: 2,
       session_token: "refreshed-token",
     });
-    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token");
+    localStorage.setItem(`agm_session_${AGM_ID}`, "valid-token"); // nosemgrep: no-localstorage-session-token -- test setup: seeding localStorage to simulate restoreSession being triggered on mount
     // Stale sessionStorage: both lots marked as already_submitted with old voted_motion_ids
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,

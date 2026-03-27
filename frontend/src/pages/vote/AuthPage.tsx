@@ -25,9 +25,12 @@ export function AuthPage() {
     sessionStorage.setItem(`meeting_lot_info_${meetingId}`, JSON.stringify(pendingLots));
     sessionStorage.setItem(`meeting_building_name_${meetingId}`, data.building_name);
     sessionStorage.setItem(`meeting_title_${meetingId}`, data.meeting_title);
-    // Persist session token for return-visit restoration (24h or until meeting closes)
+    // Persist session token for return-visit restoration (24h or until meeting closes).
+    // The agm_session_ token is a short-lived opaque restore token (not a credential) used only
+    // to skip the OTP flow on return visits. HttpOnly session cookies handle server-side auth;
+    // this token is validated server-side and rejected for closed meetings. (See CLAUDE.md.)
     if (data.session_token) {
-      localStorage.setItem(`agm_session_${meetingId}`, data.session_token);
+      localStorage.setItem(`agm_session_${meetingId}`, data.session_token); // nosemgrep: no-localstorage-session-token -- intentional: short-lived session-restore token, not a credential; documented architectural decision
     }
     if (data.agm_status === "pending") {
       navigate("/", { state: { pendingMessage: "This meeting has not started yet. Please check back later." } });

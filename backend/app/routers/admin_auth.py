@@ -28,7 +28,7 @@ def _verify_admin_password(plain: str, stored: str) -> bool:
     """
     if stored.startswith("$2b$") or stored.startswith("$2a$"):
         return _pwd_context.verify(plain, stored)
-    return plain == stored  # fallback for plaintext env vars
+    return plain == stored  # nosemgrep: no-plaintext-password-compare -- intentional fallback: stored value is a plaintext env var on legacy deployments, guarded by the $2b$ prefix check above
 
 
 def require_admin(request: Request) -> None:

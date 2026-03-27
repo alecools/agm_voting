@@ -85,3 +85,17 @@ Before writing any frontend component or editing existing ones, read the design 
 
 ### Persona journeys and domain scenarios
 Persona journeys and key domain test scenarios are in CLAUDE.md `## Domain Knowledge`. When your change touches an existing journey, update those tests rather than only adding new ones.
+
+## Security Standards
+
+**Before committing**, run the security scans and fix any findings:
+```bash
+# Backend
+cd backend && uv run bandit -r app/ -c pyproject.toml -ll
+semgrep --config .semgrep/rules.yml backend/app/
+# Frontend
+cd frontend && npm run lint:security
+semgrep --config .semgrep/rules.yml frontend/src/
+```
+
+If Semgrep reports a finding on a line that is a legitimate false positive, suppress it with an inline `# nosemgrep: <rule-id>` comment (Python) or `// nosemgrep: <rule-id>` (TypeScript/JavaScript) and include a brief justification. Do not suppress findings in production code without a clear rationale.

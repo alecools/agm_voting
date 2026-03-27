@@ -29,7 +29,7 @@ class Motion(Base):
             "general_meeting_id",
             "motion_number",
             unique=True,
-            postgresql_where=text("motion_number IS NOT NULL"),
+            postgresql_where=text("motion_number IS NOT NULL"),  # nosemgrep: raw-sql-requires-comment -- partial index WHERE predicate; SQLAlchemy ORM has no non-text() alternative for database-level partial index expressions
         ),
     )
 
@@ -55,7 +55,7 @@ class Motion(Base):
         Boolean,
         nullable=False,
         default=True,
-        server_default=sa.text("true"),
+        server_default=sa.text("true"),  # nosemgrep: raw-sql-requires-comment -- server_default for boolean column; SQLAlchemy requires text() to emit a literal SQL expression as a column default
     )
 
     # Relationships

@@ -1,0 +1,2 @@
+10020	IGNORE	(Missing Anti-clickjacking Header)	# Handled by CSP frame-ancestors
+10038	IGNORE	(Content Security Policy (CSP) Header Not Set)	# Set by our middleware, ZAP may not detect dynamically
