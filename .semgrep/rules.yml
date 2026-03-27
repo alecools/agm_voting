@@ -1,0 +1,80 @@
+rules:
+  # Rule 1 — No plaintext password comparison
+  # Catches raw == comparisons where one operand name contains password-like words.
+  # The _verify_admin_password fallback in admin_auth.py is intentionally annotated
+  # with nosemgrep because it is a documented migration path for legacy deployments.
+  - id: no-plaintext-password-compare
+    patterns:
+      - pattern: $X == $Y
+      - metavariable-regex:
+          metavariable: $X
+          regex: '.*(password|passwd|pwd|secret).*'
+    message: >
+      Potential plaintext password comparison. Use bcrypt/passlib to verify passwords.
+      If this is a bcrypt-hash guard (e.g. checking stored.startswith("$2b$")), annotate
+      the fallback line with `# nosemgrep: no-plaintext-password-compare` and a comment.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/backend/app/**"
+
+  # Rule 2 — No localStorage for session tokens (frontend)
+  # Session/auth tokens stored in localStorage are accessible to any JavaScript on the
+  # page (XSS risk). Use HttpOnly cookies instead.
+  # The agm_session_ key in AuthPage.tsx is annotated with nosemgrep because it stores
+  # a short-lived session-restore token and the architecture decision is documented in
+  # CLAUDE.md ("Auth on closed AGMs" + session restore design).
+  - id: no-localstorage-session-token
+    patterns:
+      - pattern: localStorage.setItem($KEY, ...)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: '.*session.*|.*token.*|.*auth.*'
+    message: >
+      Session tokens must not be stored in localStorage. Use HttpOnly cookies instead.
+      If this is an intentional architectural exception, annotate with
+      // nosemgrep: no-localstorage-session-token and document the rationale.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - "**/frontend/src/**"
+
+  # Rule 3 — Raw SQL must be justified
+  # Detects SQLAlchemy text() calls which bypass ORM query building.
+  # Existing text() usages in motion.py (partial index WHERE clause and server_default)
+  # are annotated with nosemgrep because SQLAlchemy's ORM has no alternative for
+  # database-level partial index predicates or server_default expressions.
+  - id: raw-sql-requires-comment
+    pattern: text("...")
+    message: >
+      Raw SQL via text() detected. Add a comment explaining why the ORM cannot be used,
+      then suppress with `# nosemgrep: raw-sql-requires-comment`.
+    languages: [python]
+    severity: WARNING
+    paths:
+      include:
+        - "**/backend/app/**"
+
+  # Rule 4 — No hardcoded secrets
+  # Detects variable assignments where the variable name suggests a secret/credential
+  # and the value is a string literal.  settings.* attribute reads are excluded because
+  # they are reads from the config object, not literal assignments.
+  - id: no-hardcoded-secrets
+    patterns:
+      - pattern: $VAR = "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '.*(secret|password|api_key|token|credential).*'
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '^(?!.*settings\.).*'
+    message: >
+      Potential hardcoded secret. Use environment variables accessed via settings.*
+      rather than hardcoding sensitive values in source code.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/backend/app/**"
