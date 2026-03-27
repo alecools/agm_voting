@@ -89,6 +89,11 @@ describe("AuthForm — step 1 (email)", () => {
   });
 
   // --- US-ACC-08: Required field markers ---
+  it("shows '* Required field' legend in step 1 form", () => {
+    render(<AuthForm {...step1Props()} />);
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
   it("email input has aria-required=true", () => {
     render(<AuthForm {...step1Props()} />);
     expect(screen.getByLabelText("Email address")).toHaveAttribute("aria-required", "true");
@@ -215,6 +220,11 @@ describe("AuthForm — step 2 (code)", () => {
   });
 
   // --- US-ACC-08: Required field markers ---
+  it("shows '* Required field' legend in step 2 form", () => {
+    render(<AuthForm {...step2Props()} />);
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
   it("verification code input has aria-required=true", () => {
     render(<AuthForm {...step2Props()} />);
     expect(screen.getByLabelText("Verification code")).toHaveAttribute("aria-required", "true");

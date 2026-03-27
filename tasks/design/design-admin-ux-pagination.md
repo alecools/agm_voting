@@ -136,6 +136,8 @@ placed as the first focusable element before the header/nav. The `<main>` elemen
 
 The existing `BuildingTable` / `GeneralMeetingTable` components already handle their own `isLoading` skeleton state for the initial load; the opacity fade is specifically for subsequent page-change fetches.
 
+**MVP note (design review finding):** The current implementation uses an opacity fade as a minimal loading indicator during page-change fetches. The PRD specifies spinner or skeleton rows as the full implementation. The opacity fade satisfies the requirement that "the UI does not silently go blank" and prevents double-clicks via disabled pagination controls. A future improvement (`TODO: RR2-07-full`) would replace the opacity wrapper with a `TableSkeleton` component (skeleton rows matching the visible row count) that shows while `isLoading && buildings.length > 0` (subsequent fetches). The initial empty-state skeleton already exists inside `BuildingTable`/`GeneralMeetingTable` via their own `isLoading` prop and is not affected by this change.
+
 ---
 
 ## No schema migrations required

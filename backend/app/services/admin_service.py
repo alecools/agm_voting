@@ -1439,7 +1439,8 @@ async def add_motion_to_meeting(
         )
     )
     max_index = max_result.scalar_one_or_none()
-    next_index = (max_index + 1) if max_index is not None else 0
+    # display_order starts at 1 for the first motion (not 0)
+    next_index = (max_index + 1) if max_index is not None else 1
 
     # Auto-assign motion_number from next display_order when the field is absent or blank.
     # The frontend may send null or "" when the user leaves the field empty — treat both

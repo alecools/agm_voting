@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { listBuildings, getBuildingsCount, createBuilding } from "../../api/admin";
@@ -7,6 +7,9 @@ import BuildingTable from "../../components/admin/BuildingTable";
 import BuildingCSVUpload from "../../components/admin/BuildingCSVUpload";
 import Pagination from "../../components/admin/Pagination";
 import { useState } from "react";
+
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_SIZE = 20;
 
@@ -18,6 +21,20 @@ export default function BuildingsPage() {
   const [name, setName] = useState("");
   const [managerEmail, setManagerEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const newBuildingBtnRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // US-ACC-02: Focus trap for New Building modal
+  useEffect(() => {
+    if (!showCreateModal) return;
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) {
+      focusable[0].focus();
+    }
+    return () => {
+      newBuildingBtnRef.current?.focus();
+    };
+  }, [showCreateModal]);
 
   // RR2-06: Read page from URL search params; default to 1
   const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
@@ -110,6 +127,24 @@ export default function BuildingsPage() {
     mutation.mutate({ name: name.trim(), manager_email: managerEmail.trim() });
   }
 
+  function handleModalKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") {
+      closeModal();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    /* c8 ignore next -- defensive guard; the New Building modal always has focusable elements */
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
   function handleCSVSuccess() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "buildings"] });
   }
@@ -132,7 +167,7 @@ export default function BuildingsPage() {
             <span className="toggle-switch__track" />
             Show archived
           </label>
-          <button className="btn btn--primary" onClick={openModal}>
+          <button ref={newBuildingBtnRef} className="btn btn--primary" onClick={openModal}>
             + New Building
           </button>
         </div>
@@ -147,9 +182,11 @@ export default function BuildingsPage() {
           />
           {/* Panel */}
           <div
+            ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-label="New Building"
+            onKeyDown={handleModalKeyDown}
             style={{
               position: "fixed",
               top: "50%",
@@ -164,6 +201,9 @@ export default function BuildingsPage() {
             }}
           >
             <h3 className="admin-card__title">New Building</h3>
+            <p className="field__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
             <form onSubmit={handleSubmit} noValidate>
               <div className="field">
                 <label className="field__label field__label--required" htmlFor="building-name">Building Name</label>

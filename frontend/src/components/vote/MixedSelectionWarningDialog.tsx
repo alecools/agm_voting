@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { LotInfo } from "../../api/voter";
 
 interface MixedSelectionWarningDialogProps {
@@ -6,17 +7,55 @@ interface MixedSelectionWarningDialogProps {
   onGoBack: () => void;
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function MixedSelectionWarningDialog({
   differingLots,
   onContinue,
   onGoBack,
 }: MixedSelectionWarningDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) {
+      focusable[0].focus();
+    }
+    return () => {
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="mixed-warning-dialog-title"
       className="dialog-overlay"
+      ref={dialogRef}
+      onKeyDown={handleKeyDown}
     >
       <div className="dialog">
         <div className="dialog__icon dialog__icon--warning">⚠</div>

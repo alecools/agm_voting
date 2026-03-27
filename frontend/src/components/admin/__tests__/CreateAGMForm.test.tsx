@@ -221,4 +221,26 @@ describe("CreateGeneralMeetingForm", () => {
       expect(screen.getByText(/409/)).toBeInTheDocument();
     });
   });
+
+  // --- US-ACC-08: Required field legend and aria-required ---
+
+  it("shows '* Required field' legend", () => {
+    renderComponent();
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
+  it("AGM Title input has aria-required=true", () => {
+    renderComponent();
+    expect(screen.getByLabelText("Title", { selector: "#agm-title" })).toHaveAttribute("aria-required", "true");
+  });
+
+  it("Meeting Date / Time input has aria-required=true", () => {
+    renderComponent();
+    expect(screen.getByLabelText("Meeting Date / Time")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("Voting Closes At input has aria-required=true", () => {
+    renderComponent();
+    expect(screen.getByLabelText("Voting Closes At")).toHaveAttribute("aria-required", "true");
+  });
 });

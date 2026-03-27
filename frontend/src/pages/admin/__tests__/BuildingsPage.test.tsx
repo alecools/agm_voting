@@ -458,6 +458,64 @@ describe("BuildingsPage", () => {
     expect(screen.queryByText("Active Building 1")).not.toBeInTheDocument();
   });
 
+  // --- US-ACC-02: Focus trap in New Building modal ---
+
+  it("pressing Escape key closes the New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New Building" })).not.toBeInTheDocument();
+  });
+
+  it("Tab key wraps focus from last to first element in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const createBtn = screen.getByRole("button", { name: "Create Building" });
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    // Tab past last focusable (Cancel) should wrap to first
+    cancelBtn.focus();
+    await user.tab();
+    // First focusable is Building Name input
+    expect(screen.getByLabelText("Building Name")).toHaveFocus();
+    // Tab past Create Building (last before Cancel) wraps
+    createBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("Shift+Tab from first element wraps to last in New Building modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const nameInput = screen.getByLabelText("Building Name");
+    nameInput.focus();
+    await user.tab({ shift: true });
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("modal shows Required field legend", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    expect(screen.getByText(/Required field/)).toBeInTheDocument();
+  });
+
   // --- US-ACC-08: Required field markers ---
 
   it("building name input in modal has aria-required=true", async () => {

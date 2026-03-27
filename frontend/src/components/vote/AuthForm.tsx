@@ -78,6 +78,9 @@ export function AuthForm({
 
         {step === "email" && (
           <form onSubmit={handleRequestOtp} noValidate>
+            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
             <div className="field">
               <label className="field__label field__label--required" htmlFor="email">Email address</label>
               <input
@@ -117,6 +120,9 @@ export function AuthForm({
 
         {step === "code" && (
           <form onSubmit={handleVerify} noValidate>
+            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+              <span aria-hidden="true">*</span> Required field
+            </p>
             <div className="field">
               <label className="field__label field__label--required" htmlFor="otp-code">Verification code</label>
               <input

@@ -86,6 +86,37 @@ describe("StartGeneralMeetingButton", () => {
     });
   });
 
+  // --- US-ACC-02: Focus trap ---
+
+  it("focuses first button inside dialog when it opens", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Start Meeting" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("wraps Tab focus from last to first button inside dialog", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Start Meeting" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const confirmBtn = screen.getByRole("button", { name: "Confirm Start" });
+    confirmBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("wraps Shift+Tab from first to last button inside dialog", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Start Meeting" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const confirmBtn = screen.getByRole("button", { name: "Confirm Start" });
+    cancelBtn.focus();
+    await user.tab({ shift: true });
+    expect(confirmBtn).toHaveFocus();
+  });
+
   it("Cancel button clears error state when reopened", async () => {
     server.use(
       http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/start", () => {

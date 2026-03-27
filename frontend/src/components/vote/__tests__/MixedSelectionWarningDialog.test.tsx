@@ -113,6 +113,51 @@ describe("MixedSelectionWarningDialog", () => {
     expect(onGoBack).toHaveBeenCalledOnce();
   });
 
+  // --- US-ACC-02: Focus trap ---
+
+  it("focuses first button on mount", () => {
+    render(
+      <MixedSelectionWarningDialog
+        differingLots={[makeLot("1")]}
+        onContinue={() => {}}
+        onGoBack={() => {}}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Go back to lot selection" })).toHaveFocus();
+  });
+
+  it("wraps Tab focus from last to first button", async () => {
+    const user = userEvent.setup();
+    render(
+      <MixedSelectionWarningDialog
+        differingLots={[makeLot("1")]}
+        onContinue={() => {}}
+        onGoBack={() => {}}
+      />
+    );
+    const goBackBtn = screen.getByRole("button", { name: "Go back to lot selection" });
+    const continueBtn = screen.getByRole("button", { name: "Continue" });
+    continueBtn.focus();
+    await user.tab();
+    expect(goBackBtn).toHaveFocus();
+  });
+
+  it("wraps Shift+Tab focus from first to last button", async () => {
+    const user = userEvent.setup();
+    render(
+      <MixedSelectionWarningDialog
+        differingLots={[makeLot("1")]}
+        onContinue={() => {}}
+        onGoBack={() => {}}
+      />
+    );
+    const goBackBtn = screen.getByRole("button", { name: "Go back to lot selection" });
+    const continueBtn = screen.getByRole("button", { name: "Continue" });
+    goBackBtn.focus();
+    await user.tab({ shift: true });
+    expect(continueBtn).toHaveFocus();
+  });
+
   // --- Edge cases ---
 
   it("renders with empty differingLots without crashing", () => {

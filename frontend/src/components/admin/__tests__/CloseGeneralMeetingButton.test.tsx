@@ -52,6 +52,37 @@ describe("CloseGeneralMeetingButton", () => {
     expect(screen.queryByText(/This cannot be undone/)).not.toBeInTheDocument();
   });
 
+  // --- US-ACC-02: Focus trap ---
+
+  it("focuses first button inside dialog when it opens", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Close Voting" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("wraps Tab focus from last to first button inside dialog", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Close Voting" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const confirmBtn = screen.getByRole("button", { name: "Confirm Close" });
+    confirmBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("wraps Shift+Tab from first to last button inside dialog", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Close Voting" }));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    const confirmBtn = screen.getByRole("button", { name: "Confirm Close" });
+    cancelBtn.focus();
+    await user.tab({ shift: true });
+    expect(confirmBtn).toHaveFocus();
+  });
+
   it("shows error message when close fails", async () => {
     server.use(
       http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/close", () => {

@@ -66,14 +66,19 @@ export default function CreateGeneralMeetingForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="admin-form">
+    <form onSubmit={handleSubmit} className="admin-form" noValidate>
+      <p className="field__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+        <span aria-hidden="true">*</span> Required field
+      </p>
       <div className="field">
-        <label className="field__label" htmlFor="agm-building">Building</label>
+        <label className="field__label field__label--required" htmlFor="agm-building">Building</label>
         <select
           id="agm-building"
           className="field__select"
           value={buildingId}
           onChange={(e) => setBuildingId(e.target.value)}
+          aria-required="true"
+          required
         >
           <option value="">-- Select a building --</option>
           {activeBuildings.map((b) => (
@@ -83,35 +88,41 @@ export default function CreateGeneralMeetingForm() {
       </div>
 
       <div className="field">
-        <label className="field__label" htmlFor="agm-title">Title</label>
+        <label className="field__label field__label--required" htmlFor="agm-title">Title</label>
         <input
           id="agm-title"
           className="field__input"
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          aria-required="true"
+          required
         />
       </div>
 
       <div className="field">
-        <label className="field__label" htmlFor="agm-meeting-at">Meeting Date / Time</label>
+        <label className="field__label field__label--required" htmlFor="agm-meeting-at">Meeting Date / Time</label>
         <input
           id="agm-meeting-at"
           className="field__input"
           type="datetime-local"
           value={meetingAt}
           onChange={(e) => setMeetingAt(e.target.value)}
+          aria-required="true"
+          required
         />
       </div>
 
       <div className="field">
-        <label className="field__label" htmlFor="agm-voting-closes-at">Voting Closes At</label>
+        <label className="field__label field__label--required" htmlFor="agm-voting-closes-at">Voting Closes At</label>
         <input
           id="agm-voting-closes-at"
           className="field__input"
           type="datetime-local"
           value={votingClosesAt}
           onChange={(e) => setVotingClosesAt(e.target.value)}
+          aria-required="true"
+          required
         />
       </div>
 
