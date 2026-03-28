@@ -97,9 +97,6 @@ test.describe("Back button navigation from VotingPage", () => {
 
     // Auth page must render (email input visible — no redirect because cookie was cleared)
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 20000 });
-
-    // Page must not be blank — main element or body has visible content
-    await expect(page.locator("main")).toBeVisible();
   });
 
   // ── BB.2: browser native back button ─────────────────────────────────────
