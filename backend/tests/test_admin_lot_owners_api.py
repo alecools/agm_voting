@@ -236,6 +236,28 @@ class TestImportLotOwners:
         assert data["imported"] == 1
         assert data["emails"] == 0
 
+    async def test_import_email_normalised_to_lowercase(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Emails imported in mixed case are stored as lowercase."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["LOWER-CSV", "UPPER@TEST.COM", "50"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        owners_response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        owners = owners_response.json()
+        emails = [e for o in owners for e in o["emails"]]
+        assert "upper@test.com" in emails
+        assert "UPPER@TEST.COM" not in emails
+
     async def test_import_replaces_existing_owners(
         self, client: AsyncClient, building: Building, db_session: AsyncSession
     ):
@@ -617,6 +639,19 @@ class TestAddLotOwner:
         assert response.status_code == 201
         assert response.json()["unit_entitlement"] == 0
 
+    async def test_email_normalised_to_lowercase(
+        self, client: AsyncClient, building: Building
+    ):
+        """Email submitted in mixed case is stored as lowercase."""
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners",
+            json={"lot_number": "LOWER01", "emails": ["UPPER@TEST.COM"], "unit_entitlement": 10},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "upper@test.com" in data["emails"]
+        assert "UPPER@TEST.COM" not in data["emails"]
+
     # --- Input validation ---
 
     async def test_negative_unit_entitlement_returns_422(
@@ -883,6 +918,24 @@ class TestAddEmailToLotOwner:
             json={"email": ""},
         )
         assert response.status_code == 422
+
+    async def test_add_email_normalised_to_lowercase(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """Email submitted in mixed case is stored as lowercase."""
+        lo = LotOwner(building_id=building.id, lot_number="EM04", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/emails",
+            json={"email": "UPPER@TEST.COM"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "upper@test.com" in data["emails"]
+        assert "UPPER@TEST.COM" not in data["emails"]
 
     # --- State / precondition errors ---
 

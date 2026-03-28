@@ -31,7 +31,7 @@ export function AuthForm({
       return;
     }
     setEmailError("");
-    onRequestOtp(email.trim());
+    onRequestOtp(email.trim().toLowerCase());
   };
 
   const handleVerify = (e: React.FormEvent) => {

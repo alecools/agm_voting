@@ -50,6 +50,15 @@ describe("AuthForm — step 1 (email)", () => {
     expect(onRequestOtp).toHaveBeenCalledWith("owner@example.com");
   });
 
+  it("calls onRequestOtp with lowercase email when mixed-case input submitted", async () => {
+    const user = userEvent.setup();
+    const onRequestOtp = vi.fn();
+    render(<AuthForm {...step1Props({ onRequestOtp })} />);
+    await user.type(screen.getByLabelText("Email address"), "Owner@Example.COM");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    expect(onRequestOtp).toHaveBeenCalledWith("owner@example.com");
+  });
+
   // --- Input validation ---
   it("shows email validation error when email is empty", async () => {
     const user = userEvent.setup();

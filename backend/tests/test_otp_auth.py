@@ -651,6 +651,37 @@ class TestRequestOtp:
         assert rl_record is not None
         assert rl_record.attempt_count == 1
 
+    async def test_request_otp_uppercase_email_normalised_to_lowercase(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Email submitted in mixed case is normalised to lowercase before OTP lookup and storage."""
+        agm = building_and_meeting["agm"]
+        # voter_email stored in DB is lowercase ("otp_voter@test.com")
+        upper_email = "OTP_VOTER@TEST.COM"
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send:
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": upper_email, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"sent": True}
+        # The OTP email was sent to the normalised address
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args
+        assert call_kwargs.kwargs["to_email"] == "otp_voter@test.com"
+
+        # OTP row stored with lowercase email
+        result = await db_session.execute(
+            select(AuthOtp).where(
+                AuthOtp.email == "otp_voter@test.com",
+                AuthOtp.meeting_id == agm.id,
+            )
+        )
+        otp = result.scalar_one_or_none()
+        assert otp is not None
+
 
 # ---------------------------------------------------------------------------
 # GET /api/test/latest-otp

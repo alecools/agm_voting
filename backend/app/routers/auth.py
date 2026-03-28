@@ -205,6 +205,9 @@ async def request_otp(
     Send a one-time verification code to the voter's email.
     Always returns 200 {"sent": true} to prevent email enumeration.
     """
+    # Normalise email to lowercase for case-insensitive matching
+    body = body.model_copy(update={"email": body.email.strip().lower()})
+
     # 1. Fetch the GeneralMeeting
     meeting_result = await db.execute(
         select(GeneralMeeting).where(GeneralMeeting.id == body.general_meeting_id)
@@ -336,6 +339,9 @@ async def verify_auth(
     AND lots where this email is a nominated proxy.
     Returns the merged list of lots along with their submission status.
     """
+    # Normalise email to lowercase for case-insensitive matching
+    request = request.model_copy(update={"email": request.email.strip().lower()})
+
     # 1. Fetch the GeneralMeeting to derive building_id
     meeting_result = await db.execute(
         select(GeneralMeeting).where(

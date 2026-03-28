@@ -170,7 +170,7 @@ function EditModal({
 
   function handleAddEmail() {
     setEmailError(null);
-    const trimmed = newEmail.trim();
+    const trimmed = newEmail.trim().toLowerCase();
     if (!trimmed) {
       setEmailError("Email is required.");
       return;
@@ -184,10 +184,6 @@ function EditModal({
 
   function handleRemoveEmail(email: string) {
     setEmailError(null);
-    if (emails.length <= 1) {
-      setEmailError("A lot owner must have at least one email address.");
-      return;
-    }
     removeEmailMutation.mutate(email);
   }
 
@@ -466,18 +462,14 @@ function AddForm({
       setFormError("Lot number is required.");
       return;
     }
-    if (!email.trim()) {
-      setFormError("Email is required.");
-      return;
-    }
-    if (!isValidEmail(email)) {
+    if (email.trim() && !isValidEmail(email)) {
       setFormError("Please enter a valid email address.");
       return;
     }
 
     addMutation.mutate({
       lot_number: lotNumber,
-      emails: [email],
+      emails: email.trim() ? [email.trim().toLowerCase()] : [],
       unit_entitlement: parsed,
       financial_position: financialPosition,
     });
@@ -531,10 +523,11 @@ function AddForm({
             <input
               id="lot-email"
               className="field__input"
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
+            <span className="field__hint">Leave blank if no email address</span>
           </div>
 
           <div className="field">

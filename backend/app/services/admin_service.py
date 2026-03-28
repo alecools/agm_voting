@@ -574,7 +574,7 @@ async def import_lot_owners_from_csv(
                 # Use values from first occurrence
                 pass
             for addr in email.split(";"):
-                addr = addr.strip()
+                addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
 
@@ -689,7 +689,7 @@ async def import_lot_owners_from_excel(
                     "emails": set(),
                 }
             for addr in email.split(";"):
-                addr = addr.strip()
+                addr = addr.strip().lower()
                 if addr:
                     lot_data[lot_number]["emails"].add(addr)
 
@@ -788,8 +788,9 @@ async def add_lot_owner(
     email_strs = []
     for email in data.emails:
         if email.strip():
-            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=email.strip()))
-            email_strs.append(email.strip())
+            normalised = email.strip().lower()
+            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=normalised))
+            email_strs.append(normalised)
 
     await db.commit()
 
@@ -851,6 +852,8 @@ async def add_email_to_lot_owner(
     lot_owner = result.scalar_one_or_none()
     if lot_owner is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    email = email.strip().lower()
 
     # Check if email already exists for this lot owner
     existing = await db.execute(

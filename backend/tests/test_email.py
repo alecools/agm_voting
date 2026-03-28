@@ -247,14 +247,14 @@ class TestEmailTemplateRendering:
                     },
                     "voter_lists": {
                         "yes": [
-                            {"voter_email": "alice@example.com", "entitlement": 100},
-                            {"voter_email": "bob@example.com", "entitlement": 100},
+                            {"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100},
+                            {"voter_email": "bob@example.com", "lot_number": "1B", "entitlement": 100},
                         ],
-                        "no": [{"voter_email": "carol@example.com", "entitlement": 50}],
+                        "no": [{"voter_email": "carol@example.com", "lot_number": "2A", "entitlement": 50}],
                         "abstained": [],
                         "absent": [
-                            {"voter_email": "dave@example.com", "entitlement": 75},
-                            {"voter_email": "eve@example.com", "entitlement": 75},
+                            {"voter_email": "dave@example.com", "lot_number": "3A", "entitlement": 75},
+                            {"voter_email": "eve@example.com", "lot_number": "3B", "entitlement": 75},
                         ],
                     },
                 }
@@ -311,6 +311,13 @@ class TestEmailTemplateRendering:
         html = self._render_template(self._default_context())
         assert "dave@example.com" in html
 
+    def test_renders_lot_number_in_voter_rows(self):
+        html = self._render_template(self._default_context())
+        # Lot number should appear alongside voter email in each vote row
+        assert "Lot 1A" in html
+        assert "Lot 2A" in html
+        assert "Lot 3A" in html
+
     def test_null_description_handled_gracefully(self):
         ctx = self._default_context()
         ctx["motions"][0]["description"] = None
@@ -331,7 +338,7 @@ class TestEmailTemplateRendering:
                     "absent": {"voter_count": 2, "entitlement_sum": 150},
                 },
                 "voter_lists": {
-                    "yes": [{"voter_email": "alice@example.com", "entitlement": 100}],
+                    "yes": [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
                     "no": [],
                     "abstained": [],
                     "absent": [],

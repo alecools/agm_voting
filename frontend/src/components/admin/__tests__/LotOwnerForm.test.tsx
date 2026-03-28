@@ -105,14 +105,18 @@ describe("LotOwnerForm - Add mode", () => {
     expect(screen.getByText("Lot number is required.")).toBeInTheDocument();
   });
 
-  it("shows validation error when email is empty", async () => {
+  it("submits add form with no email and calls onSuccess", async () => {
     const user = userEvent.setup();
-    renderAddForm();
+    const onSuccess = vi.fn();
+    renderAddForm(onSuccess);
     await user.type(screen.getByLabelText("Lot Number"), "5E");
     await user.clear(screen.getByLabelText("Unit Entitlement"));
     await user.type(screen.getByLabelText("Unit Entitlement"), "100");
+    // email left blank intentionally
     await user.click(screen.getByRole("button", { name: "Add Lot Owner" }));
-    expect(screen.getByText("Email is required.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
   });
 
   it("shows validation error for malformed email format", async () => {
@@ -128,10 +132,15 @@ describe("LotOwnerForm - Add mode", () => {
     expect(screen.getByText("Please enter a valid email address.")).toBeInTheDocument();
   });
 
-  it("email input in add form has type=email", () => {
+  it("email input in add form has type=text (allows empty submission)", () => {
     renderAddForm();
     const emailInput = screen.getByLabelText("Email");
-    expect(emailInput).toHaveAttribute("type", "email");
+    expect(emailInput).toHaveAttribute("type", "text");
+  });
+
+  it("shows hint text below email input", () => {
+    renderAddForm();
+    expect(screen.getByText("Leave blank if no email address")).toBeInTheDocument();
   });
 
   it("shows validation error when unit entitlement is not a number", async () => {
@@ -495,6 +504,25 @@ describe("LotOwnerForm - Edit modal email management", () => {
     });
   });
 
+  it("normalises email to lowercase before calling add email API", async () => {
+    let capturedEmail: string | undefined;
+    server.use(
+      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails", async ({ request }) => {
+        const body = await request.json() as { email?: string };
+        capturedEmail = body?.email;
+        const updated = { ...existingLotOwner, emails: [...existingLotOwner.emails, capturedEmail ?? ""] };
+        return HttpResponse.json(updated);
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Add email"), "UPPER@EXAMPLE.COM");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      expect(capturedEmail).toBe("upper@example.com");
+    });
+  });
+
   it("renders Remove button for each email", () => {
     renderEditForm(multiEmailOwner);
     const removeButtons = screen.getAllByRole("button", { name: /^Remove / });
@@ -512,13 +540,16 @@ describe("LotOwnerForm - Edit modal email management", () => {
     });
   });
 
-  it("blocks removal of the last email with a validation error", async () => {
+  it("allows removal of the last email (zero-email owners are valid)", async () => {
     const user = userEvent.setup();
     renderEditForm(existingLotOwner); // only one email
     await user.click(screen.getByRole("button", { name: "Remove owner1@example.com" }));
+    await waitFor(() => {
+      expect(screen.queryByText("owner1@example.com")).not.toBeInTheDocument();
+    });
     expect(
-      screen.getByText("A lot owner must have at least one email address.")
-    ).toBeInTheDocument();
+      screen.queryByText("A lot owner must have at least one email address.")
+    ).not.toBeInTheDocument();
   });
 
   it("shows server error when remove email API fails", async () => {
