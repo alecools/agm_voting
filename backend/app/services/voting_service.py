@@ -56,12 +56,14 @@ async def save_draft(
     if effective == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
-    # Check not already submitted — check by lot_owner_id if provided, else by voter_email
+    # Check not already submitted — check by lot_owner_id if provided, else by voter_email.
+    # Exclude is_absent=True records (contact-email snapshots) — they are not real votes.
     if lot_owner_id is not None:
         submission_result = await db.execute(
             select(BallotSubmission).where(
                 BallotSubmission.general_meeting_id == general_meeting_id,
                 BallotSubmission.lot_owner_id == lot_owner_id,
+                BallotSubmission.is_absent == False,  # noqa: E712
             )
         )
     else:
@@ -69,6 +71,7 @@ async def save_draft(
             select(BallotSubmission).where(
                 BallotSubmission.general_meeting_id == general_meeting_id,
                 BallotSubmission.voter_email == voter_email,
+                BallotSubmission.is_absent == False,  # noqa: E712
             )
         )
     if submission_result.scalar_one_or_none() is not None:
@@ -212,13 +215,16 @@ async def submit_ballot(
                 )
             proxy_email_by_lot[lot_owner_id] = voter_email
 
-    # Get existing submissions for these lots — use SELECT FOR UPDATE to serialize
+    # Get existing real submissions for these lots — use SELECT FOR UPDATE to serialize
     # concurrent requests on the same (meeting, lot) rows and prevent double-submission.
+    # Exclude is_absent=True records so absent-lot snapshots don't block re-voting
+    # (which is anyway prevented earlier by the meeting-closed 403 check).
     existing_subs_result = await db.execute(
         select(BallotSubmission)
         .where(
             BallotSubmission.general_meeting_id == general_meeting_id,
             BallotSubmission.lot_owner_id.in_(lot_owner_ids),
+            BallotSubmission.is_absent == False,  # noqa: E712
         )
         .with_for_update()
     )
@@ -486,11 +492,15 @@ async def get_my_ballot(
     all_lot_owner_ids_set = set(direct_lot_owner_ids) | set(proxy_lot_owner_ids)
     all_lot_owner_ids = list(all_lot_owner_ids_set)
 
-    # Get all submissions for this General Meeting and voter
+    # Get all real (non-absent) submissions for this General Meeting and voter.
+    # Absent BallotSubmission records (is_absent=True) are created at meeting close
+    # as a contact-email snapshot and must NOT be treated as actual votes here —
+    # an absent voter must still see "You did not submit a ballot".
     all_subs_result = await db.execute(
         select(BallotSubmission).where(
             BallotSubmission.general_meeting_id == general_meeting_id,
             BallotSubmission.lot_owner_id.in_(all_lot_owner_ids),
+            BallotSubmission.is_absent == False,  # noqa: E712
         )
     )
     all_subs = list(all_subs_result.scalars().all())
