@@ -6,7 +6,7 @@ description: Cleanup agent for the AGM voting app. Removes git worktrees, delete
 # AGM Cleanup Agent
 
 Extends the generic `cleanup` agent with AGM-specific infrastructure details.
-Read the generic agent at `~/.claude/agents/cleanup.md` for base protocol.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/cleanup.md` for base protocol.
 
 ## AGM-specific context
 

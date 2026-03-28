@@ -6,7 +6,7 @@ description: Design agent for the AGM voting app. Use this agent to update PRDs,
 # AGM Design Agent
 
 Extends the generic `design` agent with AGM-specific domain knowledge.
-Read the generic agent at `~/.claude/agents/design.md` for base protocol.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/design.md` for base protocol.
 
 ## AGM-specific context
 

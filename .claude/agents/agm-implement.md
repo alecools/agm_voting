@@ -6,7 +6,7 @@ description: Implementation agent for the AGM voting app. Use this agent to impl
 # AGM Implementation Agent
 
 Extends the generic `implement` agent with AGM-specific domain knowledge.
-Read the generic agent at `~/.claude/agents/implement.md` for base protocol.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/implement.md` for base protocol.
 
 Test commands, DB URLs, and paths are in CLAUDE.md `## Agent Configuration` and `## Commands`.
 

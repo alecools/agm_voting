@@ -6,7 +6,7 @@ description: Testing agent for the AGM voting app. Pushes a branch, waits for Ve
 # AGM Testing Agent
 
 Extends the generic `test` agent with AGM-specific infrastructure details.
-Read the generic agent at `~/.claude/agents/test.md` for base protocol.
+Read the generic agent at `~/Library/Application Support/Otter/claude-code-user/agents/test.md` for base protocol.
 
 ## AGM-specific context
 
