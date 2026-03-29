@@ -19,6 +19,7 @@ class MotionOut(BaseModel):
     is_visible: bool = True
     already_voted: bool = False
     submitted_choice: Optional[VoteChoice] = None
+    submitted_option_ids: list[uuid.UUID] = []
     option_limit: Optional[int] = None
     options: list[MotionOptionOut] = []
 

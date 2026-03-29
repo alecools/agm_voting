@@ -2484,6 +2484,80 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  it("seeds multiChoiceSelections from submitted_option_ids when MC motion is read-only", async () => {
+    // Fix 2: when the voter returns to the page and the MC motion is already voted,
+    // submitted_option_ids should restore the option checkboxes in read-only state.
+    const votedMcMotion = {
+      ...mcMotionFixtureVoter,
+      already_voted: true,
+      submitted_choice: "selected" as const,
+      submitted_option_ids: ["opt-alice", "opt-bob"],
+    };
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([votedMcMotion])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo-e2e",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: true,
+          is_proxy: false,
+          voted_motion_ids: [MOTION_ID_MC],
+        },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      // Alice and Bob checkboxes should be checked (seeded from submitted_option_ids)
+      expect(screen.getByLabelText("Alice")).toBeChecked();
+      expect(screen.getByLabelText("Bob")).toBeChecked();
+    });
+    // Carol should not be checked
+    expect(screen.getByLabelText("Carol")).not.toBeChecked();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("does not seed multiChoiceSelections when MC motion is not read-only", async () => {
+    // When the lot has not yet voted on the MC motion, submitted_option_ids
+    // should NOT pre-populate checkboxes even if the field is present.
+    const unvotedMcMotion = {
+      ...mcMotionFixtureVoter,
+      already_voted: false,
+      submitted_choice: null,
+      submitted_option_ids: ["opt-alice"],  // should be ignored (motion not read-only)
+    };
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([unvotedMcMotion])
+      )
+    );
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo-e2e",
+          lot_number: "1",
+          financial_position: "normal",
+          already_submitted: false,
+          is_proxy: false,
+          voted_motion_ids: [],
+        },
+      ])
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    });
+    // Alice checkbox should NOT be pre-checked since the motion is interactive
+    expect(screen.getByLabelText("Alice")).not.toBeChecked();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("includes multi_choice_votes in submit payload", async () => {
     const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
       submitted: true,

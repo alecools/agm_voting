@@ -99,9 +99,9 @@ async def list_motions(
 
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
 
-    # Get submitted vote motion IDs and choices for this voter's lots
+    # Get submitted vote motion IDs, choices, and option IDs for this voter's lots
     voted_result = await db.execute(
-        select(Vote.motion_id, Vote.choice).where(
+        select(Vote.motion_id, Vote.choice, Vote.motion_option_id).where(
             Vote.general_meeting_id == general_meeting_id,
             Vote.lot_owner_id.in_(all_lot_owner_ids),
             Vote.status == VoteStatus.submitted,
@@ -111,10 +111,15 @@ async def list_motions(
     # For multi-choice motions, use VoteChoice.selected as the submitted_choice sentinel
     # (indicates "you voted" without implying a specific binary choice).
     voted_choice_by_motion: dict[uuid.UUID, VoteChoice] = {}
-    for motion_id, choice in voted_result.all():
+    submitted_option_ids_by_motion: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for motion_id, choice, motion_option_id in voted_result.all():
         existing = voted_choice_by_motion.get(motion_id)
         if existing is None or existing == VoteChoice.not_eligible:
             voted_choice_by_motion[motion_id] = choice
+        if choice == VoteChoice.selected and motion_option_id is not None:
+            submitted_option_ids_by_motion.setdefault(motion_id, [])
+            if motion_option_id not in submitted_option_ids_by_motion[motion_id]:
+                submitted_option_ids_by_motion[motion_id].append(motion_option_id)
     voted_motion_ids = set(voted_choice_by_motion.keys())
 
     # Fetch motions that are visible OR already voted on by this voter
@@ -155,6 +160,7 @@ async def list_motions(
             is_visible=m.is_visible,
             already_voted=m.id in voted_motion_ids,
             submitted_choice=voted_choice_by_motion.get(m.id),
+            submitted_option_ids=submitted_option_ids_by_motion.get(m.id, []),
             option_limit=m.option_limit,
             options=[
                 {"id": opt.id, "text": opt.text, "display_order": opt.display_order}

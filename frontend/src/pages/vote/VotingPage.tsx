@@ -169,6 +169,22 @@ export function VotingPage() {
       }
       return seeded;
     });
+    // Seed multiChoiceSelections for read-only multi-choice motions so previously
+    // selected options are shown when the voter returns to this page.
+    setMultiChoiceSelections((prev) => {
+      const seeded: Record<string, string[]> = { ...prev };
+      for (const m of motions) {
+        if (
+          m.is_multi_choice &&
+          isMotionReadOnly(m) &&
+          m.submitted_option_ids?.length &&
+          !(m.id in seeded)
+        ) {
+          seeded[m.id] = m.submitted_option_ids;
+        }
+      }
+      return seeded;
+    });
   }, [motions, isMotionReadOnly]);
 
   // --- Dynamic already-submitted derivation (BUG-NM-01-B fix) ---

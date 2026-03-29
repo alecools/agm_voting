@@ -1409,7 +1409,12 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             }
 
             # abstained = submitted but no selected and not not_eligible
-            abstained_ids: set[uuid.UUID] = submitted_lot_owner_ids - not_eligible_ids - selected_lot_ids
+            # Derived from this motion's own vote rows to avoid incorrectly including
+            # lots that simply didn't have a vote row for this motion (e.g. not yet submitted).
+            abstained_ids: set[uuid.UUID] = {
+                v.lot_owner_id for v in motion_vote_rows
+                if (v.choice.value if hasattr(v.choice, "value") else v.choice) == "abstained"
+            }
 
             # Per-option tally
             option_tallies = []

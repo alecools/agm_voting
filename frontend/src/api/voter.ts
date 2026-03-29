@@ -70,6 +70,7 @@ export interface MotionOut {
   is_visible: boolean;
   already_voted: boolean;
   submitted_choice: VoteChoice | null;
+  submitted_option_ids?: string[];
   option_limit: number | null;
   options: MotionOptionOut[];
 }

@@ -33,7 +33,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
     const rows: string[] = ["Motion,Category,Lot Number,Entitlement (UOE),Voter Email"];
     for (const motion of motions) {
       const motionLabel = `${motion.motion_number?.trim() || String(motion.display_order)}. ${motion.title.replace(/"/g, '""')}`;
-      if (motion.motion_type === "multi_choice") {
+      if (motion.is_multi_choice === true) {
         // Per-option rows for multi-choice
         for (const optTally of (motion.tally.options ?? [])) {
           const optionVoters = motion.voter_lists.options?.[optTally.option_id] ?? [];
@@ -95,9 +95,9 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
             </h3>
             <span
               className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
-              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : motion.motion_type === "multi_choice" ? "Multi-Choice" : "General"}`}
+              aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : motion.is_multi_choice === true ? "Multi-Choice" : "General"}`}
             >
-              {motion.motion_type === "special" ? "Special" : motion.motion_type === "multi_choice" ? "Multi-Choice" : "General"}
+              {motion.motion_type === "special" ? "Special" : motion.is_multi_choice === true ? "Multi-Choice" : "General"}
             </span>
             {!motion.is_visible && (
               <span className="motion-type-badge motion-type-badge--hidden" aria-label="Motion is hidden from voters">
@@ -120,7 +120,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
               </tr>
             </thead>
             <tbody>
-              {motion.motion_type === "multi_choice" ? (
+              {motion.is_multi_choice === true ? (
                 <>
                   {(motion.tally.options ?? []).map((optTally) => (
                     <tr key={optTally.option_id}>
