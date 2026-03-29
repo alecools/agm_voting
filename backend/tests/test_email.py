@@ -361,6 +361,73 @@ class TestEmailTemplateRendering:
         assert "<!DOCTYPE html>" in html
         assert "</html>" in html
 
+    # --- Multi-choice motion rendering ---
+
+    def _multi_choice_motion_context(self) -> dict:
+        """Return a template context with one multi-choice motion."""
+        ctx = self._default_context()
+        ctx["motions"] = [
+            {
+                "title": "Board Member Election",
+                "description": "Select up to 2 candidates",
+                "is_multi_choice": True,
+                "tally": {
+                    "yes": {"voter_count": 0, "entitlement_sum": 0},
+                    "no": {"voter_count": 0, "entitlement_sum": 0},
+                    "abstained": {"voter_count": 1, "entitlement_sum": 80},
+                    "absent": {"voter_count": 1, "entitlement_sum": 50},
+                    "options": [
+                        {"option_text": "Alice Smith", "voter_count": 2, "entitlement_sum": 200},
+                        {"option_text": "Bob Jones", "voter_count": 1, "entitlement_sum": 100},
+                    ],
+                },
+                "voter_lists": {
+                    "yes": [],
+                    "no": [],
+                    "abstained": [{"voter_email": "carol@example.com", "lot_number": "2A", "entitlement": 80}],
+                    "absent": [{"voter_email": "dave@example.com", "lot_number": "3A", "entitlement": 50}],
+                    "options": {},
+                },
+            }
+        ]
+        return ctx
+
+    def test_multi_choice_renders_option_names(self):
+        html = self._render_template(self._multi_choice_motion_context())
+        assert "Alice Smith" in html
+        assert "Bob Jones" in html
+
+    def test_multi_choice_renders_option_voter_count(self):
+        html = self._render_template(self._multi_choice_motion_context())
+        assert "200" in html  # entitlement_sum for Alice Smith
+
+    def test_multi_choice_renders_abstained_and_absent(self):
+        html = self._render_template(self._multi_choice_motion_context())
+        assert "Abstained" in html
+        assert "Absent" in html
+
+    def test_multi_choice_does_not_render_yes_no_rows(self):
+        html = self._render_template(self._multi_choice_motion_context())
+        # The yes/no tally rows should not appear for multi-choice motions
+        assert ">Yes<" not in html
+        assert ">No<" not in html
+
+    def test_standard_motion_does_not_render_option_header(self):
+        # When is_multi_choice is False (default context), Option column header absent
+        html = self._render_template(self._default_context())
+        assert ">Option<" not in html
+
+    def test_multi_choice_renders_option_column_header(self):
+        html = self._render_template(self._multi_choice_motion_context())
+        assert "Option" in html
+
+    def test_multi_choice_with_no_options_renders_cleanly(self):
+        ctx = self._multi_choice_motion_context()
+        ctx["motions"][0]["tally"]["options"] = []
+        html = self._render_template(ctx)
+        assert "Board Member Election" in html
+        assert "<!DOCTYPE html>" in html
+
 
 # ---------------------------------------------------------------------------
 # OTEL logging
@@ -980,7 +1047,7 @@ class TestCloseAgmEmailIntegration:
     async def test_close_agm_creates_email_delivery_and_triggers(
         self, client: AsyncClient, db_session: AsyncSession, mocker
     ):
-        """POST /api/admin/general-meetings/{id}/close creates EmailDelivery and calls trigger_with_retry."""
+        """POST /api/admin/general-meetings/{id}/close creates EmailDelivery and schedules trigger_with_retry via BackgroundTasks."""
         building = Building(name=f"Bld {uuid.uuid4()}", manager_email="mgr@example.com")
         db_session.add(building)
         await db_session.flush()
@@ -1001,7 +1068,11 @@ class TestCloseAgmEmailIntegration:
         db_session.add(motion)
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        # Patch trigger_with_retry so BackgroundTasks runs it without hitting SMTP
+        trigger_mock = mocker.patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+        )
 
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert resp.status_code == 200
@@ -1014,13 +1085,13 @@ class TestCloseAgmEmailIntegration:
         assert delivery is not None
         assert delivery.status == EmailDeliveryStatus.pending
 
-        # trigger_with_retry should have been scheduled
-        create_task_mock.assert_called_once()
+        # trigger_with_retry should have been scheduled via BackgroundTasks
+        trigger_mock.assert_called_once_with(agm.id)
 
     async def test_resend_report_triggers_email(
         self, client: AsyncClient, db_session: AsyncSession, mocker
     ):
-        """POST /api/admin/general-meetings/{id}/resend-report triggers email retry."""
+        """POST /api/admin/general-meetings/{id}/resend-report schedules trigger_with_retry via BackgroundTasks."""
         building = Building(name=f"Bld2 {uuid.uuid4()}", manager_email="mgr@example.com")
         db_session.add(building)
         await db_session.flush()
@@ -1045,7 +1116,11 @@ class TestCloseAgmEmailIntegration:
         db_session.add(delivery)
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        # Patch trigger_with_retry so BackgroundTasks runs it without hitting SMTP
+        trigger_mock = mocker.patch(
+            "app.services.email_service.EmailService.trigger_with_retry",
+            new_callable=AsyncMock,
+        )
 
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert resp.status_code == 200
@@ -1056,8 +1131,8 @@ class TestCloseAgmEmailIntegration:
         assert delivery.status == EmailDeliveryStatus.pending
         assert delivery.total_attempts == 0
 
-        # trigger_with_retry should have been scheduled
-        create_task_mock.assert_called_once()
+        # trigger_with_retry should have been scheduled via BackgroundTasks
+        trigger_mock.assert_called_once_with(agm.id)
 
 
 # ---------------------------------------------------------------------------

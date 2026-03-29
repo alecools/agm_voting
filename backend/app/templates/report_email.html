@@ -85,6 +85,38 @@
                 <!-- Tally table -->
                 <tr>
                   <td style="padding:16px;">
+                    {% if motion.is_multi_choice %}
+                    <!-- Multi-choice: per-option tally -->
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                      <thead>
+                        <tr style="background-color:#f0f4f8;">
+                          <th style="text-align:left;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Option</th>
+                          <th style="text-align:right;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Voter Count</th>
+                          <th style="text-align:right;padding:8px 10px;font-size:12px;color:#555555;border-bottom:2px solid #d0dce8;">Entitlement Sum</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for opt in motion.tally.options %}
+                        <tr style="background-color:#eaf7ea;">
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#1a3c5e;border-bottom:1px solid #e8e8e8;">{{ opt.option_text }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ opt.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ opt.entitlement_sum }}</td>
+                        </tr>
+                        {% endfor %}
+                        <tr style="background-color:#fafafa;">
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#f57c00;border-bottom:1px solid #e8e8e8;">Abstained</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.abstained.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:1px solid #e8e8e8;">{{ motion.tally.abstained.entitlement_sum }}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 10px;font-size:13px;font-weight:bold;color:#777777;">Absent</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;">{{ motion.tally.absent.voter_count }}</td>
+                          <td style="padding:8px 10px;font-size:13px;text-align:right;">{{ motion.tally.absent.entitlement_sum }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    {% else %}
+                    <!-- Standard yes/no motion -->
                     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
                       <thead>
                         <tr style="background-color:#f0f4f8;">
@@ -116,6 +148,7 @@
                         </tr>
                       </tbody>
                     </table>
+                    {% endif %}
                   </td>
                 </tr>
 

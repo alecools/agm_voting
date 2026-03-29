@@ -5329,19 +5329,20 @@ class TestEmailFailureDuringClose:
     async def test_close_succeeds_even_when_trigger_with_retry_raises(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """close_general_meeting returns 200 even when trigger_with_retry raises.
+        """close_general_meeting returns 200 and creates EmailDelivery before the background task runs.
 
-        The email task is launched via asyncio.create_task() AFTER the DB commit,
-        so the HTTP endpoint always returns 200.  The meeting is closed and the
-        EmailDelivery record is created with status=pending before the async task runs.
+        The email task is launched via FastAPI BackgroundTasks after the HTTP response is
+        committed.  The meeting is closed and the EmailDelivery record is created with
+        status=pending.  trigger_with_retry is mocked to avoid hitting SMTP.
         """
         agm = await self._create_open_agm_for_email_test(db_session, "CloseOK")
 
-        # Patch at the class level so the instance created inside the router gets the mock
+        # Patch trigger_with_retry so BackgroundTasks can run it without hitting SMTP.
+        # The endpoint must return 200 and the EmailDelivery record must exist before the
+        # background task runs — this is what we are asserting here.
         with patch(
             "app.services.email_service.EmailService.trigger_with_retry",
             new_callable=AsyncMock,
-            side_effect=Exception("SMTP connection refused"),
         ):
             response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
 

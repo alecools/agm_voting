@@ -144,7 +144,7 @@ class EmailService:
         template = env.get_template("report_email.html")
         html_body = template.render(
             building_name=building_name,
-            agm_title=agm_title,
+            meeting_title=agm_title,
             meeting_at=meeting_at,
             voting_closes_at=voting_closes_at,
             total_eligible_voters=detail["total_eligible_voters"],
