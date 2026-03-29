@@ -78,6 +78,7 @@ const mcMotionFixture: MotionDetail = {
   display_order: 3,
   motion_number: null,
   motion_type: "multi_choice" as const,
+  is_multi_choice: true,
   is_visible: true,
   option_limit: 2,
   options: [
@@ -500,6 +501,46 @@ describe("AGMReportView", () => {
     };
     const csv = await captureCSVFromExport([mcWithProxy]);
     expect(csv).toContain("abs_proxy@example.com (proxy)");
+  });
+
+  // --- Fix 4: is_multi_choice flag governs MC rendering (not motion_type === "multi_choice") ---
+
+  it("renders MC table rows when is_multi_choice=true even with motion_type='general'", () => {
+    // Real-world scenario: motion_type is "general" but is_multi_choice is true.
+    // Before the fix, the component checked motion_type === "multi_choice" so this would
+    // render For/Against rows instead of per-option rows.
+    const realWorldMcMotion: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-real",
+      motion_type: "general" as const,  // NOT "multi_choice"
+      is_multi_choice: true,
+    };
+    render(<AGMReportView motions={[realWorldMcMotion]} />);
+    // Should render option rows (Alice, Bob) — not For/Against
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+    expect(screen.queryByText("For")).not.toBeInTheDocument();
+    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+  });
+
+  it("CSV export uses MC format when is_multi_choice=true and motion_type='general'", async () => {
+    const realWorldMcMotion: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-real2",
+      motion_type: "general" as const,
+      is_multi_choice: true,
+    };
+    const csv = await captureCSVFromExport([realWorldMcMotion]);
+    expect(csv).toContain("Option: Alice");
+    expect(csv).not.toContain(",\"For\",");
+  });
+
+  it("renders For/Against rows for general motion WITHOUT is_multi_choice flag", () => {
+    // Sanity check: a plain general motion with is_multi_choice=false (or absent)
+    // still renders For/Against rows.
+    render(<AGMReportView motions={[motions[0]]} />);
+    expect(screen.getByText("For")).toBeInTheDocument();
+    expect(screen.getByText("Against")).toBeInTheDocument();
   });
 
   it("CSV row with proxy_email containing double-quotes has them escaped", async () => {
