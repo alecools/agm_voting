@@ -58,7 +58,7 @@ jobs:
       - name: Security scan (bandit)
         run: |
           cd backend
-          uv run bandit -r app/ -c pyproject.toml --exit-zero-on-skipped -ll
+          uv run bandit -r app/ -c pyproject.toml -ll
 
       - name: Install semgrep
         run: pip install semgrep
