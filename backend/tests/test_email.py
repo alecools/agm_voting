@@ -889,12 +889,29 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 5
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        # Patch trigger_with_retry as AsyncMock and capture the tasks created.
+        # We use a real asyncio.create_task wrapper that immediately cancels the task
+        # so the coroutine is consumed without side effects.
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+        tasks: list = []
+
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(coro, **kwargs):
+            task = real_create_task(coro, **kwargs)
+            tasks.append(task)
+            return task
+
+        mocker.patch("asyncio.create_task", side_effect=_capturing_create_task)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        create_task_mock.assert_called_once()
+        # Allow the event loop to run the tasks
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert len(tasks) == 1
 
     async def test_ignores_delivered_records(self, db_session: AsyncSession, mocker):
         """Delivered records are not re-queued."""
@@ -960,12 +977,25 @@ class TestRequeuePendingOnStartup:
             tasks_created.append(delivery)
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+        tasks: list = []
+
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(coro, **kwargs):
+            task = real_create_task(coro, **kwargs)
+            tasks.append(task)
+            return task
+
+        mocker.patch("asyncio.create_task", side_effect=_capturing_create_task)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        assert create_task_mock.call_count == 3
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert len(tasks) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1001,7 +1031,14 @@ class TestCloseAgmEmailIntegration:
         db_session.add(motion)
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        def _close_coro(coro):
+            """Close the coroutine so it is not garbage-collected unawaited."""
+            try:
+                coro.close()
+            except Exception:
+                pass
+
+        create_task_mock = mocker.patch("asyncio.create_task", side_effect=_close_coro)
 
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
         assert resp.status_code == 200
@@ -1045,7 +1082,14 @@ class TestCloseAgmEmailIntegration:
         db_session.add(delivery)
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        def _close_coro(coro):
+            """Close the coroutine so it is not garbage-collected unawaited."""
+            try:
+                coro.close()
+            except Exception:
+                pass
+
+        create_task_mock = mocker.patch("asyncio.create_task", side_effect=_close_coro)
 
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/resend-report")
         assert resp.status_code == 200
