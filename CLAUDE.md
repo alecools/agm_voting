@@ -15,8 +15,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 AGM Voting App — a web application for body corporates to run weighted voting during Annual General Meetings. See `tasks/prd/prd-agm-voting-app.md` for the full PRD.
 
 **Task folder structure:**
-- `tasks/prd/` — product requirements documents
-- `tasks/design/` — technical design docs (one per feature, written by design agents before implementation)
+- `tasks/prd/` — product requirements documents (`tasks/prd/TEMPLATE.md` is the PRD template)
+- `tasks/design/` — technical design docs (`tasks/design/TEMPLATE.md` is the design doc template)
 
 **Stack:** React (Vite) frontend · FastAPI backend · PostgreSQL · SQLAlchemy + Alembic · Resend (email)
 
@@ -32,8 +32,8 @@ Key decisions that must not be inadvertently reversed:
 - **Ballots are keyed on `lot_owner_id`** — `BallotSubmission` and `Vote` unique constraints use `(general_meeting_id, lot_owner_id)`, not `voter_email`. `voter_email` is retained on both tables for audit only. Auth resolves lots via `LotOwnerEmail` records, then all operations key on `lot_owner_id`.
 - **Migrations run during Vercel build (`buildCommand`)** — `vercel.json`'s `buildCommand` runs `alembic upgrade head` once before the Lambda goes live. The Lambda cold start performs no DB operations. If the migration step fails, the Vercel build fails and the deploy is blocked (desirable).
 - **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. The build script does this transformation; `api/index.py` does it for the runtime `DATABASE_URL` used by the app.
-- **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `preview`) to avoid migration conflicts on the shared preview DB. The `agm-test` agent creates it before pushing; `agm-cleanup` deletes it after merge.
-- **Branch-scoped Vercel env vars** — `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are set as Vercel preview env vars scoped to the feature branch so the branch deployment migrates against its own Neon DB. Removed by `agm-cleanup` after merge.
+- **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `preview`) to avoid migration conflicts on the shared preview DB. The `test` agent creates it before pushing; `cleanup` deletes it after merge.
+- **Branch-scoped Vercel env vars** — `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are set as Vercel preview env vars scoped to the feature branch so the branch deployment migrates against its own Neon DB. Removed by `cleanup` after merge.
 
 ---
 
@@ -47,7 +47,16 @@ Key decisions that must not be inadvertently reversed:
 | Main repo path | `/Users/stevensun/personal/agm_survey` |
 | Worktree path pattern | `/Users/stevensun/personal/agm_survey/.worktree/<branch>` |
 
-Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain under the service name `agm-survey`.
+Secrets are stored in macOS Keychain under service `agm-survey`. Account names:
+
+| Secret | Account |
+|---|---|
+| Neon API key | `neon-api-key` |
+| Admin username | `admin-username` |
+| Admin password | `admin-password` |
+| Vercel bypass token | `vercel-bypass-token` |
+
+Retrieve with: `security find-generic-password -s "agm-survey" -a "<account>" -w`
 
 **Operational docs:** Service level objectives are defined in [`docs/slo.md`](docs/slo.md). Incident runbooks are in [`docs/runbooks/`](docs/runbooks/).
 
@@ -66,6 +75,30 @@ Secrets (bypass token, admin credentials, API keys) are stored in macOS Keychain
 | `frontend/src/api/` | TypeScript API client functions |
 | `frontend/tests/msw/handlers.ts` | MSW mock handlers for tests |
 | `tasks/design/design-system.md` | Frontend design system — read before writing any UI |
+
+---
+
+## Implementation Ordering
+
+Follow this order for every change. Do not skip ahead — each layer depends on the previous.
+
+**Backend:**
+1. Alembic migration (if schema changes) — run against test DB before writing any model code
+2. SQLAlchemy models
+3. Pydantic schemas
+4. Service functions
+5. Router endpoints
+6. Unit tests (mocked DB)
+7. Integration tests (real test DB)
+
+**Frontend:**
+1. TypeScript API client functions (`src/api/`)
+2. MSW mock handlers (`frontend/tests/msw/handlers.ts`)
+3. React components and pages
+4. Unit tests (Vitest + RTL)
+5. Integration tests
+
+**Frontend style rule:** Read `tasks/design/design-system.md` before writing any UI. Never use `form-group`, `form-control`, inline style props for colours or spacing, or Bootstrap/Tailwind class names. After completing frontend changes, verify: `grep -r "form-group\|form-control" frontend/src/ --include="*.tsx"` must return nothing.
 
 ---
 
@@ -126,9 +159,43 @@ Do NOT delete/archive real production data. Known real buildings: "The Vale", "S
 
 ---
 
+## Test Pipeline
+
+Run all stages in order. Never skip. Never raise a PR until Branch E2E passes. Never merge until Post-merge CI passes.
+
+| Stage | Trigger | Checks | How to monitor |
+|---|---|---|---|
+| **Local testing** | During development + before every push | pytest (100% cov) · Vitest (100% cov) · bandit · eslint-security | Run manually — re-run on every meaningful change for fast feedback |
+| **Branch CI** | Auto on `git push` | Same as local + semgrep + Alembic migration on clean DB | `gh run list --branch <branch> --workflow ci.yml` |
+| **Branch E2E** | Auto after Vercel preview deploys | Full Playwright suite | `gh run list --branch <branch> --workflow e2e.yml` |
+| **Post-merge CI** | Auto after PR merges to `preview` | Same as Branch CI | `gh run list --branch preview --workflow ci.yml` |
+| **Preview E2E** | Orchestrator-directed after all slices merged | Full Playwright suite against `preview` | `gh run list --branch preview --workflow e2e.yml` |
+
+Local testing checks are fast (seconds) — use them as a tight feedback loop while developing, not just as a pre-push gate. All CI/E2E stages are automated and only need monitoring.
+
+### Local testing — commands (run from worktree root)
+
+```bash
+cd backend && TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  uv run pytest tests/ -n auto --cov=app --cov-fail-under=100 -q  # 100% coverage required
+cd frontend && npm run test:coverage                               # 100% coverage required
+cd backend && uv run bandit -r app/ -c pyproject.toml -ll
+cd frontend && npm run lint:security
+```
+
+### Branch CI / E2E / Post-merge CI / Preview E2E — monitoring (all automated)
+
+Poll with `gh run list --branch <branch> --workflow <workflow> --limit 1 --json status,conclusion`.
+`conclusion: "success"` = pass · `"failure"` = fail · `null` = still running.
+
+On CI failure: `gh run view --log-failed` to identify the failing step.
+On E2E failure: `gh run download <run-id>` to retrieve the Playwright HTML report. Record every failure verbatim and report to orchestrator — do not fix inline.
+
+---
+
 ## Development Workflow
 
-Invoke `/orchestrate-feature-dev` to coordinate all work — design → implement → test → cleanup. The skill runs in the main session and spawns `agm-design`, `agm-implement`, `agm-test`, and `agm-cleanup` sub-agents. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
+Invoke `/orchestrate-feature-dev` to coordinate all work — design → implement → test → cleanup. The skill runs in the main session and spawns `design`, `implement`, `test`, and `cleanup` sub-agents. PRDs go in `tasks/prd/`, design docs in `tasks/design/`.
 
 ### Worktree-first rule
 
@@ -197,6 +264,8 @@ These fields are read by the generic agent definitions. Values here override use
 
 | Key | Value |
 |-----|-------|
+| `production_branch` | `master` |
+| `testing_branch` | `preview` |
 | `stack` | React (Vite) · FastAPI · PostgreSQL · SQLAlchemy · Alembic |
 | `backend_dir` | `backend` |
 | `frontend_dir` | `frontend` |
@@ -211,6 +280,10 @@ These fields are read by the generic agent definitions. Values here override use
 | `vercel_project_id` | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
 | `real_data_patterns` | `"The Vale", "SBT", "Sandridge Bay Towers"` |
 | `test_data_patterns` | `WF*, E2E*, Test*, Delete Test*` |
+| `prd_dir` | `tasks/prd` |
+| `design_dir` | `tasks/design` |
+| `keychain_service` | `agm-survey` |
+| `cleanup_preview_url` | `https://agm-voting-git-preview-ocss.vercel.app` |
 
 ---
 
@@ -220,48 +293,24 @@ These fields are read by the generic agent definitions. Values here override use
 # Start databases (dev + test) — run from project root
 podman compose -f podman-compose.yml up -d
 
-# Backend: install deps
+# Backend: install deps + dev server
 cd backend && uv sync --extra dev
-
-# Backend: dev server
 uv run uvicorn app.main:app --reload --port 8000
 
-# Backend: tests with coverage (100% required)
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
-  uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=100 -v
-
-# Backend: quick test run (no coverage)
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
-  .venv/bin/python -m pytest --override-ini="addopts=" -q
-
-# Backend: single file
+# Backend: single test file (debug)
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
   uv run pytest tests/test_models.py -v
 
-# DB migrations — dev
-uv run alembic upgrade head
+# Backend: quick run without coverage (debug)
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test \
+  .venv/bin/python -m pytest --override-ini="addopts=" -q
 
-# DB migrations — test DB
-uv run alembic -x dburl=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test upgrade head
+# DB migrations
+uv run alembic upgrade head                                                                   # dev DB
+uv run alembic -x dburl=postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test upgrade head  # test DB
+uv run alembic revision --autogenerate -m "description"                                       # generate
 
-# Generate migration
-uv run alembic revision --autogenerate -m "description"
-
-# Frontend: install deps
+# Frontend: install deps + dev server
 cd frontend && npm install
-
-# Frontend: dev server
 npm run dev
-
-# Frontend: tests with coverage (100% required)
-npm run test:coverage
-
-# Frontend: E2E tests (requires dev server or PLAYWRIGHT_BASE_URL set)
-npm run e2e
-
-# Security scan (run before pushing)
-cd backend && uv run bandit -r app/ -c pyproject.toml -ll
-semgrep --config .semgrep/rules.yml backend/app/
-cd frontend && npm run lint:security
-semgrep --config .semgrep/rules.yml frontend/src/
 ```
