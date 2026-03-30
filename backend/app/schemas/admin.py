@@ -490,6 +490,11 @@ class MotionDetail(BaseModel):
     voter_lists: MotionVoterLists
 
 
+class EmailDeliveryInfo(BaseModel):
+    status: str
+    last_error: str | None = None
+
+
 class GeneralMeetingDetail(BaseModel):
     id: uuid.UUID
     building_name: str
@@ -502,6 +507,7 @@ class GeneralMeetingDetail(BaseModel):
     total_submitted: int
     total_entitlement: int
     motions: list[MotionDetail]
+    email_delivery: EmailDeliveryInfo | None = None
 
 
 # ---------------------------------------------------------------------------

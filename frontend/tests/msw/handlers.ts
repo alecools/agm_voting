@@ -175,6 +175,7 @@ export const ADMIN_MEETING_DETAIL_CLOSED: GeneralMeetingDetail = {
   title: "2023 AGM",
   status: "closed",
   closed_at: "2023-06-01T13:00:00Z",
+  email_delivery: null,
 };
 
 export const ADMIN_MEETING_DETAIL_PENDING: GeneralMeetingDetail = {

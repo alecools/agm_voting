@@ -136,6 +136,7 @@ export interface GeneralMeetingDetail {
   total_submitted: number;
   total_entitlement: number;
   motions: MotionDetail[];
+  email_delivery?: EmailDeliveryInfo | null;
 }
 
 export interface GeneralMeetingCloseOut {

@@ -1528,6 +1528,12 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
 
     total_entitlement = sum(lot_entitlement.values())
 
+    # Load email delivery record for this meeting
+    email_delivery_result = await db.execute(
+        select(EmailDelivery).where(EmailDelivery.general_meeting_id == general_meeting_id)
+    )
+    email_delivery_obj = email_delivery_result.scalar_one_or_none()
+
     effective = get_effective_status(general_meeting)
     return {
         "id": general_meeting.id,
@@ -1541,6 +1547,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         "total_submitted": total_submitted,
         "total_entitlement": total_entitlement,
         "motions": motion_details,
+        "email_delivery": {
+            "status": email_delivery_obj.status.value if hasattr(email_delivery_obj.status, "value") else email_delivery_obj.status,
+            "last_error": email_delivery_obj.last_error,
+        } if email_delivery_obj else None,
     }
 
 
