@@ -68,7 +68,7 @@ def configure_logging() -> None:
         wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
     # Also configure stdlib logging to go through structlog so that third-party
