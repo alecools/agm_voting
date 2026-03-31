@@ -42,6 +42,40 @@ class TestConfig:
 
         assert settings.test_database_url != ""
 
+    def test_production_with_testing_mode_false_starts_ok(self):
+        """ENV=production + TESTING_MODE=false is allowed — settings loads without error."""
+        from app.config import Settings
+
+        s = Settings(environment="production", testing_mode=False)
+        assert s.environment == "production"
+        assert s.testing_mode is False
+
+    def test_production_with_testing_mode_true_raises(self):
+        """ENV=production + TESTING_MODE=true must raise ValueError at settings load time."""
+        from pydantic import ValidationError
+
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(environment="production", testing_mode=True)
+        assert "TESTING_MODE is enabled in a production environment" in str(exc_info.value)
+
+    def test_development_with_testing_mode_true_starts_ok(self):
+        """ENV=development + TESTING_MODE=true is allowed (dev/test workflow)."""
+        from app.config import Settings
+
+        s = Settings(environment="development", testing_mode=True)
+        assert s.environment == "development"
+        assert s.testing_mode is True
+
+    def test_testing_env_with_testing_mode_true_starts_ok(self):
+        """ENV=testing + TESTING_MODE=true is allowed (CI test runs)."""
+        from app.config import Settings
+
+        s = Settings(environment="testing", testing_mode=True)
+        assert s.environment == "testing"
+        assert s.testing_mode is True
+
 
 # ---------------------------------------------------------------------------
 # app.database

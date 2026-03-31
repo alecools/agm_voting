@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,6 +51,27 @@ class Settings(BaseSettings):
         login endpoint will return 500 with a clear error message.
         """
         return v
+
+    @model_validator(mode="after")
+    def testing_mode_forbidden_in_production(self) -> "Settings":
+        """Refuse to start when testing_mode is enabled in a production environment.
+
+        testing_mode disables OTP rate-limiting, cookie security flags, and
+        exposes test-only endpoints.  If it is accidentally set to True while
+        environment is 'production', the application must refuse to start.
+
+        Allowed combinations:
+        - environment='production', testing_mode=False  → OK
+        - environment='development', testing_mode=True  → OK
+        - environment='testing', testing_mode=True      → OK
+        """
+        if self.testing_mode and self.environment == "production":
+            raise ValueError(
+                "TESTING_MODE is enabled in a production environment. "
+                "Refusing to start. Unset TESTING_MODE or set ENV/ENVIRONMENT "
+                "to a non-production value."
+            )
+        return self
 
 
 settings = Settings()

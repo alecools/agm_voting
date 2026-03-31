@@ -977,15 +977,17 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-01: Gate `testing_mode` security bypasses at startup in production
 
+**Status:** ✅ Implemented — branch: `fix/rr3-01-testing-mode-gate`, committed 2026-03-31
+
 **As a** security engineer,
 **I want** the application to refuse to start if `testing_mode=true` in a non-development environment,
 **So that** OTP rate-limiting, cookie security, and test endpoints can never be accidentally disabled in production.
 
 **Acceptance criteria:**
-- [ ] `backend/app/config.py` startup validator raises `ValueError` if `testing_mode=True` and `environment` is not `"development"` or `"testing"`
+- [x] `backend/app/config.py` startup validator raises `ValueError` if `testing_mode=True` and `environment` is not `"development"` or `"testing"`
 - [ ] `OtpRequestBody.skip_email` field returns 422 if `skip_email=true` and `settings.testing_mode` is `False`, regardless of caller
 - [ ] `GET /api/test/latest-otp` returns 404 (not 403) when `testing_mode=False` — the route does not exist in production, not merely returns forbidden
-- [ ] A unit test verifies the startup validator raises on misconfiguration
+- [x] A unit test verifies the startup validator raises on misconfiguration
 - [ ] A unit test verifies `skip_email=true` with `testing_mode=False` returns 422
 
 **Technical notes:** `backend/app/config.py` — add `@model_validator`. `backend/app/routers/auth.py` — conditional route registration or request-level guard on `skip_email`. `backend/app/schemas/auth.py`.
