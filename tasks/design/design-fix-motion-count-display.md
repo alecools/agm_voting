@@ -1,5 +1,7 @@
 # Design: Bug Fix — Motion Count Starts at 1 Not 0
 
+**Status:** Implemented
+
 ## Overview
 
 On the voting screen, each motion card displays "Motion N" where N is the raw `order_index` value from the API response. Because `order_index` is a zero-based integer (the first motion has `order_index: 0`), voters see "Motion 0", "Motion 1", "Motion 2" — which looks wrong. Motions should be labelled "Motion 1", "Motion 2", "Motion 3".

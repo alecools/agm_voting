@@ -1,5 +1,7 @@
 # Design: Combine LotSelectionPage into VotingPage
 
+**Status:** Implemented
+
 ## Summary
 
 Eliminate the standalone `LotSelectionPage` route. After successful authentication, the voter lands directly on `VotingPage`. For multi-lot voters (or any voter with a proxied lot), the top of `VotingPage` shows a lot-selection section (checkboxes + badges) before the motion cards. For single-lot non-proxy voters, the lot-selection section is skipped entirely and motions are shown immediately.

@@ -1,5 +1,7 @@
 # Design: Sortable Columns for Buildings, Lot Owners, and Meetings Tables
 
+**Status:** Implemented
+
 ## Overview
 
 This feature adds sortable column headers to three admin tables:

@@ -1,5 +1,7 @@
 # Design: Fix — Back Button Blank Page on VotingPage
 
+**Status:** Implemented
+
 ## Overview
 
 Clicking the in-page "Back" button on `VotingPage`, or pressing the browser native back button while on `/vote/:meetingId/voting`, produces a blank page. This document diagnoses the exact root cause and specifies the minimal fix.

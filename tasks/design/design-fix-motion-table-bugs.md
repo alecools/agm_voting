@@ -1,5 +1,7 @@
 # Design: Fix Motion Table Bugs
 
+**Status:** Implemented
+
 ## Summary
 
 Three bug fixes for the AGM voting app motion management table in `GeneralMeetingDetailPage`.

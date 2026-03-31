@@ -1,5 +1,7 @@
 # Technical Design: Meeting Pending Status
 
+**Status:** Implemented
+
 ## Overview
 
 Before this feature, all General Meetings were created with `status = 'open'`, meaning voters could enter voting before the scheduled meeting time. This feature introduces a `pending` status representing meetings that exist but have not yet started. It also wires up automatic status transitions (pending → open → closed) triggered on Lambda cold start, adds a manual "Start Meeting" action for admins, and updates the voter UI to show a disabled "Voting Not Yet Open" state for pending meetings.

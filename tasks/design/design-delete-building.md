@@ -1,5 +1,7 @@
 # Technical Design: Delete Building
 
+**Status:** Implemented
+
 ## Overview
 
 This feature allows admins to permanently delete a building and all its associated data. Deletion is only permitted when the building is archived. The operation cascades through the entire building hierarchy via SQLAlchemy relationships and PostgreSQL `ON DELETE CASCADE` constraints.

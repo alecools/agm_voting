@@ -1,5 +1,7 @@
 # Design: Quick Frontend Fixes
 
+**Status:** Implemented
+
 **Feature branch:** `feat-quick-fixes`
 **Schema migration required:** No
 

@@ -1,5 +1,7 @@
 # Design: Fix Lot Re-selection After Vote (BUG-LS-01)
 
+**Status:** Implemented
+
 ## Overview
 
 After a voter submits their ballot for one or more lots and then navigates back to the voting page

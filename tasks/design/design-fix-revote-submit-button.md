@@ -1,5 +1,7 @@
 # Design: Fix — Re-vote Submit Button Missing After New Motions Made Visible
 
+**Status:** Implemented
+
 ## Overview
 
 When a voter has already submitted their ballot, and an admin subsequently makes additional motions visible, the voter can log back in and see the new motions — but the Submit button does not appear, and every lot is shown as "Already submitted" even though the new motions have not been voted on. This document diagnoses the root cause across all three layers (auth response, sessionStorage, VotingPage render logic) and designs the fix.

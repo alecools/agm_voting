@@ -1,5 +1,7 @@
 # Design: Logo Upload + Dynamic Favicon
 
+**Status:** Implemented
+
 ## Overview
 
 Add a logo file upload capability to the admin Settings page so the admin can upload an image directly rather than pasting a URL. The uploaded file is stored in Vercel Blob and the resulting public URL is saved to `tenant_config.logo_url` via the existing `PUT /api/admin/config` endpoint. Additionally, the favicon is driven dynamically from `logo_url` (set in `BrandingContext` on every config load), and the static logo asset files are removed.

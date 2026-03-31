@@ -1,5 +1,7 @@
 # Design: Fix Tenant Branding Settings Save
 
+**Status:** Implemented
+
 ## Problem
 
 After saving settings on `/admin/settings`, the branding in the admin sidebar

@@ -1,5 +1,7 @@
 # Design: Admin Mobile Navigation Drawer
 
+**Status:** Implemented
+
 ## Overview
 
 Mobile-responsive navigation for the admin area. On desktop, the existing left-sidebar remains visible. On mobile (≤640px), the sidebar is hidden and replaced by a hamburger button that opens a slide-in navigation drawer. Admin tables are wrapped in a horizontally-scrollable container so they do not break the layout on narrow screens. No backend changes.

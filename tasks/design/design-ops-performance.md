@@ -1,5 +1,7 @@
 # Design: Operational Readiness & Performance Improvements
 
+**Status:** Implemented
+
 ## Overview
 
 This design covers five improvements drawn from the `prd-review-recommendations.md` engineering review:

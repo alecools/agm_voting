@@ -1,5 +1,7 @@
 # Design: Persistent Voter Session
 
+**Status:** Implemented
+
 ## Overview
 
 Voters currently must complete the full OTP flow on every visit to the app, even if they authenticated minutes earlier and simply closed a browser tab. This design adds return-visit session persistence so that a voter who has already authenticated can skip the OTP step for up to 24 hours (or until the meeting closes, whichever comes first).

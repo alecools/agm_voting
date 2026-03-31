@@ -1,5 +1,7 @@
 # Design: Bulk Motion Visibility Controls (US-MV08)
 
+**Status:** Implemented
+
 ## Overview
 
 Add "Show All" and "Hide All" buttons to the admin `GeneralMeetingDetailPage` so a building manager can flip the visibility of all motions in one click rather than toggling them one by one.

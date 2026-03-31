@@ -1,5 +1,7 @@
 # Technical Design: Proxy Voting
 
+**Status:** Implemented
+
 ## Overview
 
 Proxy voting allows a nominated person (the proxy) to authenticate with their own email address and cast votes on behalf of one or more lot owners who cannot attend the AGM. Proxy nominations are stored at the building level and persist across all AGMs for that building until explicitly changed or removed. The feature also adds a standalone financial position import so admins can bulk-update arrear status without re-importing the full lot owner list.

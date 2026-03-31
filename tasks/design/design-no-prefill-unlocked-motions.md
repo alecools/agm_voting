@@ -1,5 +1,7 @@
 # Design: No Pre-fill for Unlocked Motions
 
+**Status:** Implemented
+
 ## Overview
 
 When a multi-lot voter submits votes for a subset of their lots and then returns to the voting

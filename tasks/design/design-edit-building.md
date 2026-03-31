@@ -1,5 +1,7 @@
 # Technical Design: Edit Building
 
+**Status:** Implemented
+
 ## Overview
 
 This feature allows admins to update a building's `name` and/or `manager_email` via a modal dialog. The edit is a partial update: only fields that differ from the current values are sent in the request. Both fields are optional in the request body, allowing the admin to update one or both.

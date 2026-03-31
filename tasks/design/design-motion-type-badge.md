@@ -1,5 +1,7 @@
 # Design: Motion Type Badge
 
+**Status:** Implemented
+
 ## Overview
 
 A small pill badge is displayed alongside each motion to indicate whether it is a General or Special resolution. The badge appears in three places: the voter `MotionCard` component, the admin meeting detail page (motions table), and the admin AGM report view (per-motion result cards). An additional "Hidden" badge is shown in the admin report whenever a motion's `is_visible` flag is false.

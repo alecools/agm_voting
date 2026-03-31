@@ -1,5 +1,7 @@
 # Design: Comprehensive Business-Workflow E2E Test Suite
 
+**Status:** Implemented
+
 ## Overview and Rationale
 
 The existing E2E suite is **persona-scoped**: each spec file tests one persona's journey (voter, admin, proxy voter, in-arrear voter) in isolation. What is missing is **business-lifecycle coverage** — tests that run the full sequence from admin setup through voting through results verification, asserting exact tally numbers at the end.

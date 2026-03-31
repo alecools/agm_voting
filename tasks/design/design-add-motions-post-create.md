@@ -1,5 +1,7 @@
 # Technical Design: Add Motions After Meeting Creation
 
+**Status:** Implemented
+
 ## Overview
 
 This feature adds a backend endpoint and a frontend inline form so admins can add new motions to an existing General Meeting while it is `pending` or `open`. Adding to a `closed` meeting is blocked with 409.

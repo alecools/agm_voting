@@ -1,5 +1,7 @@
 # Design: Voting Page UX Improvements
 
+**Status:** Implemented
+
 ## Overview
 
 Six UX improvements to the voting page, implemented on branch `fix/voting-page-ux`. No database schema changes or new backend endpoints are required — all changes are frontend-only.

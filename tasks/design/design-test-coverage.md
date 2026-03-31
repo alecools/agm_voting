@@ -1,5 +1,7 @@
 # Design: Test Coverage Gaps (US-TCG-01 through US-TCG-06)
 
+**Status:** Implemented
+
 ## Overview
 
 This design doc covers the test scenarios added to close coverage gaps identified in the engineering review PRD (`tasks/prd/prd-review-recommendations.md`, section 7 "Test Coverage Gaps"). No schema migrations are required — all changes are pure test additions.

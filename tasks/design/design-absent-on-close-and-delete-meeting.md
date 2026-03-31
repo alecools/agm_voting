@@ -1,5 +1,7 @@
 # Technical Design: Absent Tally on Close and Delete General Meeting
 
+**Status:** Implemented
+
 ## Overview
 
 This document covers two related features:

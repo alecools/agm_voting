@@ -1,5 +1,7 @@
 # Design Doc: Fix UI Typography
 
+**Status:** Implemented
+
 **Feature name:** fix-ui-typography
 **PRD stories:** US-UI06, US-UI07
 **Schema migration needed:** No

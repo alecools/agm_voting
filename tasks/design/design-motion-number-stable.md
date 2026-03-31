@@ -1,5 +1,7 @@
 # Design: Stable Motion Number (auto-populated from display_order)
 
+**Status:** Implemented
+
 ## Summary
 
 Two behaviour changes to motion numbering:

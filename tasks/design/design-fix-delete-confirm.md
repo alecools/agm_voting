@@ -1,5 +1,7 @@
 # Design: Replace Browser confirm() with Modal Dialog for Motion Delete
 
+**Status:** Implemented
+
 ## Overview
 
 The "Delete" action on a hidden motion in the admin General Meeting detail page used the browser's native `window.confirm()` popup. This is inconsistent with the rest of the admin UI, which uses modal dialogs for destructive confirmations (e.g. delete building). Browser `confirm()` is also not stylable, is blocked in some environments (embedded iframes, certain browser extensions), and does not provide the motion title for context.

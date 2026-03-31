@@ -1,5 +1,7 @@
 # Technical Design: TOCS Financial Position Import
 
+**Status:** Implemented
+
 ## Overview
 
 This feature allows admins to import lot financial positions from a TOCS Lot Positions Report (CSV or Excel). The parser auto-detects whether the file is a standard two-column template or a full TOCS report. For TOCS reports it handles multiple fund sections and applies worst-case logic: a lot marked `in_arrear` in any fund section is recorded as `in_arrear` regardless of its position in other sections.

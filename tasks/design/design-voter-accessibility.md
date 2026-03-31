@@ -1,5 +1,7 @@
 # Design: Voter Accessibility Improvements
 
+**Status:** Implemented
+
 **Feature branch:** `feat-voter-accessibility`
 **Stories:** US-ACC-01, US-ACC-03, US-ACC-04, US-ACC-05, US-CQM-06, RR2-03
 **Schema changes:** None required.

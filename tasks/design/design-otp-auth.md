@@ -1,5 +1,7 @@
 # Technical Design: Email OTP Authentication
 
+**Status:** Implemented
+
 ## Overview
 
 Replace the current lot-number + email auth flow with a two-step email OTP flow. The voter enters their email, receives an 8-character alphanumeric code, and submits the code to authenticate. The backend response and session creation are unchanged — the OTP is purely a means of verifying email ownership before the existing `verify` logic runs.

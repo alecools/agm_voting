@@ -1,5 +1,7 @@
 # Design: Move Alembic Migrations to Vercel Build Step
 
+**Status:** Implemented
+
 ## Goal
 
 Move `alembic upgrade head` from Lambda cold start (`api/index.py`) to a Vercel pre-deploy build step. This eliminates multi-instance cold-start collision errors during E2E testing and makes Lambda cold starts significantly faster.

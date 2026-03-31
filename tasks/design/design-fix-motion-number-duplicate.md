@@ -1,5 +1,7 @@
 # Design: Fix Duplicate motion_number Add Returning 500 Instead of 409
 
+**Status:** Implemented
+
 ## Overview
 
 When an admin adds a motion via `POST /api/admin/general-meetings/{id}/motions` and provides a `motion_number` that already exists on another motion in the same meeting, the database `uq_motions_general_meeting_motion_number` partial unique index fires an `IntegrityError`. FastAPI's default exception handling converts uncaught `IntegrityError` to an HTTP 500. The correct response is 409 Conflict.

@@ -1,5 +1,7 @@
 # Design: Admin UX Accessibility and Pagination Fixes
 
+**Status:** Implemented
+
 ## Overview
 
 This design covers eight targeted improvements from the PRD review recommendations (stories US-ACC-02, US-ACC-06, US-ACC-07, US-ACC-08, RR2-01, RR2-02, RR2-05, RR2-06, RR2-07). No schema migrations are required — all changes are in application code and CSS.

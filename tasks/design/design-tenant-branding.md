@@ -1,5 +1,7 @@
 # Technical Design: Tenant Branding Configuration
 
+**Status:** Implemented
+
 ## Overview
 
 Add a `tenant_config` table that stores a single row of per-deployment branding settings:

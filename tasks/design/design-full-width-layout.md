@@ -1,5 +1,7 @@
 # Design: Full-Width Desktop Layout and Collapsible Mobile Lot Sidebar
 
+**Status:** Implemented
+
 ## Overview
 
 Two layout improvements to the voter voting page:

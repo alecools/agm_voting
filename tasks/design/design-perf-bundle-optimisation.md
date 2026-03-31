@@ -1,5 +1,7 @@
 # Design: Performance — Bundle Optimisation + Serving Infrastructure
 
+**Status:** Implemented
+
 ## Overview
 
 The voter-facing JS payload is larger than necessary and static assets are routed through the FastAPI Lambda rather than being served from Vercel's CDN edge. This design covers five independent improvements:

@@ -1,5 +1,7 @@
 # Technical Design: Code Quality Improvements (US-CQM-01, US-CQM-04, US-CQM-05)
 
+**Status:** Implemented
+
 ## Overview
 
 Three independent refactors that improve maintainability without any schema changes or public API changes.

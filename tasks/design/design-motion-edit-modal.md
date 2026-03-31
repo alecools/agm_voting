@@ -1,5 +1,7 @@
 # Technical Design: Motion Edit Modal + Button Saturation
 
+**Status:** Implemented
+
 **PRD references:** US-AM02 (updated), US-AM06 (new)
 **Branch:** `feat/motion-edit-modal`
 

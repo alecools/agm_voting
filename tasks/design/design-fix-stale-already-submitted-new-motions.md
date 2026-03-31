@@ -1,5 +1,7 @@
 # Design: Fix Stale `already_submitted` When Admin Reveals New Motions
 
+**Status:** Implemented
+
 **PRD story:** US-FIX-NM01 (follow-up: BUG-NM-01-B)
 **Schema migration needed:** No
 

@@ -1,5 +1,7 @@
 # Design: Custom Motion Number and Drag-and-Drop Motion Reordering
 
+**Status:** Implemented
+
 ## Overview
 
 This feature adds two capabilities to the motion management system:

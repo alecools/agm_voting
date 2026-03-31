@@ -1,5 +1,7 @@
 # Design: Fix revote motion state — previously-voted motions shown as unvoted on re-entry
 
+**Status:** Implemented
+
 ## Overview
 
 When a voter has submitted votes for motions 1, 2, and 3 and an admin subsequently makes motion 4 visible, the voter re-authenticates and correctly reaches the voting page (BUG-RV-01 is already fixed). However, motions 1, 2, and 3 display with no pre-selected choice — the vote buttons all appear blank. The voter cannot see what they previously voted and can inadvertently submit different choices for motions that have already been answered (the backend will silently ignore those overrides, but the voter experience is confusing and misleading).

@@ -1,5 +1,7 @@
 # Technical Design: Vote Eligibility and Multi-Lot Voting
 
+**Status:** Implemented
+
 ## Overview
 
 This feature redesigns the AGM voting model from a single-email-per-lot, single-ballot-per-email system into a per-lot ballot system that supports multiple email addresses per lot, financial position tracking, and motion-type-based eligibility enforcement. The key motivations were:

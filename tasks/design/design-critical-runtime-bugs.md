@@ -1,5 +1,7 @@
 # Design: Critical Runtime Bug Fixes
 
+**Status:** Draft
+
 **PRD:** `tasks/prd/prd-review-recommendations.md` (RR3-03, RR3-04)
 **Schema changes:** None required.
 

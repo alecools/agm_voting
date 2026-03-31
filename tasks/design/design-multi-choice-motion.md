@@ -1,5 +1,7 @@
 # Technical Design: Multi-Choice Motion Type
 
+**Status:** Implemented
+
 ## Overview
 
 This feature adds a new `multi_choice` motion type to the AGM voting app. Unlike existing `general` and `special` motions (which offer For/Against/Abstain), a multi-choice motion presents a set of custom text options (e.g., candidates, sites, proposals). The admin sets the option list and an `option_limit` (maximum selections per voter). Each selected option receives the voter's full UOE — selections are not split. This enables elections and preference votes within the same ballot system.

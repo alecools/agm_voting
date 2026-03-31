@@ -1,5 +1,7 @@
 # Technical Design: Vote for Remaining Lots (ConfirmationPage Re-Entry)
 
+**Status:** Implemented
+
 ## Overview
 
 After a multi-lot voter submits a ballot for a subset of their lots, the ConfirmationPage shows a "Vote for remaining lots" button. Clicking it stores the unsubmitted lot IDs in `sessionStorage` and navigates directly to the VotingPage, bypassing re-authentication. A related but distinct flow uses `unvoted_visible_count` from the auth response to route voters back to the VotingPage when new motions have been revealed after their initial submission.

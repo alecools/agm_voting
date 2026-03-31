@@ -1,5 +1,7 @@
 # Design: E2E Helper Pagination — Name Filter for Admin List Endpoints
 
+**Status:** Implemented
+
 ## Overview
 
 The `fix/security-reliability` branch capped `GET /api/admin/buildings` and `GET /api/admin/general-meetings` at `limit=100` by default (max 1000). The E2E global setup and helper functions work around this by passing `?limit=1000`, but this is fragile: once the shared preview DB accumulates more than 1000 test entities the workaround breaks silently.

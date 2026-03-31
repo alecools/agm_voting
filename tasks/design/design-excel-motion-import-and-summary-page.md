@@ -1,5 +1,7 @@
 # Technical Design: CSV/Excel Motion Import and General Meeting Summary Page
 
+**Status:** Implemented
+
 ## Overview
 
 This document describes the as-built implementation of two features added to the AGM Voting App:

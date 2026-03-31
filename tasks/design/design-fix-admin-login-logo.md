@@ -1,5 +1,7 @@
 # Design: Fix Admin Login Page to Use Tenant Branding Logo
 
+**Status:** Implemented
+
 ## Overview
 
 The admin login page (`/admin/login`) displayed a hardcoded `<img src="/logo.png">` and `<picture>` element pointing to `/logo.webp` and `/logo.png`. After the tenant branding feature was added (see `design-tenant-branding.md`), every other page in the app (admin sidebar, voter shell header) reads the logo URL from `BrandingContext` via `useBranding()`. The login page was missed during that integration.

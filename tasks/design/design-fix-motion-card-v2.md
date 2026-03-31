@@ -1,5 +1,7 @@
 # Design Doc: Motion Card Fix v2
 
+**Status:** Implemented
+
 **Feature name:** fix-motion-card-v2
 **PRD stories:** US-UI08, US-UI09
 **Schema migration needed:** No

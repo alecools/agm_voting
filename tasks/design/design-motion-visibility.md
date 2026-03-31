@@ -1,5 +1,7 @@
 # Technical Design: Motion Visibility Toggle
 
+**Status:** Implemented
+
 ## Overview
 
 This feature adds an `is_visible` boolean flag to each motion, allowing admins to phase-reveal motions during a live meeting. Hidden motions are not sent to voters until revealed. Voters who have already submitted votes on some motions can re-enter the voting page after new motions are revealed and vote on the new ones without losing prior votes.

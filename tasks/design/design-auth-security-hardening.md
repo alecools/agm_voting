@@ -1,5 +1,7 @@
 # Design: Authentication Security Hardening
 
+**Status:** Implemented
+
 **PRD:** `tasks/prd/prd-review-recommendations.md` (US-IAS-01, US-IAS-02, US-IAS-03, RR2-04)
 
 ---

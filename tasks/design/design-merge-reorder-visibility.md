@@ -1,5 +1,7 @@
 # Design: Merge Motion Reorder Controls into Visibility Table
 
+**Status:** Implemented
+
 ## Overview
 
 Currently the admin AGM detail page has two separate tables for managing motions:

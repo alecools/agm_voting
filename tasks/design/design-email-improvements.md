@@ -1,5 +1,7 @@
 # Design: Email Improvements (US-EMAIL-01, US-EMAIL-02, US-EMAIL-03)
 
+**Status:** Implemented
+
 ## Overview
 
 Three small improvements to the voting summary email and the admin meeting detail page:

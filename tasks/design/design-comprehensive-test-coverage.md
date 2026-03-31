@@ -1,5 +1,7 @@
 # Design: Comprehensive Test Coverage for Recent Bug Fixes
 
+**Status:** Implemented
+
 ## Overview
 
 This document audits the test coverage for seven recent bug fixes in the AGM voting app. For each fix it records:

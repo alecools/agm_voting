@@ -1,5 +1,7 @@
 # Design: Fix Motion Number Not Saved on Edit
 
+**Status:** Implemented
+
 ## Overview
 
 When an admin edits a hidden motion via the Edit Motion modal on the General Meeting detail page, changes to the **motion number** field are silently discarded. The title, description, and motion type are saved correctly, but `motion_number` is never sent to the API.

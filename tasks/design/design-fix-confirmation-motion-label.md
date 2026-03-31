@@ -1,5 +1,7 @@
 # Design: Fix Motion Labels on Confirmation Page and SubmitDialog
 
+**Status:** Implemented
+
 ## Overview
 
 After the `feat/custom-motion-number-and-reorder` feature added `motion_number`, the voter-facing voting page was updated to display `"MOTION {motion_number}"` as the heading for each motion card. However, two related surfaces were missed:

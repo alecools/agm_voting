@@ -1,5 +1,7 @@
 # Technical Design: Building Filter and Status Filter on General Meetings List Page
 
+**Status:** Implemented
+
 ## Overview
 
 The Admin General Meetings list page (`GeneralMeetingListPage`) provides two filter controls — a building dropdown and a status dropdown — that narrow the displayed meetings table. Filter state is persisted in URL search parameters so that the selected filters survive page refresh and can be shared via URL. Filtering is purely client-side: the full meetings list is fetched once and filtered in the browser.

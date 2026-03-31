@@ -1,5 +1,7 @@
 # Design: Fix Motion UX Bugs
 
+**Status:** Implemented
+
 ## Fix 1 — Visibility toggle not updating immediately
 
 **Root cause:** `MotionManagementTable` maintains a `localOrder` state array to support optimistic drag-and-drop reordering. When `SortableRow` renders each row, it receives a `motion` object taken from `localOrder`, not directly from the `motions` prop. A sync check (lines 272–286) compares the incoming `motions` prop to `localOrder` and calls `setLocalOrder(motions)` when they differ — but calling `setState` during render queues a re-render rather than updating state in the same render pass. As a result, for one render cycle after the React Query cache is updated by `visibilityMutation`'s `onMutate`, the rows are still rendered with the stale `is_visible` value from `localOrder`, causing the toggle to visually lag behind the optimistic cache write.

@@ -1,5 +1,7 @@
 # Design: Fix — Already-Submitted State Lost on Return from Confirmation Page
 
+**Status:** Implemented
+
 ## Overview
 
 After a voter submits their ballot and clicks "View my votes" on the `ConfirmationPage`, they are navigated back to `/vote/:meetingId/voting`. On re-mount, `VotingPage` incorrectly renders all lots as not yet submitted (no "Already submitted" badge, checkboxes enabled) and all motions as interactive rather than read-only. This document diagnoses the exact root cause and specifies the minimal fix.

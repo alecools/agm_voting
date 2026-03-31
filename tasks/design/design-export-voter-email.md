@@ -1,5 +1,7 @@
 # Design: Voter Email Column in Vote Results Export
 
+**Status:** Implemented
+
 ## Overview
 
 The vote results export (CSV download from the AGM detail page) currently omits email addresses. Admins need to know which email authenticated and submitted for voted lots, and which contact emails should be chased for lots that did not vote (absent). This feature adds a "Voter Email" column to every row of the CSV export and enriches the underlying `voter_lists` API data with the email information needed to populate it.

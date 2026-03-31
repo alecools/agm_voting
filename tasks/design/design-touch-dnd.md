@@ -1,5 +1,7 @@
 # Design: Touch/Mobile-Friendly Motion Drag-Drop Reordering
 
+**Status:** Implemented
+
 ## Overview
 
 The motion reordering drag-drop in `MotionManagementTable` works correctly on desktop using pointer events but is broken on touch devices (phones and tablets). Admins who access the meeting management page on a mobile browser cannot drag motions to reorder them because the `TouchSensor` from `@dnd-kit/core` is not registered in the sensor list. This design adds `TouchSensor` with an appropriate activation constraint, enlarges the drag handle touch target to meet WCAG 2.5.8 (44×44 px), and adds `touch-action: none` to the draggable rows so the browser does not intercept the gesture as a scroll.

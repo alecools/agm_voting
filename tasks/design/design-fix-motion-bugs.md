@@ -1,5 +1,7 @@
 # Design: Fix Motion Bugs (fix/motion-bugs)
 
+**Status:** Implemented
+
 ## Summary
 
 Two regressions introduced by the `feat/custom-motion-number-and-reorder` merge:

@@ -1,5 +1,7 @@
 # Design: Filter Building List to Open Meetings Only
 
+**Status:** Implemented
+
 ## Overview
 
 The voter home page (`BuildingSelectPage`) shows a building dropdown populated by `GET /api/buildings`. Currently this returns every non-archived building, including buildings that have no meetings at all or only closed/past meetings. A voter who selects such a building sees an empty or purely-closed meeting list and has no actionable path — they cannot vote.

@@ -1,5 +1,7 @@
 # Design: Optional Lot Owner Email
 
+**Status:** Implemented
+
 ## Overview
 
 Currently every lot owner must have at least one email address. This blocks importing lot owners who do not have an email (e.g., estate-managed lots, deceased estates, or entities where no email is known). The feature makes email optional at every entry point: CSV/Excel import and the manual add-owner form.
