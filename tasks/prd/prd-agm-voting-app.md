@@ -34,6 +34,8 @@ A web application for body corporates to run voting during Annual General Meetin
 
 ### US-BLD-DELETE: Delete an archived building
 
+**Status:** ✅ Implemented
+
 **Description:** As a building manager, I want to permanently delete a building that has been archived so I can remove test or incorrectly created buildings from the system.
 
 **Acceptance Criteria:**

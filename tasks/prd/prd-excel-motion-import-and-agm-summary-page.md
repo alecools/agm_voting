@@ -80,6 +80,9 @@ Meeting hosts currently enter AGM motions manually one by one during AGM creatio
 - [ ] Verify in browser using dev-browser skill
 
 ### US-017: Share voting link from admin portal
+
+**Status:** 🔄 Partial — some ACs incomplete
+
 **Description:** As a meeting host, I want to easily copy the shareable voting link for a general meeting so I can distribute it to lot owners so they can authenticate and cast their votes.
 
 **Acceptance Criteria:**
