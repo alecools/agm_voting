@@ -1157,6 +1157,670 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ---
 
+---
+
+## 10. Review Round 3 — High Findings
+
+---
+
+### RR3-11: Raw exceptions must not appear in HTTP error responses
+
+**As a** security engineer,
+**I want** all error responses to return generic messages rather than raw exception strings,
+**So that** internal infrastructure details (DB driver errors, stack traces, bcrypt internals) are never leaked to clients.
+
+**Acceptance criteria:**
+- [ ] `POST /api/admin/auth/login` — `ValueError` from bcrypt is caught and returns `{"detail": "Internal server error"}` (500), not `str(exc)`; `admin_auth.py:97`
+- [ ] `GET /api/health` — DB exception returns `{"status": "degraded", "db": "unreachable"}` without an `"error"` field; `main.py:105`
+- [ ] `auth_service._unsign_token()` — bare `except Exception` is narrowed to `except (SignatureExpired, BadSignature)` only; unexpected exceptions propagate; `auth_service.py:43`
+- [ ] A unit test for each case verifies the response body contains no raw exception text
+- [ ] All existing auth and health check tests continue to pass
+
+**Technical notes:** `backend/app/routers/admin_auth.py:97`, `backend/app/main.py:105`, `backend/app/services/auth_service.py:43`.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-12: Eliminate N+1 queries in ballot submission and building archive
+
+**As a** system operator,
+**I want** the ballot submission and building archive paths to use batched queries,
+**So that** a building with 147 lots does not issue 294+ DB round-trips per submission.
+
+**Acceptance criteria:**
+- [ ] `voting_service.submit_ballot()` ownership verification fetches all `LotOwnerEmail` and `LotProxy` records for the full `lot_owner_ids` set in two `IN` queries before the loop — eliminates up to 2N queries; `voting_service.py:194`
+- [ ] `voting_service.submit_ballot()` already-voted lookup is replaced with a single `IN` query grouped in Python — eliminates N queries; `voting_service.py:240`
+- [ ] `admin_service.archive_building()` email + other-building lookup is batch-loaded with `IN` queries outside the loop — eliminates N×M queries; `admin_service.py:322`
+- [ ] `admin_service.get_general_meeting_detail()` email fetch inside the weight-row loop is replaced with a single pre-loaded batch; `admin_service.py:1303`
+- [ ] Integration test verifies submission with 50+ lots completes in < 500 ms
+
+**Technical notes:** `backend/app/services/voting_service.py`, `backend/app/services/admin_service.py`. Extends US-PER-01.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR3-13: Transaction boundaries in admin login must be atomic
+
+**As a** security engineer,
+**I want** the rate-limit record and login result to be committed in the same transaction,
+**So that** a partial failure cannot advance the rate-limit counter without recording the login outcome.
+
+**Acceptance criteria:**
+- [ ] In `admin_auth.py`, the `db.flush()` and `db.commit()` for the rate-limit record occur only after all login validation passes — not before the `HTTPException` that returns 401/403
+- [ ] If login validation raises, the rate-limit record is rolled back with the rest of the transaction
+- [ ] A unit test verifies: failed login → rate-limit counter NOT incremented in DB
+
+**Technical notes:** `backend/app/routers/admin_auth.py:114-115`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-14: Hidden motions must be excluded from the public summary endpoint
+
+**As a** meeting organiser,
+**I want** `GET /api/general-meeting/{id}/summary` to exclude motions with `is_visible=False`,
+**So that** pre-vote motion text is not disclosed to voters before the organiser makes it visible.
+
+**Acceptance criteria:**
+- [ ] The query in `public.py` filters `Motion.is_visible == True` before returning motions
+- [ ] An integration test verifies: create meeting with one visible and one hidden motion → call summary endpoint → only visible motion appears in response
+- [ ] A closed meeting returns all motions regardless of visibility (audit use case — confirmed with product)
+
+**Technical notes:** `backend/app/routers/public.py:117-142`.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-15: Admin rate-limit must use forwarded client IP, not proxy IP
+
+**As a** security engineer,
+**I want** admin login rate-limiting to key on the real client IP,
+**So that** brute-force attempts through a CDN or load balancer are not pooled into a single shared rate-limit window.
+
+**Acceptance criteria:**
+- [ ] IP extraction uses `request.headers.get("X-Forwarded-For", "").split(",")[0].strip()` with a fallback to `request.client.host`
+- [ ] A unit test verifies the correct IP is extracted when `X-Forwarded-For` contains a forwarded chain
+- [ ] Documented in code comment: Vercel sets `X-Forwarded-For` correctly for Lambda functions
+
+**Technical notes:** `backend/app/routers/admin_auth.py:62`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-16: Eliminate email enumeration timing oracle in auth flow
+
+**As a** security engineer,
+**I want** the OTP request path to execute the same DB queries regardless of whether the email is registered,
+**So that** an attacker cannot enumerate valid lot owner emails by measuring response times.
+
+**Acceptance criteria:**
+- [ ] `POST /api/auth/verify` (OTP request) executes the same number of DB queries for a known email and an unknown email
+- [ ] If normalised to the same query count is not feasible, a fixed constant-time delay (e.g., `asyncio.sleep(0.1)`) is added to the unknown-email path to equalise response time
+- [ ] A timing test (or code review evidence) confirms the two paths cannot be distinguished at > 50 ms difference
+
+**Technical notes:** `backend/app/routers/auth.py:245-267`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-17: `admin_password_validator` must actually validate bcrypt format
+
+**As a** backend developer,
+**I want** the `ADMIN_PASSWORD` env var to be rejected at startup if it is not a valid bcrypt hash,
+**So that** a misconfigured deployment with a plaintext password is caught before the first request.
+
+**Acceptance criteria:**
+- [ ] `config.py` `admin_password_must_be_bcrypt` validator raises `ValueError` if the value does not start with `$2b$` or `$2a$`
+- [ ] A unit test verifies the validator rejects `"admin"` and `"password123"` and accepts a valid bcrypt string
+
+**Technical notes:** `backend/app/config.py:36-53`.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-18: Draft votes must be retained for audit rather than deleted
+
+**As a** meeting auditor,
+**I want** draft votes to be archived rather than deleted when a ballot is submitted or a meeting closes,
+**So that** there is a complete audit record of state transitions from draft to submitted.
+
+**Acceptance criteria:**
+- [ ] `Vote` model gains a `deleted_at: datetime | None` column (nullable, indexed) — requires Alembic migration
+- [ ] `voting_service.submit_ballot()` sets `deleted_at = now()` on superseded drafts rather than executing a hard `DELETE`
+- [ ] `admin_service.close_general_meeting()` sets `deleted_at = now()` on remaining drafts rather than hard-deleting them
+- [ ] All queries that read active votes filter `Vote.deleted_at == None` — no functional change to tallies or confirmation page
+- [ ] An audit query `SELECT * FROM votes WHERE deleted_at IS NOT NULL` returns the archived drafts
+- [ ] All existing tests pass; a new unit test verifies drafts appear in the audit query
+
+**Technical notes:** `backend/app/models/vote.py`, `backend/alembic/versions/`, `backend/app/services/voting_service.py:321`, `backend/app/services/admin_service.py:1929`. Schema change required.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-19: Email retry `asyncio.Task`s must not be silently dropped at Lambda exit
+
+**As a** system operator,
+**I want** the email retry mechanism to survive Lambda cold-start cycles,
+**So that** a meeting closed during a Lambda cycle does not silently lose its email delivery.
+
+**Acceptance criteria:**
+- [ ] `requeue_pending_on_startup()` at `main.py:43` is replaced or supplemented with a cron-triggered endpoint `POST /api/internal/retry-pending-emails` that is called on a schedule (e.g., every 5 minutes via Vercel cron or external scheduler)
+- [ ] The endpoint requires a shared secret header (`X-Internal-Secret`) to prevent unauthenticated calls
+- [ ] Background `asyncio.Task`s are only used as a best-effort optimisation within the current Lambda invocation; the cron provides the reliable retry path
+- [ ] `docs/runbooks/email-delivery-failures.md` is updated to document the cron schedule and manual trigger procedure
+
+**Technical notes:** `backend/app/main.py:43`, `backend/app/services/email_service.py`. `vercel.json` — add cron job entry.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-20: Build-time migration must verify success before Lambda starts
+
+**As a** system operator,
+**I want** the Lambda to refuse to serve requests if the DB schema is not at the expected revision,
+**So that** a failed migration during build does not silently serve requests against a stale schema.
+
+**Acceptance criteria:**
+- [ ] `api/index.py` checks the current Alembic revision via `alembic current` (or direct DB query on `alembic_version`) at startup
+- [ ] If the current revision does not match the head revision baked into the build, the Lambda raises `RuntimeError` on the first request (blocking all traffic until a correct deploy is promoted)
+- [ ] The check is fast (< 100 ms) — a direct `SELECT version_num FROM alembic_version` query, not a full `alembic upgrade head` run
+- [ ] A unit test verifies the startup check raises on revision mismatch
+
+**Technical notes:** `api/index.py`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-21: Structured logging required on all critical paths
+
+**As a** system operator,
+**I want** every significant state transition and permission denial to emit a structured log event,
+**So that** incidents can be diagnosed from logs without attaching a debugger.
+
+**Acceptance criteria:**
+- [ ] `voting_service.submit_ballot()` logs: `event=ballot_submitted`, `voter_email`, `agm_id`, `lot_count`; and on 403: `event=ballot_denied`, `reason`
+- [ ] `admin_service.close_general_meeting()` logs: `event=meeting_closed`, `agm_id`, `lot_count`, `absent_count`, `email_triggered`
+- [ ] `auth_service._unsign_token()` logs at WARNING on `SignatureExpired` or `BadSignature`: `event=session_token_invalid`, `reason`
+- [ ] All log events include `request_id` (once correlation IDs are added per RR3-42)
+- [ ] A unit test for each path verifies the log event is emitted using `structlog.testing.capture_logs`
+
+**Technical notes:** `backend/app/services/voting_service.py`, `backend/app/services/admin_service.py`, `backend/app/services/auth_service.py`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-22: Feature branch cleanup must be idempotent and failure-safe
+
+**As a** developer,
+**I want** branch cleanup (Neon DB branch + Vercel env vars) to be wrapped in an idempotent script,
+**So that** a partial failure does not leave orphaned infrastructure that silently breaks the next branch with the same name.
+
+**Acceptance criteria:**
+- [ ] A `scripts/cleanup-feature-branch.sh` script wraps the four cleanup steps from `CLAUDE.md` with: existence checks before delete, error logging, and a final verification that all resources are removed
+- [ ] The script is idempotent — running it twice on the same branch produces no errors
+- [ ] On any step failure, the script exits non-zero and prints which resource was not cleaned
+- [ ] The cleanup agent's instructions in CLAUDE.md reference this script rather than raw curl commands
+
+**Technical notes:** `scripts/cleanup-feature-branch.sh` — new file. `CLAUDE.md` — update cleanup commands reference.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR3-23: Connection string must be validated at application startup
+
+**As a** system operator,
+**I want** the application to reject a malformed `DATABASE_URL` at startup,
+**So that** a misconfigured env var produces a clear error at deploy time rather than a cryptic runtime failure.
+
+**Acceptance criteria:**
+- [ ] `config.py` adds a `@field_validator("database_url")` that rejects: URLs containing `channel_binding`, URLs using `sslmode=` instead of `ssl=`, URLs not starting with `postgresql+asyncpg://`
+- [ ] The Lambda raises `ValueError` at cold start if validation fails — the deploy is visibly broken before any voter request is served
+- [ ] A unit test verifies each rejection case
+
+**Technical notes:** `backend/app/config.py`. Complements the runtime sanitisation in `api/index.py:36-47`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-24: `MultiChoiceOptionList` must use `<fieldset>`/`<legend>` for screen readers
+
+**As a** voter using a screen reader,
+**I want** multi-choice option groups to be announced as a named group,
+**So that** I understand that the checkboxes belong together and how many I can select.
+
+**Acceptance criteria:**
+- [ ] `MultiChoiceOptionList.tsx` wraps all checkboxes in a `<fieldset>` with a `<legend>` containing the selection limit text (e.g., "Select up to 3 options")
+- [ ] The visible counter paragraph (`"N selected"`) retains `aria-hidden="true"` to avoid double-announcement
+- [ ] Screen reader test: VoiceOver/NVDA announces the group legend when focus enters the first checkbox
+- [ ] All existing multi-choice unit and E2E tests pass
+- [ ] Verify in browser using dev-browser skill
+
+**Technical notes:** `frontend/src/components/vote/MultiChoiceOptionList.tsx:33-60`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-25: `VoteButton` must have a reliable accessible name independent of icon
+
+**As a** voter using a screen reader,
+**I want** each vote button's accessible name to be unambiguous,
+**So that** I can distinguish "For", "Against", and "Abstain" without relying on the icon character.
+
+**Acceptance criteria:**
+- [ ] Each `VoteButton` has an `aria-label={`Vote: ${LABELS[choice]}`}` that provides a self-contained accessible name
+- [ ] The `vote-btn__label` span remains visible in the DOM and is not hidden via `aria-hidden`
+- [ ] Keyboard test: Tab to a vote button → screen reader announces "Vote: For, button" (or equivalent)
+- [ ] Verify in browser using dev-browser skill
+
+**Technical notes:** `frontend/src/components/vote/VoteButton.tsx:25-40`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-26: Admin routes must have an `ErrorBoundary` to handle chunk load failures
+
+**As an** admin,
+**I want** a meaningful error message when a lazy-loaded admin page fails to load,
+**So that** a CDN or network error does not leave me staring at an infinite spinner.
+
+**Acceptance criteria:**
+- [ ] The `<Suspense>` wrapper around lazy-loaded admin routes in `App.tsx` is wrapped in a React `ErrorBoundary`
+- [ ] On chunk load failure, the `ErrorBoundary` renders a fallback: "Failed to load page — please refresh" with a retry button
+- [ ] The `ErrorBoundary` catches only `ChunkLoadError`; other errors propagate normally
+- [ ] A unit test renders the boundary with a mocked failing lazy component and verifies the fallback is shown
+
+**Technical notes:** `frontend/src/App.tsx:33-40`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-27: Building search on `VotingPage` must handle all-query-failure gracefully
+
+**As a** voter,
+**I want** the voting page to show a clear error if it cannot find my meeting,
+**So that** I am not left with a blank meeting header and no indication of what went wrong.
+
+**Acceptance criteria:**
+- [ ] If all `fetchGeneralMeetings` calls complete without finding the `meetingId`, `VotingPage` renders an error state: "Meeting not found — please check the link and try again"
+- [ ] The error state is shown instead of a blank/undefined meeting header
+- [ ] A unit test mocks all building queries returning empty results and verifies the error state renders
+
+**Technical notes:** `frontend/src/pages/vote/VotingPage.tsx:94-113`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-28: Lot owner email input must use `type="email"`
+
+**As an** admin entering lot owner details,
+**I want** the email field to use `type="email"`,
+**So that** the browser validates format, provides the correct mobile keyboard, and autocomplete works correctly.
+
+**Acceptance criteria:**
+- [ ] `LotOwnerForm.tsx` email input uses `type="email"` instead of `type="text"`
+- [ ] Browser native validation is not suppressed (no `noValidate` on the parent form without a replacement)
+- [ ] Existing unit tests for the form pass after the change
+
+**Technical notes:** `frontend/src/components/admin/LotOwnerForm.tsx:527`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-29: Server time fetch must have a timeout
+
+**As a** voter,
+**I want** the countdown timer to fall back gracefully if the server time endpoint is slow,
+**So that** a single slow network request does not block the voting UI indefinitely.
+
+**Acceptance criteria:**
+- [ ] `useServerTime.ts` wraps the fetch in `AbortController` with a 5-second timeout
+- [ ] On timeout or network error, the hook falls back to `Date.now()` and logs a warning
+- [ ] A unit test verifies the fallback is used when the fetch times out
+
+**Technical notes:** `frontend/src/hooks/useServerTime.ts:13-24`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-30: Partial vote re-submission after session expiry must be tested
+
+**As a** QA engineer,
+**I want** a test verifying that a voter who submits partially, re-authenticates, and re-submits is handled correctly,
+**So that** the partial-then-complete submission path does not corrupt the ballot.
+
+**Acceptance criteria:**
+- [ ] Integration test: voter submits motion 1 of 2 → simulate session expiry → voter re-authenticates → voter submits motion 1 + motion 2 → verify motion 1 is not duplicated, motion 2 is added, total vote count correct
+- [ ] The test uses the real test DB, not mocks
+- [ ] All new tests pass
+
+**Technical notes:** `backend/tests/test_phase2_api.py`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-31: Duplicate lot number import error must include row-level detail
+
+**As an** admin importing lot owners,
+**I want** the 422 error for duplicate lot numbers to name the specific lot numbers and rows that conflict,
+**So that** I can fix the import file without manually hunting for duplicates.
+
+**Acceptance criteria:**
+- [ ] `import_lot_owners()` 422 response body lists each duplicate lot number and the rows it appeared on: e.g., `"Lot 42 appears on rows 3 and 7"`
+- [ ] Existing integration test for duplicate lots is updated to assert the detail message contains the lot number
+- [ ] Response format matches the existing error array pattern in `admin_service.py`
+
+**Technical notes:** `backend/app/services/admin_service.py` — lot owner import validation.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-32: Email delivery assertion missing from no-lot-weights close test
+
+**As a** QA engineer,
+**I want** the meeting-close-with-no-lot-weights test to assert email delivery is triggered,
+**So that** a regression where email is skipped on an empty meeting is caught automatically.
+
+**Acceptance criteria:**
+- [ ] `test_close_agm_with_no_lot_weights_no_absent_records` adds: query `EmailDelivery` for the meeting after close → assert exactly one row exists with `status` in (`pending`, `sent`)
+- [ ] The test passes on the current codebase
+
+**Technical notes:** `backend/tests/test_admin_meetings_api.py:2864`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+## 11. Review Round 3 — Medium Findings
+
+Medium-priority issues are grouped by theme. All are P1 or P2.
+
+---
+
+### RR3-33: Rate limiting gaps on ballot submission and public endpoints
+
+**As a** system operator,
+**I want** rate limits on the ballot submission and public list endpoints,
+**So that** a flood of requests cannot exhaust the DB connection pool or enumerate all meetings.
+
+**Acceptance criteria:**
+- [ ] `POST /api/agm/{id}/submit` is rate-limited per session (e.g., 5 requests per minute per `voter_email`) — returns 429 on excess
+- [ ] `GET /api/buildings`, `GET /api/general-meeting/{id}/summary` are rate-limited per IP (e.g., 60 requests per minute) — returns 429 on excess
+- [ ] Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`) are included in 429 responses
+- [ ] A unit test verifies 429 is returned on the N+1th request within the window
+
+**Technical notes:** `backend/app/routers/voting.py`, `backend/app/routers/public.py`. Use `slowapi` or a custom middleware.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-34: File upload size limits and debug endpoint access controls
+
+**As a** system operator,
+**I want** import endpoints to reject oversized files and debug endpoints to be harder to access,
+**So that** a malicious or accidental large upload cannot exhaust Lambda memory and operational details are not freely visible.
+
+**Acceptance criteria:**
+- [ ] All `UploadFile` endpoints (`buildings/import`, `lot-owners/import`, `import-proxies`, `import-financial-positions`) reject files over 5 MB with 413 before reading the content
+- [ ] Debug endpoints (`/debug/meeting-status`, `/debug/email-deliveries`, `/debug/db-health`) require a `testing_mode=True` check or a separate `X-Debug-Key` header in addition to admin auth
+- [ ] `/debug/email-deliveries` adds `limit: int = 100` query parameter (default 100, max 500)
+
+**Technical notes:** `backend/app/routers/admin.py:149,745`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR3-35: Weak startup defaults must be rejected in non-development environments
+
+**As a** security engineer,
+**I want** the application to refuse to start if default secrets are in use outside development,
+**So that** a misconfigured production deploy is caught before it accepts real traffic.
+
+**Acceptance criteria:**
+- [ ] `config.py` startup validator raises `ValueError` if `session_secret == "change_me_to_a_random_secret"` and `environment != "development"`
+- [ ] Same check applies to `admin_password == "admin"` or any value that does not start with `$2b$` or `$2a$` (complementing RR3-17)
+- [ ] Preview deployments (`environment == "preview"`) are treated as non-development and are subject to the same checks
+- [ ] Session middleware on preview sets `https_only=True` — the current `environment == "production"` guard is widened to `environment != "development"`
+
+**Technical notes:** `backend/app/config.py:22-24`, `backend/app/main.py:66-71`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-36: Session and token duration hardening
+
+**As a** backend developer,
+**I want** session and token duration constants to be aligned and the unused one removed,
+**So that** a future developer is not misled into thinking sessions last 24 hours.
+
+**Acceptance criteria:**
+- [ ] `SESSION_DURATION_HOURS = 24` constant is removed from `auth_service.py`
+- [ ] `_TOKEN_MAX_AGE_SECONDS` is set to `int(SESSION_DURATION.total_seconds())` (1800) — token signature cannot outlive the DB session
+- [ ] The voter session cookie `SameSite` is changed from `strict` to `lax` so the cookie is sent on first navigation from the OTP email link — `auth.py:421`
+- [ ] A unit test verifies the token max age matches the session duration
+
+**Technical notes:** `backend/app/services/auth_service.py:16-22`, `backend/app/routers/auth.py:421`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR3-37: Backend data quality fixes
+
+**As a** backend developer,
+**I want** several small correctness issues fixed,
+**So that** edge cases in datetime handling, import validation, and multi-choice voting are handled explicitly.
+
+**Acceptance criteria:**
+- [ ] `get_effective_status()` in `general_meeting.py:41` replaces the silent UTC assumption with an assertion: `assert starts_at.tzinfo is not None, "Naive datetime from DB — check timezone=True column"` — lets real bugs surface rather than masking them
+- [ ] `import_lot_owners()` (and other import functions) wrap error arrays in `{"errors": errors}` dict rather than returning a bare list — consistent with FastAPI's standard `detail` format
+- [ ] Multi-choice option submission validates that selected option IDs contain no duplicates; returns 422 "Duplicate option IDs" if they do; `voting_service.py:280`
+
+**Technical notes:** `backend/app/models/general_meeting.py:41`, `backend/app/services/admin_service.py:106`, `backend/app/services/voting_service.py:280`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR3-38: SRE observability improvements
+
+**As a** system operator,
+**I want** several small observability gaps closed,
+**So that** operational issues are surfaced earlier and incidents are faster to diagnose.
+
+**Acceptance criteria:**
+- [ ] `GET /api/health` response includes `"version"` (git SHA or build timestamp from env var `VERCEL_GIT_COMMIT_SHA`) and `"migrations_current"` (result of `SELECT version_num FROM alembic_version`)
+- [ ] OTP email send (`email_service.send_otp_email`) retries up to 3 times with 1s/2s/4s backoff on SMTP failure before raising
+- [ ] Email retry max attempts and backoff cap are configurable via `EMAIL_RETRY_MAX_ATTEMPTS` and `EMAIL_BACKOFF_CAP_SECONDS` env vars (defaults: 30 and 3600)
+- [ ] `docs/slo.md` is updated to specify the chosen metrics/alerting approach and links to the alert configuration
+- [ ] `docs/runbooks/database-connectivity.md` documents the three capacity scaling options (Neon plan upgrade, pool size increase, PgBouncer)
+- [ ] CSP `unsafe-inline` is tracked as a known issue with a comment: "Required for Vite module preload polyfill — revisit when Vite 5.x supports nonce-based CSP"
+
+**Technical notes:** `backend/app/main.py:90-106`, `backend/app/services/email_service.py:42,75`, `docs/slo.md`, `docs/runbooks/database-connectivity.md`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-39: Accessibility medium fixes — voter UI
+
+**As a** voter using assistive technology,
+**I want** several small accessibility issues fixed in the voting UI,
+**So that** the experience is consistent and WCAG 2.1 AA compliant throughout.
+
+**Acceptance criteria:**
+- [ ] `CountdownTimer.tsx` changes `aria-live="polite"` to `aria-live="off"` on the per-second ticker; adds a separate `aria-live="assertive"` announcement-only element that fires only when the timer enters the 5-minute warning state
+- [ ] Sidebar drawer (`VotingPage.tsx:597`) gains a `keydown` handler: Escape closes the drawer and returns focus to the trigger button
+- [ ] Sidebar drawer close button (`VotingPage.tsx:610`) removes the `✕` character and relies solely on `aria-label="Close lot selector"`
+- [ ] Motion card unanswered/voted badges (`MotionCard.tsx:65`) gain `role="status"` so their text is announced when they first appear
+- [ ] `AuthForm.tsx` required-field hint replaces `<span aria-hidden="true">*</span> Required field` with simply `Required field` (asterisk is redundant given the text)
+- [ ] All modified components pass existing unit tests; verify in browser using dev-browser skill
+
+**Technical notes:** `frontend/src/components/vote/CountdownTimer.tsx:36`, `frontend/src/pages/vote/VotingPage.tsx:549,597,610`, `frontend/src/components/vote/MotionCard.tsx:65`, `frontend/src/components/vote/AuthForm.tsx:81`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR3-40: Frontend medium fixes — error handling, loading states, and modal UX
+
+**As a** user of the admin portal and voter UI,
+**I want** several small UX and correctness issues fixed,
+**So that** errors are handled gracefully and the interface behaves predictably.
+
+**Acceptance criteria:**
+- [ ] `BuildingDetailPage.tsx:307` — modal is hidden in a `finally` block so it closes whether the async operation succeeds or fails, preventing a stuck open modal on error
+- [ ] API error messages displayed to the user are truncated to 200 characters maximum to prevent raw stack traces rendering in the UI
+- [ ] Building selection dropdown shows a spinner or disabled state while the buildings query is loading (`BuildingSelectPage.tsx:81`)
+- [ ] `AuthVerifyResponse` TypeScript type removes or marks `session_token` as optional/deprecated — it is not used by the frontend
+- [ ] Lot selection validation error (e.g., "no lots selected") is wrapped in an `aria-live="assertive"` region so screen readers announce it immediately
+
+**Technical notes:** `frontend/src/pages/admin/BuildingDetailPage.tsx:307,386`, `frontend/src/pages/vote/BuildingSelectPage.tsx:81`, `frontend/src/api/`.
+
+**Priority:** P2 | **Effort:** M
+
+---
+
+### RR3-41: QA medium coverage gaps
+
+**As a** QA engineer,
+**I want** several missing test scenarios added,
+**So that** edge cases in the voting, draft, and import flows are verified automatically.
+
+**Acceptance criteria:**
+- [ ] E2E test: voter starts voting, session expires (mock server returns 401), voter re-authenticates, voting continues from saved state — asserts no data loss
+- [ ] E2E test: multi-lot voter drafts votes for lot A, switches to lot B, submits lot B, revisits lot A — asserts lot A drafts are still present
+- [ ] Integration test: `POST /api/agm/{id}/submit` with a request body that is valid JSON but missing `lot_owner_ids` returns 422
+- [ ] Integration test: import lot owner CSV → update lot to `in_arrear` via financial position import → create AGM → voter submits → assert General Motion vote for that lot is `not_eligible`
+- [ ] Playwright selector audit: all `page.locator(".some-class")` calls in E2E specs are replaced with role-based or `data-testid` selectors; `data-testid` attributes are added to key interactive elements
+- [ ] E2E timeouts standardised: all `{ timeout: N }` overrides use `process.env.CI ? 30000 : 15000`
+
+**Technical notes:** `frontend/e2e/`, `backend/tests/test_phase2_api.py`, `backend/tests/test_admin_lot_owners_api.py`.
+
+**Priority:** P1 | **Effort:** L
+
+---
+
+## 12. Review Round 3 — Low Findings
+
+Low-priority issues are grouped into thematic cleanup stories. All are P2.
+
+---
+
+### RR3-42: Backend observability and code hygiene cleanup
+
+**As a** backend developer,
+**I want** a batch of small backend hygiene issues resolved,
+**So that** the codebase is easier to maintain and observe in production.
+
+**Acceptance criteria:**
+- [ ] Remove unused constant `SESSION_DURATION_HOURS = 24` (covered by RR3-36 but listed here for tracking)
+- [ ] Add request correlation ID middleware: generate `X-Request-ID = uuid4()` in `SecurityHeadersMiddleware`, bind to `structlog` context, include in all log events and response headers
+- [ ] Add SQLAlchemy event listener logging queries > 200 ms: `event=slow_query`, `duration_ms`, `query_hash` (first 8 chars of MD5)
+- [ ] Make email retry config env-var driven: `EMAIL_RETRY_MAX_ATTEMPTS` (default 30), `EMAIL_BACKOFF_CAP_SECONDS` (default 3600)
+- [ ] Remove `python-json-logger` from `pyproject.toml` (unused — structlog is the logger)
+- [ ] Add `pip-audit` to dev dependencies and CI pipeline; fail build on HIGH/CRITICAL CVEs
+- [ ] Add `admin.py` debug email-deliveries endpoint `limit` query param (default 100, max 500) to prevent unbounded result sets
+- [ ] Add OTP rate-limit window fix: `first_attempt_at` is set only on the first OTP issue in a window, not reset on subsequent issues — `auth.py:167`
+- [ ] Add DB query timeout at pool level: `connect_args={"statement_timeout": "5000"}` so hung queries fail after 5 s rather than indefinitely
+
+**Technical notes:** `backend/app/main.py`, `backend/app/services/auth_service.py`, `backend/app/services/email_service.py`, `backend/app/routers/admin.py`, `backend/pyproject.toml`, `.github/workflows/ci.yml`.
+
+**Priority:** P2 | **Effort:** M
+
+---
+
+### RR3-43: Non-DB data backup strategy
+
+**As a** system operator,
+**I want** a documented backup strategy for any non-database data (uploaded files),
+**So that** the disaster recovery plan covers all data stores.
+
+**Acceptance criteria:**
+- [ ] `docs/runbooks/disaster-recovery.md` is updated with a "File Storage" section noting: if import files are ephemeral (Lambda `/tmp`), they are not backed up (acceptable — source files are re-uploadable); if any persistent file storage is used, its backup strategy is documented
+- [ ] `CLAUDE.md` is updated if any new persistent storage is introduced in future features
+
+**Technical notes:** `docs/runbooks/disaster-recovery.md`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR3-44: Accessibility low-priority polish
+
+**As a** voter or admin using assistive technology,
+**I want** several small accessibility polish items addressed,
+**So that** the app is as inclusive as possible for users of all abilities.
+
+**Acceptance criteria:**
+- [ ] Primary button colour combination (`--gold-light` on `--color-primary`) is verified with a contrast checker; if < 4.5:1 the gold is lightened to pass — document the ratio in a CSS comment
+- [ ] All admin `<table>` elements gain `aria-label` or `aria-labelledby` pointing to their section heading
+- [ ] Each page is audited to confirm exactly one `<main>` element exists — fix any accidental nesting
+- [ ] `Pagination.tsx` is reviewed against US-ACC requirements: `aria-label="Page N"` on each button, `aria-current="page"` on active, `aria-label="Previous page"` / `"Next page"` on nav buttons
+
+**Technical notes:** `frontend/src/styles/index.css:276`, `frontend/src/components/admin/*Table.tsx`, all page components, `frontend/src/components/admin/Pagination.tsx`.
+
+**Priority:** P2 | **Effort:** M
+
+---
+
+### RR3-45: Frontend low-priority code quality
+
+**As a** frontend developer,
+**I want** a set of small code quality issues resolved,
+**So that** the codebase is clean and consistent.
+
+**Acceptance criteria:**
+- [ ] Remove unused React import from `LotOwnerForm.tsx:1` (React 17+ JSX transform does not require it)
+- [ ] Replace `value as SomeType` type cast in `ConfirmationPage.tsx:44` with an `instanceof` check or a proper type guard
+- [ ] Remaining inline `style` colour and spacing values in `ConfirmationPage.tsx` are extracted to CSS classes (per design system rule against inline style props for colours/spacing)
+
+**Technical notes:** `frontend/src/components/admin/LotOwnerForm.tsx:1`, `frontend/src/pages/vote/ConfirmationPage.tsx:44`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR3-46: QA low-priority test additions
+
+**As a** QA engineer,
+**I want** a small set of missing test scenarios added,
+**So that** no obvious regression path is left uncovered.
+
+**Acceptance criteria:**
+- [ ] Integration test: create motion with `motion_number="1"` → attempt to update to `motion_number="2"` (if update is supported) → verify the number is rejected or unchanged (immutability after creation)
+- [ ] Integration test: `EmailDelivery` status transitions are exercised — `pending → sent`, `pending → failed` — verifying the full lifecycle is reachable in tests
+- [ ] All new tests pass at 100% coverage
+
+**Technical notes:** `backend/tests/test_admin_meetings_api.py`, `backend/tests/` — email delivery tests.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
 ## Priority Summary
 
 | Theme | P0 | P1 | P2 | Total |
@@ -1169,10 +1833,15 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 | Code Quality & Maintainability | 0 | 1 | 5 | 6 |
 | Test Coverage Gaps | 2 | 3 | 1 | 6 |
 | Review Round 2 — New Findings | 3 | 4 | 1 | 8 |
-| Review Round 3 — Critical Findings | 10 | 0 | 0 | 10 |
-| **Totals** | **21** | **24** | **15** | **61** |
+| Review Round 3 — Critical (RR3-01–10) | 10 | 0 | 0 | 10 |
+| Review Round 3 — High (RR3-11–32) | 10 | 12 | 0 | 22 |
+| Review Round 3 — Medium (RR3-33–41) | 0 | 6 | 3 | 9 |
+| Review Round 3 — Low (RR3-42–46) | 0 | 0 | 5 | 5 |
+| **Totals** | **31** | **42** | **23** | **97** |
 
-> Round 3 adds 10 new stories (RR3-01 through RR3-10) covering critical issues from the second 8-perspective team review. C-1 (session token in body) is already covered by US-IAS-04. C-6 (building deletion cascade) is accepted behaviour per US-VIL-02. C-12 (voter modal focus traps) is covered by US-ACC-02; RR3-07 extends it to admin modals. Runtime bug fixes for C-2, C-7, C-8, C-9 are in `tasks/design/design-critical-runtime-bugs.md`.
+> Round 3 adds 46 new stories (RR3-01 through RR3-46) covering all critical, high, medium, and low findings from the second 8-perspective team review.
+>
+> Already covered by earlier stories: H-7 CSRF (US-IAS-05), H-15 smoke tests (US-OPS-03), H-17 email escalation (US-OPS-05), H-18 DR drill (US-OPS-06), H-20 alerting (RR3-08), H-23 MixedSelection Escape (US-ACC-02), H-25 BuildingEditModal focus (RR3-07), H-27 modal inconsistency (RR3-07), H-31 aria-describedby (US-ACC-05), H-33 E2E isolation (US-TCG-05). C-1 covered by US-IAS-04. C-6 accepted per US-VIL-02. Runtime bugs C-2/C-7/C-8/C-9 are in `tasks/design/design-critical-runtime-bugs.md`.
 
 ---
 
