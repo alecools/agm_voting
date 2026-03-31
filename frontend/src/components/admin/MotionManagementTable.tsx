@@ -155,14 +155,18 @@ function SortableRow({
       <td className={mutedCell}>
         <span
           className={`motion-type-badge motion-type-badge--${motion.motion_type}`}
-          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : motion.motion_type === "multi_choice" ? "Multi-Choice" : "General"}`}
+          aria-label={`Motion type: ${motion.motion_type === "special" ? "Special" : "General"}`}
         >
-          {motion.motion_type === "special"
-            ? "Special"
-            : motion.motion_type === "multi_choice"
-            ? `Multi-Choice${motion.options && motion.options.length > 0 ? ` (${motion.options.length} options)` : ""}`
-            : "General"}
+          {motion.motion_type === "special" ? "Special" : "General"}
         </span>
+        {motion.is_multi_choice && (
+          <span
+            className="motion-type-badge motion-type-badge--multi-choice-indicator"
+            aria-label={`Voting mechanism: Multi-choice${motion.options && motion.options.length > 0 ? ` (${motion.options.length} options)` : ""}`}
+          >
+            {`Multi-choice${motion.options && motion.options.length > 0 ? ` (${motion.options.length} options)` : ""}`}
+          </span>
+        )}
       </td>
       <td>
         <label

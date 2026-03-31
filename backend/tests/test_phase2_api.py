@@ -2567,6 +2567,132 @@ class TestSubmitBallot:
 
     # --- Edge cases ---
 
+    async def test_hidden_motion_no_vote_row_created_on_submit(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """RR3-47: Submitting when a motion is hidden creates no Vote row for that motion.
+
+        Voter answers visible motion A; hidden motion B must not receive any Vote record
+        (not even abstained or not_eligible).  Once B is made visible and the voter
+        re-submits answering B, a Vote row is then created for B.
+        """
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]  # two visible motions from fixture
+
+        # Add a hidden motion B to the same AGM
+        motion_b = Motion(
+            general_meeting_id=agm.id,
+            title="Hidden Motion B",
+            display_order=99,
+            description="Should not receive any vote on first submit",
+            is_visible=False,
+        )
+        db_session.add(motion_b)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # --- Step 1: voter submits answering visible motions only ---
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(motions[0].id), "choice": "yes"},
+                    {"motion_id": str(motions[1].id), "choice": "yes"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        # Assert NO Vote row exists for hidden motion B
+        from sqlalchemy import select as sa_select
+        vote_result = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == motion_b.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        assert vote_result.scalar_one_or_none() is None, (
+            "No Vote record should be created for a hidden motion"
+        )
+
+    async def test_hidden_motion_vote_created_after_made_visible_and_resubmit(
+        self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
+    ):
+        """RR3-47: After making a hidden motion visible, a re-submit creates a Vote row.
+
+        Confirms that the fix does not break the re-entry flow: once motion B is made
+        visible, the voter can answer it on a second submit and a Vote row is created.
+        """
+        agm = building_with_agm["agm"]
+        lo = building_with_agm["lot_owner"]
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        motions = building_with_agm["motions"]  # two visible motions from fixture
+
+        # Add hidden motion B
+        motion_b = Motion(
+            general_meeting_id=agm.id,
+            title="Hidden Motion B",
+            display_order=99,
+            is_visible=False,
+        )
+        db_session.add(motion_b)
+        await db_session.flush()
+
+        token = await create_session(db_session, voter_email, building.id, agm.id)
+
+        # Step 1: first submit — answer visible motions only, B is hidden
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(motions[0].id), "choice": "yes"},
+                    {"motion_id": str(motions[1].id), "choice": "yes"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        # Step 2: make motion B visible
+        motion_b.is_visible = True
+        await db_session.flush()
+
+        # Step 3: re-submit — answer motion B now that it is visible
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [
+                    {"motion_id": str(motion_b.id), "choice": "no"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        # Assert Vote row now exists for motion B
+        from sqlalchemy import select as sa_select
+        vote_result = await db_session.execute(
+            sa_select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.motion_id == motion_b.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.status == VoteStatus.submitted,
+            )
+        )
+        vote = vote_result.scalar_one_or_none()
+        assert vote is not None, "Vote row should be created once motion B is visible and answered"
+        assert vote.choice == VoteChoice.no
+
     async def test_concurrent_submission_integrity_error_raises_409(
         self, db_session: AsyncSession, building_with_agm: dict
     ):

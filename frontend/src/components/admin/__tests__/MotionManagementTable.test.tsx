@@ -465,11 +465,43 @@ describe("MotionManagementTable", () => {
     expect(screen.queryByText("Failed to delete motion")).not.toBeInTheDocument();
   });
 
-  // --- Multi-choice motion type badge ---
+  // --- Multi-choice motion type badge (RR3-48) ---
 
-  it("shows Multi-Choice badge with option count for multi_choice motion", () => {
-    const MC_MOTION = makeMotion("mc1", "Board Election", 4, {
-      motion_type: "multi_choice",
+  it("shows General type badge for a general multi-choice motion", () => {
+    const MC_GENERAL = makeMotion("mc1", "Board Election", 4, {
+      motion_type: "general",
+      is_multi_choice: true,
+      option_limit: 2,
+      options: [
+        { id: "opt-1", text: "Alice", display_order: 1 },
+        { id: "opt-2", text: "Bob", display_order: 2 },
+      ],
+    });
+    renderTable({ motions: [MC_GENERAL] });
+    const typeBadge = screen.getByLabelText("Motion type: General");
+    expect(typeBadge).toHaveClass("motion-type-badge--general");
+    expect(typeBadge).toHaveTextContent("General");
+  });
+
+  it("shows Special type badge for a special multi-choice motion", () => {
+    const MC_SPECIAL = makeMotion("mc2", "Special Election", 5, {
+      motion_type: "special",
+      is_multi_choice: true,
+      option_limit: 1,
+      options: [
+        { id: "opt-1", text: "Alice", display_order: 1 },
+      ],
+    });
+    renderTable({ motions: [MC_SPECIAL] });
+    const typeBadge = screen.getByLabelText("Motion type: Special");
+    expect(typeBadge).toHaveClass("motion-type-badge--special");
+    expect(typeBadge).toHaveTextContent("Special");
+  });
+
+  it("shows secondary multi-choice indicator with option count", () => {
+    const MC_MOTION = makeMotion("mc3", "Board Election", 6, {
+      motion_type: "general",
+      is_multi_choice: true,
       option_limit: 2,
       options: [
         { id: "opt-1", text: "Alice", display_order: 1 },
@@ -478,20 +510,25 @@ describe("MotionManagementTable", () => {
       ],
     });
     renderTable({ motions: [MC_MOTION] });
-    const badge = screen.getByLabelText("Motion type: Multi-Choice");
-    expect(badge).toHaveClass("motion-type-badge--multi_choice");
-    expect(badge).toHaveTextContent("Multi-Choice (3 options)");
+    const indicator = screen.getByLabelText("Voting mechanism: Multi-choice (3 options)");
+    expect(indicator).toHaveTextContent("Multi-choice (3 options)");
   });
 
-  it("shows Multi-Choice badge without count when options is empty", () => {
-    const MC_MOTION_NO_OPTS = makeMotion("mc2", "Election", 5, {
-      motion_type: "multi_choice",
+  it("shows secondary multi-choice indicator without count when options is empty", () => {
+    const MC_NO_OPTS = makeMotion("mc4", "Election", 7, {
+      motion_type: "general",
+      is_multi_choice: true,
       option_limit: 1,
       options: [],
     });
-    renderTable({ motions: [MC_MOTION_NO_OPTS] });
-    const badge = screen.getByLabelText("Motion type: Multi-Choice");
-    expect(badge).toHaveTextContent("Multi-Choice");
-    expect(badge).not.toHaveTextContent("options");
+    renderTable({ motions: [MC_NO_OPTS] });
+    const indicator = screen.getByLabelText("Voting mechanism: Multi-choice");
+    expect(indicator).toHaveTextContent("Multi-choice");
+    expect(indicator).not.toHaveTextContent("options");
+  });
+
+  it("does not show multi-choice indicator for standard single-choice motions", () => {
+    renderTable({ motions: [MOTION_A] });
+    expect(screen.queryByLabelText(/Voting mechanism/)).not.toBeInTheDocument();
   });
 });
