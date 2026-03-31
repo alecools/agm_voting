@@ -969,21 +969,210 @@ These user stories capture bugs and gaps discovered during the second review pas
 
 ---
 
+## 9. Review Round 3 — Critical Findings (Second Team Review)
+
+These user stories capture critical issues surfaced by the second 8-perspective team review. Items already covered by earlier stories are noted inline. Runtime bug fixes (C-2, C-7, C-8, C-9) have a companion design doc: `tasks/design/design-critical-runtime-bugs.md`.
+
+---
+
+### RR3-01: Gate `testing_mode` security bypasses at startup in production
+
+**As a** security engineer,
+**I want** the application to refuse to start if `testing_mode=true` in a non-development environment,
+**So that** OTP rate-limiting, cookie security, and test endpoints can never be accidentally disabled in production.
+
+**Acceptance criteria:**
+- [ ] `backend/app/config.py` startup validator raises `ValueError` if `testing_mode=True` and `environment` is not `"development"` or `"testing"`
+- [ ] `OtpRequestBody.skip_email` field returns 422 if `skip_email=true` and `settings.testing_mode` is `False`, regardless of caller
+- [ ] `GET /api/test/latest-otp` returns 404 (not 403) when `testing_mode=False` — the route does not exist in production, not merely returns forbidden
+- [ ] A unit test verifies the startup validator raises on misconfiguration
+- [ ] A unit test verifies `skip_email=true` with `testing_mode=False` returns 422
+
+**Technical notes:** `backend/app/config.py` — add `@model_validator`. `backend/app/routers/auth.py` — conditional route registration or request-level guard on `skip_email`. `backend/app/schemas/auth.py`.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-02: Prevent permanent deletion of closed AGM records
+
+**As a** meeting auditor,
+**I want** closed meetings to be undeletable,
+**So that** a completed legal vote record cannot be destroyed via the admin API.
+
+**Acceptance criteria:**
+- [ ] `DELETE /api/admin/general-meetings/{id}` returns 409 if the meeting's status is `closed`; the error body explains that closed meeting records are immutable
+- [ ] Open or pending meetings may still be deleted (existing behaviour preserved)
+- [ ] A unit test and integration test cover the 409 case for a closed meeting
+- [ ] CLAUDE.md Architecture & Design Decisions is updated to note: "Closed meetings are immutable and cannot be deleted via API"
+
+**Technical notes:** `backend/app/services/admin_service.py` — `delete_general_meeting()`. `backend/app/routers/admin.py`. No schema change required.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-03: Vote submission must not produce orphaned Vote records
+
+**As a** meeting auditor,
+**I want** every Vote row in the database to have a corresponding BallotSubmission,
+**So that** vote tallies accurately reflect only completed, submitted ballots.
+
+**Acceptance criteria:**
+- [ ] The `SELECT FOR UPDATE` lock in `submit_ballot()` covers the entire vote-building and flush sequence — `Vote` rows are inserted within the same locked transaction as the `BallotSubmission` insert
+- [ ] A concurrent integration test (two simultaneous submissions for the same lot) verifies that after both requests complete, the DB contains exactly the votes belonging to the one successful submission — no orphaned Vote rows exist
+- [ ] `Vote` rows with no matching `BallotSubmission` are detectable via a DB query; a new admin debug endpoint or migration check verifies zero orphans in existing data
+- [ ] All existing ballot submission tests pass
+
+**Technical notes:** See `tasks/design/design-critical-runtime-bugs.md` (C-8) for the fix. `backend/app/services/voting_service.py` lines 225–510.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR3-04: Email delivery must be idempotent — no duplicate sends
+
+**As a** meeting organiser,
+**I want** the AGM results email to be sent exactly once per meeting close,
+**So that** a Lambda restart or a concurrent close attempt does not cause the manager to receive duplicate emails.
+
+**Acceptance criteria:**
+- [ ] A distributed lock (Neon advisory lock keyed on `agm_id`) prevents two concurrent email retry tasks from sending for the same meeting
+- [ ] If the Lambda restarts before the `EmailDelivery.status` is updated to `sent`, the re-queued task on restart detects the send has already occurred (via `status=sent`) and does not re-send
+- [ ] An integration test verifies: close meeting → mock send → interrupt before status commit → restart → assert email sent exactly once and `EmailDelivery.status = sent`
+- [ ] All existing email delivery tests pass
+
+**Technical notes:** See `tasks/design/design-critical-runtime-bugs.md` (C-9). `backend/app/services/email_service.py` lines 176–306.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR3-05: DB connection pool must handle Lambda cold-start autoscaling
+
+**As a** system operator,
+**I want** the application to handle DB connection exhaustion gracefully during Lambda autoscaling,
+**So that** a traffic spike that cold-starts multiple Lambda instances simultaneously does not produce cascading 503s during a live AGM.
+
+**Acceptance criteria:**
+- [ ] `get_db()` retries connection acquisition up to 3 times with 100 ms / 200 ms / 400 ms backoff before raising a 503
+- [ ] A 503 response from DB exhaustion includes a `Retry-After: 1` header
+- [ ] `backend/app/config.py` documents the maximum safe concurrency: `pool_size × max_overflow × max_Lambda_instances ≤ Neon_connection_limit`
+- [ ] A load test scenario (documented in `docs/runbooks/database-connectivity.md`) describes the expected behaviour at the connection ceiling
+
+**Technical notes:** `backend/app/database.py` — `get_db()` dependency. `backend/app/config.py` — concurrency ceiling comment. Extends US-PER-02.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-06: Admin status badges must meet WCAG AA colour contrast
+
+**As an** admin with low vision,
+**I want** status badge text in the admin portal to meet WCAG AA contrast requirements,
+**So that** I can reliably read meeting and building status at a glance.
+
+**Acceptance criteria:**
+- [ ] `StatusBadge.tsx` badge colours achieve ≥ 4.5:1 text-to-background contrast ratio for all states (open, pending, closed)
+- [ ] Inline `style` props are replaced with CSS classes that use design system variables (per design system rules)
+- [ ] A comment in the CSS documents the verified contrast ratios for each state
+- [ ] Verify contrast with a browser accessibility tool (e.g., Chrome DevTools accessibility panel)
+
+**Technical notes:** `frontend/src/components/admin/StatusBadge.tsx:10-18`. Read `tasks/design/design-system.md` before changing colours.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-07: Admin confirmation modals require focus traps and Escape dismiss
+
+**As an** admin using keyboard navigation,
+**I want** all admin confirmation modals to trap focus and respond to Escape,
+**So that** keyboard navigation is consistent across the admin portal.
+
+**Acceptance criteria:**
+- [ ] `ArchiveConfirmModal` and `BuildingEditModal` in `BuildingDetailPage.tsx` implement the same focus trap + Escape pattern as `DeleteBuildingConfirmModal`
+- [ ] When a modal opens, focus moves to the first focusable element inside it
+- [ ] Tab and Shift+Tab cycle within the modal; focus cannot escape to content behind it
+- [ ] Pressing Escape closes the modal (even during a loading/async state for non-destructive modals; confirmation modals may keep Escape disabled during the in-flight operation)
+- [ ] Focus returns to the button that triggered the modal on close
+- [ ] Verify in browser using dev-browser skill
+
+**Technical notes:** `frontend/src/pages/admin/BuildingDetailPage.tsx` — `ArchiveConfirmModal` and `BuildingEditModal`. Extends US-ACC-02 which covers voter-facing modals; this story covers admin modals.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR3-08: Alerting infrastructure required before production
+
+**As a** system operator,
+**I want** alerts configured on key health signals before the app handles real AGMs,
+**So that** SLO breaches are detected automatically rather than reported by users.
+
+**Acceptance criteria:**
+- [ ] `docs/slo.md` is updated with the chosen alerting mechanism (e.g., Vercel log drains → Datadog/Better Uptime/similar)
+- [ ] Alert rules are defined and documented for: health check returning 503 (5+ consecutive), `event=email_delivery_failed` log event, DB connection pool exhaustion log event
+- [ ] An on-call runbook section is added to `docs/runbooks/incident-response.md` (or equivalent) listing escalation contacts and response SLAs
+- [ ] At minimum, a simple uptime monitor (e.g., Better Uptime, UptimeRobot) pings `GET /api/health` every 60 seconds and alerts on consecutive failures
+
+**Technical notes:** `docs/slo.md`, `docs/runbooks/`. No code changes required — this is infrastructure and documentation.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR3-09: Proxy re-submission test coverage
+
+**As a** QA engineer,
+**I want** the proxy voter re-submission flow to be tested end-to-end,
+**So that** a proxy voter who re-authenticates after submission is correctly routed to the confirmation page and blocked from re-voting.
+
+**Acceptance criteria:**
+- [ ] A backend integration test verifies: proxy voter submits ballot → `BallotSubmission.proxy_email` is set in DB (assert the value, not just that the row exists) → second submission attempt returns 409
+- [ ] An E2E test (new workflow WF-PROXY-REENTRY): proxy voter authenticates → votes → re-authenticates → is routed to confirmation page, not the voting form
+- [ ] The existing WF6 proxy voting E2E spec is updated to assert `proxy_email` in the submitted ballot response
+- [ ] All new tests pass
+
+**Technical notes:** `backend/tests/test_phase2_api.py` — proxy submission section. `frontend/e2e/workflows/voting-scenarios.spec.ts` — add WF-PROXY-REENTRY. `backend/app/services/voting_service.py` — confirm `proxy_email` is written on ballot submission.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR3-10: Proxy voter with in-arrear lots test coverage
+
+**As a** QA engineer,
+**I want** a test covering the intersection of proxy voting and in-arrear lot eligibility,
+**So that** the `not_eligible` recording logic is verified for proxy-submitted in-arrear lots.
+
+**Acceptance criteria:**
+- [ ] A backend integration test covers: proxy voter submits ballot for two lots — lot A (normal) and lot B (in-arrear) — on a meeting with a General Motion; verifies lot A records a normal vote choice and lot B records `not_eligible` for the General Motion
+- [ ] An E2E test (new workflow WF-PROXY-ARREAR): proxy authenticates with an in-arrear lot → General Motion shows `not_eligible` indicator → ballot submits → confirmation shows correct split
+- [ ] All new tests pass
+
+**Technical notes:** `backend/tests/test_phase2_api.py`. `frontend/e2e/workflows/voting-scenarios.spec.ts` — add WF-PROXY-ARREAR. Requires seeding a building with one proxy relationship where the proxied lot has `financial_position = in_arrear`.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
 ## Priority Summary
 
 | Theme | P0 | P1 | P2 | Total |
 |-------|----|----|-----|-------|
 | Vote Integrity & Legal Compliance | 2 | 4 | 2 | 8 |
-| Identity & Authentication Security | 3 | 1 | 0 | 4 + 1 (CSRF) = 5 |
+| Identity & Authentication Security | 3 | 1 | 0 | 5 |
 | Operational Readiness | 1 | 4 | 3 | 8 |
 | Accessibility & Usability | 0 | 5 | 3 | 8 |
 | Performance & Scalability | 0 | 2 | 0 | 2 |
 | Code Quality & Maintainability | 0 | 1 | 5 | 6 |
 | Test Coverage Gaps | 2 | 3 | 1 | 6 |
 | Review Round 2 — New Findings | 3 | 4 | 1 | 8 |
-| **Totals** | **11** | **24** | **15** | **51** |
+| Review Round 3 — Critical Findings | 10 | 0 | 0 | 10 |
+| **Totals** | **21** | **24** | **15** | **61** |
 
-> Note: Some themes have fewer than the 47 original findings because related sub-findings were consolidated into single user stories (e.g., the 5 separate import-function fetch() calls in CQM-04, and the 3 colour-only indicators in ACC-04). The 43 original stories cover all 47 review findings. Round 2 adds 8 new stories (RR2-01 through RR2-08) for a total of 51.
+> Round 3 adds 10 new stories (RR3-01 through RR3-10) covering critical issues from the second 8-perspective team review. C-1 (session token in body) is already covered by US-IAS-04. C-6 (building deletion cascade) is accepted behaviour per US-VIL-02. C-12 (voter modal focus traps) is covered by US-ACC-02; RR3-07 extends it to admin modals. Runtime bug fixes for C-2, C-7, C-8, C-9 are in `tasks/design/design-critical-runtime-bugs.md`.
 
 ---
 
