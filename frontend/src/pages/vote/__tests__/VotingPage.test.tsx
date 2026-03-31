@@ -649,6 +649,90 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
   });
 
+  // --- C-7: sessionStorage race condition fix ---
+
+  it("C-7: submitBallot called with lot_owner_ids from selected lots at confirm time, not re-read from sessionStorage", async () => {
+    // The fix: lot IDs are passed directly as mutation parameters at confirm time,
+    // so the mutationFn never needs to read sessionStorage.
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Deselect lot 2 — only lo1 should be submitted
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[1]); // uncheck lo2
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+
+    // Clear sessionStorage BEFORE confirming — simulates a race where sessionStorage
+    // is wiped between handleSubmitClick and the async mutationFn executing.
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    // Must use the lot IDs captured at confirm time (lo1 only), not re-read from
+    // (now-empty) sessionStorage which would produce [].
+    const callArg = submitSpy.mock.calls[0][1];
+    expect(callArg.lot_owner_ids).toEqual(["lo1"]);
+
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
+  it("C-7: single-lot submitBallot receives the lot_owner_id from allLots state, not sessionStorage", async () => {
+    // Single-lot path: lotsToSubmit = allLots.map(l => l.lot_owner_id) at confirm time.
+    const submitSpy = vi.spyOn(voterApi, "submitBallot").mockResolvedValue({
+      submitted: true,
+      lots: [],
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "single-lo", lot_number: "5", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+
+    // Clear meeting_lots sessionStorage key entirely before submit
+    sessionStorage.removeItem(`meeting_lots_${AGM_ID}`);
+
+    await user.click(screen.getByRole("button", { name: "Submit ballot" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Submit ballot" }));
+
+    await waitFor(() => {
+      expect(submitSpy).toHaveBeenCalled();
+    });
+
+    // The lot ID must come from allLots state (seeded from meeting_lots_info), not from
+    // meeting_lots sessionStorage which was cleared above.
+    const callArg = submitSpy.mock.calls[0][1];
+    expect(callArg.lot_owner_ids).toEqual(["single-lo"]);
+
+    submitSpy.mockRestore();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("multi-lot: proxy badge shows 'via Proxy' (not lot number) in sidebar", async () => {
     sessionStorage.setItem(
       `meeting_lots_info_${AGM_ID}`,

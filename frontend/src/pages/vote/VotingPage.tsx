@@ -10,6 +10,12 @@ import {
 } from "../../api/voter";
 import type { VoteChoice } from "../../types";
 import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
+
+interface SubmitPayload {
+  lotsToSubmit: string[];
+  votes: { motion_id: string; choice: VoteChoice }[];
+  multiChoiceVotes: { motion_id: string; option_ids: string[] }[];
+}
 import { MotionCard } from "../../components/vote/MotionCard";
 import { ProgressBar } from "../../components/vote/ProgressBar";
 import { CountdownTimer } from "../../components/vote/CountdownTimer";
@@ -247,25 +253,18 @@ export function VotingPage() {
   }, [meetingId, buildings]);
 
   const submitMutation = useMutation({
-    mutationFn: () => {
-      // For multi-lot voters: use the currently selected IDs (written to sessionStorage
-      // when Submit is clicked). For single-lot voters: fall back to stored lots.
-      const storedLots = sessionStorage.getItem(`meeting_lots_${meetingId}`);
-      const lotOwnerIds: string[] = storedLots ? (JSON.parse(storedLots) as string[]) : [];
-      const votes = Object.entries(choices)
-        .filter(([, choice]) => choice !== null)
-        .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
-      const multi_choice_votes = Object.entries(multiChoiceSelections).map(
-        ([motion_id, option_ids]) => ({ motion_id, option_ids })
-      );
-      return submitBallot(meetingId!, { lot_owner_ids: lotOwnerIds, votes, multi_choice_votes });
-    },
-    onSuccess: () => {
+    mutationFn: ({ lotsToSubmit, votes, multiChoiceVotes }: SubmitPayload) =>
+      submitBallot(meetingId!, {
+        lot_owner_ids: lotsToSubmit,
+        votes,
+        multi_choice_votes: multiChoiceVotes,
+      }),
+    onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
 
-      // Determine which lot IDs were just submitted (written to sessionStorage by handleSubmitClick)
-      const raw = sessionStorage.getItem(`meeting_lots_${meetingId}`);
-      const submittedIds: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+      // Use the lot IDs captured at trigger time (passed as mutation variables),
+      // not a re-read from sessionStorage which may have been cleared.
+      const submittedIds = variables.lotsToSubmit;
       const submittedSet = new Set(submittedIds);
 
       // Collect the current motion IDs so we can merge them into voted_motion_ids.
@@ -458,8 +457,16 @@ export function VotingPage() {
 
   const handleConfirm = () => {
     setShowDialog(false);
-    // Vote choices live in React state only — submit directly, no draft flush needed.
-    submitMutation.mutate();
+    // Capture all submission values synchronously at confirm time and pass directly
+    // into mutate() — never re-read from sessionStorage inside the async mutationFn.
+    const lotsToSubmit = isMultiLot ? [...selectedIds] : allLots.map((l) => l.lot_owner_id);
+    const votes = Object.entries(choices)
+      .filter(([, choice]) => choice !== null)
+      .map(([motion_id, choice]) => ({ motion_id, choice: choice as VoteChoice }));
+    const multiChoiceVotes = Object.entries(multiChoiceSelections).map(
+      ([motion_id, option_ids]) => ({ motion_id, option_ids })
+    );
+    submitMutation.mutate({ lotsToSubmit, votes, multiChoiceVotes });
   };
 
   const handleCancel = () => {
