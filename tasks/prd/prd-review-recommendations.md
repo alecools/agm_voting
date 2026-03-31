@@ -631,6 +631,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-CQM-01: Deduplicate auth flow logic between verify and session restore
 
+**Status:** ✅ Implemented
+
 **As a** backend developer,
 **I want** the OTP verify and session restore code paths to share a common lot-lookup helper,
 **So that** a bug fix or feature addition in lot resolution only needs to be made in one place.
@@ -690,6 +692,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-CQM-04: Replace raw fetch() calls in admin components with API client functions
 
+**Status:** ✅ Implemented
+
 **As a** frontend developer,
 **I want** admin components that currently use inline `fetch()` calls to use typed API client functions instead,
 **So that** request construction is centralised and type errors are caught at build time.
@@ -707,6 +711,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-CQM-05: Deduplicate formatLocalDateTime utility
+
+**Status:** ✅ Implemented
 
 **As a** frontend developer,
 **I want** the date/time formatting logic centralised in a single utility function,
@@ -1938,6 +1944,8 @@ Low-priority issues are grouped into thematic cleanup stories. All are P2.
 
 ### RR3-47: Hidden motions must not record abstain votes for voters who never saw them
 
+**Status:** 🔄 In progress — branch: `fix/hidden-motion-vote-recording`
+
 **As a** meeting organiser,
 **I want** voters who submitted while a motion was hidden to show as "not voted" on that motion — not "abstained",
 **So that** the tally accurately reflects that the voter was never given the opportunity to vote on that motion.
@@ -1961,6 +1969,8 @@ Low-priority issues are grouped into thematic cleanup stories. All are P2.
 
 ### RR3-48: Multi-choice motions must display their legal type (General/Special), not their voting mechanism
 
+**Status:** 🔄 In progress — branch: `fix/hidden-motion-vote-recording`
+
 **As a** meeting organiser,
 **I want** the admin meeting page to show "General" or "Special" as the motion type for multi-choice motions,
 **So that** it is clear which legal threshold applies — multi-choice is a voting mechanism, not a motion type.
@@ -1982,21 +1992,21 @@ Low-priority issues are grouped into thematic cleanup stories. All are P2.
 
 ## Priority Summary
 
-| Theme | P0 | P1 | P2 | Total |
-|-------|----|----|-----|-------|
-| Vote Integrity & Legal Compliance | 2 | 4 | 2 | 8 |
-| Identity & Authentication Security | 3 | 1 | 0 | 5 |
-| Operational Readiness | 1 | 4 | 3 | 8 |
-| Accessibility & Usability | 0 | 5 | 3 | 8 |
-| Performance & Scalability | 0 | 2 | 0 | 2 |
-| Code Quality & Maintainability | 0 | 1 | 5 | 6 |
-| Test Coverage Gaps | 2 | 3 | 1 | 6 |
-| Review Round 2 — New Findings | 3 | 4 | 1 | 8 |
-| Review Round 3 — Critical (RR3-01–10) | 10 | 0 | 0 | 10 |
-| Review Round 3 — High (RR3-11–32) | 10 | 12 | 0 | 22 |
-| Review Round 3 — Medium (RR3-33–41) | 0 | 6 | 3 | 9 |
-| Review Round 3 — Low (RR3-42–46) | 0 | 0 | 5 | 5 |
-| **Totals** | **31** | **42** | **23** | **97** |
+| Theme | P0 | P1 | P2 | Total | Done |
+|-------|----|----|-----|-------|------|
+| Vote Integrity & Legal Compliance | 2 | 4 | 2 | 8 | 0 |
+| Identity & Authentication Security | 3 | 1 | 0 | 5 | 0 |
+| Operational Readiness | 1 | 4 | 3 | 8 | 0 |
+| Accessibility & Usability | 0 | 5 | 3 | 8 | 0 |
+| Performance & Scalability | 0 | 2 | 0 | 2 | 0 |
+| Code Quality & Maintainability | 0 | 1 | 5 | 6 | 3 |
+| Test Coverage Gaps | 2 | 3 | 1 | 6 | 0 |
+| Review Round 2 — New Findings | 3 | 4 | 1 | 8 | 0 |
+| Review Round 3 — Critical (RR3-01–10) | 10 | 0 | 0 | 10 | 0 |
+| Review Round 3 — High (RR3-11–32) | 10 | 12 | 0 | 22 | 0 |
+| Review Round 3 — Medium (RR3-33–41) | 0 | 6 | 3 | 9 | 0 |
+| Review Round 3 — Low (RR3-42–46) | 0 | 0 | 5 | 5 | 0 |
+| **Totals** | **31** | **42** | **23** | **97** | **3** |
 
 > Round 3 adds 46 new stories (RR3-01 through RR3-46) covering all critical, high, medium, and low findings from the second 8-perspective team review.
 >
