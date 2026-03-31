@@ -50,6 +50,7 @@ from app.services.email_service import (
     _backoff_seconds,
     _get_jinja_env,
     _send_with_limit,
+    _try_acquire_email_lock,
 )
 
 
@@ -192,6 +193,37 @@ class TestSendWithLimit:
 
         await _send_with_limit(fake_coro())
         assert called == [True]
+
+
+# ---------------------------------------------------------------------------
+# Advisory lock helper
+# ---------------------------------------------------------------------------
+
+
+class TestTryAcquireEmailLock:
+    async def test_returns_true_when_lock_acquired(self, db_session: AsyncSession):
+        """_try_acquire_email_lock returns True when the lock is not yet held."""
+        agm_id = uuid.uuid4()
+        # Start a transaction so the advisory xact lock has a scope
+        async with db_session.begin_nested():
+            result = await _try_acquire_email_lock(db_session, agm_id)
+        assert result is True
+
+    async def test_returns_false_when_lock_already_held(self, db_session: AsyncSession):
+        """_try_acquire_email_lock returns False when the same lock is already held
+        in the same session/transaction (pg_try_advisory_xact_lock is non-reentrant
+        for different transactions; we simulate the False path by mocking the scalar
+        return value).
+        """
+        agm_id = uuid.uuid4()
+        # Mock the DB execute to return False as pg would when lock is taken
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = False
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await _try_acquire_email_lock(mock_db, agm_id)
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +1037,86 @@ class TestTriggerWithRetry:
 
         await db_session.refresh(delivery)
         assert delivery.status == EmailDeliveryStatus.delivered
+
+    # --- C-9: concurrent calls — only one send ---
+
+    async def test_concurrent_calls_send_exactly_once(self, db_session: AsyncSession, mocker):
+        """Two concurrent trigger_with_retry calls for the same AGM → send_report called exactly once.
+
+        The first call acquires the advisory lock and sends. The second call finds
+        the lock already held and exits immediately without sending.
+        """
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        await _create_motion(db_session, agm)
+        await _create_email_delivery(db_session, agm)
+        await db_session.commit()
+
+        send_call_count = {"n": 0}
+
+        async def counting_send(*args, **kwargs):
+            send_call_count["n"] += 1
+
+        mocker.patch("aiosmtplib.send", side_effect=counting_send)
+
+        # The second trigger_with_retry call must skip because the lock is held.
+        # We simulate this by making _try_acquire_email_lock return False on the
+        # second call (as it would when a real advisory lock is already held in
+        # another session).
+        original_lock_fn = _try_acquire_email_lock
+        lock_call_count = {"n": 0}
+
+        async def mock_lock(db, agm_id):
+            lock_call_count["n"] += 1
+            if lock_call_count["n"] == 1:
+                return True   # first caller acquires the lock
+            return False       # second caller finds it taken
+
+        mock_factory = _make_mock_factory(db_session)
+        mocker.patch(
+            "app.services.email_service._make_session_factory",
+            return_value=mock_factory,
+        )
+        mocker.patch("app.services.email_service._try_acquire_email_lock", side_effect=mock_lock)
+
+        service = EmailService()
+        # Run two concurrent invocations
+        await asyncio.gather(
+            service.trigger_with_retry(agm.id),
+            service.trigger_with_retry(agm.id),
+        )
+
+        # Exactly one send should have occurred
+        assert send_call_count["n"] == 1
+
+    # --- C-9: restart scenario — already delivered, do not re-send ---
+
+    async def test_already_delivered_before_lock_check_skips(self, db_session: AsyncSession, mocker):
+        """Restart scenario: EmailDelivery.status=delivered when trigger_with_retry
+        is called (e.g. Lambda restart after send but before status update was
+        persisted in a previous run that did persist it).  send_report must not
+        be called again.
+        """
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        await _create_motion(db_session, agm)
+        delivery = await _create_email_delivery(db_session, agm)
+        delivery.status = EmailDeliveryStatus.delivered
+        delivery.total_attempts = 1
+        await db_session.commit()
+
+        mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+
+        mock_factory = _make_mock_factory(db_session)
+        mocker.patch(
+            "app.services.email_service._make_session_factory",
+            return_value=mock_factory,
+        )
+
+        service = EmailService()
+        await service.trigger_with_retry(agm.id)
+
+        mock_send.assert_not_called()
 
     # --- next_retry_at is set on failure ---
 

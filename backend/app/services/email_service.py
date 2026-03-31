@@ -9,6 +9,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,7 @@ import aiosmtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -52,6 +53,20 @@ async def _send_with_limit(coro: object) -> None:  # type: ignore[type-arg]
     """Acquire the global email semaphore then await the given coroutine."""
     async with _email_semaphore:
         await coro  # type: ignore[misc]
+
+
+async def _try_acquire_email_lock(db: AsyncSession, agm_id: uuid.UUID) -> bool:
+    """
+    Attempt to acquire a PostgreSQL advisory transaction lock keyed on agm_id.
+
+    Uses pg_try_advisory_xact_lock so the lock is held until the end of the
+    current transaction and is automatically released on commit/rollback.
+    Returns True if the lock was acquired (this caller owns it), False if
+    another session already holds the lock for the same agm_id.
+    """
+    lock_id = int(hashlib.sha256(str(agm_id).encode()).hexdigest()[:8], 16) % 2147483647
+    result = await db.execute(text(f"SELECT pg_try_advisory_xact_lock({lock_id})"))
+    return bool(result.scalar())
 
 
 def _get_jinja_env() -> Environment:
@@ -180,108 +195,128 @@ class EmailService:
 
         Each attempt uses a fresh DB session so it survives server restarts
         (state is always read from and written to the DB).
+
+        A PostgreSQL advisory lock keyed on agm_id is held for the entire
+        lifetime of this task. If another concurrent call (e.g. from a second
+        concurrent Lambda cold-start or an HTTP retry) already holds the lock
+        for this agm_id, this invocation exits immediately — preventing
+        duplicate email sends.
         """
         session_factory = _make_session_factory()
         attempt_number = 0
 
-        while True:
-            attempt_number += 1
-
-            async with session_factory() as db:
-                # Fetch current delivery record
-                result = await db.execute(
-                    select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm_id)
+        # Acquire a per-agm advisory lock that persists for the life of this task.
+        # The lock session is kept open (and its transaction active) until we return
+        # so the lock is held continuously even across the per-attempt sleep delays.
+        # SQLAlchemy AsyncSession autobegins a transaction on the first execute, so
+        # no explicit begin() call is needed — the transaction (and the xact lock)
+        # remain active until the session context exits.
+        async with session_factory() as lock_db:
+            if not await _try_acquire_email_lock(lock_db, agm_id):
+                logger.info(
+                    "email_send_skipped_lock_held",
+                    agm_id=str(agm_id),
                 )
-                delivery = result.scalar_one_or_none()
+                return
 
-                if delivery is None:
-                    logger.warning(
-                        "email_delivery_record_not_found",
-                        agm_id=str(agm_id),
-                        attempt_number=attempt_number,
+            while True:
+                attempt_number += 1
+
+                async with session_factory() as db:
+                    # Fetch current delivery record
+                    result = await db.execute(
+                        select(EmailDelivery).where(EmailDelivery.general_meeting_id == agm_id)
                     )
-                    return
+                    delivery = result.scalar_one_or_none()
 
-                # Skip if already delivered
-                if delivery.status == EmailDeliveryStatus.delivered:
-                    logger.info(
-                        "email_already_delivered",
-                        agm_id=str(agm_id),
-                        attempt_number=attempt_number,
-                    )
-                    return
+                    if delivery is None:
+                        logger.warning(
+                            "email_delivery_record_not_found",
+                            agm_id=str(agm_id),
+                            attempt_number=attempt_number,
+                        )
+                        return
 
-                # Skip if max attempts reached
-                if delivery.total_attempts >= _MAX_ATTEMPTS:
-                    logger.warning(
-                        "email_max_attempts_reached",
-                        agm_id=str(agm_id),
-                        attempt_number=attempt_number,
-                        total_attempts=delivery.total_attempts,
-                    )
-                    return
+                    # Skip if already delivered (covers Lambda restart after send)
+                    if delivery.status == EmailDeliveryStatus.delivered:
+                        logger.info(
+                            "email_already_delivered",
+                            agm_id=str(agm_id),
+                            attempt_number=attempt_number,
+                        )
+                        return
 
-                current_attempt = delivery.total_attempts + 1
+                    # Skip if max attempts reached
+                    if delivery.total_attempts >= _MAX_ATTEMPTS:
+                        logger.warning(
+                            "email_max_attempts_reached",
+                            agm_id=str(agm_id),
+                            attempt_number=attempt_number,
+                            total_attempts=delivery.total_attempts,
+                        )
+                        return
 
-                try:
-                    await self.send_report(agm_id, db)
+                    current_attempt = delivery.total_attempts + 1
 
-                    # Success
-                    delivery.status = EmailDeliveryStatus.delivered
-                    delivery.total_attempts = current_attempt
-                    delivery.last_error = None
-                    delivery.next_retry_at = None
-                    await db.commit()
+                    try:
+                        await self.send_report(agm_id, db)
 
-                    logger.info(
-                        "email_delivery_attempt",
-                        agm_id=str(agm_id),
-                        attempt_number=current_attempt,
-                        status="delivered",
-                        error=None,
-                        next_retry_at=None,
-                    )
-                    return
-
-                except Exception as exc:
-                    error_str = str(exc)
-                    delivery.total_attempts = current_attempt
-                    delivery.last_error = error_str
-
-                    if current_attempt >= _MAX_ATTEMPTS:
-                        delivery.status = EmailDeliveryStatus.failed
+                        # Success
+                        delivery.status = EmailDeliveryStatus.delivered
+                        delivery.total_attempts = current_attempt
+                        delivery.last_error = None
                         delivery.next_retry_at = None
                         await db.commit()
 
-                        logger.error(
+                        logger.info(
                             "email_delivery_attempt",
                             agm_id=str(agm_id),
                             attempt_number=current_attempt,
-                            status="failed",
-                            error=error_str,
+                            status="delivered",
+                            error=None,
                             next_retry_at=None,
                         )
                         return
-                    else:
-                        delay = _backoff_seconds(current_attempt)
-                        next_retry_at = datetime.now(UTC) + timedelta(seconds=delay)
-                        delivery.next_retry_at = next_retry_at
-                        # Keep status as pending while retrying
-                        delivery.status = EmailDeliveryStatus.pending
-                        await db.commit()
 
-                        logger.warning(
-                            "email_delivery_attempt",
-                            agm_id=str(agm_id),
-                            attempt_number=current_attempt,
-                            status="pending",
-                            error=error_str,
-                            next_retry_at=next_retry_at.isoformat(),
-                        )
+                    except Exception as exc:
+                        error_str = str(exc)
+                        delivery.total_attempts = current_attempt
+                        delivery.last_error = error_str
 
-            # Wait before next attempt
-            delay = _backoff_seconds(attempt_number)
-            await asyncio.sleep(delay)
+                        if current_attempt >= _MAX_ATTEMPTS:
+                            delivery.status = EmailDeliveryStatus.failed
+                            delivery.next_retry_at = None
+                            await db.commit()
+
+                            logger.error(
+                                "email_delivery_attempt",
+                                agm_id=str(agm_id),
+                                attempt_number=current_attempt,
+                                status="failed",
+                                error=error_str,
+                                next_retry_at=None,
+                            )
+                            return
+                        else:
+                            delay = _backoff_seconds(current_attempt)
+                            next_retry_at = datetime.now(UTC) + timedelta(seconds=delay)
+                            delivery.next_retry_at = next_retry_at
+                            # Keep status as pending while retrying
+                            delivery.status = EmailDeliveryStatus.pending
+                            await db.commit()
+
+                            logger.warning(
+                                "email_delivery_attempt",
+                                agm_id=str(agm_id),
+                                attempt_number=current_attempt,
+                                status="pending",
+                                error=error_str,
+                                next_retry_at=next_retry_at.isoformat(),
+                            )
+
+                # Wait before next attempt
+                delay = _backoff_seconds(attempt_number)
+                await asyncio.sleep(delay)
 
     async def requeue_pending_on_startup(self, db: AsyncSession) -> None:
         """
