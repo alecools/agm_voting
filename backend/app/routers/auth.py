@@ -237,6 +237,11 @@ async def request_otp(
             # indefinitely by making a request just before each window expires.
             elapsed = (now_for_rate - rl_record.first_attempt_at.replace(tzinfo=UTC)).total_seconds()
             if elapsed < _OTP_RATE_LIMIT_WINDOW_SECONDS:
+                logger.warning(
+                    "otp_rate_limit_triggered",
+                    email=body.email,
+                    agm_id=str(body.general_meeting_id),
+                )
                 raise HTTPException(
                     status_code=429,
                     detail="Please wait before requesting another code",
@@ -378,6 +383,12 @@ async def verify_auth(
             detail="Invalid or expired verification code",
         )
     if not hmac.compare_digest(otp.code, request.code):
+        logger.warning(
+            "otp_verify_failed",
+            email=request.email,
+            agm_id=str(request.general_meeting_id),
+            reason="code_mismatch",
+        )
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired verification code",
@@ -431,6 +442,12 @@ async def verify_auth(
         path="/api",
     )
 
+    logger.info(
+        "auth_login_success",
+        email=request.email,
+        agm_id=str(request.general_meeting_id),
+        lot_count=len(lots),
+    )
     return AuthVerifyResponse(
         lots=lots,
         voter_email=request.email,

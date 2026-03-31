@@ -1180,7 +1180,7 @@ class TestRequeuePendingOnStartup:
     # --- Happy path ---
 
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
-        """Pending deliveries with attempts < 30 are re-launched."""
+        """Pending deliveries with attempts < 30 are re-launched via asyncio.gather (RR3-19)."""
         await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
@@ -1189,29 +1189,15 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 5
         await db_session.commit()
 
-        # Patch trigger_with_retry as AsyncMock and capture the tasks created.
-        # We use a real asyncio.create_task wrapper that immediately cancels the task
-        # so the coroutine is consumed without side effects.
+        # Patch trigger_with_retry as AsyncMock — requeue_pending_on_startup now uses
+        # asyncio.gather rather than asyncio.create_task (RR3-19), so we verify
+        # trigger_with_retry was called (awaited) the correct number of times.
         trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
-        tasks: list = []
-
-        real_create_task = asyncio.create_task
-
-        def _capturing_create_task(coro, **kwargs):
-            task = real_create_task(coro, **kwargs)
-            tasks.append(task)
-            return task
-
-        mocker.patch("asyncio.create_task", side_effect=_capturing_create_task)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        # Allow the event loop to run the tasks
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        assert len(tasks) == 1
+        assert trigger_mock.call_count == 1
 
     async def test_ignores_delivered_records(self, db_session: AsyncSession, mocker):
         """Delivered records are not re-queued."""
@@ -1223,12 +1209,12 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 1
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        create_task_mock.assert_not_called()
+        trigger_mock.assert_not_called()
 
     async def test_ignores_records_at_max_attempts(self, db_session: AsyncSession, mocker):
         """Records with total_attempts >= 30 are not re-queued."""
@@ -1240,12 +1226,12 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 30
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        create_task_mock.assert_not_called()
+        trigger_mock.assert_not_called()
 
     async def test_ignores_failed_records(self, db_session: AsyncSession, mocker):
         """Failed records are not re-queued."""
@@ -1257,45 +1243,32 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 30
         await db_session.commit()
 
-        create_task_mock = mocker.patch("asyncio.create_task")
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        create_task_mock.assert_not_called()
+        trigger_mock.assert_not_called()
 
     async def test_multiple_pending_deliveries_all_requeued(self, db_session: AsyncSession, mocker):
-        """Multiple pending deliveries all get re-launched."""
+        """Multiple pending deliveries all get re-launched via asyncio.gather (RR3-19)."""
         await self._clear_pending_deliveries(db_session)
-        tasks_created = []
         for _ in range(3):
             building = await _create_building(db_session)
             agm = await _create_agm(db_session, building)
             delivery = await _create_email_delivery(db_session, agm)
             delivery.status = EmailDeliveryStatus.pending
             delivery.total_attempts = 0
-            tasks_created.append(delivery)
         await db_session.commit()
 
-        mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
-        tasks: list = []
-
-        real_create_task = asyncio.create_task
-
-        def _capturing_create_task(coro, **kwargs):
-            task = real_create_task(coro, **kwargs)
-            tasks.append(task)
-            return task
-
-        mocker.patch("asyncio.create_task", side_effect=_capturing_create_task)
+        # Now uses asyncio.gather instead of create_task — verify trigger_with_retry
+        # is called (awaited) once per pending delivery.
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
 
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        assert len(tasks) == 3
+        assert trigger_mock.call_count == 3
 
 
 # ---------------------------------------------------------------------------

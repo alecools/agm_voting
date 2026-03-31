@@ -380,3 +380,194 @@ class TestAdminPasswordValidator:
 
         with pytest.raises(ValidationError):
             Settings(admin_password="changeme")
+
+
+# ---------------------------------------------------------------------------
+# app.config — RR3-23: DATABASE_URL validation
+# ---------------------------------------------------------------------------
+
+
+class TestDatabaseUrlValidator:
+    def test_valid_asyncpg_url_accepted(self):
+        """A postgresql+asyncpg:// URL is accepted without error."""
+        from app.config import Settings
+
+        s = Settings(database_url="postgresql+asyncpg://user:pass@localhost:5432/db")
+        assert s.database_url.startswith("postgresql+asyncpg://")
+
+    def test_empty_url_rejected(self):
+        """An empty DATABASE_URL is rejected with a clear error (RR3-23)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(database_url="")
+        assert "DATABASE_URL must not be empty" in str(exc_info.value)
+
+    def test_plain_postgresql_url_rejected(self):
+        """A postgresql:// URL (without +asyncpg) is rejected (RR3-23)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(database_url="postgresql://user:pass@localhost/db")
+        assert "postgresql+asyncpg://" in str(exc_info.value)
+
+    def test_sqlite_url_rejected(self):
+        """A sqlite:// URL is rejected (RR3-23)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(database_url="sqlite:///test.db")
+        assert "postgresql+asyncpg://" in str(exc_info.value)
+
+    def test_channel_binding_rejected(self):
+        """A URL containing channel_binding is rejected (RR3-23)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(database_url="postgresql+asyncpg://user:pass@host/db?channel_binding=require")
+        assert "channel_binding" in str(exc_info.value)
+
+    def test_sslmode_rejected(self):
+        """A URL using sslmode= instead of ssl= is rejected (RR3-23)."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(database_url="postgresql+asyncpg://user:pass@host/db?sslmode=require")
+        assert "sslmode=" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# app.main — RR3-20: migration head check
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationHeadCheck:
+    async def test_check_migration_head_ok_logs_info(self):
+        """_check_migration_head logs migration_head_ok when revision matches head."""
+        import structlog.testing
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_head = "abc123"
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, idx: mock_head
+
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_row
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = mock_result
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = mock_head
+
+        # The function imports AsyncSessionLocal locally from app.database; patch there.
+        with (
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+        ):
+            with structlog.testing.capture_logs() as logs:
+                await _check_migration_head()
+
+        info_logs = [l for l in logs if l.get("log_level") == "info"]
+        assert any("migration_head_ok" in str(l) for l in info_logs)
+
+    async def test_check_migration_head_mismatch_logs_critical(self):
+        """_check_migration_head logs critical when current revision != head."""
+        import structlog.testing
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_head = "abc123"
+        mock_current = "old456"
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, idx: mock_current
+
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_row
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = mock_result
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = mock_head
+
+        with (
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+        ):
+            with structlog.testing.capture_logs() as logs:
+                await _check_migration_head()
+
+        critical_logs = [l for l in logs if l.get("log_level") == "critical"]
+        assert any("migration_head_mismatch" in str(l) for l in critical_logs)
+
+    async def test_check_migration_head_exception_logs_error(self):
+        """_check_migration_head logs error when an exception occurs."""
+        import structlog.testing
+        from unittest.mock import patch
+
+        from app.main import _check_migration_head
+
+        with patch(
+            "alembic.script.ScriptDirectory.from_config",
+            side_effect=Exception("alembic config not found"),
+        ):
+            with structlog.testing.capture_logs() as logs:
+                await _check_migration_head()
+
+        error_logs = [l for l in logs if l.get("log_level") in ("error", "warning")]
+        assert any("migration_head_check_failed" in str(l) for l in error_logs)
+
+    async def test_check_migration_head_no_revision_row(self):
+        """_check_migration_head handles missing alembic_version row (fresh DB)."""
+        import structlog.testing
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_head = "abc123"
+        mock_result = MagicMock()
+        mock_result.first.return_value = None  # no alembic_version row
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = mock_result
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = mock_head
+
+        with (
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+        ):
+            with structlog.testing.capture_logs() as logs:
+                await _check_migration_head()
+
+        # current_rev is None, head is "abc123" — should log critical
+        critical_logs = [l for l in logs if l.get("log_level") == "critical"]
+        assert any("migration_head_mismatch" in str(l) for l in critical_logs)

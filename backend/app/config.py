@@ -10,6 +10,39 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agm_dev"
+
+    @field_validator("database_url")
+    @classmethod
+    def database_url_must_be_postgresql_asyncpg(cls, v: str) -> str:
+        """Validate DATABASE_URL at startup (RR3-23).
+
+        Rejects:
+        - Empty / missing URL
+        - URLs not using the postgresql+asyncpg:// scheme (e.g. sqlite, postgres://)
+        - URLs containing channel_binding (asyncpg rejects this libpq-only parameter)
+        - URLs using sslmode= instead of ssl= (asyncpg syntax differs from psycopg2)
+        """
+        if not v:
+            raise ValueError(
+                "DATABASE_URL must not be empty. "
+                "Set DATABASE_URL to a postgresql+asyncpg:// connection string."
+            )
+        if not v.startswith("postgresql+asyncpg://"):
+            raise ValueError(
+                f"DATABASE_URL must start with 'postgresql+asyncpg://' (got: {v[:40]!r}). "
+                "asyncpg requires this scheme; 'postgres://' and 'postgresql://' are not accepted."
+            )
+        if "channel_binding" in v:
+            raise ValueError(
+                "DATABASE_URL must not contain 'channel_binding' — this is a libpq-only "
+                "parameter that asyncpg rejects. Remove it from the connection string."
+            )
+        if "sslmode=" in v:
+            raise ValueError(
+                "DATABASE_URL must not use 'sslmode=' — asyncpg uses 'ssl=' instead. "
+                "Replace 'sslmode=require' with 'ssl=require'."
+            )
+        return v
     test_database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test"
     )

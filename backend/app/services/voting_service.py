@@ -1,6 +1,7 @@
 """
 Draft save and ballot submit service logic.
 """
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -8,6 +9,10 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
@@ -180,8 +185,20 @@ async def submit_ballot(
 
     effective_submit = get_effective_status(general_meeting)
     if effective_submit == GeneralMeetingStatus.pending:
+        logger.warning(
+            "ballot_denied",
+            reason="voting_not_started",
+            agm_id=str(general_meeting_id),
+            voter_email=voter_email,
+        )
         raise HTTPException(status_code=403, detail="Voting has not started yet for this General Meeting")
     if effective_submit == GeneralMeetingStatus.closed:
+        logger.warning(
+            "ballot_denied",
+            reason="meeting_closed",
+            agm_id=str(general_meeting_id),
+            voter_email=voter_email,
+        )
         raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
     if not lot_owner_ids:
@@ -189,34 +206,35 @@ async def submit_ballot(
 
     # Verify all lot_owner_ids belong to the authenticated voter_email
     # (either as direct owner via LotOwnerEmail, or as proxy via LotProxy)
-    # Also determine proxy_email per lot for audit trail
+    # Batch both lookups with IN queries to avoid O(N) round-trips (RR3-12).
+    # Also determine proxy_email per lot for audit trail.
+    direct_owner_result = await db.execute(
+        select(LotOwnerEmail.lot_owner_id).where(
+            LotOwnerEmail.lot_owner_id.in_(lot_owner_ids),
+            LotOwnerEmail.email == voter_email,
+        )
+    )
+    direct_owner_ids: set[uuid.UUID] = {row[0] for row in direct_owner_result.all()}
+
+    proxy_result = await db.execute(
+        select(LotProxy.lot_owner_id).where(
+            LotProxy.lot_owner_id.in_(lot_owner_ids),
+            LotProxy.proxy_email == voter_email,
+        )
+    )
+    proxy_lot_ids: set[uuid.UUID] = {row[0] for row in proxy_result.all()}
+
     proxy_email_by_lot: dict[uuid.UUID, str | None] = {}
     for lot_owner_id in lot_owner_ids:
-        email_check = await db.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lot_owner_id,
-                LotOwnerEmail.email == voter_email,
-            )
-        )
-        is_direct_owner = email_check.scalar_one_or_none() is not None
-
-        if is_direct_owner:
+        if lot_owner_id in direct_owner_ids:
             proxy_email_by_lot[lot_owner_id] = None
-        else:
-            # Check if voter is a proxy for this lot
-            proxy_check = await db.execute(
-                select(LotProxy).where(
-                    LotProxy.lot_owner_id == lot_owner_id,
-                    LotProxy.proxy_email == voter_email,
-                )
-            )
-            is_proxy = proxy_check.scalar_one_or_none() is not None
-            if not is_proxy:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Lot owner {lot_owner_id} does not belong to authenticated voter",
-                )
+        elif lot_owner_id in proxy_lot_ids:
             proxy_email_by_lot[lot_owner_id] = voter_email
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Lot owner {lot_owner_id} does not belong to authenticated voter",
+            )
 
     # Get existing real submissions for these lots — use SELECT FOR UPDATE to serialize
     # concurrent requests on the same (meeting, lot) rows and prevent double-submission.
@@ -235,17 +253,17 @@ async def submit_ballot(
         s.lot_owner_id: s for s in existing_subs_result.scalars().all()
     }
 
-    # Get already-voted motion IDs per lot (to skip duplicating submitted votes)
-    already_voted_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for lot_owner_id in lot_owner_ids:
-        voted_result = await db.execute(
-            select(Vote.motion_id).where(
-                Vote.general_meeting_id == general_meeting_id,
-                Vote.lot_owner_id == lot_owner_id,
-                Vote.status == VoteStatus.submitted,
-            )
+    # Get already-voted motion IDs per lot — single IN query instead of N queries (RR3-12).
+    all_voted_result = await db.execute(
+        select(Vote.lot_owner_id, Vote.motion_id).where(
+            Vote.general_meeting_id == general_meeting_id,
+            Vote.lot_owner_id.in_(lot_owner_ids),
+            Vote.status == VoteStatus.submitted,
         )
-        already_voted_by_lot[lot_owner_id] = {row[0] for row in voted_result.all()}
+    )
+    already_voted_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for row in all_voted_result.all():
+        already_voted_by_lot.setdefault(row[0], set()).add(row[1])
 
     # Get all visible motions for this General Meeting
     motions_result = await db.execute(
@@ -502,6 +520,13 @@ async def submit_ballot(
             except IntegrityError:
                 # Concurrent submission beat this request — treat as already submitted
                 await db.rollback()
+                logger.warning(
+                    "ballot_denied",
+                    reason="already_submitted_concurrent",
+                    agm_id=str(general_meeting_id),
+                    voter_email=voter_email,
+                    lot_owner_id=str(lot_owner_id),
+                )
                 raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
         else:
             # Re-entry: BallotSubmission already exists.  Add any newly visible
@@ -518,6 +543,12 @@ async def submit_ballot(
             votes=vote_items,
         ))
 
+    logger.info(
+        "ballot_submitted",
+        agm_id=str(general_meeting_id),
+        voter_email=voter_email,
+        lot_count=len(lot_owner_ids),
+    )
     return SubmitResponse(submitted=True, lots=lot_results)
 
 

@@ -802,3 +802,239 @@ class TestOtpRateLimitFixedWindow:
             )
 
         assert response.status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# RR3-21: Structured logging on critical paths
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredLoggingAuthService:
+    """Verify _unsign_token logs on SignatureExpired, BadSignature, and generic Exception."""
+
+    def test_unsign_token_signature_expired_logs_warning(self):
+        """_unsign_token logs session_token_invalid with reason=signature_expired."""
+        import structlog.testing
+        from itsdangerous import SignatureExpired
+        from unittest.mock import patch, MagicMock
+        from fastapi import HTTPException
+        from app.services import auth_service
+
+        mock_serializer = MagicMock()
+        mock_serializer.loads.side_effect = SignatureExpired("expired", payload=None)
+
+        with patch("app.services.auth_service._get_serializer", return_value=mock_serializer):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(HTTPException) as exc_info:
+                    auth_service._unsign_token("some_token")
+
+        assert exc_info.value.status_code == 401
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        assert any(
+            l.get("event") == "session_token_invalid" and l.get("reason") == "signature_expired"
+            for l in warning_logs
+        )
+
+    def test_unsign_token_bad_signature_logs_warning(self):
+        """_unsign_token logs session_token_invalid with reason=bad_signature."""
+        import structlog.testing
+        from itsdangerous import BadSignature
+        from unittest.mock import patch, MagicMock
+        from fastapi import HTTPException
+        from app.services import auth_service
+
+        mock_serializer = MagicMock()
+        mock_serializer.loads.side_effect = BadSignature("bad sig")
+
+        with patch("app.services.auth_service._get_serializer", return_value=mock_serializer):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(HTTPException) as exc_info:
+                    auth_service._unsign_token("some_token")
+
+        assert exc_info.value.status_code == 401
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        assert any(
+            l.get("event") == "session_token_invalid" and l.get("reason") == "bad_signature"
+            for l in warning_logs
+        )
+
+    def test_unsign_token_generic_exception_logs_warning(self):
+        """_unsign_token logs session_token_invalid with reason=unknown_error on generic Exception."""
+        import structlog.testing
+        from unittest.mock import patch, MagicMock
+        from fastapi import HTTPException
+        from app.services import auth_service
+
+        mock_serializer = MagicMock()
+        mock_serializer.loads.side_effect = ValueError("some unexpected error")
+
+        with patch("app.services.auth_service._get_serializer", return_value=mock_serializer):
+            with structlog.testing.capture_logs() as logs:
+                with pytest.raises(HTTPException) as exc_info:
+                    auth_service._unsign_token("some_token")
+
+        assert exc_info.value.status_code == 401
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        assert any(
+            l.get("event") == "session_token_invalid" and l.get("reason") == "unknown_error"
+            for l in warning_logs
+        )
+
+
+class TestStructuredLoggingVotingService:
+    """Verify ballot_submitted and ballot_denied log events (RR3-21)."""
+
+    async def test_ballot_submitted_log_on_success(
+        self, db_session: AsyncSession
+    ):
+        """submit_ballot logs ballot_submitted on successful submission."""
+        import structlog.testing
+        from app.models import (
+            GeneralMeeting,
+            GeneralMeetingLotWeight,
+            GeneralMeetingStatus,
+            LotOwner,
+        )
+        from app.models.lot_owner_email import LotOwnerEmail
+        from app.services.voting_service import submit_ballot
+
+        building = Building(name=f"Log Test Bldg {uuid.uuid4().hex[:6]}", manager_email="m@e.com")
+        db_session.add(building)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=building.id, lot_number="L-1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+
+        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email="logtest@example.com")
+        db_session.add(email_rec)
+
+        agm = GeneralMeeting(
+            building_id=building.id,
+            title="Log Test AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        weight = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+        )
+        db_session.add(weight)
+        await db_session.flush()
+
+        with structlog.testing.capture_logs() as logs:
+            result = await submit_ballot(
+                db=db_session,
+                general_meeting_id=agm.id,
+                voter_email="logtest@example.com",
+                lot_owner_ids=[lo.id],
+            )
+
+        assert result.submitted is True
+        info_logs = [l for l in logs if l.get("log_level") == "info"]
+        assert any(
+            l.get("event") == "ballot_submitted" and l.get("lot_count") == 1
+            for l in info_logs
+        )
+
+    async def test_ballot_denied_log_on_closed_meeting(
+        self, db_session: AsyncSession
+    ):
+        """submit_ballot logs ballot_denied with reason=meeting_closed when meeting is closed."""
+        import structlog.testing
+        from fastapi import HTTPException
+        from app.models import (
+            GeneralMeeting,
+            GeneralMeetingStatus,
+        )
+        from app.services.voting_service import submit_ballot
+
+        building = Building(name=f"Deny Test Bldg {uuid.uuid4().hex[:6]}", manager_email="m@e.com")
+        db_session.add(building)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=building.id,
+            title="Closed AGM",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=datetime.now(UTC) - timedelta(days=2),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_ballot(
+                    db=db_session,
+                    general_meeting_id=agm.id,
+                    voter_email="voter@example.com",
+                    lot_owner_ids=[uuid.uuid4()],
+                )
+
+        assert exc_info.value.status_code == 403
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        assert any(
+            l.get("event") == "ballot_denied" and l.get("reason") == "meeting_closed"
+            for l in warning_logs
+        )
+
+
+class TestStructuredLoggingAdminService:
+    """Verify meeting_close_initiated and meeting_closed log events (RR3-21)."""
+
+    async def test_close_meeting_logs_meeting_closed(
+        self, db_session: AsyncSession
+    ):
+        """close_general_meeting logs meeting_closed with lot_count and absent_count."""
+        import structlog.testing
+        from app.models import (
+            GeneralMeeting,
+            GeneralMeetingLotWeight,
+            GeneralMeetingStatus,
+            LotOwner,
+        )
+        from app.models.lot_owner_email import LotOwnerEmail
+        from app.services.admin_service import close_general_meeting
+
+        building = Building(name=f"Close Log Bldg {uuid.uuid4().hex[:6]}", manager_email="m@e.com")
+        db_session.add(building)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=building.id, lot_number="CL-1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="closetest@example.com"))
+
+        agm = GeneralMeeting(
+            building_id=building.id,
+            title="Close Log AGM",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(days=2),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+        ))
+        await db_session.flush()
+
+        with structlog.testing.capture_logs() as logs:
+            await close_general_meeting(agm.id, db_session)
+
+        info_logs = [l for l in logs if l.get("log_level") == "info"]
+        assert any(l.get("event") == "meeting_close_initiated" for l in info_logs)
+        assert any(
+            l.get("event") == "meeting_closed" and "lot_count" in l
+            for l in info_logs
+        )

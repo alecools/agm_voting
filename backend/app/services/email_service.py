@@ -177,6 +177,7 @@ class EmailService:
             msg["X-Original-To"] = manager_email
         msg.attach(MIMEText(html_body, "html"))
 
+        log.info("email_send_started", agm_id=str(agm_id), to=to_addr)
         await aiosmtplib.send(
             msg,
             hostname=settings.smtp_host,
@@ -186,6 +187,7 @@ class EmailService:
             start_tls=True,
         )
 
+        log.info("email_send_completed", agm_id=str(agm_id), to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
         log.info("email_sent", to=to_addr, subject=f"General Meeting Results Report: {agm_title}")
 
     async def trigger_with_retry(self, agm_id: uuid.UUID) -> None:
@@ -296,6 +298,14 @@ class EmailService:
                                 error=error_str,
                                 next_retry_at=None,
                             )
+                            # Emit the structured alert event (US-OPS-05) with all
+                            # fields needed for external alerting systems.
+                            logger.error(
+                                "email_delivery_failed",
+                                agm_id=str(agm_id),
+                                total_attempts=current_attempt,
+                                last_error=error_str,
+                            )
                             return
                         else:
                             delay = _backoff_seconds(current_attempt)
@@ -322,7 +332,10 @@ class EmailService:
         """
         Called on server startup. Finds all EmailDelivery records with
         status='pending' and total_attempts < 30, and re-launches
-        trigger_with_retry as asyncio background tasks.
+        trigger_with_retry tasks.
+
+        Tasks are collected and awaited via asyncio.gather so they are not
+        silently dropped if the Lambda exits before they complete (RR3-19).
         """
         result = await db.execute(
             select(EmailDelivery).where(
@@ -332,10 +345,14 @@ class EmailService:
         )
         pending_deliveries = list(result.scalars().all())
 
+        tasks = []
         for delivery in pending_deliveries:
             logger.info(
                 "requeueing_pending_email",
                 general_meeting_id=str(delivery.general_meeting_id),
                 total_attempts=delivery.total_attempts,
             )
-            asyncio.create_task(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))
+            tasks.append(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

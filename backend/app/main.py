@@ -12,13 +12,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
-from app.logging_config import configure_logging
+from app.logging_config import configure_logging, get_logger
 from app.routers.admin import router as admin_router
 from app.routers.admin_auth import router as admin_auth_router
 
 configure_logging()
 
 logger = logging.getLogger(__name__)
+_structlog_logger = get_logger(__name__)
 
 
 _SECURITY_HEADERS = {
@@ -63,9 +64,54 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+async def _check_migration_head() -> None:
+    """Verify the DB schema is at the expected Alembic head revision (RR3-20).
+
+    Performs a direct SELECT on alembic_version rather than running
+    `alembic current` (which spawns a subprocess) so the check completes
+    in < 100 ms.  Logs a CRITICAL error if the revision does not match
+    head — this makes the mismatch visible in structured logs and alerting
+    systems without hard-crashing the Lambda (which would prevent rollback
+    via a revert deploy).
+    """
+    try:
+        from alembic.config import Config as AlembicConfig
+        from alembic.script import ScriptDirectory
+        from sqlalchemy import text as _text
+        from app.database import AsyncSessionLocal
+
+        # Resolve the Alembic head revision from the migration scripts.
+        # script_location is relative to the backend directory.
+        import os
+        _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        alembic_cfg = AlembicConfig(os.path.join(_backend_dir, "alembic.ini"))
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head_rev = script.get_current_head()
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(_text("SELECT version_num FROM alembic_version LIMIT 1"))
+            row = result.first()
+            current_rev = row[0] if row else None
+
+        if current_rev != head_rev:
+            _structlog_logger.critical(
+                "migration_head_mismatch",
+                current_revision=current_rev,
+                expected_head=head_rev,
+            )
+        else:
+            _structlog_logger.info(
+                "migration_head_ok",
+                revision=current_rev,
+            )
+    except Exception as exc:
+        _structlog_logger.error("migration_head_check_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pragma: no cover
-    # Startup: requeue any pending email deliveries that survived a restart
+    # Startup: check migration head and requeue pending email deliveries
+    await _check_migration_head()
     from app.database import AsyncSessionLocal
     from app.services.email_service import EmailService
     async with AsyncSessionLocal() as db:

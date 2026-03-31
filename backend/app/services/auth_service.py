@@ -11,7 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.logging_config import get_logger
 from app.models.session_record import SessionRecord
+
+logger = get_logger(__name__)
 
 SESSION_DURATION_HOURS = 24  # kept for backward compatibility
 SESSION_DURATION = timedelta(minutes=30)
@@ -40,7 +43,20 @@ def _unsign_token(signed_token: str) -> str:
     try:
         payload = s.loads(signed_token, max_age=_TOKEN_MAX_AGE_SECONDS)
         return payload["token"]
-    except (SignatureExpired, BadSignature, Exception):
+    except SignatureExpired:
+        logger.warning("session_token_invalid", reason="signature_expired")
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired. Please authenticate again.",
+        )
+    except BadSignature:
+        logger.warning("session_token_invalid", reason="bad_signature")
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired. Please authenticate again.",
+        )
+    except Exception:
+        logger.warning("session_token_invalid", reason="unknown_error")
         raise HTTPException(
             status_code=401,
             detail="Session expired. Please authenticate again.",

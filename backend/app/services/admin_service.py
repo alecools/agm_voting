@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import csv
 import io
-import logging
 import uuid
 from datetime import UTC, datetime, timezone
 
@@ -17,6 +16,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.logging_config import get_logger
 from app.models import (
     GeneralMeeting,
     GeneralMeetingLotWeight,
@@ -46,7 +46,7 @@ from app.schemas.admin import (
     MotionUpdateRequest,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _sanitise_description(desc: str | None) -> str | None:
@@ -319,32 +319,39 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
     )
     owners = list(owners_result.scalars().all())
 
-    for owner in owners:
-        # Get all emails for this lot owner
-        emails_result = await db.execute(
-            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == owner.id)
+    # Batch-load emails for all owners to avoid O(N) queries (RR3-12).
+    owner_ids = [o.id for o in owners]
+    all_emails_result = await db.execute(
+        select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+            LotOwnerEmail.lot_owner_id.in_(owner_ids)
         )
-        owner_emails = [r[0] for r in emails_result.all() if r[0]]
+    )
+    emails_by_owner_id: dict[uuid.UUID, list[str]] = {}
+    all_emails_flat: list[str] = []
+    for row in all_emails_result.all():
+        if row[1]:
+            emails_by_owner_id.setdefault(row[0], []).append(row[1])
+            all_emails_flat.append(row[1])
 
-        # Check if any of these emails appear in another non-archived building
-        found_in_other = False
-        for email in owner_emails:
-            other_result = await db.execute(
-                select(LotOwner)
-                .join(Building, LotOwner.building_id == Building.id)
-                .join(LotOwnerEmail, LotOwnerEmail.lot_owner_id == LotOwner.id)
-                .where(
-                    LotOwnerEmail.email == email,
-                    LotOwner.building_id != building_id,
-                    Building.is_archived == False,  # noqa: E712
-                )
-                .limit(1)
+    # Batch-check which emails appear in another non-archived building — one query
+    # instead of one query per (owner, email) pair (RR3-12).
+    emails_in_other_buildings: set[str] = set()
+    if all_emails_flat:
+        other_result = await db.execute(
+            select(LotOwnerEmail.email)
+            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+            .join(Building, LotOwner.building_id == Building.id)
+            .where(
+                LotOwnerEmail.email.in_(all_emails_flat),
+                LotOwner.building_id != building_id,
+                Building.is_archived == False,  # noqa: E712
             )
-            other = other_result.scalars().first()
-            if other is not None:
-                found_in_other = True
-                break
+        )
+        emails_in_other_buildings = {row[0] for row in other_result.all()}
 
+    for owner in owners:
+        owner_emails = emails_by_owner_id.get(owner.id, [])
+        found_in_other = any(email in emails_in_other_buildings for email in owner_emails)
         if not found_in_other:
             owner.is_archived = True
 
@@ -1293,41 +1300,55 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     )
     weight_rows = weights_result.all()
 
-    # Build per-lot_owner_id entitlement and lot info
+    # Build per-lot_owner_id entitlement and lot info.
+    # Batch-load emails for all lot owners in a single IN query to avoid O(N) queries (RR3-12).
     lot_entitlement: dict[uuid.UUID, int] = {}
     lot_info: dict[uuid.UUID, dict] = {}  # lot_owner_id -> {lot_number, emails, entitlement}
 
     for w, lot_num in weight_rows:
         lot_entitlement[w.lot_owner_id] = w.unit_entitlement_snapshot
-        # Get emails for this lot owner
-        emails_result = await db.execute(
-            select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == w.lot_owner_id)
-        )
-        emails = [r[0] for r in emails_result.all() if r[0]]
+        # Placeholder; emails filled by batch query below
         lot_info[w.lot_owner_id] = {
             "lot_owner_id": w.lot_owner_id,
             "lot_number": lot_num,
-            "emails": emails,
+            "emails": [],
             "entitlement": w.unit_entitlement_snapshot,
         }
+
+    if lot_entitlement:
+        # Batch-load emails for all lots in the snapshot — single query (RR3-12)
+        batch_emails_result = await db.execute(
+            select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+                LotOwnerEmail.lot_owner_id.in_(list(lot_entitlement.keys()))
+            )
+        )
+        for row in batch_emails_result.all():
+            if row[1] and row[0] in lot_info:
+                lot_info[row[0]]["emails"].append(row[1])
 
     # Fallback: if snapshot is empty
     if not lot_entitlement:
         current_result = await db.execute(
             select(LotOwner).where(LotOwner.building_id == general_meeting.building_id)
         )
-        for lo in current_result.scalars().all():
+        fallback_owners = list(current_result.scalars().all())
+        for lo in fallback_owners:
             lot_entitlement[lo.id] = lo.unit_entitlement
-            emails_result = await db.execute(
-                select(LotOwnerEmail.email).where(LotOwnerEmail.lot_owner_id == lo.id)
-            )
-            emails = [r[0] for r in emails_result.all() if r[0]]
             lot_info[lo.id] = {
                 "lot_owner_id": lo.id,
                 "lot_number": lo.lot_number,
-                "emails": emails,
+                "emails": [],
                 "entitlement": lo.unit_entitlement,
             }
+        if fallback_owners:
+            fallback_emails_result = await db.execute(
+                select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
+                    LotOwnerEmail.lot_owner_id.in_([lo.id for lo in fallback_owners])
+                )
+            )
+            for row in fallback_emails_result.all():
+                if row[1] and row[0] in lot_info:
+                    lot_info[row[0]]["emails"].append(row[1])
 
     eligible_lot_owner_ids: set[uuid.UUID] = set(lot_entitlement.keys())
     total_eligible_voters = len(eligible_lot_owner_ids)
@@ -1908,6 +1929,8 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
     if general_meeting.status == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=409, detail="General Meeting is already closed")
 
+    logger.info("meeting_close_initiated", agm_id=str(general_meeting_id))
+
     # Close the General Meeting
     now = datetime.now(UTC)
     general_meeting.status = GeneralMeetingStatus.closed
@@ -2004,8 +2027,15 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
     await db.commit()
     await db.refresh(general_meeting)
 
-    # Stub: log email delivery trigger
-    logger.info("Email delivery triggered for General Meeting %s", general_meeting_id)
+    absent_count = len(absent_lot_owner_ids) if eligible_lot_owner_ids else 0
+    lot_count = len(eligible_lot_owner_ids) if eligible_lot_owner_ids else 0
+    logger.info(
+        "meeting_closed",
+        agm_id=str(general_meeting_id),
+        lot_count=lot_count,
+        absent_count=absent_count,
+        email_triggered=True,
+    )
 
     return general_meeting
 
@@ -2046,7 +2076,7 @@ async def resend_report(general_meeting_id: uuid.UUID, db: AsyncSession) -> dict
     await db.commit()
 
     # Stub: log email delivery trigger
-    logger.info("Email delivery triggered for General Meeting %s", general_meeting_id)
+    logger.info("email_delivery_triggered", agm_id=str(general_meeting_id))
 
     return {"queued": True}
 

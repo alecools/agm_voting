@@ -2770,29 +2770,33 @@ class TestSubmitBallot:
         async def _execute(stmt):
             nonlocal execute_call_count
             execute_call_count += 1
-            # Call sequence (for 1 lot, no inline votes):
+            # Call sequence (for 1 lot, no inline votes) after RR3-12 batch refactor:
             # 1: SELECT GeneralMeeting
-            # 2: SELECT LotOwnerEmail (ownership check)
-            # 3: SELECT BallotSubmission FOR UPDATE (existing_subs)
-            # 4: SELECT Vote.motion_id (already voted)
-            # 5: SELECT Motion (visible motions)
-            # 6: SELECT GeneralMeetingLotWeight
-            # 7: SELECT LotOwner
-            # 8: DELETE draft votes by lot
-            # 9: DELETE shared draft votes
+            # 2: SELECT LotOwnerEmail.lot_owner_id IN batch (direct ownership)
+            # 3: SELECT LotProxy.lot_owner_id IN batch (proxy ownership)
+            # 4: SELECT BallotSubmission FOR UPDATE (existing_subs)
+            # 5: SELECT Vote.lot_owner_id, Vote.motion_id IN batch (already voted)
+            # 6: SELECT Motion (visible motions)
+            # 7: SELECT GeneralMeetingLotWeight
+            # 8: SELECT LotOwner
+            # 9: DELETE draft votes by lot
+            # 10: DELETE shared draft votes
             if execute_call_count == 1:
                 return _scalar_result(mock_meeting)
             elif execute_call_count == 2:
-                return _scalar_result(mock_email_row)
+                # Batch LotOwnerEmail direct ownership — return (lot_owner_id,) row
+                return _all_result([(lot_owner_id,)])
             elif execute_call_count == 3:
-                return _scalars_result([])  # no existing submissions
+                return _all_result([])  # no proxy lots
             elif execute_call_count == 4:
-                return _all_result([])  # no already-voted motions
+                return _scalars_result([])  # no existing submissions
             elif execute_call_count == 5:
-                return _scalars_result([])  # no visible motions
+                return _all_result([])  # no already-voted motions
             elif execute_call_count == 6:
-                return _scalars_result([])  # no lot weights
+                return _scalars_result([])  # no visible motions
             elif execute_call_count == 7:
+                return _scalars_result([])  # no lot weights
+            elif execute_call_count == 8:
                 return _scalars_result([mock_lot_owner])
             else:
                 return _all_result([])  # DELETE statements return nothing meaningful
@@ -2886,19 +2890,32 @@ class TestSubmitBallot:
         async def _execute(stmt):
             nonlocal execute_call_count
             execute_call_count += 1
+            # Call sequence after RR3-12 batch refactor:
+            # 1: SELECT GeneralMeeting
+            # 2: SELECT LotOwnerEmail.lot_owner_id IN batch
+            # 3: SELECT LotProxy.lot_owner_id IN batch
+            # 4: SELECT BallotSubmission FOR UPDATE
+            # 5: SELECT Vote batch (already voted)
+            # 6: SELECT Motion
+            # 7: SELECT GeneralMeetingLotWeight
+            # 8: SELECT LotOwner
+            # 9+: DELETE statements
             if execute_call_count == 1:
                 return _scalar_result(mock_meeting)
             elif execute_call_count == 2:
-                return _scalar_result(mock_email_row)
+                # Batch LotOwnerEmail direct ownership
+                return _all_result([(lot_owner_id,)])
             elif execute_call_count == 3:
-                return _scalars_result([])  # no existing submissions
+                return _all_result([])  # no proxy lots
             elif execute_call_count == 4:
-                return _all_result([])  # no already-voted motions
+                return _scalars_result([])  # no existing submissions
             elif execute_call_count == 5:
-                return _scalars_result([])  # no visible motions
+                return _all_result([])  # no already-voted motions
             elif execute_call_count == 6:
-                return _scalars_result([])  # no lot weights
+                return _scalars_result([])  # no visible motions
             elif execute_call_count == 7:
+                return _scalars_result([])  # no lot weights
+            elif execute_call_count == 8:
                 return _scalars_result([mock_lot_owner])
             else:
                 return _all_result([])

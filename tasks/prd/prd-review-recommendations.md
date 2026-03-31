@@ -255,6 +255,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-OPS-01: Service Level Objectives documentation
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** SLOs defined for the voter authentication and ballot submission flows,
 **So that** I have clear targets for availability and response time that can be monitored.
@@ -271,6 +273,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-OPS-02: Health check endpoint verifies database connectivity
+
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
 
 **As a** system operator,
 **I want** the health check endpoint to verify live database connectivity,
@@ -291,6 +295,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-OPS-03: Deployment smoke test and rollback runbook
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** a defined deployment smoke test checklist and rollback procedure,
 **So that** a broken deployment is detected within 5 minutes and can be rolled back without data loss.
@@ -307,6 +313,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-OPS-04: Lambda cold start — no blocking operations
+
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
 
 **As a** system operator,
 **I want** the Lambda cold start to perform no database or network operations,
@@ -326,6 +334,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-OPS-05: Email failure alerting
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** to receive an alert when the AGM results email fails all 30 retry attempts,
 **So that** I can intervene before the meeting organiser notices and escalates.
@@ -344,6 +354,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 
 ### US-OPS-06: Disaster recovery runbook
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** a documented disaster recovery procedure for the database,
 **So that** data can be recovered within a defined RTO/RPO in the event of a Neon DB incident.
@@ -359,6 +371,8 @@ Each section maps findings to user stories with verifiable acceptance criteria. 
 ---
 
 ### US-OPS-07: Auto open/close should not trigger on Lambda cold start
+
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
 
 **As a** system operator,
 **I want** meeting status transitions (auto-open on `meeting_at`, auto-close on `voting_closes_at`) to be handled by a scheduled process, not by cold-start Lambda execution,
@@ -1210,6 +1224,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-12: Eliminate N+1 queries in ballot submission and building archive
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** the ballot submission and building archive paths to use batched queries,
 **So that** a building with 147 lots does not issue 294+ DB round-trips per submission.
@@ -1344,6 +1360,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-19: Email retry `asyncio.Task`s must not be silently dropped at Lambda exit
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** the email retry mechanism to survive Lambda cold-start cycles,
 **So that** a meeting closed during a Lambda cycle does not silently lose its email delivery.
@@ -1362,6 +1380,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-20: Build-time migration must verify success before Lambda starts
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** system operator,
 **I want** the Lambda to refuse to serve requests if the DB schema is not at the expected revision,
 **So that** a failed migration during build does not silently serve requests against a stale schema.
@@ -1379,6 +1399,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 ---
 
 ### RR3-21: Structured logging required on all critical paths
+
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
 
 **As a** system operator,
 **I want** every significant state transition and permission denial to emit a structured log event,
@@ -1399,6 +1421,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 
 ### RR3-22: Feature branch cleanup must be idempotent and failure-safe
 
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
+
 **As a** developer,
 **I want** branch cleanup (Neon DB branch + Vercel env vars) to be wrapped in an idempotent script,
 **So that** a partial failure does not leave orphaned infrastructure that silently breaks the next branch with the same name.
@@ -1416,6 +1440,8 @@ These user stories capture critical issues surfaced by the second 8-perspective 
 ---
 
 ### RR3-23: Connection string must be validated at application startup
+
+**Status:** ✅ Implemented — branch: `fix/wave3-ops-observability`, committed 2026-03-31
 
 **As a** system operator,
 **I want** the application to reject a malformed `DATABASE_URL` at startup,
