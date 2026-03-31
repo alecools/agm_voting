@@ -146,7 +146,7 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
 
     // Confirmation page must be visible (not a blank page or error)
-    await expect(page.locator("main")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("main.voter-content")).toBeVisible({ timeout: 10000 });
   });
 
   // ── TCG04-2: Voter who DID submit → routed to confirmation showing ballot ──
@@ -178,6 +178,6 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 20000 });
 
     // Confirmation page must be visible
-    await expect(page.locator("main")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("main.voter-content")).toBeVisible({ timeout: 10000 });
   });
 });
