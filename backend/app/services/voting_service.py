@@ -706,7 +706,7 @@ async def get_my_ballot(
             Vote.lot_owner_id.in_(target_lot_ids),
             Vote.status == VoteStatus.submitted,
         )
-        .order_by(Motion.display_order)
+        .order_by(Motion.display_order, Vote.id)
     )
     rows = votes_result.all()
 
