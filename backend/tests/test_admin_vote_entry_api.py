@@ -1,0 +1,755 @@
+"""Tests for admin in-person vote entry (US-AVE-01, US-AVE-02, US-AVE-03)."""
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import (
+    BallotSubmission,
+    Building,
+    GeneralMeeting,
+    GeneralMeetingLotWeight,
+    GeneralMeetingStatus,
+    LotOwner,
+    Motion,
+    MotionOption,
+    Vote,
+    VoteChoice,
+    VoteStatus,
+    FinancialPosition,
+    FinancialPositionSnapshot,
+)
+from app.models.lot_owner_email import LotOwnerEmail
+
+from tests.conftest import meeting_dt, closing_dt
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def make_building(name: str) -> Building:
+    return Building(name=name, manager_email=f"mgr_{name}@test.com")
+
+
+def make_lot_owner(b: Building, lot_number: str, entitlement: int = 100, financial_position: str = "normal") -> LotOwner:
+    return LotOwner(building_id=b.id, lot_number=lot_number, unit_entitlement=entitlement, financial_position=financial_position)
+
+
+def make_open_meeting(b: Building, title: str) -> GeneralMeeting:
+    return GeneralMeeting(
+        building_id=b.id,
+        title=title,
+        status=GeneralMeetingStatus.open,
+        meeting_at=meeting_dt(),
+        voting_closes_at=closing_dt(),
+    )
+
+
+async def _setup_meeting_with_lots(
+    db_session: AsyncSession,
+    name: str,
+    n_lots: int = 2,
+    with_motion: bool = True,
+    in_arrear_idx: int | None = None,
+) -> tuple[GeneralMeeting, list[LotOwner], list[Motion]]:
+    b = make_building(f"VE {name}")
+    db_session.add(b)
+    await db_session.flush()
+
+    lots = []
+    for i in range(n_lots):
+        fp = "in_arrear" if in_arrear_idx == i else "normal"
+        lo = make_lot_owner(b, f"VE{name}{i}", financial_position=fp)
+        db_session.add(lo)
+        lots.append(lo)
+    await db_session.flush()
+
+    agm = make_open_meeting(b, f"VE Test {name}")
+    db_session.add(agm)
+    await db_session.flush()
+
+    # Create snapshot weights
+    for lo in lots:
+        fp_snap = FinancialPositionSnapshot.in_arrear if lo.financial_position == "in_arrear" else FinancialPositionSnapshot.normal
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=fp_snap,
+        )
+        db_session.add(w)
+
+    motions = []
+    if with_motion:
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="VE Motion",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(m)
+        motions.append(m)
+
+    await db_session.commit()
+    await db_session.refresh(agm)
+    for lo in lots:
+        await db_session.refresh(lo)
+    for m in motions:
+        await db_session.refresh(m)
+
+    return agm, lots, motions
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestAdminVoteEntry:
+
+    async def test_happy_path_creates_ballot_submissions(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Admin submits votes for 2 lots; both get BallotSubmission(submitted_by_admin=True)."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "HappyPath")
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+                {
+                    "lot_owner_id": str(lots[1].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "no"}],
+                    "multi_choice_votes": [],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 2
+        assert data["skipped_count"] == 0
+
+        # Verify DB state
+        await db_session.flush()  # ensure session is synced
+        subs_result = await db_session.execute(
+            select(BallotSubmission).where(BallotSubmission.general_meeting_id == agm.id)
+        )
+        subs = list(subs_result.scalars().all())
+        assert len(subs) == 2
+        assert all(s.submitted_by_admin for s in subs)
+        assert all(s.voter_email == "admin" for s in subs)
+
+    async def test_skip_already_submitted_lot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A lot with an existing app submission is skipped; skipped_count = 1."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "SkipExisting")
+
+        # Create an existing app submission for lots[0]
+        existing_sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lots[0].id,
+            voter_email="voter@test.com",
+            submitted_by_admin=False,
+        )
+        db_session.add(existing_sub)
+        await db_session.commit()
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+                {
+                    "lot_owner_id": str(lots[1].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 1
+
+    async def test_in_arrear_lot_general_motion_not_eligible(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """In-arrear lot + general motion → vote recorded as not_eligible."""
+        agm, lots, motions = await _setup_meeting_with_lots(
+            db_session, "InArrear", in_arrear_idx=0
+        )
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                },
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()  # ensure session is synced
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lots[0].id,
+            )
+        )
+        vote = vote_result.scalar_one()
+        assert vote.choice == VoteChoice.not_eligible
+
+    async def test_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Submitting to a closed meeting returns 409."""
+        b = make_building("VE Closed")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-C1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="VE Closed AGM",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=meeting_dt(),
+            voting_closes_at=datetime.now(UTC) - timedelta(hours=1),
+            closed_at=datetime.now(UTC),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+
+        payload = {"entries": [{"lot_owner_id": str(lo.id), "votes": [], "multi_choice_votes": []}]}
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 409
+
+    async def test_unknown_lot_owner_id_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Unknown lot_owner_id returns 422."""
+        agm, _, _ = await _setup_meeting_with_lots(db_session, "UnknownLot")
+        fake_id = str(uuid.uuid4())
+        payload = {"entries": [{"lot_owner_id": fake_id, "votes": [], "multi_choice_votes": []}]}
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_not_found_meeting_returns_404(
+        self, client: AsyncClient
+    ):
+        """Non-existent meeting ID returns 404."""
+        fake_id = str(uuid.uuid4())
+        payload = {"entries": []}
+        resp = await client.post(f"/api/admin/general-meetings/{fake_id}/enter-votes", json=payload)
+        assert resp.status_code == 404
+
+    async def test_multi_choice_option_limit_enforced(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Sending options over option_limit returns 422."""
+        b = make_building("VE MC Limit")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MC1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        )
+        db_session.add(w)
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="MC Motion",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opts = [MotionOption(motion_id=m.id, text=f"Opt{i}", display_order=i+1) for i in range(3)]
+        for opt in opts:
+            db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+        for opt in opts:
+            await db_session.refresh(opt)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": [str(opts[0].id), str(opts[1].id), str(opts[2].id)]}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_multi_choice_happy_path(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Multi-choice votes within limit are recorded correctly."""
+        b = make_building("VE MC Happy")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MCH1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC Happy AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        )
+        db_session.add(w)
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="MC Motion Happy",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opts = [MotionOption(motion_id=m.id, text=f"Opt{i}", display_order=i+1) for i in range(3)]
+        for opt in opts:
+            db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+        for opt in opts:
+            await db_session.refresh(opt)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": [str(opts[0].id), str(opts[1].id)]}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+
+        await db_session.flush()  # ensure session is synced
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+                Vote.choice == VoteChoice.selected,
+            )
+        )
+        votes = list(votes_result.scalars().all())
+        assert len(votes) == 2
+
+    async def test_invalid_choice_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An unrecognized choice string returns 422."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "InvalidChoice")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "invalid_choice"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_invalid_motion_id_in_votes_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An unrecognized motion_id in votes returns 422."""
+        agm, lots, _ = await _setup_meeting_with_lots(db_session, "InvalidMotion")
+        fake_motion_id = str(uuid.uuid4())
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": fake_motion_id, "choice": "yes"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_invalid_motion_id_in_mc_votes_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An unrecognized motion_id in multi_choice_votes returns 422."""
+        agm, lots, _ = await _setup_meeting_with_lots(db_session, "InvalidMCMotion")
+        fake_motion_id = str(uuid.uuid4())
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [],
+                    "multi_choice_votes": [{"motion_id": fake_motion_id, "option_ids": []}],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_invalid_option_id_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An option_id that doesn't belong to the motion returns 422."""
+        b = make_building("VE InvOpt")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-IO1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE InvOpt AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        )
+        db_session.add(w)
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="InvOpt Motion",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=1,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opt = MotionOption(motion_id=m.id, text="Valid Opt", display_order=1)
+        db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+
+        fake_opt_id = str(uuid.uuid4())
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": [fake_opt_id]}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 422
+
+    async def test_empty_entries_returns_success(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Empty entries list is a no-op returning 200 with zeros."""
+        agm, _, _ = await _setup_meeting_with_lots(db_session, "EmptyEntries")
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json={"entries": []})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 0
+
+    async def test_abstained_recorded_when_no_vote_provided(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When no vote is provided for a visible motion, abstained is recorded."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "AbstainDefault")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [],  # no vote provided
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()  # ensure session is synced
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lots[0].id,
+            )
+        )
+        vote = vote_result.scalar_one()
+        assert vote.choice == VoteChoice.abstained
+
+    async def test_submitted_by_admin_false_on_voter_submission(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """BallotSubmission created via admin vote entry has submitted_by_admin=True."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "FlagCheck")
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()  # ensure session is synced
+        sub_result = await db_session.execute(
+            select(BallotSubmission).where(
+                BallotSubmission.general_meeting_id == agm.id,
+                BallotSubmission.lot_owner_id == lots[0].id,
+            )
+        )
+        sub = sub_result.scalar_one()
+        assert sub.submitted_by_admin is True
+
+    async def test_multi_choice_no_options_abstained(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Multi-choice motion with no options submitted records abstained."""
+        b = make_building("VE MC AbsDefault")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MCA1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC Abs AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        )
+        db_session.add(w)
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="MC Abs Motion",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opt = MotionOption(motion_id=m.id, text="Opt", display_order=1)
+        db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": []}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()  # ensure session is synced
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        vote = vote_result.scalar_one()
+        assert vote.choice == VoteChoice.abstained
+
+    async def test_in_arrear_lot_multi_choice_not_eligible(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """In-arrear lot + multi-choice motion → not_eligible."""
+        b = make_building("VE MC InArrear")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MCIA1", financial_position="in_arrear")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC InArrear AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        w = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
+        )
+        db_session.add(w)
+        m = Motion(
+            general_meeting_id=agm.id,
+            title="MC InArrear Motion",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=1,
+        )
+        db_session.add(m)
+        await db_session.flush()
+        opt = MotionOption(motion_id=m.id, text="Opt", display_order=1)
+        db_session.add(opt)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+        await db_session.refresh(opt)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {"motion_id": str(m.id), "option_ids": [str(opt.id)]}
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        await db_session.flush()  # ensure session is synced
+        vote_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        vote = vote_result.scalar_one()
+        assert vote.choice == VoteChoice.not_eligible
+
+    async def test_submitted_by_admin_in_voter_list(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """get_general_meeting_detail includes submitted_by_admin on voter list entries."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "VoterListFlag")
+
+        # Submit as admin
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lots[0].id),
+                    "votes": [{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+
+        # Fetch detail and check submitted_by_admin flag in voter_lists
+        detail_resp = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+
+        motion_detail = detail["motions"][0]
+        yes_voters = motion_detail["voter_lists"]["yes"]
+        assert len(yes_voters) == 1
+        assert yes_voters[0]["submitted_by_admin"] is True
+
+    async def test_building_id_in_meeting_detail(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """get_general_meeting_detail includes building_id."""
+        agm, _, _ = await _setup_meeting_with_lots(db_session, "BuildingIdCheck")
+        detail_resp = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert "building_id" in detail
+        assert detail["building_id"] == str(agm.building_id)
+
+    async def test_integrity_error_on_flush_skips_lot(
+        self, db_session: AsyncSession
+    ):
+        """When a concurrent flush raises IntegrityError, that lot is skipped."""
+        from app.schemas.admin import AdminVoteEntry, AdminVoteEntryRequest
+        from app.services.admin_service import enter_votes_for_meeting
+
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "IntegrityRace")
+
+        request = AdminVoteEntryRequest(
+            entries=[
+                AdminVoteEntry(
+                    lot_owner_id=lots[0].id,
+                    votes=[{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    multi_choice_votes=[],
+                )
+            ]
+        )
+
+        # Patch db.flush to raise IntegrityError, simulating a concurrent submission
+        original_flush = db_session.flush
+        call_count = 0
+
+        async def patched_flush(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Raise on the very first flush inside the try block (count resets per test call)
+            if call_count == 1:
+                raise IntegrityError("duplicate key", {}, Exception())
+            return await original_flush(*args, **kwargs)
+
+        # Replace flush AFTER setup is done (and reset count here)
+        db_session.flush = patched_flush  # type: ignore[method-assign]
+        try:
+            result = await enter_votes_for_meeting(agm.id, request, db_session)
+        finally:
+            db_session.flush = original_flush  # type: ignore[method-assign]
+
+        assert result["submitted_count"] == 0
+        assert result["skipped_count"] == 1

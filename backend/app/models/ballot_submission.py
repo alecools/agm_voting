@@ -28,6 +28,7 @@ class BallotSubmission(Base):
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
     proxy_email: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     is_absent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    submitted_by_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     ballot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

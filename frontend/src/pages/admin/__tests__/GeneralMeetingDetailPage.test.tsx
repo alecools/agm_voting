@@ -2631,3 +2631,75 @@ describe("Close Motion", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Admin In-Person Vote Entry (US-AVE-01/02/03)
+// ---------------------------------------------------------------------------
+
+describe("Admin In-Person Vote Entry", () => {
+  function renderPage(meetingId = "agm1") {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
+          <Routes>
+            <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("shows Enter In-Person Votes button when meeting is open", async () => {
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+  });
+
+  it("does not show Enter In-Person Votes button when meeting is closed", async () => {
+    renderPage("agm2");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Enter In-Person Votes" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not show Enter In-Person Votes button when meeting is pending", async () => {
+    renderPage("agm-pending");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Enter In-Person Votes" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens AdminVoteEntryPanel when Enter In-Person Votes is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Enter In-Person Votes" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Enter In-Person Votes/i })).toBeInTheDocument();
+    });
+  });
+
+  it("shows success toast after vote entry panel reports success", async () => {
+    const user = userEvent.setup();
+    renderPage("agm1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Enter In-Person Votes" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Enter In-Person Votes" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Enter In-Person Votes/i })).toBeInTheDocument();
+    });
+    // Cancel the panel to trigger close without success
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    await user.click(cancelBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+});

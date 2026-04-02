@@ -21,6 +21,7 @@ import EmailStatusBanner from "../../components/admin/EmailStatusBanner";
 import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 import MotionManagementTable from "../../components/admin/MotionManagementTable";
+import AdminVoteEntryPanel from "./AdminVoteEntryPanel";
 import { formatLocalDateTime } from "../../utils/dateTime";
 import { useBranding } from "../../context/BrandingContext";
 
@@ -282,6 +283,10 @@ export default function GeneralMeetingDetailPage() {
   // Delete motion confirmation state
   const [pendingDeleteMotionId, setPendingDeleteMotionId] = useState<string | null>(null);
 
+  // Admin vote entry panel
+  const [showVoteEntryPanel, setShowVoteEntryPanel] = useState(false);
+  const [voteEntrySuccess, setVoteEntrySuccess] = useState<string | null>(null);
+
   const addMotionMutation = useMutation({
     mutationFn: (data: AddMotionRequest) => addMotionToMeeting(meetingId!, data),
     onSuccess: () => {
@@ -515,9 +520,35 @@ export default function GeneralMeetingDetailPage() {
 
   return (
     <div>
+      {showVoteEntryPanel && (
+        <AdminVoteEntryPanel
+          meeting={meeting}
+          onClose={() => setShowVoteEntryPanel(false)}
+          onSuccess={() => {
+            setShowVoteEntryPanel(false);
+            setVoteEntrySuccess("In-person votes submitted successfully.");
+            void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+          }}
+        />
+      )}
       <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/admin/general-meetings")}>
         ← Back
       </button>
+      {voteEntrySuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            background: "var(--green-bg)",
+            color: "var(--green)",
+            borderRadius: "var(--r-md)",
+            padding: "10px 16px",
+            marginBottom: 16,
+          }}
+        >
+          {voteEntrySuccess}
+        </div>
+      )}
       <div className="admin-page-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h1 style={{ margin: 0 }}>{meeting.title}</h1>
@@ -530,11 +561,20 @@ export default function GeneralMeetingDetailPage() {
           />
         )}
         {meeting.status === "open" && (
-          <CloseGeneralMeetingButton
-            meetingId={meetingId!}
-            meetingTitle={meeting.title}
-            onSuccess={handleCloseSuccess}
-          />
+          <>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => { setVoteEntrySuccess(null); setShowVoteEntryPanel(true); }}
+            >
+              Enter In-Person Votes
+            </button>
+            <CloseGeneralMeetingButton
+              meetingId={meetingId!}
+              meetingTitle={meeting.title}
+              onSuccess={handleCloseSuccess}
+            />
+          </>
         )}
         {(meeting.status === "closed" || meeting.status === "pending") && (
           <button
