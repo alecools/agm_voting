@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { BuildingSelectPage } from "./pages/vote/BuildingSelectPage";
@@ -15,6 +15,11 @@ import AdminErrorBoundary from "./components/admin/AdminErrorBoundary";
 // Admin code is only downloaded when a user navigates to /admin.
 const AdminRoutes = React.lazy(() => import("./routes/AdminRoutes"));
 
+function VoteMeetingRedirect() {
+  const { meetingId } = useParams<{ meetingId: string }>();
+  return <Navigate to={`/vote/${meetingId}/auth`} replace />;
+}
+
 export default function App() {
   return (
     <BrandingProvider>
@@ -22,7 +27,7 @@ export default function App() {
         {/* Lot owner voting routes — wrapped in shared header shell */}
         <Route element={<VoterShell />}>
           <Route path="/" element={<BuildingSelectPage />} />
-          <Route path="/vote/:meetingId" element={<Navigate to="auth" replace />} />
+          <Route path="/vote/:meetingId" element={<VoteMeetingRedirect />} />
           <Route path="/vote/:meetingId/auth" element={<AuthPage />} />
           <Route path="/vote/:meetingId/voting" element={<VotingPage />} />
           <Route path="/vote/:meetingId/confirmation" element={<ConfirmationPage />} />
