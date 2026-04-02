@@ -2018,6 +2018,628 @@ Low-priority issues are grouped into thematic cleanup stories. All are P2.
 
 ---
 
+## Round 4 Review Findings
+
+These user stories capture bugs and improvements surfaced by the fourth engineering review pass. Items cover security, data integrity, performance, accessibility, and code quality issues across backend and frontend.
+
+---
+
+### RR4-02: Hidden motions exposed on public summary endpoint
+
+**As a** meeting organiser,
+**I want** `GET /api/general-meeting/{id}/summary` to exclude motions with `is_visible=False`,
+**So that** draft motion text is never disclosed to the public before the organiser makes it visible.
+
+**Acceptance criteria:**
+- [ ] The query in `public.py:124` adds `.where(Motion.is_visible == True)` before returning motions
+- [ ] An integration test verifies: create meeting with one visible and one hidden motion → call the public summary endpoint → only the visible motion appears in the response
+- [ ] A closed meeting may return all motions regardless of visibility (confirm with product); document the decision in a code comment
+
+**Technical notes:** `backend/app/routers/public.py:124` — missing `is_visible` filter. Duplicate of RR3-14 scope but confirmed still present in current codebase.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR4-03: `VoteChoice.against` silently misclassified as abstained in General/Special motion tallies
+
+**As a** meeting auditor,
+**I want** votes cast as `VoteChoice.against` to appear in the "Against" tally column,
+**So that** the reported vote counts are accurate and legally defensible.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:1596` — the tally computation for General/Special motions correctly maps `VoteChoice.against` to the `no` bucket, not the `abstained` bucket
+- [ ] An integration test creates a meeting with a General motion, submits one `against` vote, and asserts `tally.no.voter_count == 1` and `tally.abstained.voter_count == 0`
+- [ ] All existing tally tests pass
+
+**Technical notes:** `backend/app/services/admin_service.py:1596`. `VoteChoice.against` enum value (used in admin vote entry) must map to the same tally bucket as `VoteChoice.no`.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR4-04: `compute_multi_choice_outcomes` called before `db.commit()` — outcomes lost on exception
+
+**As a** meeting organiser,
+**I want** multi-choice outcome computation to be durable even if the surrounding transaction fails,
+**So that** pass/fail outcomes are always persisted correctly after meeting close.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:2203` — `compute_multi_choice_outcomes` is called and awaited only after `db.commit()` has succeeded for the ballot data
+- [ ] A unit test simulates a commit failure after outcome computation and verifies the outcome is not partially written
+- [ ] All existing close-meeting tests pass
+
+**Technical notes:** `backend/app/services/admin_service.py:2203` — re-order the commit and outcome computation calls.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR4-05: `enter_votes_for_meeting` `IntegrityError` handler rolls back entire session, losing all previously flushed lots
+
+**As an** admin entering in-person votes,
+**I want** a duplicate vote error for one lot to not discard successfully entered votes for other lots in the same batch,
+**So that** a partial conflict does not require re-entering all votes.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:3389` — the `IntegrityError` handler uses a savepoint or per-lot subtransaction so only the conflicting lot's votes are rolled back; successfully flushed lots are retained
+- [ ] An integration test enters votes for lots A, B, C where B already has a submission; asserts lots A and C are recorded and only B raises 409
+- [ ] All existing admin vote entry tests pass
+
+**Technical notes:** `backend/app/services/admin_service.py:3389`. Use `db.begin_nested()` savepoints around each lot's flush.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR4-06: `compute_multi_choice_outcomes` loads ALL votes into memory — O(V×M×O) performance issue
+
+**As a** system operator,
+**I want** multi-choice outcome computation to use efficient DB-side aggregation,
+**So that** closing a meeting with many votes does not exhaust Lambda memory.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:2277` — replace the Python-side vote loading loop with a SQL `GROUP BY` aggregate query that counts `selected` votes per option directly in the DB
+- [ ] The new implementation is O(1) in memory regardless of vote count
+- [ ] An integration test with 100+ votes verifies the outcome computation completes in < 500 ms
+
+**Technical notes:** `backend/app/services/admin_service.py:2277`. Use `func.count()` with `GROUP BY motion_option_id` in a single query.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR4-07: Migration chain has branching — Alembic versions may apply out of order
+
+**As a** developer,
+**I want** the Alembic migration chain to have a single unambiguous head,
+**So that** `alembic upgrade head` always applies migrations in the correct deterministic order.
+
+**Acceptance criteria:**
+- [ ] `alembic/versions/` contains no branching revisions (i.e., `alembic heads` returns exactly one head)
+- [ ] If multiple heads exist, a merge migration is created: `alembic merge heads -m "merge migration branches"`
+- [ ] CI `alembic upgrade head` run on a clean DB succeeds without errors or warnings about multiple heads
+- [ ] All existing migration tests pass
+
+**Technical notes:** `backend/alembic/versions/`. Run `alembic heads` to check; if > 1 result, create a merge revision.
+
+**Priority:** P0 | **Effort:** S
+
+---
+
+### RR4-08: Email trigger uses request-scoped `BackgroundTasks` — silent drop on Lambda exit
+
+**As a** meeting organiser,
+**I want** the results email to be reliably triggered even if the Lambda exits immediately after the close API response,
+**So that** no meeting close silently loses its email notification.
+
+**Acceptance criteria:**
+- [ ] `admin.py:651` — the email trigger is moved out of `BackgroundTasks` and into an `asyncio.create_task()` or persisted via the `EmailDelivery` record + cron retry (per RR3-19 pattern), so the request lifecycle does not gate the send
+- [ ] A unit test verifies the `EmailDelivery` record is created with `status=pending` synchronously before the HTTP response returns, ensuring the cron retry can pick it up even if the background task is dropped
+- [ ] All existing email delivery tests pass
+
+**Technical notes:** `backend/app/routers/admin.py:651`. The `EmailDelivery` record creation must be committed within the main request transaction; the actual send is best-effort and cron-backed.
+
+**Priority:** P0 | **Effort:** M
+
+---
+
+### RR4-09: Race condition — `voting_closed_at` checked before `SELECT FOR UPDATE`
+
+**As a** voter,
+**I want** the ballot submission endpoint to atomically check voting status and lock the submission record,
+**So that** a vote cannot slip through between the status check and the lock acquisition.
+
+**Acceptance criteria:**
+- [ ] `voting_service.py:333` — the `voting_closed_at` check is moved inside the `SELECT FOR UPDATE` transaction, not before it
+- [ ] An integration test simulates a concurrent submission where the meeting closes between the status check and the lock; asserts the second submission receives 403
+- [ ] All existing submission tests pass
+
+**Technical notes:** `backend/app/services/voting_service.py:333`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-10: `get_general_meeting_detail` has O(V×M) Python filtering per motion
+
+**As a** system operator,
+**I want** the meeting detail endpoint to aggregate vote tallies in the DB,
+**So that** a meeting with many voters and motions does not cause a slow admin report page.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:1504` — the per-motion voter-list filtering is replaced with a SQL `GROUP BY` query or a pre-loaded dictionary keyed by `(motion_id, choice)`
+- [ ] The number of Python iterations over the vote list is O(M) not O(V×M)
+- [ ] An integration test with 50 voters × 10 motions verifies the endpoint responds in < 500 ms
+
+**Technical notes:** `backend/app/services/admin_service.py:1504`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR4-11: Admin vote entry grid full re-render on every cell change
+
+**As an** admin entering in-person votes,
+**I want** clicking a vote button to only re-render the affected cell, not the entire vote grid,
+**So that** entering votes for many lots stays responsive.
+
+**Acceptance criteria:**
+- [ ] `AdminVoteEntryPanel.tsx:153` — `setLotVotes` state update no longer causes all lot columns to re-render; use `React.memo` on the per-lot cell component or split state so only the affected lot re-renders
+- [ ] A Vitest unit test with 10 lots × 10 motions verifies that clicking one vote button causes exactly one cell component to re-render (use `renderCount` or spy)
+- [ ] All existing admin vote entry tests pass
+
+**Technical notes:** `frontend/src/pages/admin/AdminVoteEntryPanel.tsx:153`.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR4-12: Duplicate `option_id` in `option_choices` causes misleading 409 instead of validation error
+
+**As an** admin or voter,
+**I want** submitting duplicate option IDs in a multi-choice vote to return 422,
+**So that** client bugs are reported as input validation errors, not server conflicts.
+
+**Acceptance criteria:**
+- [ ] `voting_service.py:453` — before inserting votes, validate that `option_ids` contains no duplicates; return 422 "Duplicate option IDs in submission" if duplicates are found
+- [ ] Unit test verifies 422 is returned for `option_ids: ["A", "A"]`
+- [ ] All existing multi-choice submission tests pass
+
+**Technical notes:** `backend/app/services/voting_service.py:453`. This complements RR3-37 which added duplicate validation for the import path.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-13: `multiChoiceSelections` never persisted to `sessionStorage` — page refresh loses all multi-choice votes
+
+**As a** voter,
+**I want** my multi-choice vote selections to survive a page refresh,
+**So that** an accidental refresh does not lose my in-progress selections.
+
+**Acceptance criteria:**
+- [ ] `VotingPage.tsx:42` (or wherever session storage persistence is initialised) — `multiChoiceSelections` is included in the serialised session storage state alongside binary motion choices
+- [ ] After a page refresh, `multiChoiceSelections` for all lots are restored from session storage
+- [ ] A Vitest unit test verifies that `multiChoiceSelections` is written to and read from `sessionStorage` correctly
+- [ ] All existing voting flow tests pass
+
+**Technical notes:** `frontend/src/pages/vote/VotingPage.tsx:42`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-14: QR code modal lacks focus trap and initial focus management
+
+**As an** admin using keyboard navigation,
+**I want** the QR code modal to trap focus and move focus to the first focusable element on open,
+**So that** keyboard navigation is consistent across all admin modals.
+
+**Acceptance criteria:**
+- [ ] `AgmQrCodeModal.tsx` implements the same focus trap pattern as other admin modals (per US-ACC-02 / RR3-07)
+- [ ] When the modal opens, focus moves to the close button or the first focusable element inside
+- [ ] Tab and Shift+Tab cycle within the modal
+- [ ] Pressing Escape closes the modal and returns focus to the trigger button
+- [ ] A unit test verifies focus is moved inside the modal on open
+
+**Technical notes:** `frontend/src/components/admin/AgmQrCodeModal.tsx`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-15: `AdminVoteEntryPanel` `ConfirmDialog` has no focus trap
+
+**As an** admin using keyboard navigation,
+**I want** the vote entry confirmation dialog to trap focus,
+**So that** pressing Tab cannot escape the dialog to the page behind it.
+
+**Acceptance criteria:**
+- [ ] `AdminVoteEntryPanel.tsx:50` — `ConfirmDialog` implements a focus trap (same pattern as US-ACC-02)
+- [ ] On open, focus moves to the Cancel button (safer default for a destructive confirmation)
+- [ ] Tab cycles within the dialog; Escape closes it
+- [ ] A unit test verifies focus behaviour
+
+**Technical notes:** `frontend/src/pages/admin/AdminVoteEntryPanel.tsx:50`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-16: Migration head mismatch logs CRITICAL but does not halt Lambda startup
+
+**As a** system operator,
+**I want** a migration head mismatch to prevent the Lambda from serving requests,
+**So that** a failed migration does not silently serve requests against a stale schema.
+
+**Acceptance criteria:**
+- [ ] `main.py:176` — when `_check_migration_head()` detects a mismatch it raises `RuntimeError` (or sets a flag that causes all routes to return 503) rather than only logging CRITICAL and continuing
+- [ ] A unit test verifies the Lambda does not process requests when a mismatch is detected
+- [ ] All existing startup tests pass
+
+**Technical notes:** `backend/app/main.py:176`. Complements RR3-20.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-17: In-memory rate limiter not shared across Lambda instances
+
+**As a** security engineer,
+**I want** the OTP and admin rate limiter to use a shared DB-backed store,
+**So that** brute-force attempts across multiple Lambda cold starts are correctly rate-limited.
+
+**Acceptance criteria:**
+- [ ] `rate_limiter.py:25` — the in-memory rate limit counter is replaced with a DB-backed counter (using the existing `OtpRateLimit` or `AdminLoginAttempt` table) or an external store (Redis/Upstash)
+- [ ] An integration test verifies that the rate limit is enforced when the same IP makes requests that would be spread across fresh in-memory stores
+- [ ] All existing rate limit tests pass
+
+**Technical notes:** `backend/app/services/rate_limiter.py:25`. The OTP rate limit already uses `OtpRateLimit` (DB-backed); audit whether any remaining in-memory limiter exists.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR4-18: Admin vote entry table headers missing `scope="col"`
+
+**As an** admin using a screen reader,
+**I want** the vote entry table headers to have `scope="col"`,
+**So that** the screen reader correctly associates each header with its column of cells.
+
+**Acceptance criteria:**
+- [ ] `AdminVoteEntryPanel.tsx:436` — all `<th>` elements in the vote grid `<thead>` have `scope="col"`
+- [ ] A unit test verifies the rendered table headers have the `scope` attribute
+
+**Technical notes:** `frontend/src/pages/admin/AdminVoteEntryPanel.tsx:436`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-19: `canvasRef` cast removes null safety — download silently fails
+
+**As an** admin,
+**I want** the QR code download button to always work or show a clear error,
+**So that** a null canvas reference does not silently produce no download.
+
+**Acceptance criteria:**
+- [ ] `AgmQrCode.tsx:30` — the `canvasRef` null assertion (`!`) is replaced with a proper null check; if the canvas is null, the download handler logs a warning and shows a user-visible error message
+- [ ] A unit test verifies the error state is shown when the canvas ref is null
+
+**Technical notes:** `frontend/src/components/admin/AgmQrCode.tsx:30`.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-20: `Vote.motion_option_id` `ondelete="SET NULL"` loses outcome audit trail on option delete
+
+**As a** meeting auditor,
+**I want** deleting a motion option to be blocked if votes reference it,
+**So that** the vote-to-option relationship is never silently severed.
+
+**Acceptance criteria:**
+- [ ] `vote.py:83` — the FK `ondelete` on `motion_option_id` is changed from `SET NULL` to `RESTRICT` via an Alembic migration
+- [ ] `DELETE /api/admin/motions/{id}/options/{option_id}` returns 409 if any submitted votes reference the option
+- [ ] An integration test verifies the 409 case
+- [ ] All existing option management tests pass
+
+**Technical notes:** `backend/app/models/vote.py:83`, `backend/alembic/versions/`. Schema change required.
+
+**Priority:** P1 | **Effort:** M
+
+---
+
+### RR4-21: `close_motion` has no `SELECT FOR UPDATE` — concurrent closes can overwrite timestamp
+
+**As a** meeting organiser,
+**I want** concurrent close-motion requests to be serialised,
+**So that** only one `voting_closed_at` timestamp is written and the one that "wins" is deterministic.
+
+**Acceptance criteria:**
+- [ ] The `close_motion` endpoint handler (or its service function) acquires a `SELECT FOR UPDATE` lock on the `Motion` row before writing `voting_closed_at`
+- [ ] An integration test spawns two concurrent close-motion requests and verifies exactly one timestamp is recorded
+- [ ] All existing motion management tests pass
+
+**Technical notes:** Admin router close_motion endpoint — add `with_for_update()` to the motion fetch.
+
+**Priority:** P1 | **Effort:** S
+
+---
+
+### RR4-22: `OutcomeBadge` uses inline colour/spacing styles violating design system
+
+**As a** frontend developer,
+**I want** `OutcomeBadge` to use CSS class-based styling consistent with the design system,
+**So that** colours and spacing are centrally controlled and `grep` checks pass.
+
+**Acceptance criteria:**
+- [ ] `AGMReportView.tsx:3` — `OutcomeBadge` inline `style` props for colour, background, font-size, padding, border-radius, and letter-spacing are replaced with CSS modifier classes (e.g., `.outcome-badge--pass`, `.outcome-badge--fail`, `.outcome-badge--tie`) defined in the design system CSS
+- [ ] `grep -r "style=" frontend/src/components/admin/AGMReportView.tsx` returns only non-colour/spacing props (e.g., `fontFamily` for monospace tables is acceptable if not in the design system)
+- [ ] All existing report view tests pass
+
+**Technical notes:** `frontend/src/components/admin/AGMReportView.tsx:3`. Read `tasks/design/design-system.md` before writing CSS.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-23: `ballot_hash` nullable with no CHECK for non-absent submissions
+
+**As a** meeting auditor,
+**I want** every submitted (non-absent) ballot to have a `ballot_hash`,
+**So that** tampering with vote records is detectable for all real submissions.
+
+**Acceptance criteria:**
+- [ ] `ballot_submission.py:32` — a DB-level `CHECK` constraint is added (or enforced at the service layer) requiring `ballot_hash IS NOT NULL` for `BallotSubmission` rows that are not absent records
+- [ ] Existing absent records (where `ballot_hash` is legitimately null) satisfy the constraint
+- [ ] An integration test verifies that attempting to insert a non-absent submission without a hash raises a validation error
+
+**Technical notes:** `backend/app/models/ballot_submission.py:32`. May require an Alembic migration for the CHECK constraint.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-24: QR canvas has no `aria-label`/`alt` text — WCAG 1.1.1
+
+**As an** admin using a screen reader,
+**I want** the QR code canvas element to have a text alternative,
+**So that** assistive technology can convey its purpose to users who cannot see the image.
+
+**Acceptance criteria:**
+- [ ] `AgmQrCode.tsx:25` — the `<canvas>` element has `aria-label` (e.g., `aria-label="QR code for [meeting title]"`) or is wrapped in a `<figure>` with a `<figcaption>`
+- [ ] A unit test verifies the accessible name is present on the canvas
+
+**Technical notes:** `frontend/src/components/admin/AgmQrCode.tsx:25`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-25: `LotOwnerForm` error messages lack `role="alert"`
+
+**As an** admin using a screen reader,
+**I want** form validation errors to be announced immediately when they appear,
+**So that** I do not have to navigate back to find out what went wrong.
+
+**Acceptance criteria:**
+- [ ] `LotOwnerForm.tsx:301` — inline field error messages have `role="alert"` (or are wrapped in an `aria-live="assertive"` region) so screen readers announce them without requiring focus
+- [ ] A unit test verifies error messages are rendered with `role="alert"`
+
+**Technical notes:** `frontend/src/components/admin/LotOwnerForm.tsx:301`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-26: Four `except Exception` blocks catch system-level errors instead of specific exceptions
+
+**As a** backend developer,
+**I want** exception handlers to catch only the expected exception types,
+**So that** unexpected system errors (e.g., `KeyboardInterrupt`, `SystemExit`, memory errors) are not silently swallowed.
+
+**Acceptance criteria:**
+- [ ] `admin_service.py:147+` — the four `except Exception` blocks are narrowed to the specific exception types they are designed to handle (e.g., `ValueError`, `IntegrityError`, `openpyxl.exceptions.*`)
+- [ ] Any truly unexpected exceptions are re-raised after logging
+- [ ] All existing tests pass
+
+**Technical notes:** `backend/app/services/admin_service.py:147` and vicinity.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-27: `submitted_by_admin` stores no admin identity — no audit trail of which admin submitted
+
+**As a** meeting auditor,
+**I want** admin-entered ballot submissions to record which admin user submitted them,
+**So that** the audit trail identifies the individual responsible, not just a boolean flag.
+
+**Acceptance criteria:**
+- [ ] `ballot_submission.py:31` — `submitted_by_admin` boolean is augmented (or replaced) with a `submitted_by_admin_username: str | None` column storing the admin username from the session
+- [ ] `enter_votes_for_meeting` in `admin_service.py` populates the admin username on each `BallotSubmission` it creates
+- [ ] The admin meeting detail response includes `submitted_by_admin_username` per ballot
+- [ ] An Alembic migration adds the new column
+- [ ] All existing admin vote entry tests pass
+
+**Technical notes:** `backend/app/models/ballot_submission.py:31`, `backend/app/services/admin_service.py`. Schema change required.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-29: Runbooks missing admin vote entry workflow and per-motion window sections
+
+**As a** system operator,
+**I want** the runbooks to cover the admin vote entry and per-motion voting window workflows,
+**So that** operators have documented procedures for the full AGM lifecycle.
+
+**Acceptance criteria:**
+- [ ] `docs/runbooks/` gains or updates an existing runbook with: steps to use admin vote entry for in-person voters, how to open/close per-motion voting windows, and what to do if admin vote entry fails mid-batch
+- [ ] The runbook is linked from `docs/slo.md` or the main runbook index
+
+**Technical notes:** `docs/runbooks/`. No code changes required.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-30: Print CSS injected as inline style in `AgmQrCodeModal` render path
+
+**As a** frontend developer,
+**I want** print styles to be defined in the stylesheet rather than injected inline at render time,
+**So that** the design system's style isolation rules are respected and inline styles do not leak.
+
+**Acceptance criteria:**
+- [ ] `AgmQrCodeModal.tsx:88` — print-specific CSS is moved to a `@media print` block in the component's CSS module or the global stylesheet rather than being injected via a `<style>` tag at render time
+- [ ] The print layout (hiding navigation, showing only the QR code) continues to work correctly when the browser print dialog is triggered
+- [ ] A unit test verifies the component renders without any inline `<style>` injection
+
+**Technical notes:** `frontend/src/components/admin/AgmQrCodeModal.tsx:88`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-31: Admin endpoints have no per-endpoint rate limiting beyond login
+
+**As a** security engineer,
+**I want** high-volume admin endpoints to have rate limits,
+**So that** an authenticated admin (or a stolen session) cannot issue thousands of requests that exhaust the DB pool.
+
+**Acceptance criteria:**
+- [ ] Admin import endpoints (`buildings/import`, `lot-owners/import`, `import-proxies`, `import-financial-positions`) are rate-limited to 20 requests per minute per admin session
+- [ ] The meeting close endpoint is rate-limited to 10 requests per minute per admin session (prevents accidental double-close loops)
+- [ ] 429 responses include `Retry-After` header
+- [ ] Unit tests verify 429 is returned on the N+1th request
+
+**Technical notes:** `backend/app/routers/admin.py`. Extend the `slowapi` / rate limiter introduced in RR3-33.
+
+**Priority:** P2 | **Effort:** M
+
+---
+
+### RR4-32: Service shims (`admin_buildings_service.py` etc.) are dead code — not imported anywhere
+
+**As a** backend developer,
+**I want** dead code shim files to be removed,
+**So that** the codebase is not cluttered with files that are never executed.
+
+**Acceptance criteria:**
+- [ ] Any service shim files in `backend/app/services/` that exist solely as re-export proxies and are not imported by any router, test, or other module are deleted
+- [ ] `grep -r "admin_buildings_service\|admin_lots_service\|admin_motions_service" backend/` confirms no remaining imports after deletion
+- [ ] All tests pass after removal
+
+**Technical notes:** `backend/app/services/admin_buildings_service.py` and similar shims introduced during the US-CQM-02 split.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-33: `voting_closed_at` has no temporal constraint
+
+**As a** meeting organiser,
+**I want** a validation error if I try to set `voting_closed_at` to a time before `meeting_at`,
+**So that** the voting window cannot accidentally be configured to close before the meeting even starts.
+
+**Acceptance criteria:**
+- [ ] `motion.py:69` — a `CHECK` constraint or service-layer validation ensures `voting_closed_at > meeting_at` (or `voting_closes_at > meeting_at` at the meeting level, depending on where the field lives)
+- [ ] The relevant creation/update endpoint returns 422 "Voting close time must be after meeting start time" if the constraint is violated
+- [ ] A unit test verifies the 422 response
+
+**Technical notes:** `backend/app/models/motion.py:69` or `backend/app/models/general_meeting.py`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-34: `_check_migration_head` runs on every Lambda cold start adding 200–500 ms
+
+**As a** system operator,
+**I want** the migration head check to be cached after the first cold start,
+**So that** subsequent Lambda invocations do not incur the DB round-trip cost.
+
+**Acceptance criteria:**
+- [ ] `main.py:143` — the result of `_check_migration_head()` is cached in a module-level variable after the first check; subsequent warm invocations skip the DB query
+- [ ] The cache is invalidated on Lambda restart (i.e., module re-import), which is the only time it matters
+- [ ] A unit test verifies the DB query is not called on a second simulated invocation within the same Lambda instance
+
+**Technical notes:** `backend/app/main.py:143`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-35: Disabled "For" button has no `aria-describedby` explaining limit reached
+
+**As a** voter using a screen reader,
+**I want** a disabled vote button to announce why it is disabled,
+**So that** I understand I have reached the option limit without needing to look at the visual counter.
+
+**Acceptance criteria:**
+- [ ] `MultiChoiceOptionList.tsx:62` — when a "For" button is disabled due to `option_limit` being reached, the button has `aria-describedby` pointing to a text element that says "Maximum selections reached" (or equivalent)
+- [ ] The explanatory text element exists in the DOM when the limit is reached (it can be visually hidden with `sr-only` if already shown visually elsewhere)
+- [ ] A unit test verifies the `aria-describedby` is present on disabled buttons
+
+**Technical notes:** `frontend/src/components/vote/MultiChoiceOptionList.tsx:62`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-36: Optional `given_name`/`surname` fields have no "(optional)" label
+
+**As an** admin filling out the lot owner form,
+**I want** optional fields to be labelled "(optional)",
+**So that** it is clear I do not have to fill them in to save the record.
+
+**Acceptance criteria:**
+- [ ] `LotOwnerForm.tsx:359` — `given_name` and `surname` field labels include "(optional)" text (e.g., "First name (optional)")
+- [ ] The "(optional)" text is not `aria-hidden`; screen readers announce it as part of the label
+- [ ] A unit test verifies the labels contain the "(optional)" text
+
+**Technical notes:** `frontend/src/components/admin/LotOwnerForm.tsx:359`. Aligns with RR4-25 in the same file.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-37: `<li>` rendered outside `<ul>` in single-lot confirmation path — semantic HTML issue
+
+**As a** voter,
+**I want** the confirmation page HTML to be semantically valid,
+**So that** assistive technology can correctly interpret the list structure.
+
+**Acceptance criteria:**
+- [ ] `ConfirmationPage.tsx:135` — the `<li>` element rendered in the single-lot path is wrapped in a `<ul>` (or `<ol>`) element
+- [ ] HTML validation (e.g., via a Vitest test using `axe-core` or HTMLHint) passes for the confirmation page in both single-lot and multi-lot paths
+- [ ] All existing confirmation page tests pass
+
+**Technical notes:** `frontend/src/pages/vote/ConfirmationPage.tsx:135`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
+### RR4-38: `useNavigate()` in `VoteMeetingRedirect` returns new function on every render
+
+**As a** frontend developer,
+**I want** `useNavigate()` to be called once per component mount, not on every render,
+**So that** unnecessary re-renders caused by a new function reference are avoided.
+
+**Acceptance criteria:**
+- [ ] `App.tsx:18` — `useNavigate()` is called at the top level of `VoteMeetingRedirect` (not inside an effect, callback, or conditional), which is the correct React pattern; if the current code already does this, document it as a known false positive; if not, refactor to call it at top level
+- [ ] No additional re-renders are caused by the navigate function reference changing
+- [ ] A unit test verifies the component does not re-render excessively on stable props
+
+**Technical notes:** `frontend/src/App.tsx:18`.
+
+**Priority:** P2 | **Effort:** S
+
+---
+
 ## Non-Goals
 
 - No automatic meeting close at `voting_closes_at` — this is out of scope per the main PRD non-goals; US-OPS-07 only prevents cold-start writes, not scheduling auto-close
