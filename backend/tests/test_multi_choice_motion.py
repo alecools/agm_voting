@@ -1458,6 +1458,80 @@ class TestMyBallotMultiChoice:
         option_texts = {o["text"] for o in mc_votes_items[0]["selected_options"]}
         assert option_texts == {"Alice", "Bob"}
 
+    async def test_my_ballot_second_row_abstained_option_shows_abstained(
+        self,
+        client: AsyncClient,
+        mc_meeting: dict,
+        db_session: AsyncSession,
+        mc_building: Building,
+    ):
+        """my-ballot: second DB row for MC motion with choice=abstained+option_id shows 'abstained'.
+
+        Specifically exercises the `else: choice_str = "abstained"` branch in the
+        already-seen path of get_my_ballot (voting_service.py, line 772).
+        Two rows for the same MC motion: alice=selected (first), bob=abstained (second).
+        The secondary sort by Vote.id ensures alice's row is processed first, so
+        bob's row hits the already-seen branch.
+        """
+        meeting_id = uuid.UUID(mc_meeting["id"])
+        mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
+        alice_opt_id = uuid.UUID(mc_motion["options"][0]["id"])
+        bob_opt_id = uuid.UUID(mc_motion["options"][1]["id"])
+
+        lots_result = await db_session.execute(
+            select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
+        )
+        lot = lots_result.scalars().first()
+        emails_result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+        )
+        email = emails_result.scalars().first()
+        voter_email = email.email
+        token = await _create_voter_session(db_session, meeting_id, voter_email, mc_building.id)
+
+        # Insert alice (selected) first — creates the initial BallotVoteItem entry
+        db_session.add(Vote(
+            general_meeting_id=meeting_id,
+            motion_id=uuid.UUID(mc_motion["id"]),
+            voter_email=voter_email,
+            lot_owner_id=lot.id,
+            choice=VoteChoice.selected,
+            motion_option_id=alice_opt_id,
+            status=VoteStatus.submitted,
+        ))
+        await db_session.flush()  # Force alice to get a lower Vote.id
+
+        # Insert bob (abstained with option_id) second — hits the already-seen else branch
+        db_session.add(Vote(
+            general_meeting_id=meeting_id,
+            motion_id=uuid.UUID(mc_motion["id"]),
+            voter_email=voter_email,
+            lot_owner_id=lot.id,
+            choice=VoteChoice.abstained,
+            motion_option_id=bob_opt_id,
+            status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=meeting_id,
+            lot_owner_id=lot.id,
+            voter_email=voter_email,
+        ))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/general-meeting/{meeting_id}/my-ballot",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        lot_ballot = data["submitted_lots"][0]
+        mc_votes_items = [v for v in lot_ballot["votes"] if v["motion_id"] == mc_motion["id"]]
+        assert len(mc_votes_items) == 1
+        assert mc_votes_items[0]["is_multi_choice"] is True
+        option_choices = {oc["option_id"]: oc["choice"] for oc in mc_votes_items[0]["option_choices"]}
+        assert option_choices[str(alice_opt_id)] == "for"
+        assert option_choices[str(bob_opt_id)] == "abstained"
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schema unit tests
