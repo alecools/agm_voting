@@ -1543,6 +1543,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 "is_multi_choice": motion.is_multi_choice,
                 "is_visible": motion.is_visible,
                 "option_limit": motion.option_limit,
+                "voting_closed_at": motion.voting_closed_at,
                 "options": [
                     {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
                     for opt in motion_opts
@@ -1603,6 +1604,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "is_multi_choice": motion.is_multi_choice,
                     "is_visible": motion.is_visible,
                     "option_limit": None,
+                    "voting_closed_at": motion.voting_closed_at,
                     "options": [],
                     "tally": {
                         "yes": _tally(yes_ids),
@@ -1681,8 +1683,13 @@ async def toggle_motion_visibility(
     if effective == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=409, detail="Cannot change visibility on a closed meeting")
 
-    # Block hiding motions that already have votes
+    # Block hiding motions that already have votes or are individually closed
     if not is_visible:
+        if motion.voting_closed_at is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot hide a closed motion",
+            )
         vote_count_result = await db.execute(
             select(func.count()).select_from(Vote).where(
                 Vote.motion_id == motion_id,
@@ -1718,6 +1725,88 @@ async def toggle_motion_visibility(
         "is_multi_choice": motion.is_multi_choice,
         "is_visible": motion.is_visible,
         "option_limit": motion.option_limit,
+        "voting_closed_at": motion.voting_closed_at,
+        "options": [
+            {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
+            for opt in motion_options
+        ],
+        "tally": {
+            "yes": {"voter_count": 0, "entitlement_sum": 0},
+            "no": {"voter_count": 0, "entitlement_sum": 0},
+            "abstained": {"voter_count": 0, "entitlement_sum": 0},
+            "absent": {"voter_count": 0, "entitlement_sum": 0},
+            "not_eligible": {"voter_count": 0, "entitlement_sum": 0},
+            "options": [],
+        },
+        "voter_lists": {
+            "yes": [],
+            "no": [],
+            "abstained": [],
+            "absent": [],
+            "not_eligible": [],
+            "options": {},
+        },
+    }
+
+
+async def close_motion(
+    motion_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict:
+    """Close voting for a single motion. Returns updated motion detail dict.
+
+    Raises 404 if motion not found.
+    Raises 409 if:
+      - motion is not visible (hidden)
+      - voting_closed_at IS NOT NULL (already closed)
+      - meeting effective_status != "open"
+    """
+    result = await db.execute(select(Motion).where(Motion.id == motion_id))
+    motion = result.scalar_one_or_none()
+    if motion is None:
+        raise HTTPException(status_code=404, detail="Motion not found")
+
+    # Fetch meeting
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(GeneralMeeting.id == motion.general_meeting_id)
+    )
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:  # pragma: no cover
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+
+    if not motion.is_visible:
+        raise HTTPException(status_code=409, detail="Cannot close a hidden motion")
+
+    if motion.voting_closed_at is not None:
+        raise HTTPException(status_code=409, detail="Motion voting is already closed")
+
+    effective = get_effective_status(meeting)
+    if effective != GeneralMeetingStatus.open:
+        raise HTTPException(status_code=409, detail="Cannot close motion on a meeting that is not open")
+
+    motion.voting_closed_at = datetime.now(UTC)
+    await db.flush()
+    await db.commit()
+
+    # Load options for this motion
+    opts_result = await db.execute(
+        select(MotionOption)
+        .where(MotionOption.motion_id == motion.id)
+        .order_by(MotionOption.display_order)
+    )
+    motion_options = list(opts_result.scalars().all())
+
+    return {
+        "id": motion.id,
+        "title": motion.title,
+        "description": motion.description,
+        "display_order": motion.display_order,
+        "motion_number": motion.motion_number,
+        "motion_type": motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type,
+        "is_multi_choice": motion.is_multi_choice,
+        "is_visible": motion.is_visible,
+        "option_limit": motion.option_limit,
+        "voting_closed_at": motion.voting_closed_at,
         "options": [
             {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
             for opt in motion_options
@@ -2023,6 +2112,16 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
         and (meeting_at_aware is None or meeting_at_aware <= now)
     ):
         general_meeting.voting_closes_at = now
+
+    # Close all motions that have not yet been individually closed
+    open_motions_result = await db.execute(
+        select(Motion).where(
+            Motion.general_meeting_id == general_meeting_id,
+            Motion.voting_closed_at.is_(None),
+        )
+    )
+    for open_motion in open_motions_result.scalars().all():
+        open_motion.voting_closed_at = general_meeting.closed_at
 
     # Delete draft votes
     await db.execute(

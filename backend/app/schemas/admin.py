@@ -500,6 +500,7 @@ class MotionDetail(BaseModel):
     is_visible: bool = True
     option_limit: int | None = None
     options: list[MotionOptionOut] = []
+    voting_closed_at: datetime | None = None
     tally: MotionTally
     voter_lists: MotionVoterLists
 

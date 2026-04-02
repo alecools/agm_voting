@@ -15,6 +15,7 @@ const motions: MotionDetail[] = [
     is_visible: true,
     option_limit: null,
     options: [],
+    voting_closed_at: null,
     tally: {
       yes: { voter_count: 2, entitlement_sum: 200 },
       no: { voter_count: 1, entitlement_sum: 100 },
@@ -48,6 +49,7 @@ const motions: MotionDetail[] = [
     is_visible: true,
     option_limit: null,
     options: [],
+    voting_closed_at: null,
     tally: {
       yes: { voter_count: 1, entitlement_sum: 50 },
       no: { voter_count: 0, entitlement_sum: 0 },
@@ -81,6 +83,7 @@ const mcMotionFixture: MotionDetail = {
   is_multi_choice: true,
   is_visible: true,
   option_limit: 2,
+  voting_closed_at: null,
   options: [
     { id: "opt-a", text: "Alice", display_order: 1 },
     { id: "opt-b", text: "Bob", display_order: 2 },

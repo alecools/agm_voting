@@ -173,6 +173,7 @@ async def list_motions(
             submitted_choice=voted_choice_by_motion.get(m.id),
             submitted_option_choices=submitted_option_choices_by_motion.get(m.id, {}),
             option_limit=m.option_limit,
+            voting_closed_at=m.voting_closed_at,
             options=[
                 {"id": opt.id, "text": opt.text, "display_order": opt.display_order}
                 for opt in options_by_motion.get(m.id, [])

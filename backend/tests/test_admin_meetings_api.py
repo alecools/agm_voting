@@ -6003,3 +6003,384 @@ class TestListGeneralMeetingsSort:
         # Lower-cased titles that include our test data should appear in order apple < mango < zebra
         test_titles = [t for t in titles if any(kw in t for kw in ("apple", "mango", "zebra"))]
         assert test_titles == sorted(test_titles)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/motions/{id}/close — Per-Motion Voting Window (US-PMW-01/02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCloseMotion:
+    """Tests for POST /api/admin/motions/{id}/close endpoint."""
+
+    async def _create_open_meeting_with_motion(
+        self,
+        db_session: AsyncSession,
+        label: str,
+        is_visible: bool = True,
+        meeting_status: GeneralMeetingStatus = GeneralMeetingStatus.open,
+        voting_closed_at=None,
+    ) -> tuple[GeneralMeeting, Motion]:
+        b = Building(name=f"PMW_Bldg_{label}", manager_email=f"pmw_{label}@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title=f"PMW Meeting {label}",
+            status=meeting_status,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title=f"PMW Motion {label}",
+            display_order=1,
+            is_visible=is_visible,
+            voting_closed_at=voting_closed_at,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(motion)
+        return agm, motion
+
+    # --- Happy path ---
+
+    async def test_close_motion_returns_200_with_voting_closed_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST close on a visible motion on an open meeting returns 200 with voting_closed_at set."""
+        _agm, motion = await self._create_open_meeting_with_motion(db_session, "HappyClose")
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(motion.id)
+        assert data["voting_closed_at"] is not None
+        assert data["is_visible"] is True
+
+    async def test_close_motion_persists_to_db(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """After closing, DB row has voting_closed_at non-null."""
+        _agm, motion = await self._create_open_meeting_with_motion(db_session, "PersistClose")
+        await client.post(f"/api/admin/motions/{motion.id}/close")
+        await db_session.refresh(motion)
+        assert motion.voting_closed_at is not None
+
+    async def test_close_motion_includes_tally_structure(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Response includes tally and voter_lists."""
+        _agm, motion = await self._create_open_meeting_with_motion(db_session, "TallyClose")
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        data = response.json()
+        assert "tally" in data
+        assert "voter_lists" in data
+
+    # --- Error cases ---
+
+    async def test_close_motion_not_found_returns_404(self, client: AsyncClient):
+        """POST close on non-existent motion returns 404."""
+        fake_id = uuid.uuid4()
+        response = await client.post(f"/api/admin/motions/{fake_id}/close")
+        assert response.status_code == 404
+
+    async def test_close_hidden_motion_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST close on a hidden motion returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "HiddenClose", is_visible=False
+        )
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 409
+        assert "hidden" in response.json()["detail"].lower()
+
+    async def test_close_already_closed_motion_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST close on a motion that is already closed returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "AlreadyClosed",
+            voting_closed_at=datetime.now(UTC)
+        )
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 409
+        assert "already closed" in response.json()["detail"].lower()
+
+    async def test_close_motion_on_closed_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST close on a motion for a closed meeting returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "ClosedMeeting",
+            meeting_status=GeneralMeetingStatus.closed,
+        )
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 409
+        assert "not open" in response.json()["detail"].lower()
+
+    async def test_close_motion_on_pending_meeting_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST close on a motion for a pending meeting (meeting_at in future) returns 409."""
+        b = Building(name="PMW_Pending_Bldg", manager_email="pmw_pending@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        # meeting_at in the future → effective_status = pending
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="PMW Pending Meeting",
+            status=GeneralMeetingStatus.pending,
+            meeting_at=datetime.now(UTC) + timedelta(days=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=2),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="PMW Pending Motion",
+            display_order=1,
+            is_visible=True,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+        await db_session.refresh(motion)
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 409
+        assert "not open" in response.json()["detail"].lower()
+
+    # --- Effect on hide (toggle_motion_visibility) ---
+
+    async def test_cannot_hide_closed_motion_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """After a motion is individually closed, attempting to hide it returns 409."""
+        _agm, motion = await self._create_open_meeting_with_motion(
+            db_session, "HideAfterClose",
+            voting_closed_at=datetime.now(UTC),
+        )
+        response = await client.patch(
+            f"/api/admin/motions/{motion.id}/visibility",
+            json={"is_visible": False},
+        )
+        assert response.status_code == 409
+        assert "closed" in response.json()["detail"].lower()
+
+    # --- Effect on close_general_meeting ---
+
+    async def test_close_meeting_sets_voting_closed_at_on_all_open_motions(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When a meeting is closed, all motions without voting_closed_at get it set."""
+        b = Building(name="PMW_CloseAll_Bldg", manager_email="pmw_closeall@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="PMW CloseAll Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        motion1 = Motion(
+            general_meeting_id=agm.id,
+            title="PMW Motion A",
+            display_order=1,
+            is_visible=True,
+        )
+        pre_closed_ts = datetime.now(UTC) - timedelta(hours=1)
+        motion2 = Motion(
+            general_meeting_id=agm.id,
+            title="PMW Motion B",
+            display_order=2,
+            is_visible=True,
+            voting_closed_at=pre_closed_ts,
+        )
+        db_session.add_all([motion1, motion2])
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(motion1)
+        await db_session.refresh(motion2)
+
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        assert response.status_code == 200
+
+        await db_session.refresh(motion1)
+        await db_session.refresh(motion2)
+        # motion1 had no voting_closed_at — should now have one
+        assert motion1.voting_closed_at is not None
+        # motion2 already had voting_closed_at — should be unchanged (preserve early close)
+        assert motion2.voting_closed_at == pre_closed_ts
+
+    # --- Effect on voting_service.submit_ballot ---
+
+    async def test_submit_ballot_for_closed_motion_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Submitting a ballot with a vote targeting a motion with voting_closed_at set returns 422."""
+        b = Building(name="PMW_Submit_Bldg", manager_email="pmw_submit@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="PMW1", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="pmw_voter@test.com")
+        db_session.add(lo_email)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="PMW Submit Test Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        weight = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=100,
+        )
+        db_session.add(weight)
+        # Motion already individually closed
+        closed_motion = Motion(
+            general_meeting_id=agm.id,
+            title="PMW Closed Motion",
+            display_order=1,
+            is_visible=True,
+            voting_closed_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        db_session.add(closed_motion)
+        await db_session.commit()
+
+        import secrets
+        from app.services.auth_service import _sign_token as _st
+        from app.models.session_record import SessionRecord
+        raw_token = secrets.token_urlsafe(32)
+        session = SessionRecord(
+            general_meeting_id=agm.id,
+            building_id=b.id,
+            voter_email="pmw_voter@test.com",
+            session_token=raw_token,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+        db_session.add(session)
+        await db_session.commit()
+        signed_token = _st(raw_token)
+
+        response = await client.post(
+            f"/api/general-meeting/{agm.id}/submit",
+            json={
+                "lot_owner_ids": [str(lo.id)],
+                "votes": [{"motion_id": str(closed_motion.id), "choice": "yes"}],
+                "multi_choice_votes": [],
+            },
+            headers={"Authorization": f"Bearer {signed_token}"},
+        )
+        assert response.status_code == 422
+        assert "closed" in response.json()["detail"].lower()
+
+    async def test_list_motions_includes_voting_closed_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/general-meeting/{id}/motions returns voting_closed_at on each motion."""
+        b = Building(name="PMW_List_Bldg", manager_email="pmw_list@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="PL1", unit_entitlement=50)
+        db_session.add(lo)
+        await db_session.flush()
+        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="pmw_list_voter@test.com")
+        db_session.add(lo_email)
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="PMW List Test Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        ts = datetime.now(UTC) - timedelta(minutes=10)
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="PMW List Motion",
+            display_order=1,
+            is_visible=True,
+            voting_closed_at=ts,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+
+        import secrets
+        from app.services.auth_service import _sign_token as _st
+        from app.models.session_record import SessionRecord
+        raw_list_token = secrets.token_urlsafe(32)
+        session = SessionRecord(
+            general_meeting_id=agm.id,
+            building_id=b.id,
+            voter_email="pmw_list_voter@test.com",
+            session_token=raw_list_token,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+        db_session.add(session)
+        await db_session.commit()
+        signed_list_token = _st(raw_list_token)
+
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}/motions",
+            headers={"Authorization": f"Bearer {signed_list_token}"},
+        )
+        assert response.status_code == 200
+        motions_data = response.json()
+        assert len(motions_data) == 1
+        assert motions_data[0]["voting_closed_at"] is not None
+
+    async def test_get_meeting_detail_includes_voting_closed_at(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/general-meetings/{id} returns voting_closed_at in motions."""
+        b = Building(name="PMW_Detail_Bldg", manager_email="pmw_detail@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="PMW Detail Test Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+        ts = datetime.now(UTC) - timedelta(minutes=5)
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="PMW Detail Motion",
+            display_order=1,
+            is_visible=True,
+            voting_closed_at=ts,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        motions_data = response.json()["motions"]
+        assert len(motions_data) == 1
+        assert motions_data[0]["voting_closed_at"] is not None
+
+    async def test_close_motion_response_includes_voting_closed_at_field(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """The MotionDetail response from close_motion contains voting_closed_at."""
+        _agm, motion = await self._create_open_meeting_with_motion(db_session, "RespField")
+        response = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response.status_code == 200
+        data = response.json()
+        assert "voting_closed_at" in data
+        assert data["voting_closed_at"] is not None

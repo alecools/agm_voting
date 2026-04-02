@@ -10,6 +10,7 @@ import {
   updateMotion,
   deleteMotion,
   resendReport,
+  closeMotion,
 } from "../../api/admin";
 import type { GeneralMeetingDetail, AddMotionRequest, UpdateMotionRequest, MotionDetail } from "../../api/admin";
 import type { MotionType } from "../../types";
@@ -319,6 +320,31 @@ export default function GeneralMeetingDetailPage() {
     },
     onError: (error: Error, motionId) => {
       setDeleteMotionErrors((prev) => ({ ...prev, [motionId]: error.message || "Failed to delete motion" }));
+    },
+  });
+
+  // Close Motion state
+  const [closeMotionErrors, setCloseMotionErrors] = useState<Record<string, string>>({});
+  const [pendingCloseMotionId, setPendingCloseMotionId] = useState<string | null>(null);
+  const [pendingCloseMotionConfirmId, setPendingCloseMotionConfirmId] = useState<string | null>(null);
+
+  const closeMotionMutation = useMutation({
+    mutationFn: (motionId: string) => {
+      setPendingCloseMotionId(motionId);
+      return closeMotion(motionId);
+    },
+    onSuccess: (_data, motionId) => {
+      setPendingCloseMotionId(null);
+      setCloseMotionErrors((prev) => {
+        const next = { ...prev };
+        delete next[motionId];
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "general-meetings", meetingId] });
+    },
+    onError: (error: Error, motionId) => {
+      setPendingCloseMotionId(null);
+      setCloseMotionErrors((prev) => ({ ...prev, [motionId]: error.message || "Failed to close motion" }));
     },
   });
 
@@ -675,12 +701,80 @@ export default function GeneralMeetingDetailPage() {
             setPendingDeleteMotionId(motionId);
           }}
           deleteMotionErrors={deleteMotionErrors}
+          onCloseMotion={(motionId) => {
+            setCloseMotionErrors((prev) => {
+              const next = { ...prev };
+              delete next[motionId];
+              return next;
+            });
+            setPendingCloseMotionConfirmId(motionId);
+          }}
+          closeMotionErrors={closeMotionErrors}
+          pendingCloseMotionId={pendingCloseMotionId}
         />
       )}
 
 
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Results Report</h2>
       <AGMReportView motions={meeting.motions} agmTitle={meeting.title} totalEntitlement={meeting.total_entitlement} />
+
+      {/* Close Motion Confirmation Modal */}
+      {pendingCloseMotionConfirmId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Close Motion Voting"
+          data-testid="close-motion-confirm-dialog"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPendingCloseMotionConfirmId(null); }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 8,
+              padding: 32,
+              minWidth: 360,
+              maxWidth: 480,
+              width: "100%",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+            }}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 16 }}>Close voting for this motion?</h2>
+            <p style={{ marginBottom: 24, color: "var(--text-secondary)" }}>
+              Once closed, voters will no longer be able to submit votes for this motion. This cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => setPendingCloseMotionConfirmId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                data-testid="close-motion-confirm-btn"
+                onClick={() => {
+                  const id = pendingCloseMotionConfirmId;
+                  setPendingCloseMotionConfirmId(null);
+                  closeMotionMutation.mutate(id);
+                }}
+              >
+                Close Voting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Motion Modal */}
       {pendingDeleteMotionId && (

@@ -447,6 +447,21 @@ async def remove_lot_owner_proxy(
 # ---------------------------------------------------------------------------
 
 
+@router.post("/motions/{motion_id}/close", response_model=MotionDetail)
+async def close_motion_endpoint(
+    motion_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> MotionDetail:
+    """Close voting for a single motion. Requires admin auth.
+
+    Returns 200 with updated motion detail on success.
+    Returns 404 if motion not found.
+    Returns 409 if motion is hidden, already closed, or meeting is not open.
+    """
+    result = await admin_service.close_motion(motion_id, db)
+    return MotionDetail(**result)
+
+
 @router.patch("/motions/{motion_id}/visibility", response_model=MotionDetail)
 async def toggle_motion_visibility_endpoint(
     motion_id: uuid.UUID,

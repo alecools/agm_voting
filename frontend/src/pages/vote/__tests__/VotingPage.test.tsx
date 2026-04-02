@@ -2742,4 +2742,97 @@ describe("VotingPage", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByTestId("meeting-not-found-error")).not.toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // Per-motion voting window (US-PMW-02)
+  // ---------------------------------------------------------------------------
+
+  it("shows 'Voting closed' label for a motion with voting_closed_at set", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_1,
+            title: "Motion 1",
+            description: "Approve the budget",
+            display_order: 1,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: "2024-06-01T11:00:00Z",
+          },
+          {
+            id: MOTION_ID_2,
+            title: "Motion 2",
+            description: null,
+            display_order: 2,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: null,
+          },
+        ])
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId(`motion-closed-label-${MOTION_ID_1}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`motion-closed-label-${MOTION_ID_1}`)).toHaveTextContent("Voting closed");
+      // Motion 2 is not closed
+      expect(screen.queryByTestId(`motion-closed-label-${MOTION_ID_2}`)).not.toBeInTheDocument();
+    });
+  });
+
+  it("excludes individually-closed unanswered motions from progress bar denominator", async () => {
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          {
+            id: MOTION_ID_1,
+            title: "Motion 1",
+            description: null,
+            display_order: 1,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: "2024-06-01T11:00:00Z", // closed
+          },
+          {
+            id: MOTION_ID_2,
+            title: "Motion 2",
+            description: null,
+            display_order: 2,
+            motion_number: null,
+            motion_type: "general",
+            is_visible: true,
+            already_voted: false,
+            submitted_choice: null,
+            option_limit: null,
+            options: [],
+            voting_closed_at: null, // open
+          },
+        ])
+      )
+    );
+    renderPage();
+    await waitFor(() => {
+      // Progress bar should show 0/1 (only 1 open motion counts; the closed one is excluded)
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+    // The total motions count in the progress bar should be 1 (not 2)
+    const progressBar = screen.getByRole("progressbar");
+    expect(progressBar).toHaveAttribute("aria-valuemax", "1");
+  });
 });

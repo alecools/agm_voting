@@ -74,6 +74,7 @@ export interface MotionOut {
   submitted_option_choices?: Record<string, string>;
   option_limit: number | null;
   options: MotionOptionOut[];
+  voting_closed_at?: string | null;
 }
 
 export interface DraftSaveRequest {

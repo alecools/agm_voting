@@ -49,6 +49,7 @@ function makeMotion(
     is_visible: true,
     option_limit: null,
     options: [],
+    voting_closed_at: null,
     tally: {
       yes: { voter_count: 0, entitlement_sum: 0 },
       no: { voter_count: 0, entitlement_sum: 0 },
@@ -532,5 +533,72 @@ describe("MotionManagementTable", () => {
   it("does not show multi-choice indicator for standard single-choice motions", () => {
     renderTable({ motions: [MOTION_A] });
     expect(screen.queryByLabelText(/Voting mechanism/)).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Close Motion button (US-PMW-01)
+  // ---------------------------------------------------------------------------
+
+  it("shows Close Motion button when onCloseMotion prop is provided and motion is not closed", () => {
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [MOTION_A], onCloseMotion });
+    expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    expect(screen.getByTestId("close-motion-btn-m1")).toHaveTextContent("Close Motion");
+  });
+
+  it("shows Closed badge instead of button when motion has voting_closed_at set", () => {
+    const closedMotion = makeMotion("m-closed", "Closed Motion", 1, {
+      voting_closed_at: "2024-06-01T11:00:00Z",
+    });
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [closedMotion], onCloseMotion });
+    expect(screen.getByTestId("motion-voting-closed-badge-m-closed")).toBeInTheDocument();
+    expect(screen.queryByTestId("close-motion-btn-m-closed")).not.toBeInTheDocument();
+  });
+
+  it("does not show Close Motion button when onCloseMotion prop is not provided", () => {
+    renderTable({ motions: [MOTION_A] });
+    expect(screen.queryByTestId("close-motion-btn-m1")).not.toBeInTheDocument();
+  });
+
+  it("calls onCloseMotion with motion id when Close Motion button is clicked", async () => {
+    const user = userEvent.setup();
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [MOTION_A], onCloseMotion });
+    await user.click(screen.getByTestId("close-motion-btn-m1"));
+    expect(onCloseMotion).toHaveBeenCalledWith("m1");
+  });
+
+  it("disables Close Motion button when motion is hidden", () => {
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [HIDDEN_A], onCloseMotion });
+    expect(screen.getByTestId("close-motion-btn-m-h1")).toBeDisabled();
+  });
+
+  it("shows Closing… when pendingCloseMotionId matches the motion", () => {
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [MOTION_A], onCloseMotion, pendingCloseMotionId: "m1" });
+    expect(screen.getByTestId("close-motion-btn-m1")).toHaveTextContent("Closing…");
+    expect(screen.getByTestId("close-motion-btn-m1")).toBeDisabled();
+  });
+
+  it("shows closeMotionErrors for a motion", () => {
+    const onCloseMotion = vi.fn();
+    renderTable({
+      motions: [MOTION_A],
+      onCloseMotion,
+      closeMotionErrors: { m1: "Cannot close a hidden motion" },
+    });
+    expect(screen.getByTestId("close-motion-error-m1")).toHaveTextContent("Cannot close a hidden motion");
+  });
+
+  it("disables visibility toggle when motion has voting_closed_at set", () => {
+    const closedMotion = makeMotion("m-vclosed", "Voting Closed Motion", 1, {
+      voting_closed_at: "2024-06-01T11:00:00Z",
+    });
+    const onCloseMotion = vi.fn();
+    renderTable({ motions: [closedMotion], onCloseMotion });
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toBeDisabled();
   });
 });

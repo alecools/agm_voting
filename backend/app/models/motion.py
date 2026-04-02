@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
 from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
@@ -65,6 +66,9 @@ class Motion(Base):
         server_default=sa.text("false"),  # nosemgrep: raw-sql-requires-comment -- server_default for boolean column; SQLAlchemy requires text() to emit a literal SQL expression as a column default
     )
     option_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    voting_closed_at: Mapped[datetime | None] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=True, default=None
+    )
 
     # Relationships
     general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821

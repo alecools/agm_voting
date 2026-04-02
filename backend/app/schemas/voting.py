@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ class MotionOut(BaseModel):
     submitted_option_choices: dict[str, str] = {}
     option_limit: Optional[int] = None
     options: list[MotionOptionOut] = []
+    voting_closed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

@@ -13,6 +13,7 @@ import {
   importLotOwners,
   importProxyNominations,
   importFinancialPositions,
+  closeMotion,
 } from "../admin";
 
 const BASE = "http://localhost:8000";
@@ -596,5 +597,58 @@ describe("importFinancialPositions", () => {
     );
     const file = new File(["bad"], "bad.csv");
     await expect(importFinancialPositions("b-1", file)).rejects.toThrow("422");
+  });
+});
+
+describe("closeMotion", () => {
+  it("calls POST /api/admin/motions/{id}/close and returns MotionDetail", async () => {
+    const motionDetail = {
+      id: "m-close-test",
+      title: "Test Motion",
+      description: null,
+      display_order: 1,
+      motion_number: null,
+      motion_type: "general",
+      is_multi_choice: false,
+      is_visible: true,
+      option_limit: null,
+      options: [],
+      voting_closed_at: "2024-06-01T11:00:00Z",
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
+      },
+      voter_lists: { yes: [], no: [], abstained: [], absent: [], not_eligible: [], options: {} },
+    };
+    server.use(
+      http.post(`${BASE}/api/admin/motions/m-close-test/close`, () =>
+        HttpResponse.json(motionDetail)
+      )
+    );
+    const result = await closeMotion("m-close-test");
+    expect(result.id).toBe("m-close-test");
+    expect(result.voting_closed_at).toBe("2024-06-01T11:00:00Z");
+  });
+
+  it("throws on 409 when motion is already closed", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/motions/m-already-closed/close`, () =>
+        HttpResponse.json({ detail: "Motion voting is already closed" }, { status: 409 })
+      )
+    );
+    await expect(closeMotion("m-already-closed")).rejects.toThrow("409");
+  });
+
+  it("throws on 404 when motion is not found", async () => {
+    server.use(
+      http.post(`${BASE}/api/admin/motions/m-notfound/close`, () =>
+        HttpResponse.json({ detail: "Motion not found" }, { status: 404 })
+      )
+    );
+    await expect(closeMotion("m-notfound")).rejects.toThrow("404");
   });
 });

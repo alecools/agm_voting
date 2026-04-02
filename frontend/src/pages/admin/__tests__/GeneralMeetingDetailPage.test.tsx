@@ -2504,3 +2504,130 @@ describe("Bulk motion visibility", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Option limit cannot exceed the number of options.");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Close Motion (US-PMW-01)
+// ---------------------------------------------------------------------------
+
+describe("Close Motion", () => {
+  function renderPage(meetingId = "agm1") {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/admin/general-meetings/${meetingId}`]}>
+          <Routes>
+            <Route path="/admin/general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("shows Close Motion button for visible motions on an open meeting", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    });
+  });
+
+  it("opens confirmation dialog when Close Motion is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-btn-m1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-confirm-dialog")).toBeInTheDocument();
+    });
+  });
+
+  it("calls closeMotion API when Close Voting is confirmed in dialog", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`http://localhost:8000/api/admin/motions/:motionId/close`, ({ params }) => {
+        const motion = ADMIN_MEETING_DETAIL.motions[0];
+        return HttpResponse.json({
+          ...motion,
+          id: params.motionId as string,
+          voting_closed_at: "2024-06-01T11:00:00Z",
+        });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-btn-m1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-confirm-dialog")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-confirm-btn"));
+    // Dialog closes
+    await waitFor(() => {
+      expect(screen.queryByTestId("close-motion-confirm-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("cancels close motion dialog when Cancel is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-btn-m1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-confirm-dialog")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("close-motion-confirm-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows error when closeMotion API fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`http://localhost:8000/api/admin/motions/:motionId/close`, () => {
+        return HttpResponse.json({ detail: "Motion voting is already closed" }, { status: 409 });
+      })
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-btn-m1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-btn-m1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-confirm-dialog")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("close-motion-confirm-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("close-motion-error-m1")).toBeInTheDocument();
+    });
+  });
+
+  it("shows Closed badge for motion with voting_closed_at set", async () => {
+    const meetingWithClosedMotion = {
+      ...ADMIN_MEETING_DETAIL,
+      id: "agm-closed-motion",
+      motions: [
+        {
+          ...ADMIN_MEETING_DETAIL.motions[0],
+          id: "m-closed-voting",
+          voting_closed_at: "2024-06-01T11:00:00Z",
+        },
+      ],
+    };
+    server.use(
+      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () =>
+        HttpResponse.json(meetingWithClosedMotion)
+      )
+    );
+    renderPage("agm-closed-motion");
+    await waitFor(() => {
+      expect(screen.getByTestId("motion-voting-closed-badge-m-closed-voting")).toBeInTheDocument();
+    });
+  });
+});

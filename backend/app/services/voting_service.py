@@ -321,6 +321,22 @@ async def submit_ballot(
                 detail=f"Unknown motion IDs: {unknown_mc}",
             )
 
+    # Check that none of the targeted motions have been individually closed
+    motion_by_id = {m.id: m for m in visible_motions}
+    all_targeted_motion_ids: set[uuid.UUID] = set()
+    if inline_votes:
+        all_targeted_motion_ids.update(inline_votes.keys())
+    if multi_choice_votes:
+        all_targeted_motion_ids.update(multi_choice_votes.keys())
+    for mid in all_targeted_motion_ids:
+        motion = motion_by_id.get(mid)
+        if motion is not None and motion.voting_closed_at is not None:
+            motion_label = motion.motion_number or str(motion.display_order)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Voting has closed for motion: {motion_label}",
+            )
+
     # Load options for all visible multi-choice motions (single query to avoid N+1)
     mc_motion_ids = [m.id for m in visible_motions if m.is_multi_choice]
     mc_options_map: dict[uuid.UUID, set[uuid.UUID]] = {}  # motion_id -> set of valid option ids

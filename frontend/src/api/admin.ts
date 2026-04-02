@@ -48,6 +48,7 @@ export interface MotionOut {
   is_visible: boolean;
   option_limit: number | null;
   options: MotionOptionOut[];
+  voting_closed_at?: string | null;
 }
 
 export interface GeneralMeetingOut {
@@ -120,6 +121,7 @@ export interface MotionDetail {
   is_visible: boolean;
   option_limit: number | null;
   options: MotionOptionOut[];
+  voting_closed_at: string | null;
   tally: MotionTally;
   voter_lists: MotionVoterLists;
 }
@@ -594,5 +596,11 @@ export async function updateMotion(
 export async function deleteMotion(motionId: string): Promise<void> {
   return apiFetchVoid(`/api/admin/motions/${motionId}`, {
     method: "DELETE",
+  });
+}
+
+export async function closeMotion(motionId: string): Promise<MotionDetail> {
+  return apiFetch<MotionDetail>(`/api/admin/motions/${motionId}/close`, {
+    method: "POST",
   });
 }
