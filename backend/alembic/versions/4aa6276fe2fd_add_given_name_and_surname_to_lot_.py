@@ -1,7 +1,7 @@
 """add given_name and surname to lot_owners and lot_proxies
 
 Revision ID: 4aa6276fe2fd
-Revises: aec6a1bb5035
+Revises: 3869c4d28305
 Create Date: 2026-04-02 18:56:45.242589
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '4aa6276fe2fd'
-down_revision: Union[str, Sequence[str], None] = 'aec6a1bb5035'
+down_revision: Union[str, Sequence[str], None] = '3869c4d28305'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
