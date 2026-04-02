@@ -1489,7 +1489,10 @@ class TestMyBallotMultiChoice:
         voter_email = email.email
         token = await _create_voter_session(db_session, meeting_id, voter_email, mc_building.id)
 
-        # Insert alice (selected) first — creates the initial BallotVoteItem entry
+        # Insert alice (selected, t+0) and bob (abstained, t+1).
+        # Explicit created_at ensures alice comes first (initial BallotVoteItem entry),
+        # then bob hits the already-seen else branch (line 772: choice_str = "abstained").
+        base_ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         db_session.add(Vote(
             general_meeting_id=meeting_id,
             motion_id=uuid.UUID(mc_motion["id"]),
@@ -1498,9 +1501,8 @@ class TestMyBallotMultiChoice:
             choice=VoteChoice.selected,
             motion_option_id=alice_opt_id,
             status=VoteStatus.submitted,
+            created_at=base_ts,
         ))
-        await db_session.flush()  # Force alice to get a lower Vote.id
-
         # Insert bob (abstained with option_id) second — hits the already-seen else branch
         db_session.add(Vote(
             general_meeting_id=meeting_id,
@@ -1510,6 +1512,7 @@ class TestMyBallotMultiChoice:
             choice=VoteChoice.abstained,
             motion_option_id=bob_opt_id,
             status=VoteStatus.submitted,
+            created_at=base_ts + timedelta(seconds=1),
         ))
         db_session.add(BallotSubmission(
             general_meeting_id=meeting_id,
@@ -2407,12 +2410,16 @@ class TestSlice3ForAgainstAbstain:
         voter_email = email.email
         token = await _create_voter_session(db_session, meeting_id, voter_email, mc_building.id)
 
-        # Alice: For, Bob: Against, Carol: Abstained
-        for opt_id, vote_choice in [
+        # Alice: For (t+0), Bob: Against (t+1), Carol: Abstained (t+2)
+        # Explicit created_at values guarantee alice → bob → carol order (sorted by Vote.created_at).
+        # This ensures all three already-seen branches in get_my_ballot are exercised:
+        # alice creates the initial entry; bob hits the "against" branch; carol hits the "abstained" branch.
+        base_ts = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+        for i, (opt_id, vote_choice) in enumerate([
             (alice_opt_id, VoteChoice.selected),
             (bob_opt_id, VoteChoice.against),
             (carol_opt_id, VoteChoice.abstained),
-        ]:
+        ]):
             db_session.add(Vote(
                 general_meeting_id=meeting_id,
                 motion_id=uuid.UUID(mc_motion["id"]),
@@ -2421,6 +2428,7 @@ class TestSlice3ForAgainstAbstain:
                 choice=vote_choice,
                 motion_option_id=opt_id,
                 status=VoteStatus.submitted,
+                created_at=base_ts + timedelta(seconds=i),
             ))
         db_session.add(BallotSubmission(
             general_meeting_id=meeting_id,
