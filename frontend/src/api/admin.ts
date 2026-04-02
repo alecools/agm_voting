@@ -76,6 +76,7 @@ export interface VoterEntry {
   lot_number?: string;
   entitlement: number;
   proxy_email?: string | null;
+  submitted_by_admin?: boolean;
 }
 
 export interface TallyCategory {
@@ -126,6 +127,7 @@ export interface MotionDetail {
 
 export interface GeneralMeetingDetail {
   id: string;
+  building_id?: string;
   building_name: string;
   title: string;
   status: string;
@@ -589,4 +591,47 @@ export async function deleteMotion(motionId: string): Promise<void> {
   return apiFetchVoid(`/api/admin/motions/${motionId}`, {
     method: "DELETE",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Admin in-person vote entry (US-AVE-01/02/03)
+// ---------------------------------------------------------------------------
+
+export interface AdminVoteEntryItem {
+  motion_id: string;
+  choice: "yes" | "no" | "abstained";
+}
+
+export interface AdminMultiChoiceVoteItem {
+  motion_id: string;
+  option_ids: string[];
+}
+
+export interface AdminVoteEntryLot {
+  lot_owner_id: string;
+  votes: AdminVoteEntryItem[];
+  multi_choice_votes: AdminMultiChoiceVoteItem[];
+}
+
+export interface AdminVoteEntryRequest {
+  entries: AdminVoteEntryLot[];
+}
+
+export interface AdminVoteEntryResult {
+  submitted_count: number;
+  skipped_count: number;
+}
+
+export async function enterInPersonVotes(
+  meetingId: string,
+  request: AdminVoteEntryRequest
+): Promise<AdminVoteEntryResult> {
+  return apiFetch<AdminVoteEntryResult>(
+    `/api/admin/general-meetings/${meetingId}/enter-votes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    }
+  );
 }

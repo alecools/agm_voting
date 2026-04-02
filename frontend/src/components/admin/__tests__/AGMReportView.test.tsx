@@ -251,10 +251,10 @@ describe("AGMReportView", () => {
 
   // --- CSV export: Voter Email column ---
 
-  it("CSV header row contains 'Voter Email' as the 5th column", async () => {
+  it("CSV header row contains all expected columns including 'Submitted By'", async () => {
     const csv = await captureCSVFromExport(motions);
     const headerRow = csv.split("\n")[0];
-    expect(headerRow).toBe("Motion,Category,Lot Number,Entitlement (UOE),Voter Email");
+    expect(headerRow).toBe("Motion,Category,Lot Number,Entitlement (UOE),Voter Email,Submitted By");
   });
 
   it("CSV data row for direct-vote lot includes the voter email", async () => {

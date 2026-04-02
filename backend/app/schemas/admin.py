@@ -443,6 +443,7 @@ class VoterEntry(BaseModel):
     entitlement: int
     proxy_email: str | None = None
     ballot_hash: str | None = None  # US-VIL-03: SHA-256 audit hash of submitted ballot
+    submitted_by_admin: bool = False
 
 
 class TallyCategory(BaseModel):
@@ -498,6 +499,7 @@ class EmailDeliveryInfo(BaseModel):
 
 class GeneralMeetingDetail(BaseModel):
     id: uuid.UUID
+    building_id: uuid.UUID | None = None
     building_name: str
     title: str
     status: str
@@ -597,3 +599,23 @@ class MotionReorderOut(BaseModel):
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
+
+
+# ---------------------------------------------------------------------------
+# Admin vote entry schemas
+# ---------------------------------------------------------------------------
+
+
+class AdminVoteEntry(BaseModel):
+    lot_owner_id: uuid.UUID
+    votes: list[dict] = []  # [{motion_id: str, choice: str}]
+    multi_choice_votes: list[dict] = []  # [{motion_id: str, option_ids: [str]}]
+
+
+class AdminVoteEntryRequest(BaseModel):
+    entries: list[AdminVoteEntry]
+
+
+class AdminVoteEntryResult(BaseModel):
+    submitted_count: int
+    skipped_count: int

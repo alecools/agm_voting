@@ -120,6 +120,7 @@ export const ADMIN_AGM_LIST = ADMIN_MEETING_LIST;
 
 export const ADMIN_MEETING_DETAIL: GeneralMeetingDetail = {
   id: "agm1",
+  building_id: "b1",
   building_name: "Alpha Tower",
   title: "2024 AGM",
   status: "open",
@@ -773,6 +774,19 @@ export const adminHandlers = [
       return HttpResponse.json({ detail: "Server error" }, { status: 500 });
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Admin vote entry
+  http.post(`${BASE}/api/admin/general-meetings/:meetingId/enter-votes`, async ({ params, request }) => {
+    if (params.meetingId === "agm-closed-enter") {
+      return HttpResponse.json({ detail: "Meeting is not open" }, { status: 409 });
+    }
+    if (params.meetingId === "agm-enter-fail") {
+      return HttpResponse.json({ detail: "Unknown lot_owner_ids: [\"unknown-lot\"]" }, { status: 422 });
+    }
+    const body = await request.json() as { entries?: Array<{ lot_owner_id: string }> };
+    const count = body?.entries?.length ?? 0;
+    return HttpResponse.json({ submitted_count: count, skipped_count: 0 });
   }),
 
   // Tenant config — admin endpoints
