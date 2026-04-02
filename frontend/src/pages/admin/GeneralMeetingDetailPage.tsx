@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,6 +21,10 @@ import AGMReportView from "../../components/admin/AGMReportView";
 import ShareSummaryLink from "../../components/admin/ShareSummaryLink";
 import MotionManagementTable from "../../components/admin/MotionManagementTable";
 import { formatLocalDateTime } from "../../utils/dateTime";
+import { useBranding } from "../../context/BrandingContext";
+
+const AgmQrCode = lazy(() => import("../../components/admin/AgmQrCode"));
+const AgmQrCodeModal = lazy(() => import("../../components/admin/AgmQrCodeModal"));
 
 interface DeleteMeetingConfirmModalProps {
   meetingTitle: string;
@@ -144,9 +148,11 @@ export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { config: branding } = useBranding();
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
   const [showDeleteMeetingModal, setShowDeleteMeetingModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
 
   // Optimistic motions list — updated immediately on reorder, confirmed on API response
   const [optimisticMotions, setOptimisticMotions] = useState<MotionDetail[] | null>(null);
@@ -538,6 +544,16 @@ export default function GeneralMeetingDetailPage() {
         <span className="admin-meta__item">
           <span className="admin-meta__label">Voting link</span>
           <ShareSummaryLink meetingId={meetingId!} />
+          <Suspense fallback={null}>
+            <button
+              type="button"
+              aria-label="Show QR code"
+              onClick={() => setShowQrModal(true)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
+            >
+              <AgmQrCode agmId={meetingId!} logoUrl={branding.logo_url || null} size={120} />
+            </button>
+          </Suspense>
         </span>
       </div>
 
@@ -885,6 +901,17 @@ export default function GeneralMeetingDetailPage() {
             </form>
           </div>
         </>
+      )}
+
+      {/* QR Code Modal */}
+      {showQrModal && (
+        <Suspense fallback={null}>
+          <AgmQrCodeModal
+            agmId={meetingId!}
+            logoUrl={branding.logo_url || null}
+            onClose={() => setShowQrModal(false)}
+          />
+        </Suspense>
       )}
 
       {/* Edit Motion Modal */}
