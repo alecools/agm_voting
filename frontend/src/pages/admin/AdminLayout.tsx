@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { adminLogout } from "../../api/admin";
 import { useBranding } from "../../context/BrandingContext";
+import { getSmtpStatus } from "../../api/config";
 
 function NavContent({ onNavClick }: { onNavClick?: () => void }) {
   return (
@@ -57,6 +58,16 @@ export default function AdminLayout() {
   const [isNavOpen, setIsNavOpen] = useState(false);
   const { config } = useBranding();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const location = useLocation();
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
+  const [smtpBannerDismissed, setSmtpBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    setSmtpBannerDismissed(false);
+    getSmtpStatus()
+      .then((status) => setSmtpConfigured(status.configured))
+      .catch(() => setSmtpConfigured(null));
+  }, [location.pathname]);
 
   // US-ACC-06: Close mobile nav drawer on Escape key press and return focus to menu button
   useEffect(() => {
@@ -152,6 +163,26 @@ export default function AdminLayout() {
         >
           ☰ Menu
         </button>
+        {smtpConfigured === false && !smtpBannerDismissed && (
+          <div
+            className="notice notice--warning"
+            role="alert"
+            style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+          >
+            <span>
+              Mail server not configured — meeting results emails will not be sent.{" "}
+              <Link to="/admin/settings" style={{ color: "inherit", fontWeight: 600 }}>Configure now →</Link>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSmtpBannerDismissed(true)}
+              aria-label="Dismiss SMTP warning"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontSize: "1rem" }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

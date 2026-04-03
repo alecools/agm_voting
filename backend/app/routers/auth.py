@@ -304,6 +304,7 @@ async def request_otp(
                     to_email=body.email,
                     meeting_title=meeting.title,
                     code=code,
+                    db=db,
                 )
             except Exception as exc:
                 # Log the SMTP failure but still return 200 — the OTP is already stored

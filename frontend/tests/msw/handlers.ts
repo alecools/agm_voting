@@ -15,7 +15,7 @@ import type {
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
-import type { TenantConfig } from "../../src/api/config";
+import type { TenantConfig, SmtpConfig, SmtpStatus } from "../../src/api/config";
 
 const BASE = "http://localhost:8000";
 
@@ -27,6 +27,30 @@ export let configFixture: TenantConfig = {
   support_email: "",
 };
 
+export let smtpConfigFixture: SmtpConfig = {
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_username: "",
+  smtp_from_email: "",
+  password_is_set: false,
+};
+
+export function resetSmtpConfigFixture() {
+  smtpConfigFixture = {
+    smtp_host: "",
+    smtp_port: 587,
+    smtp_username: "",
+    smtp_from_email: "",
+    password_is_set: false,
+  };
+}
+
+export let smtpStatusFixture: SmtpStatus = { configured: false };
+
+export function resetSmtpStatusFixture() {
+  smtpStatusFixture = { configured: false };
+}
+
 export function resetConfigFixture() {
   configFixture = {
     app_name: "General Meeting",
@@ -35,6 +59,8 @@ export function resetConfigFixture() {
     primary_colour: "#005f73",
     support_email: "",
   };
+  resetSmtpConfigFixture();
+  resetSmtpStatusFixture();
 }
 
 export const ADMIN_BUILDINGS: Building[] = [
@@ -898,6 +924,43 @@ export const adminHandlers = [
       support_email: body.support_email ?? "",
     };
     return HttpResponse.json(configFixture);
+  }),
+
+  // SMTP configuration endpoints
+  http.get(`${BASE}/api/admin/config/smtp/status`, () => {
+    return HttpResponse.json(smtpStatusFixture);
+  }),
+
+  http.get(`${BASE}/api/admin/config/smtp`, () => {
+    return HttpResponse.json(smtpConfigFixture);
+  }),
+
+  http.put(`${BASE}/api/admin/config/smtp`, async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    if (!body?.smtp_host || !(body.smtp_host as string).trim()) {
+      return HttpResponse.json({ detail: "smtp_host must not be empty" }, { status: 422 });
+    }
+    const port = body.smtp_port as number;
+    if (!port || port < 1 || port > 65535) {
+      return HttpResponse.json({ detail: "smtp_port must be between 1 and 65535" }, { status: 422 });
+    }
+    const fromEmail = body.smtp_from_email as string;
+    if (!fromEmail || !fromEmail.includes("@")) {
+      return HttpResponse.json({ detail: "smtp_from_email must be a valid email address" }, { status: 422 });
+    }
+    const hadPassword = smtpConfigFixture.password_is_set;
+    smtpConfigFixture = {
+      smtp_host: body.smtp_host as string,
+      smtp_port: port,
+      smtp_username: (body.smtp_username as string) ?? "",
+      smtp_from_email: fromEmail,
+      password_is_set: body.smtp_password ? true : hadPassword,
+    };
+    return HttpResponse.json(smtpConfigFixture);
+  }),
+
+  http.post(`${BASE}/api/admin/config/smtp/test`, () => {
+    return HttpResponse.json({ ok: true });
   }),
 ];
 

@@ -46,11 +46,18 @@ class Settings(BaseSettings):
     test_database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test"
     )
+    # Deprecated — retained for Alembic migration seeding only.
+    # These values are no longer used at runtime; SMTP settings are read from the
+    # tenant_smtp_config DB table by smtp_config_service.get_smtp_config().
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; real value supplied via SMTP_PASSWORD env var in all deployed environments
     smtp_from_email: str = ""
+    # AES-256-GCM key for encrypting SMTP passwords stored in DB.
+    # Must be a base64-encoded 32-byte random value.
+    # If empty, password storage is unavailable and a WARNING is logged on startup.
+    smtp_encryption_key: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; real value supplied via SMTP_ENCRYPTION_KEY env var
     allowed_origin: str = "http://localhost:5173"
     session_secret: str = "change_me_to_a_random_secret"  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; overridden by SESSION_SECRET env var; placeholder value intentionally signals misconfiguration
     admin_username: str = "admin"

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.logging_config import get_logger
+from app.services.smtp_config_service import get_smtp_config, get_decrypted_password
 from app.models import (
     GeneralMeeting,
     GeneralMeetingLotWeight,
@@ -38,6 +39,15 @@ from app.models.building import Building
 from app.services.admin_service import get_general_meeting_detail
 
 logger = get_logger(__name__)
+
+
+class SmtpNotConfiguredError(Exception):
+    """Raised when the DB SMTP configuration is missing or incomplete.
+
+    This is a non-retryable failure: trigger_with_retry sets status=failed
+    immediately when this exception is raised.
+    """
+
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _MAX_ATTEMPTS = 30
@@ -87,19 +97,28 @@ def _make_session_factory() -> async_sessionmaker:
     return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def send_otp_email(to_email: str, meeting_title: str, code: str) -> None:
+async def send_otp_email(to_email: str, meeting_title: str, code: str, db: AsyncSession) -> None:
     """
     Send an OTP verification email to the given address.
+    Reads SMTP settings from the DB via smtp_config_service.
+    Raises SmtpNotConfiguredError if SMTP is not configured.
     Respects settings.email_override: if set, all emails go to the override address
     and the original recipient is preserved in X-Original-To header.
     """
+    smtp_config = await get_smtp_config(db)
+    if not smtp_config.smtp_host or not smtp_config.smtp_username or not smtp_config.smtp_from_email or smtp_config.smtp_password_enc is None:
+        raise SmtpNotConfiguredError(
+            "SMTP not configured — configure mail server in admin settings"
+        )
+    smtp_password = get_decrypted_password(smtp_config)
+
     env = _get_jinja_env()
     template = env.get_template("otp_email.html")
     html_body = template.render(meeting_title=meeting_title, code=code)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Your AGM Voting Code — {meeting_title}"
-    msg["From"] = settings.smtp_from_email
+    msg["From"] = smtp_config.smtp_from_email
     to_addr = settings.email_override if settings.email_override else to_email
     msg["To"] = to_addr
     if settings.email_override:
@@ -108,10 +127,10 @@ async def send_otp_email(to_email: str, meeting_title: str, code: str) -> None:
 
     await aiosmtplib.send(
         msg,
-        hostname=settings.smtp_host,
-        port=settings.smtp_port,
-        username=settings.smtp_username,
-        password=settings.smtp_password,
+        hostname=smtp_config.smtp_host,
+        port=smtp_config.smtp_port,
+        username=smtp_config.smtp_username,
+        password=smtp_password,
         start_tls=True,
     )
 
@@ -167,10 +186,18 @@ class EmailService:
             motions=detail["motions"],
         )
 
+        # Load SMTP config from DB
+        smtp_config = await get_smtp_config(db)
+        if not smtp_config.smtp_host or not smtp_config.smtp_username or not smtp_config.smtp_from_email or smtp_config.smtp_password_enc is None:
+            raise SmtpNotConfiguredError(
+                "SMTP not configured — configure mail server in admin settings"
+            )
+        smtp_password = get_decrypted_password(smtp_config)
+
         # Send via SMTP (STARTTLS)
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"General Meeting Results Report: {agm_title}"
-        msg["From"] = settings.smtp_from_email
+        msg["From"] = smtp_config.smtp_from_email
         to_addr = settings.email_override if settings.email_override else manager_email
         msg["To"] = to_addr
         if settings.email_override:
@@ -180,10 +207,10 @@ class EmailService:
         log.info("email_send_started", agm_id=str(agm_id), to=to_addr)
         await aiosmtplib.send(
             msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
+            hostname=smtp_config.smtp_host,
+            port=smtp_config.smtp_port,
+            username=smtp_config.smtp_username,
+            password=smtp_password,
             start_tls=True,
         )
 
@@ -277,6 +304,31 @@ class EmailService:
                             status="delivered",
                             error=None,
                             next_retry_at=None,
+                        )
+                        return
+
+                    except SmtpNotConfiguredError as exc:
+                        # Non-retryable: SMTP is not configured — fail immediately
+                        error_str = str(exc)
+                        delivery.total_attempts = current_attempt
+                        delivery.last_error = error_str
+                        delivery.status = EmailDeliveryStatus.failed
+                        delivery.next_retry_at = None
+                        await db.commit()
+
+                        logger.error(
+                            "email_delivery_attempt",
+                            agm_id=str(agm_id),
+                            attempt_number=current_attempt,
+                            status="failed",
+                            error=error_str,
+                            next_retry_at=None,
+                        )
+                        logger.error(
+                            "email_delivery_failed",
+                            agm_id=str(agm_id),
+                            total_attempts=current_attempt,
+                            last_error=error_str,
                         )
                         return
 

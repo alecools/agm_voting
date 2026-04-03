@@ -294,7 +294,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-01: Admin configures SMTP host, port, username, and from-address in UI
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to enter SMTP server settings (host, port, username, from-email address) in the admin settings page so that I can configure outgoing email without needing access to environment variables.
 
@@ -314,7 +314,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-02: Admin sets SMTP password in UI (encrypted at rest)
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to enter (or update) the SMTP password in the UI so that the full credential set can be managed without environment variable access, with confidence that the password is stored securely.
 
@@ -333,7 +333,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-03: Send test email from admin settings
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want to send a test email from the Settings page so that I can verify the SMTP configuration is correct before the next meeting close.
 
@@ -352,7 +352,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-04: Email service reads SMTP config from DB at send time
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As a platform operator, I want all outgoing emails (both OTP verification emails and meeting results reports) to use the SMTP settings stored in the DB rather than environment variables, so that SMTP changes take effect immediately without a redeployment.
 
@@ -370,7 +370,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-05: Unconfigured SMTP banner visible on all admin pages
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin, I want a persistent warning banner when SMTP is unconfigured so that I notice the gap before a meeting close fails silently.
 
@@ -388,7 +388,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-SMTP-06: SMTP settings preserved across deployments via DB migration
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As a platform operator, I want the SMTP configuration migration to seed the DB from the existing env vars on first deploy so that email delivery is not interrupted when switching from env-var to DB-backed config.
 
