@@ -433,30 +433,30 @@ export default function SettingsPage() {
 
       {showTestEmailModal && (
         <div
-          className="modal-backdrop"
+          className="dialog-overlay"
           role="dialog"
           aria-modal="true"
           aria-labelledby="test-email-modal-title"
           onKeyDown={(e) => { if (e.key === "Escape") setShowTestEmailModal(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowTestEmailModal(false); }}
         >
-          <div className="modal-box">
-            <h2 id="test-email-modal-title" className="modal-box__title">Send test email</h2>
-            <p style={{ color: "var(--text-secondary)", marginBottom: 16, fontSize: "0.9rem" }}>
-              Enter the email address to send the test to.
-            </p>
-            <div className="field">
-              <label className="field__label" htmlFor="test-email-recipient">Recipient email</label>
-              <input
-                id="test-email-recipient"
-                className="field__input"
-                type="email"
-                value={testEmailRecipient}
-                onChange={(e) => setTestEmailRecipient(e.target.value)}
-                placeholder="you@example.com"
-                autoFocus
-              />
+          <div className="dialog">
+            <h2 id="test-email-modal-title" className="dialog__title">Send test email</h2>
+            <div className="dialog__body">
+              <div className="field">
+                <label className="field__label" htmlFor="test-email-recipient">Recipient email</label>
+                <input
+                  id="test-email-recipient"
+                  className="field__input"
+                  type="email"
+                  value={testEmailRecipient}
+                  onChange={(e) => setTestEmailRecipient(e.target.value)}
+                  placeholder="you@example.com"
+                  autoFocus
+                />
+              </div>
             </div>
-            <div className="modal-box__actions">
+            <div className="dialog__actions">
               <button
                 type="button"
                 className="btn btn--ghost"
