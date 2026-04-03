@@ -95,8 +95,8 @@ const mcMotionFixture: MotionDetail = {
     absent: { voter_count: 1, entitlement_sum: 75 },
     not_eligible: { voter_count: 0, entitlement_sum: 0 },
     options: [
-      { option_id: "opt-a", option_text: "Alice", display_order: 1, voter_count: 2, entitlement_sum: 200, outcome: null },
-      { option_id: "opt-b", option_text: "Bob", display_order: 2, voter_count: 1, entitlement_sum: 100, outcome: null },
+      { option_id: "opt-a", option_text: "Alice", display_order: 1, for_voter_count: 2, for_entitlement_sum: 200, against_voter_count: 1, against_entitlement_sum: 50, abstained_voter_count: 0, abstained_entitlement_sum: 0, voter_count: 2, entitlement_sum: 200, outcome: null },
+      { option_id: "opt-b", option_text: "Bob", display_order: 2, for_voter_count: 1, for_entitlement_sum: 100, against_voter_count: 0, against_entitlement_sum: 0, abstained_voter_count: 1, abstained_entitlement_sum: 75, voter_count: 1, entitlement_sum: 100, outcome: null },
     ],
   },
   voter_lists: {
@@ -105,6 +105,19 @@ const mcMotionFixture: MotionDetail = {
     abstained: [{ voter_email: "abstainer@example.com", lot_number: "L10", entitlement: 50 }],
     absent: [{ voter_email: "absent@example.com", lot_number: "L11", entitlement: 75 }],
     not_eligible: [],
+    options_for: {
+      "opt-a": [
+        { voter_email: "voter1@example.com", lot_number: "L1", entitlement: 100 },
+        { voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 },
+      ],
+      "opt-b": [{ voter_email: "voter2@example.com", lot_number: "L2", entitlement: 100 }],
+    },
+    options_against: {
+      "opt-a": [{ voter_email: "voter3@example.com", lot_number: "L3", entitlement: 50 }],
+    },
+    options_abstained: {
+      "opt-b": [{ voter_email: "voter4@example.com", lot_number: "L4", entitlement: 75 }],
+    },
     options: {
       "opt-a": [
         { voter_email: "voter1@example.com", lot_number: "L1", entitlement: 100 },
@@ -483,6 +496,14 @@ describe("AGMReportView", () => {
       ...mcMotionFixture,
       voter_lists: {
         ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [
+            { voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" },
+          ],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
         options: {
           "opt-a": [
             { voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" },
@@ -629,6 +650,97 @@ describe("AGMReportView", () => {
     expect(screen.getByLabelText("Outcome: Pass")).toBeInTheDocument();
     expect(screen.getByLabelText("Outcome: Tie — admin review required")).toBeInTheDocument();
     expect(screen.getByLabelText("Outcome: Fail")).toBeInTheDocument();
+  });
+
+  // --- Slice 10: Expand/Collapse For/Against/Abstained sub-rows (US-MC-ADMIN-01) ---
+
+  it("shows Expand button for multi-choice option rows", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const expandButtons = screen.getAllByRole("button", { name: /Expand breakdown for/ });
+    // One expand button per option (2 options)
+    expect(expandButtons).toHaveLength(2);
+  });
+
+  it("For/Against/Abstained sub-rows are collapsed by default", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    // Sub-row cells should not be in the DOM
+    expect(screen.queryByText("For")).not.toBeInTheDocument();
+    expect(screen.queryByText("Against")).not.toBeInTheDocument();
+  });
+
+  it("clicking Expand reveals For/Against/Abstained sub-rows", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Alice/ })[0];
+    await user.click(expandBtn);
+    // Sub-rows should now be visible
+    expect(screen.getByText("For")).toBeInTheDocument();
+    expect(screen.getByText("Against")).toBeInTheDocument();
+    // Voter list for For (voter1@example.com)
+    expect(screen.getByText(/voter1@example\.com/)).toBeInTheDocument();
+    // Against voter (voter3@example.com)
+    expect(screen.getByText(/voter3@example\.com/)).toBeInTheDocument();
+  });
+
+  it("clicking Expand then Collapse hides sub-rows again", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Alice/ })[0];
+    await user.click(expandBtn);
+    expect(screen.getByText("For")).toBeInTheDocument();
+    // Click collapse button
+    const collapseBtn = screen.getAllByRole("button", { name: /Collapse breakdown for Alice/ })[0];
+    await user.click(collapseBtn);
+    expect(screen.queryByText("For")).not.toBeInTheDocument();
+  });
+
+  it("expanded sub-rows show abstained voters when present", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const expandBtn = screen.getAllByRole("button", { name: /Expand breakdown for Bob/ })[0];
+    await user.click(expandBtn);
+    // Bob has abstained voter (voter4@example.com)
+    expect(screen.getByText(/voter4@example\.com/)).toBeInTheDocument();
+  });
+
+  it("CSV export includes Against voter with proxy suffix", async () => {
+    const mcWithAgainstProxy: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {},
+        options_against: {
+          "opt-a": [
+            { voter_email: "against_proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "against_proxy@example.com" },
+          ],
+        },
+        options_abstained: {},
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAgainstProxy]);
+    expect(csv).toContain("against_proxy@example.com (proxy)");
+    expect(csv).toContain("Option: Alice — Against");
+  });
+
+  it("CSV export includes Abstained voter with proxy suffix", async () => {
+    const mcWithAbstainedProxy: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {},
+        options_against: {},
+        options_abstained: {
+          "opt-a": [
+            { voter_email: "abs_proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "abs_proxy@example.com" },
+          ],
+        },
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAbstainedProxy]);
+    expect(csv).toContain("abs_proxy@example.com (proxy)");
+    expect(csv).toContain("Option: Alice — Abstained");
   });
 
   it("CSV row with proxy_email containing double-quotes has them escaped", async () => {

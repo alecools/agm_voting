@@ -426,7 +426,7 @@ This document captures ten new features for the AGM Voting App: admin vote entry
 
 ### US-MC-ADMIN-01: Admin meeting results show For/Against/Abstain tally per option
 
-**Status:** Pending
+**Status:** ✅ Implemented
 
 **Description:** As an admin reviewing meeting results, I want the results table for multi-choice motions to show separate For, Against, and Abstain counts and entitlement sums per option so that the full picture of how the building voted on each option is visible alongside the pass/fail outcome badge.
 

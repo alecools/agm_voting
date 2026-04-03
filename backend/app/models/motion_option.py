@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -28,6 +28,14 @@ class MotionOption(Base):
     text: Mapped[str] = mapped_column(String, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     outcome: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+
+    # For/Against/Abstained tally snapshots (stored at meeting close)
+    for_voter_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    for_entitlement_sum: Mapped[int] = mapped_column(Numeric, nullable=False, default=0)
+    against_voter_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    against_entitlement_sum: Mapped[int] = mapped_column(Numeric, nullable=False, default=0)
+    abstained_voter_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    abstained_entitlement_sum: Mapped[int] = mapped_column(Numeric, nullable=False, default=0)
 
     # Relationship back to Motion
     motion: Mapped["Motion"] = relationship("Motion", back_populates="options")  # noqa: F821

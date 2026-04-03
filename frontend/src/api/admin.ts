@@ -89,6 +89,14 @@ export interface OptionTallyEntry {
   option_id: string;
   option_text: string;
   display_order: number;
+  // Primary tally fields (For/Against/Abstained) — Slice 10: US-MC-ADMIN-01
+  for_voter_count?: number;
+  for_entitlement_sum?: number;
+  against_voter_count?: number;
+  against_entitlement_sum?: number;
+  abstained_voter_count?: number;
+  abstained_entitlement_sum?: number;
+  // Backward-compatible aliases (deprecated, kept for one release)
   voter_count: number;
   entitlement_sum: number;
   outcome: string | null;
@@ -109,6 +117,11 @@ export interface MotionVoterLists {
   abstained: VoterEntry[];
   absent: VoterEntry[];
   not_eligible: VoterEntry[];
+  // Per-option voter lists by category (Slice 10: US-MC-ADMIN-01)
+  options_for?: Record<string, VoterEntry[]>;
+  options_against?: Record<string, VoterEntry[]>;
+  options_abstained?: Record<string, VoterEntry[]>;
+  // Backward-compatible alias for options_for
   options: Record<string, VoterEntry[]>;
 }
 

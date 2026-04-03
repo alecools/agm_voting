@@ -1525,22 +1525,50 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
 
             # Per-option tally
             option_tallies = []
-            option_voter_lists: dict[str, list] = {}
+            option_for_voter_lists: dict[str, list] = {}
+            option_against_voter_lists: dict[str, list] = {}
+            option_abstained_voter_lists: dict[str, list] = {}
             for opt in motion_opts:
-                opt_lot_ids = {
+                opt_for_ids = {
                     v.lot_owner_id for v in motion_vote_rows
                     if v.motion_option_id == opt.id
                     and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "selected"
                 }
+                opt_against_ids = {
+                    v.lot_owner_id for v in motion_vote_rows
+                    if v.motion_option_id == opt.id
+                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "against"
+                }
+                opt_abstained_ids = {
+                    v.lot_owner_id for v in motion_vote_rows
+                    if v.motion_option_id == opt.id
+                    and (v.choice.value if hasattr(v.choice, "value") else v.choice) == "abstained"
+                }
+                # Use stored snapshot values when available (post-close), fall back to live compute
+                for_vc = int(opt.for_voter_count) if opt.for_voter_count else len(opt_for_ids)
+                for_es = int(opt.for_entitlement_sum) if opt.for_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_for_ids)
+                against_vc = int(opt.against_voter_count) if opt.against_voter_count else len(opt_against_ids)
+                against_es = int(opt.against_entitlement_sum) if opt.against_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_against_ids)
+                abstained_vc = int(opt.abstained_voter_count) if opt.abstained_voter_count else len(opt_abstained_ids)
+                abstained_es = int(opt.abstained_entitlement_sum) if opt.abstained_entitlement_sum else sum(lot_entitlement.get(lid, 0) for lid in opt_abstained_ids)
                 option_tallies.append({
                     "option_id": opt.id,
                     "option_text": opt.text,
                     "display_order": opt.display_order,
-                    "voter_count": len(opt_lot_ids),
-                    "entitlement_sum": sum(lot_entitlement.get(lid, 0) for lid in opt_lot_ids),
+                    "for_voter_count": for_vc,
+                    "for_entitlement_sum": for_es,
+                    "against_voter_count": against_vc,
+                    "against_entitlement_sum": against_es,
+                    "abstained_voter_count": abstained_vc,
+                    "abstained_entitlement_sum": abstained_es,
+                    # Backward-compatible aliases
+                    "voter_count": for_vc,
+                    "entitlement_sum": for_es,
                     "outcome": opt.outcome,
                 })
-                option_voter_lists[str(opt.id)] = _lots(opt_lot_ids, "selected")
+                option_for_voter_lists[str(opt.id)] = _lots(opt_for_ids, "selected")
+                option_against_voter_lists[str(opt.id)] = _lots(opt_against_ids, "against")
+                option_abstained_voter_lists[str(opt.id)] = _lots(opt_abstained_ids, "abstained")
 
             motion_details.append({
                 "id": motion.id,
@@ -1571,7 +1599,11 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "abstained": _lots(abstained_ids, "abstained"),
                     "absent": _lots(absent_ids_global, "absent"),
                     "not_eligible": _lots(not_eligible_ids, "not_eligible"),
-                    "options": option_voter_lists,
+                    "options_for": option_for_voter_lists,
+                    "options_against": option_against_voter_lists,
+                    "options_abstained": option_abstained_voter_lists,
+                    # Backward-compatible alias
+                    "options": option_for_voter_lists,
                 },
             })
         else:
@@ -2295,12 +2327,20 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
 
         option_limit = motion.option_limit or len(options)
 
-        # Per-option tally
+        # Per-option tally: voter counts and entitlement sums for For/Against/Abstained
+        for_voter_counts: dict[uuid.UUID, int] = {}
         for_sums: dict[uuid.UUID, int] = {}
+        against_voter_counts: dict[uuid.UUID, int] = {}
         against_sums: dict[uuid.UUID, int] = {}
+        abstained_voter_counts: dict[uuid.UUID, int] = {}
+        abstained_sums: dict[uuid.UUID, int] = {}
         for opt in options:
+            for_voter_counts[opt.id] = 0
             for_sums[opt.id] = 0
+            against_voter_counts[opt.id] = 0
             against_sums[opt.id] = 0
+            abstained_voter_counts[opt.id] = 0
+            abstained_sums[opt.id] = 0
 
         for vote in all_votes:
             if vote.motion_id != motion.id or vote.motion_option_id is None:
@@ -2311,9 +2351,14 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
             ent = entitlement_map.get(vote.lot_owner_id, 0)
             choice = vote.choice.value if hasattr(vote.choice, "value") else vote.choice
             if choice == "selected":
+                for_voter_counts[opt_id] = for_voter_counts.get(opt_id, 0) + 1
                 for_sums[opt_id] = for_sums.get(opt_id, 0) + ent
             elif choice == "against":
+                against_voter_counts[opt_id] = against_voter_counts.get(opt_id, 0) + 1
                 against_sums[opt_id] = against_sums.get(opt_id, 0) + ent
+            elif choice == "abstained":
+                abstained_voter_counts[opt_id] = abstained_voter_counts.get(opt_id, 0) + 1
+                abstained_sums[opt_id] = abstained_sums.get(opt_id, 0) + ent
 
         # Step 3: mark failed options (>50% against)
         failed_by_against: set[uuid.UUID] = set()
@@ -2356,9 +2401,15 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
                 for opt in remaining:
                     outcome_map[opt.id] = "pass"
 
-        # Persist outcomes
+        # Persist outcomes and all six tally snapshot fields
         for opt in options:
             opt.outcome = outcome_map.get(opt.id)
+            opt.for_voter_count = for_voter_counts.get(opt.id, 0)
+            opt.for_entitlement_sum = for_sums.get(opt.id, 0)
+            opt.against_voter_count = against_voter_counts.get(opt.id, 0)
+            opt.against_entitlement_sum = against_sums.get(opt.id, 0)
+            opt.abstained_voter_count = abstained_voter_counts.get(opt.id, 0)
+            opt.abstained_entitlement_sum = abstained_sums.get(opt.id, 0)
 
     await db.flush()
 

@@ -365,6 +365,7 @@ export const ADMIN_MEETING_DETAIL_MC_OUTCOME: GeneralMeetingDetail = {
       is_multi_choice: true,
       is_visible: true,
       option_limit: 2,
+      voting_closed_at: null,
       options: [
         { id: "mc-opt-a", text: "Alice", display_order: 1 },
         { id: "mc-opt-b", text: "Bob", display_order: 2 },
@@ -377,9 +378,9 @@ export const ADMIN_MEETING_DETAIL_MC_OUTCOME: GeneralMeetingDetail = {
         absent: { voter_count: 0, entitlement_sum: 0 },
         not_eligible: { voter_count: 0, entitlement_sum: 0 },
         options: [
-          { option_id: "mc-opt-a", option_text: "Alice", display_order: 1, voter_count: 3, entitlement_sum: 300, outcome: "pass" },
-          { option_id: "mc-opt-b", option_text: "Bob", display_order: 2, voter_count: 2, entitlement_sum: 200, outcome: "pass" },
-          { option_id: "mc-opt-c", option_text: "Carol", display_order: 3, voter_count: 1, entitlement_sum: 100, outcome: "fail" },
+          { option_id: "mc-opt-a", option_text: "Alice", display_order: 1, for_voter_count: 3, for_entitlement_sum: 300, against_voter_count: 0, against_entitlement_sum: 0, abstained_voter_count: 0, abstained_entitlement_sum: 0, voter_count: 3, entitlement_sum: 300, outcome: "pass" },
+          { option_id: "mc-opt-b", option_text: "Bob", display_order: 2, for_voter_count: 2, for_entitlement_sum: 200, against_voter_count: 1, against_entitlement_sum: 50, abstained_voter_count: 0, abstained_entitlement_sum: 0, voter_count: 2, entitlement_sum: 200, outcome: "pass" },
+          { option_id: "mc-opt-c", option_text: "Carol", display_order: 3, for_voter_count: 1, for_entitlement_sum: 100, against_voter_count: 2, against_entitlement_sum: 200, abstained_voter_count: 1, abstained_entitlement_sum: 50, voter_count: 1, entitlement_sum: 100, outcome: "fail" },
         ],
       },
       voter_lists: {
@@ -388,7 +389,23 @@ export const ADMIN_MEETING_DETAIL_MC_OUTCOME: GeneralMeetingDetail = {
         abstained: [],
         absent: [],
         not_eligible: [],
-        options: {},
+        options_for: {
+          "mc-opt-a": [{ voter_email: "alice@test.com", lot_number: "1", entitlement: 100 }, { voter_email: "bob@test.com", lot_number: "2", entitlement: 100 }, { voter_email: "carol@test.com", lot_number: "3", entitlement: 100 }],
+          "mc-opt-b": [{ voter_email: "alice@test.com", lot_number: "1", entitlement: 100 }, { voter_email: "bob@test.com", lot_number: "2", entitlement: 100 }],
+          "mc-opt-c": [{ voter_email: "carol@test.com", lot_number: "3", entitlement: 100 }],
+        },
+        options_against: {
+          "mc-opt-b": [{ voter_email: "dave@test.com", lot_number: "4", entitlement: 50 }],
+          "mc-opt-c": [{ voter_email: "alice@test.com", lot_number: "1", entitlement: 100 }, { voter_email: "bob@test.com", lot_number: "2", entitlement: 100 }],
+        },
+        options_abstained: {
+          "mc-opt-c": [{ voter_email: "dave@test.com", lot_number: "4", entitlement: 50 }],
+        },
+        options: {
+          "mc-opt-a": [{ voter_email: "alice@test.com", lot_number: "1", entitlement: 100 }, { voter_email: "bob@test.com", lot_number: "2", entitlement: 100 }, { voter_email: "carol@test.com", lot_number: "3", entitlement: 100 }],
+          "mc-opt-b": [{ voter_email: "alice@test.com", lot_number: "1", entitlement: 100 }, { voter_email: "bob@test.com", lot_number: "2", entitlement: 100 }],
+          "mc-opt-c": [{ voter_email: "carol@test.com", lot_number: "3", entitlement: 100 }],
+        },
       },
     },
   ],

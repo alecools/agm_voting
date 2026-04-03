@@ -421,8 +421,18 @@ class TestEmailTemplateRendering:
                     "abstained": {"voter_count": 1, "entitlement_sum": 80},
                     "absent": {"voter_count": 1, "entitlement_sum": 50},
                     "options": [
-                        {"option_text": "Alice Smith", "voter_count": 2, "entitlement_sum": 200},
-                        {"option_text": "Bob Jones", "voter_count": 1, "entitlement_sum": 100},
+                        {
+                            "option_text": "Alice Smith",
+                            "for_voter_count": 2, "for_entitlement_sum": 200,
+                            "against_voter_count": 0, "against_entitlement_sum": 0,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
+                        {
+                            "option_text": "Bob Jones",
+                            "for_voter_count": 1, "for_entitlement_sum": 100,
+                            "against_voter_count": 0, "against_entitlement_sum": 0,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
                     ],
                 },
                 "voter_lists": {
@@ -430,6 +440,9 @@ class TestEmailTemplateRendering:
                     "no": [],
                     "abstained": [{"voter_email": "carol@example.com", "lot_number": "2A", "entitlement": 80}],
                     "absent": [{"voter_email": "dave@example.com", "lot_number": "3A", "entitlement": 50}],
+                    "options_for": {},
+                    "options_against": {},
+                    "options_abstained": {},
                     "options": {},
                 },
             }
@@ -473,7 +486,7 @@ class TestEmailTemplateRendering:
         assert "<!DOCTYPE html>" in html
 
     def test_multi_choice_renders_per_option_voter_lists(self):
-        """Per-option voter lists are rendered in the email for multi-choice motions."""
+        """Per-option For/Against/Abstained voter lists are rendered in the email for multi-choice motions."""
         import uuid as _uuid
         opt_id_alice = str(_uuid.uuid4())
         opt_id_bob = str(_uuid.uuid4())
@@ -491,8 +504,18 @@ class TestEmailTemplateRendering:
                     "abstained": {"voter_count": 0, "entitlement_sum": 0},
                     "absent": {"voter_count": 0, "entitlement_sum": 0},
                     "options": [
-                        {"option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1, "voter_count": 1, "entitlement_sum": 100},
-                        {"option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2, "voter_count": 0, "entitlement_sum": 0},
+                        {
+                            "option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1,
+                            "for_voter_count": 1, "for_entitlement_sum": 100,
+                            "against_voter_count": 0, "against_entitlement_sum": 0,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
+                        {
+                            "option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2,
+                            "for_voter_count": 0, "for_entitlement_sum": 0,
+                            "against_voter_count": 1, "against_entitlement_sum": 80,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
                     ],
                 },
                 "voter_lists": {
@@ -500,6 +523,14 @@ class TestEmailTemplateRendering:
                     "no": [],
                     "abstained": [],
                     "absent": [],
+                    "options_for": {
+                        opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
+                        opt_id_bob: [],
+                    },
+                    "options_against": {
+                        opt_id_bob: [{"voter_email": "carol@example.com", "lot_number": "2A", "entitlement": 80}],
+                    },
+                    "options_abstained": {},
                     "options": {
                         opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
                         opt_id_bob: [],
@@ -508,9 +539,12 @@ class TestEmailTemplateRendering:
             }
         ]
         html = self._render_template(ctx)
-        # Voter for Alice Smith option should appear
+        # Voter for Alice Smith (For) option should appear
         assert "alice@example.com" in html
-        assert "Voted: Alice Smith" in html
+        assert "For: Alice Smith" in html
+        # Against voter for Bob Jones should appear
+        assert "carol@example.com" in html
+        assert "Against: Bob Jones" in html
 
     def test_multi_choice_option_with_no_voters_not_rendered(self):
         """Options with no voters do not produce a voter-list section."""
@@ -531,8 +565,18 @@ class TestEmailTemplateRendering:
                     "abstained": {"voter_count": 0, "entitlement_sum": 0},
                     "absent": {"voter_count": 0, "entitlement_sum": 0},
                     "options": [
-                        {"option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1, "voter_count": 1, "entitlement_sum": 100},
-                        {"option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2, "voter_count": 0, "entitlement_sum": 0},
+                        {
+                            "option_id": opt_id_alice, "option_text": "Alice Smith", "display_order": 1,
+                            "for_voter_count": 1, "for_entitlement_sum": 100,
+                            "against_voter_count": 0, "against_entitlement_sum": 0,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
+                        {
+                            "option_id": opt_id_bob, "option_text": "Bob Jones", "display_order": 2,
+                            "for_voter_count": 0, "for_entitlement_sum": 0,
+                            "against_voter_count": 0, "against_entitlement_sum": 0,
+                            "abstained_voter_count": 0, "abstained_entitlement_sum": 0,
+                        },
                     ],
                 },
                 "voter_lists": {
@@ -540,6 +584,12 @@ class TestEmailTemplateRendering:
                     "no": [],
                     "abstained": [],
                     "absent": [],
+                    "options_for": {
+                        opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
+                        opt_id_bob: [],
+                    },
+                    "options_against": {},
+                    "options_abstained": {},
                     "options": {
                         opt_id_alice: [{"voter_email": "alice@example.com", "lot_number": "1A", "entitlement": 100}],
                         opt_id_bob: [],
@@ -548,8 +598,9 @@ class TestEmailTemplateRendering:
             }
         ]
         html = self._render_template(ctx)
-        # Bob Jones voter section should not appear (empty list)
-        assert "Voted: Bob Jones" not in html
+        # Bob Jones voter section should not appear (empty lists for all categories)
+        assert "For: Bob Jones" not in html
+        assert "Against: Bob Jones" not in html
 
     def test_motion_type_general_label_rendered(self):
         """General resolution label is shown for general motion type."""

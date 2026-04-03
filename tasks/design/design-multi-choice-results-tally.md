@@ -1,6 +1,6 @@
 # Design: Multi-Choice Results — For/Against/Abstain Tally Per Option
 
-**Status:** Draft
+**Status:** Implemented
 
 ## Overview
 

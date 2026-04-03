@@ -468,9 +468,30 @@ class OptionTallyEntry(BaseModel):
     option_id: uuid.UUID
     option_text: str
     display_order: int
-    voter_count: int
-    entitlement_sum: int
+    # Primary tally fields (For/Against/Abstained)
+    for_voter_count: int = 0
+    for_entitlement_sum: int = 0
+    against_voter_count: int = 0
+    against_entitlement_sum: int = 0
+    abstained_voter_count: int = 0
+    abstained_entitlement_sum: int = 0
     outcome: str | None = None
+    # Backward-compatible alias fields (serialized in JSON response)
+    voter_count: int = 0
+    entitlement_sum: int = 0
+
+    @model_validator(mode="after")
+    def populate_backward_compat_aliases(self) -> "OptionTallyEntry":
+        """Ensure voter_count/entitlement_sum always mirror for_voter_count/for_entitlement_sum."""
+        # If old fields were provided but new ones weren't, propagate old → new
+        if self.voter_count and not self.for_voter_count:
+            self.for_voter_count = self.voter_count
+        if self.entitlement_sum and not self.for_entitlement_sum:
+            self.for_entitlement_sum = self.entitlement_sum
+        # Always keep aliases in sync with primary fields
+        self.voter_count = self.for_voter_count
+        self.entitlement_sum = self.for_entitlement_sum
+        return self
 
 
 class MotionTally(BaseModel):
@@ -488,6 +509,11 @@ class MotionVoterLists(BaseModel):
     abstained: list[VoterEntry]
     absent: list[VoterEntry]
     not_eligible: list[VoterEntry]
+    # Per-option voter lists split by For/Against/Abstained category
+    options_for: dict[str, list[VoterEntry]] = {}      # key: option_id str
+    options_against: dict[str, list[VoterEntry]] = {}   # key: option_id str
+    options_abstained: dict[str, list[VoterEntry]] = {} # key: option_id str
+    # Backward-compatible alias: options == options_for
     options: dict[str, list[VoterEntry]] = {}  # key: option_id str
 
 
