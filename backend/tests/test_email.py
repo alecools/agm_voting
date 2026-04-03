@@ -45,6 +45,7 @@ from app.models import (
 )
 from app.services.email_service import (
     EmailService,
+    SmtpNotConfiguredError,
     _TEMPLATES_DIR,
     _MAX_ATTEMPTS,
     _backoff_seconds,
@@ -712,7 +713,22 @@ class TestSendReport:
         await _create_vote(db_session, agm, motion, "voter@example.com", VoteChoice.yes, lot_owner_id=lo.id)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch(
+            "app.services.email_service.get_smtp_config",
+            AsyncMock(return_value=mock_smtp_config),
+        )
+        mocker.patch(
+            "app.services.email_service.get_decrypted_password",
+            return_value="pass",
+        )
 
         service = EmailService()
         # Should not raise
@@ -728,23 +744,37 @@ class TestSendReport:
         assert "<html" in html_part.lower()
 
     async def test_send_report_uses_smtp_settings(self, db_session: AsyncSession, mocker):
-        """send_report passes SMTP settings from config to aiosmtplib.send."""
+        """send_report passes SMTP settings from DB config to aiosmtplib.send."""
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
         await _create_motion(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.example.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "testuser"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch(
+            "app.services.email_service.get_smtp_config",
+            AsyncMock(return_value=mock_smtp_config),
+        )
+        mocker.patch(
+            "app.services.email_service.get_decrypted_password",
+            return_value="testpass",
+        )
 
         service = EmailService()
         await service.send_report(agm.id, db_session)
 
-        from app.config import settings
         call_kwargs = mock_send.call_args[1]
-        assert call_kwargs["hostname"] == settings.smtp_host
-        assert call_kwargs["port"] == settings.smtp_port
-        assert call_kwargs["username"] == settings.smtp_username
-        assert call_kwargs["password"] == settings.smtp_password
+        assert call_kwargs["hostname"] == "smtp.example.com"
+        assert call_kwargs["port"] == 587
+        assert call_kwargs["username"] == "testuser"
+        assert call_kwargs["password"] == "testpass"
         assert call_kwargs["start_tls"] is True
 
     # --- Error cases ---
@@ -756,7 +786,15 @@ class TestSendReport:
         await _create_motion(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
         mocker.patch("aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error"))
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         service = EmailService()
         with pytest.raises(Exception, match="SMTP error"):
@@ -782,7 +820,15 @@ class TestSendReport:
         await _create_motion(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
         mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         service = EmailService()
         with pytest.raises(ValueError, match="no manager_email"):
@@ -795,7 +841,15 @@ class TestSendReport:
         await _create_motion(db_session, agm, description=None)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
         mock_send = mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
         service = EmailService()
         await service.send_report(agm.id, db_session)
         mock_send.assert_called_once()
@@ -817,7 +871,15 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
         mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         # Patch session factory to use our test session
         mock_factory = _make_mock_factory(db_session)
@@ -843,6 +905,15 @@ class TestTriggerWithRetry:
         await _create_motion(db_session, agm)
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         call_count = {"n": 0}
 
@@ -879,6 +950,14 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
         mocker.patch("aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("always fails"))
         mocker.patch("asyncio.sleep", new=AsyncMock())
 
@@ -973,6 +1052,15 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
+
         # Fail 3 times, succeed on 4th
         call_count = {"n": 0}
 
@@ -1007,7 +1095,15 @@ class TestTriggerWithRetry:
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
         mocker.patch("aiosmtplib.send", new_callable=AsyncMock)
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         mock_factory = _make_mock_factory(db_session)
         mocker.patch(
@@ -1052,6 +1148,15 @@ class TestTriggerWithRetry:
         await _create_motion(db_session, agm)
         await _create_email_delivery(db_session, agm)
         await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         send_call_count = {"n": 0}
 
@@ -1128,6 +1233,15 @@ class TestTriggerWithRetry:
         await _create_motion(db_session, agm)
         delivery = await _create_email_delivery(db_session, agm)
         await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="pass")
 
         call_count = {"n": 0}
 

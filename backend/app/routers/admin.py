@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import aiosmtplib
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,9 +51,10 @@ from app.schemas.admin import (
     ResendReportOut,
     SetProxyRequest,
 )
-from app.schemas.config import FaviconUploadOut, LogoUploadOut, TenantConfigOut, TenantConfigUpdate
+from app.schemas.config import FaviconUploadOut, LogoUploadOut, SmtpConfigOut, SmtpConfigUpdate, SmtpStatusOut, TenantConfigOut, TenantConfigUpdate
 from app.services import admin_service
 from app.services import config_service
+from app.services import smtp_config_service
 from app.services import blob_service
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
@@ -797,6 +799,100 @@ async def update_admin_config(
     """Update branding config — admin only. Returns 422 on validation failure."""
     config = await config_service.update_config(data, db)
     return TenantConfigOut.model_validate(config)
+
+
+# ---------------------------------------------------------------------------
+# SMTP configuration
+# ---------------------------------------------------------------------------
+
+_smtp_test_call_times: list[datetime] = []
+_SMTP_TEST_RATE_LIMIT = 5  # calls per minute
+
+
+def _check_smtp_test_rate_limit() -> None:
+    """Raise 429 if more than 5 calls to /config/smtp/test occurred in the last 60s."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=60)
+    # Prune old entries
+    while _smtp_test_call_times and _smtp_test_call_times[0] < cutoff:
+        _smtp_test_call_times.pop(0)
+    if len(_smtp_test_call_times) >= _SMTP_TEST_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 test emails per minute")
+    _smtp_test_call_times.append(now)
+
+
+@router.get("/config/smtp/status", response_model=SmtpStatusOut)
+async def get_smtp_status(db: AsyncSession = Depends(get_db)) -> SmtpStatusOut:
+    """Return whether SMTP is configured. Used by admin layout banner."""
+    configured = await smtp_config_service.is_smtp_configured(db)
+    return SmtpStatusOut(configured=configured)
+
+
+@router.get("/config/smtp", response_model=SmtpConfigOut)
+async def get_smtp_config(db: AsyncSession = Depends(get_db)) -> SmtpConfigOut:
+    """Return current SMTP config — password is never included in the response."""
+    config = await smtp_config_service.get_smtp_config(db)
+    return SmtpConfigOut(
+        smtp_host=config.smtp_host,
+        smtp_port=config.smtp_port,
+        smtp_username=config.smtp_username,
+        smtp_from_email=config.smtp_from_email,
+        password_is_set=config.smtp_password_enc is not None,
+    )
+
+
+@router.put("/config/smtp", response_model=SmtpConfigOut)
+async def update_smtp_config(
+    data: SmtpConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> SmtpConfigOut:
+    """Save SMTP configuration. Password is encrypted at rest."""
+    config = await smtp_config_service.update_smtp_config(data, db)
+    return SmtpConfigOut(
+        smtp_host=config.smtp_host,
+        smtp_port=config.smtp_port,
+        smtp_username=config.smtp_username,
+        smtp_from_email=config.smtp_from_email,
+        password_is_set=config.smtp_password_enc is not None,
+    )
+
+
+@router.post("/config/smtp/test")
+async def test_smtp_config(db: AsyncSession = Depends(get_db)) -> dict:
+    """Attempt to connect to the configured SMTP server and send a test email.
+
+    Rate limited to 5 requests per minute per server process.
+    Returns {"ok": true} on success or raises 400 with the SMTP error message.
+    Returns 409 if SMTP is not configured.
+    """
+    from email.mime.text import MIMEText
+
+    _check_smtp_test_rate_limit()
+
+    config = await smtp_config_service.get_smtp_config(db)
+    if not config.smtp_host or not config.smtp_username or not config.smtp_from_email or config.smtp_password_enc is None:
+        raise HTTPException(status_code=409, detail="SMTP is not configured")
+
+    smtp_password = smtp_config_service.get_decrypted_password(config)
+
+    msg = MIMEText("This is a test email from AGM Voting App.", "plain")
+    msg["Subject"] = "Test email from AGM Voting App"
+    msg["From"] = config.smtp_from_email
+    msg["To"] = config.smtp_from_email
+
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=config.smtp_host,
+            port=config.smtp_port,
+            username=config.smtp_username,
+            password=smtp_password,
+            start_tls=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

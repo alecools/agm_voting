@@ -834,26 +834,34 @@ class TestEmailOverride:
         """When email_override is set, email goes to override address."""
         import aiosmtplib
         from email.mime.multipart import MIMEMultipart
+        from unittest.mock import MagicMock
 
         sent_messages = []
 
         async def mock_send(message, **kwargs):
             sent_messages.append(message)
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
+        mock_db = AsyncMock()
+
         with patch("app.services.email_service.settings") as mock_settings, \
-             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
+             patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
             mock_settings.email_override = "override@test.com"
-            mock_settings.smtp_from_email = "noreply@test.com"
-            mock_settings.smtp_host = "smtp.test.com"
-            mock_settings.smtp_port = 587
-            mock_settings.smtp_username = "user"
-            mock_settings.smtp_password = "pass"
 
             from app.services.email_service import send_otp_email
             await send_otp_email(
                 to_email="real@voter.com",
                 meeting_title="Test Meeting",
                 code="ABCD1234",
+                db=mock_db,
             )
 
         assert len(sent_messages) == 1
@@ -862,25 +870,34 @@ class TestEmailOverride:
 
     async def test_send_otp_email_sets_x_original_to_header(self):
         """When email_override is set, X-Original-To header contains the real address."""
+        from unittest.mock import MagicMock
+
         sent_messages = []
 
         async def mock_send(message, **kwargs):
             sent_messages.append(message)
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
+        mock_db = AsyncMock()
+
         with patch("app.services.email_service.settings") as mock_settings, \
-             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
+             patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
             mock_settings.email_override = "override@test.com"
-            mock_settings.smtp_from_email = "noreply@test.com"
-            mock_settings.smtp_host = "smtp.test.com"
-            mock_settings.smtp_port = 587
-            mock_settings.smtp_username = "user"
-            mock_settings.smtp_password = "pass"
 
             from app.services.email_service import send_otp_email
             await send_otp_email(
                 to_email="real@voter.com",
                 meeting_title="Test Meeting",
                 code="ABCD1234",
+                db=mock_db,
             )
 
         msg = sent_messages[0]
@@ -888,25 +905,34 @@ class TestEmailOverride:
 
     async def test_send_otp_email_no_override_uses_real_address(self):
         """When email_override is empty, email goes to the real recipient."""
+        from unittest.mock import MagicMock
+
         sent_messages = []
 
         async def mock_send(message, **kwargs):
             sent_messages.append(message)
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
+        mock_db = AsyncMock()
+
         with patch("app.services.email_service.settings") as mock_settings, \
-             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
+             patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
             mock_settings.email_override = ""
-            mock_settings.smtp_from_email = "noreply@test.com"
-            mock_settings.smtp_host = "smtp.test.com"
-            mock_settings.smtp_port = 587
-            mock_settings.smtp_username = "user"
-            mock_settings.smtp_password = "pass"
 
             from app.services.email_service import send_otp_email
             await send_otp_email(
                 to_email="real@voter.com",
                 meeting_title="Test Meeting",
                 code="ABCD1234",
+                db=mock_db,
             )
 
         msg = sent_messages[0]
@@ -914,25 +940,34 @@ class TestEmailOverride:
 
     async def test_send_otp_email_no_override_no_x_original_to_header(self):
         """When email_override is empty, X-Original-To header is NOT set."""
+        from unittest.mock import MagicMock
+
         sent_messages = []
 
         async def mock_send(message, **kwargs):
             sent_messages.append(message)
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
+        mock_db = AsyncMock()
+
         with patch("app.services.email_service.settings") as mock_settings, \
-             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send):
+             patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
+             patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
             mock_settings.email_override = ""
-            mock_settings.smtp_from_email = "noreply@test.com"
-            mock_settings.smtp_host = "smtp.test.com"
-            mock_settings.smtp_port = 587
-            mock_settings.smtp_username = "user"
-            mock_settings.smtp_password = "pass"
 
             from app.services.email_service import send_otp_email
             await send_otp_email(
                 to_email="real@voter.com",
                 meeting_title="Test Meeting",
                 code="ABCD1234",
+                db=mock_db,
             )
 
         msg = sent_messages[0]
@@ -947,16 +982,20 @@ class TestEmailOverride:
         async def mock_send(message, **kwargs):
             sent_messages.append(message)
 
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
              patch("app.services.email_service.get_general_meeting_detail") as mock_detail, \
+             patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"), \
              patch("app.services.email_service.AsyncSession"):
             mock_settings.email_override = "override@test.com"
-            mock_settings.smtp_from_email = "noreply@test.com"
-            mock_settings.smtp_host = "smtp.test.com"
-            mock_settings.smtp_port = 587
-            mock_settings.smtp_username = "user"
-            mock_settings.smtp_password = "pass"
 
             mock_detail.return_value = {
                 "building_name": "Test Bldg",

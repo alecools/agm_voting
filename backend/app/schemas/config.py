@@ -1,5 +1,5 @@
 """
-Pydantic schemas for tenant configuration.
+Pydantic schemas for tenant configuration and SMTP settings.
 """
 from __future__ import annotations
 
@@ -64,3 +64,71 @@ class TenantConfigUpdate(BaseModel):
             return None
         stripped = v.strip()
         return stripped if stripped else None
+
+
+# ---------------------------------------------------------------------------
+# SMTP configuration schemas
+# ---------------------------------------------------------------------------
+
+
+class SmtpConfigOut(BaseModel):
+    """SMTP configuration returned to clients — password is never included."""
+
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_from_email: str
+    password_is_set: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SmtpConfigUpdate(BaseModel):
+    """Input for updating SMTP configuration.
+
+    smtp_password is optional — omitting it (or passing None / empty string)
+    leaves the existing stored password unchanged.
+    """
+
+    smtp_host: str
+    smtp_port: int = 587
+    smtp_username: str
+    smtp_from_email: str
+    smtp_password: Optional[str] = None
+
+    @field_validator("smtp_host")
+    @classmethod
+    def smtp_host_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("smtp_host must not be empty")
+        return v.strip()
+
+    @field_validator("smtp_port")
+    @classmethod
+    def smtp_port_in_range(cls, v: int) -> int:
+        if not 1 <= v <= 65535:
+            raise ValueError("smtp_port must be between 1 and 65535")
+        return v
+
+    @field_validator("smtp_username")
+    @classmethod
+    def smtp_username_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("smtp_username must not be empty")
+        return v.strip()
+
+    @field_validator("smtp_from_email")
+    @classmethod
+    def smtp_from_email_valid(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("smtp_from_email must not be empty")
+        v = v.strip()
+        if "@" not in v:
+            raise ValueError("smtp_from_email must be a valid email address")
+        return v
+
+
+class SmtpStatusOut(BaseModel):
+    """SMTP configuration status — used by the admin layout banner."""
+
+    configured: bool

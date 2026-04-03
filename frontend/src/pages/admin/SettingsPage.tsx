@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAdminConfig, updateAdminConfig, uploadLogo, uploadFavicon } from "../../api/config";
+import { getAdminConfig, updateAdminConfig, uploadLogo, uploadFavicon, getSmtpConfig, updateSmtpConfig, testSmtpConfig } from "../../api/config";
 import type { TenantConfig } from "../../api/config";
 
 export default function SettingsPage() {
@@ -21,14 +21,36 @@ export default function SettingsPage() {
   const [isUploadingFavicon, setIsUploadingFavicon] = useState(false);
   const [uploadFaviconError, setUploadFaviconError] = useState("");
 
+  // SMTP state
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUsername, setSmtpUsername] = useState("");
+  const [smtpFromEmail, setSmtpFromEmail] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpPasswordIsSet, setSmtpPasswordIsSet] = useState(false);
+  const [isSmtpUnconfigured, setIsSmtpUnconfigured] = useState(false);
+  const [isSmtpSaving, setIsSmtpSaving] = useState(false);
+  const [smtpSaveSuccess, setSmtpSaveSuccess] = useState(false);
+  const [smtpSaveError, setSmtpSaveError] = useState("");
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [smtpTestResult, setSmtpTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
   useEffect(() => {
-    getAdminConfig()
-      .then((data: TenantConfig) => {
-        setAppName(data.app_name);
-        setLogoUrl(data.logo_url);
-        setFaviconUrl(data.favicon_url);
-        setPrimaryColour(data.primary_colour);
-        setSupportEmail(data.support_email);
+    Promise.all([getAdminConfig(), getSmtpConfig()])
+      .then(([config, smtp]) => {
+        setAppName(config.app_name);
+        setLogoUrl(config.logo_url);
+        setFaviconUrl(config.favicon_url);
+        setPrimaryColour(config.primary_colour);
+        setSupportEmail(config.support_email);
+
+        setSmtpHost(smtp.smtp_host);
+        setSmtpPort(smtp.smtp_port);
+        setSmtpUsername(smtp.smtp_username);
+        setSmtpFromEmail(smtp.smtp_from_email);
+        setSmtpPasswordIsSet(smtp.password_is_set);
+        const isUnconfigured = !smtp.smtp_host || !smtp.smtp_username || !smtp.smtp_from_email || !smtp.password_is_set;
+        setIsSmtpUnconfigured(isUnconfigured);
       })
       .catch(() => {
         setSaveError("Failed to load settings.");
@@ -67,6 +89,51 @@ export default function SettingsPage() {
       setUploadFaviconError(message);
     } finally {
       setIsUploadingFavicon(false);
+    }
+  }
+
+  async function handleSmtpSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSmtpSaveError("");
+    setSmtpSaveSuccess(false);
+    setSmtpTestResult(null);
+    setIsSmtpSaving(true);
+    try {
+      const payload: Parameters<typeof updateSmtpConfig>[0] = {
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_username: smtpUsername,
+        smtp_from_email: smtpFromEmail,
+      };
+      if (smtpPassword) {
+        payload.smtp_password = smtpPassword;
+      }
+      const updated = await updateSmtpConfig(payload);
+      setSmtpPasswordIsSet(updated.password_is_set);
+      setSmtpPassword("");
+      const isUnconfigured = !updated.smtp_host || !updated.smtp_username || !updated.smtp_from_email || !updated.password_is_set;
+      setIsSmtpUnconfigured(isUnconfigured);
+      setSmtpSaveSuccess(true);
+      setTimeout(() => setSmtpSaveSuccess(false), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save SMTP settings.";
+      setSmtpSaveError(message);
+    } finally {
+      setIsSmtpSaving(false);
+    }
+  }
+
+  async function handleSmtpTest() {
+    setSmtpTestResult(null);
+    setIsTestingSmtp(true);
+    try {
+      await testSmtpConfig();
+      setSmtpTestResult({ ok: true, message: `Test email sent to ${smtpFromEmail}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Test email failed.";
+      setSmtpTestResult({ ok: false, message });
+    } finally {
+      setIsTestingSmtp(false);
     }
   }
 
@@ -235,9 +302,131 @@ export default function SettingsPage() {
               type="submit"
               className="btn btn--primary"
               disabled={isSaving}
+              data-testid="branding-save-btn"
             >
               {isSaving ? "Saving…" : "Save"}
             </button>
+          </form>
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <div className="admin-card__header">
+          <p className="admin-card__title">Mail Server</p>
+        </div>
+        <div className="admin-card__body">
+          {isSmtpUnconfigured && (
+            <div
+              className="notice notice--warning"
+              role="alert"
+              style={{ marginBottom: 16 }}
+            >
+              Mail server is not configured — emails will not be sent until SMTP settings are saved.
+            </div>
+          )}
+          <form onSubmit={(e) => { void handleSmtpSubmit(e); }} className="admin-form">
+            <div className="field">
+              <label className="field__label" htmlFor="smtp-host">Host</label>
+              <input
+                id="smtp-host"
+                className="field__input"
+                type="text"
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                required
+                placeholder="smtp.example.com"
+              />
+            </div>
+
+            <div className="field">
+              <label className="field__label" htmlFor="smtp-port">Port</label>
+              <input
+                id="smtp-port"
+                className="field__input"
+                type="number"
+                min={1}
+                max={65535}
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(Number(e.target.value))}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label className="field__label" htmlFor="smtp-username">Username</label>
+              <input
+                id="smtp-username"
+                className="field__input"
+                type="text"
+                value={smtpUsername}
+                onChange={(e) => setSmtpUsername(e.target.value)}
+                required
+                placeholder="user@example.com"
+              />
+            </div>
+
+            <div className="field">
+              <label className="field__label" htmlFor="smtp-from-email">From email address</label>
+              <input
+                id="smtp-from-email"
+                className="field__input"
+                type="email"
+                value={smtpFromEmail}
+                onChange={(e) => setSmtpFromEmail(e.target.value)}
+                required
+                placeholder="noreply@example.com"
+              />
+            </div>
+
+            <div className="field">
+              <label className="field__label" htmlFor="smtp-password">Password</label>
+              <input
+                id="smtp-password"
+                className="field__input"
+                type="password"
+                value={smtpPassword}
+                onChange={(e) => setSmtpPassword(e.target.value)}
+                placeholder={smtpPasswordIsSet ? "Enter new password to change" : "Enter password"}
+                autoComplete="new-password"
+              />
+            </div>
+
+            {smtpSaveSuccess && (
+              <p style={{ color: "var(--green)", marginBottom: 12 }}>SMTP settings saved.</p>
+            )}
+            {smtpSaveError && (
+              <p className="field__error" style={{ marginBottom: 12 }}>{smtpSaveError}</p>
+            )}
+
+            {smtpTestResult && (
+              <p
+                style={{
+                  color: smtpTestResult.ok ? "var(--green)" : "var(--red)",
+                  marginBottom: 12,
+                }}
+                role="status"
+              >
+                {smtpTestResult.message}
+              </p>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={isSmtpSaving}
+              >
+                {isSmtpSaving ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                disabled={isTestingSmtp || isSmtpUnconfigured}
+                onClick={() => { void handleSmtpTest(); }}
+              >
+                {isTestingSmtp ? "Sending…" : "Send test email"}
+              </button>
+            </div>
           </form>
         </div>
       </div>
