@@ -5,7 +5,7 @@
  * Step 2: Enter votes per motion for each selected lot.
  * On submit: POST /api/admin/general-meetings/{id}/enter-votes
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   listLotOwners,
@@ -60,14 +60,50 @@ interface ConfirmDialogProps {
 }
 
 function ConfirmDialog({ lotCount, motionCount, onConfirm, onCancel }: ConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // RR4-15: initial focus on Cancel (safer default for destructive confirmation)
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    cancelButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onCancel();
+        return;
+      }
+      // RR4-15: focus trap — cycle Tab/Shift+Tab within the dialog
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onCancel]);
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
@@ -100,7 +136,7 @@ function ConfirmDialog({ lotCount, motionCount, onConfirm, onCancel }: ConfirmDi
           Submitting votes for {lotCount} lot(s) across {motionCount} motion(s). This cannot be undone.
         </p>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="btn btn--secondary" onClick={onCancel}>
+          <button ref={cancelButtonRef} type="button" className="btn btn--secondary" onClick={onCancel}>
             Cancel
           </button>
           <button type="button" className="btn btn--primary" onClick={onConfirm}>
@@ -111,6 +147,74 @@ function ConfirmDialog({ lotCount, motionCount, onConfirm, onCancel }: ConfirmDi
     </div>
   );
 }
+
+// RR4-11: Memoized per-lot binary vote cell so only the affected lot re-renders
+// when a vote choice changes.
+interface LotBinaryVoteCellProps {
+  lotId: string;
+  lotNumber: string;
+  motionId: string;
+  motionTitle: string;
+  currentChoice: VoteChoice | undefined;
+  onSetChoice: (lotId: string, motionId: string, choice: VoteChoice) => void;
+}
+
+const LotBinaryVoteCell = memo(function LotBinaryVoteCell({
+  lotId,
+  lotNumber,
+  motionId,
+  motionTitle,
+  currentChoice,
+  onSetChoice,
+}: LotBinaryVoteCellProps) {
+  return (
+    <td key={lotId} style={{ textAlign: "center" }}>
+      <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+        {(["yes", "no", "abstained"] as VoteChoice[]).map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            onClick={() => onSetChoice(lotId, motionId, choice)}
+            aria-label={`${choice} for lot ${lotNumber} motion ${motionTitle}`}
+            aria-pressed={currentChoice === choice}
+            style={{
+              padding: "3px 8px",
+              fontSize: "0.7rem",
+              fontWeight: currentChoice === choice ? 700 : 400,
+              borderRadius: "var(--r-sm)",
+              border: "1px solid",
+              cursor: "pointer",
+              background:
+                currentChoice === choice
+                  ? choice === "yes"
+                    ? "var(--green)"
+                    : choice === "no"
+                    ? "var(--red)"
+                    : "var(--text-muted)"
+                  : "var(--white)",
+              color:
+                currentChoice === choice
+                  ? "var(--white)"
+                  : choice === "yes"
+                  ? "var(--green)"
+                  : choice === "no"
+                  ? "var(--red)"
+                  : "var(--text-muted)",
+              borderColor:
+                choice === "yes"
+                  ? "var(--green)"
+                  : choice === "no"
+                  ? "var(--red)"
+                  : "var(--border)",
+            }}
+          >
+            {choice === "yes" ? "For" : choice === "no" ? "Against" : "Abstain"}
+          </button>
+        ))}
+      </div>
+    </td>
+  );
+});
 
 export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: AdminVoteEntryPanelProps) {
   const [step, setStep] = useState<1 | 2>(1);
@@ -448,14 +552,14 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
             <table className="admin-table" style={{ minWidth: 400 }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 200 }}>Motion</th>
+                  <th scope="col" style={{ minWidth: 200 }}>Motion</th>
                   {selectedLotsArr.map((lo) => {
                     const allAnswered = isLotAnswered(
                       lotVotes[lo.id] ?? initialLotVotes(),
                       visibleMotions
                     );
                     return (
-                      <th key={lo.id} style={{ minWidth: 140, textAlign: "center" }}>
+                      <th key={lo.id} scope="col" style={{ minWidth: 140, textAlign: "center" }}>
                         <div>Lot {lo.lot_number}</div>
                         {allAnswered && (
                           <span
@@ -612,54 +716,18 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                         );
                       }
 
-                      // Binary motion
+                      // Binary motion — use memoized LotBinaryVoteCell (RR4-11)
                       const currentChoice = votes_data.choices[motion.id];
                       return (
-                        <td key={lo.id} style={{ textAlign: "center" }}>
-                          <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
-                            {(["yes", "no", "abstained"] as VoteChoice[]).map((choice) => (
-                              <button
-                                key={choice}
-                                type="button"
-                                onClick={() => setChoice(lo.id, motion.id, choice)}
-                                aria-label={`${choice} for lot ${lo.lot_number} motion ${motion.title}`}
-                                aria-pressed={currentChoice === choice}
-                                style={{
-                                  padding: "3px 8px",
-                                  fontSize: "0.7rem",
-                                  fontWeight: currentChoice === choice ? 700 : 400,
-                                  borderRadius: "var(--r-sm)",
-                                  border: "1px solid",
-                                  cursor: "pointer",
-                                  background:
-                                    currentChoice === choice
-                                      ? choice === "yes"
-                                        ? "var(--green)"
-                                        : choice === "no"
-                                        ? "var(--red)"
-                                        : "var(--text-muted)"
-                                      : "var(--white)",
-                                  color:
-                                    currentChoice === choice
-                                      ? "var(--white)"
-                                      : choice === "yes"
-                                      ? "var(--green)"
-                                      : choice === "no"
-                                      ? "var(--red)"
-                                      : "var(--text-muted)",
-                                  borderColor:
-                                    choice === "yes"
-                                      ? "var(--green)"
-                                      : choice === "no"
-                                      ? "var(--red)"
-                                      : "var(--border)",
-                                }}
-                              >
-                                {choice === "yes" ? "For" : choice === "no" ? "Against" : "Abstain"}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
+                        <LotBinaryVoteCell
+                          key={lo.id}
+                          lotId={lo.id}
+                          lotNumber={lo.lot_number}
+                          motionId={motion.id}
+                          motionTitle={motion.title}
+                          currentChoice={currentChoice}
+                          onSetChoice={setChoice}
+                        />
                       );
                     })}
                   </tr>

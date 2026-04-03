@@ -767,4 +767,73 @@ describe("AGMReportView", () => {
     // Double-quotes in the email should be escaped as ""
     expect(csv).toContain('""quoted@example.com"');
   });
+
+  // --- RR4-22: OutcomeBadge uses CSS classes, not inline styles ---
+
+  it("RR4-22: OutcomeBadge for pass uses outcome-badge--pass class, not inline colour styles", () => {
+    const passMotion: MotionDetail = {
+      ...mcMotionFixture,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          {
+            ...mcMotionFixture.tally.options[0],
+            outcome: "pass",
+          },
+          mcMotionFixture.tally.options[1],
+        ],
+      },
+    };
+    render(<AGMReportView motions={[passMotion]} totalEntitlement={500} />);
+    const badge = screen.getByLabelText("Outcome: Pass");
+    expect(badge).toHaveClass("outcome-badge--pass");
+    expect(badge).toHaveClass("outcome-badge");
+    // Must NOT have inline colour styles
+    expect(badge.getAttribute("style")).toBeFalsy();
+  });
+
+  it("RR4-22: OutcomeBadge for fail uses outcome-badge--fail class, not inline colour styles", () => {
+    const failMotion: MotionDetail = {
+      ...mcMotionFixture,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          {
+            ...mcMotionFixture.tally.options[0],
+            outcome: "fail",
+          },
+          mcMotionFixture.tally.options[1],
+        ],
+      },
+    };
+    render(<AGMReportView motions={[failMotion]} totalEntitlement={500} />);
+    const badge = screen.getByLabelText("Outcome: Fail");
+    expect(badge).toHaveClass("outcome-badge--fail");
+    expect(badge.getAttribute("style")).toBeFalsy();
+  });
+
+  it("RR4-22: OutcomeBadge for tie uses outcome-badge--tie class, not inline colour styles", () => {
+    const tieMotion: MotionDetail = {
+      ...mcMotionFixture,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          {
+            ...mcMotionFixture.tally.options[0],
+            outcome: "tie",
+          },
+          mcMotionFixture.tally.options[1],
+        ],
+      },
+    };
+    render(<AGMReportView motions={[tieMotion]} totalEntitlement={500} />);
+    const badge = screen.getByLabelText("Outcome: Tie — admin review required");
+    expect(badge).toHaveClass("outcome-badge--tie");
+    expect(badge.getAttribute("style")).toBeFalsy();
+  });
+
+  it("RR4-22: OutcomeBadge renders nothing when outcome is null", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} totalEntitlement={500} />);
+    expect(screen.queryByLabelText(/Outcome:/i)).not.toBeInTheDocument();
+  });
 });

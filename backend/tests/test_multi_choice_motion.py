@@ -1203,6 +1203,57 @@ class TestSubmitBallotMultiChoice:
         )
         assert resp.status_code == 400
 
+    async def test_submit_duplicate_option_ids_returns_422(
+        self,
+        client: AsyncClient,
+        mc_meeting: dict,
+        db_session: AsyncSession,
+        mc_building: Building,
+    ):
+        """RR4-12: Submitting multi_choice_votes with duplicate option_ids returns 422."""
+        meeting_id = uuid.UUID(mc_meeting["id"])
+
+        lots_result = await db_session.execute(
+            select(LotOwner).where(LotOwner.building_id == mc_building.id).limit(1)
+        )
+        lot = lots_result.scalars().first()
+        emails_result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+        )
+        email = emails_result.scalars().first()
+        token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
+
+        # Get a valid option_id from the meeting
+        motions_resp = await client.get(
+            f"/api/general-meeting/{meeting_id}/motions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert motions_resp.status_code == 200
+        mc_motion = next(m for m in motions_resp.json() if m.get("is_multi_choice"))
+        opt_id = mc_motion["options"][0]["id"]
+
+        # Submit the same option_id twice — should be rejected with 422
+        payload = {
+            "lot_owner_ids": [str(lot.id)],
+            "votes": [],
+            "multi_choice_votes": [
+                {
+                    "motion_id": mc_motion["id"],
+                    "option_choices": [
+                        {"option_id": opt_id, "choice": "for"},
+                        {"option_id": opt_id, "choice": "against"},  # duplicate!
+                    ],
+                }
+            ],
+        }
+        resp = await client.post(
+            f"/api/general-meeting/{meeting_id}/submit",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+        assert "Duplicate option IDs" in resp.json()["detail"]
+
     # --- State tests ---
 
     async def test_in_arrear_lot_gets_not_eligible_on_mc_motion(

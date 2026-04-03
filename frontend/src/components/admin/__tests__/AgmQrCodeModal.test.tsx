@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import AgmQrCodeModal from "../AgmQrCodeModal";
 
 type MockProps = React.HTMLAttributes<HTMLCanvasElement> & {
@@ -100,5 +100,47 @@ describe("AgmQrCodeModal", () => {
   it("passes logoUrl to AgmQrCode — imageSettings absent when logoUrl is null", () => {
     render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
     expect(screen.getByTestId("qr-canvas")).toHaveAttribute("data-has-image", "false");
+  });
+
+  // --- RR4-14: focus trap and initial focus management ---
+
+  it("RR4-14: initial focus is moved to the close button when modal opens", () => {
+    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    const closeBtn = screen.getByRole("button", { name: "Close" });
+    expect(document.activeElement).toBe(closeBtn);
+  });
+
+  it("RR4-14: Tab key wraps focus from last to first focusable element", () => {
+    render(<AgmQrCodeModal agmId="agm-focus-trap" logoUrl={null} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog");
+    // Focus the last button (Print)
+    const printBtn = screen.getByRole("button", { name: "Print" });
+    act(() => { printBtn.focus(); });
+    expect(document.activeElement).toBe(printBtn);
+    // Tab from last element should wrap to first (Close button)
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: false });
+    const closeBtn = screen.getByRole("button", { name: "Close" });
+    expect(document.activeElement).toBe(closeBtn);
+    void dialog; // referenced to confirm it exists
+  });
+
+  it("RR4-14: Shift+Tab from first focusable wraps to last focusable element", () => {
+    render(<AgmQrCodeModal agmId="agm-focus-trap" logoUrl={null} onClose={onClose} />);
+    const closeBtn = screen.getByRole("button", { name: "Close" });
+    act(() => { closeBtn.focus(); });
+    expect(document.activeElement).toBe(closeBtn);
+    // Shift+Tab from first element should wrap to last (Print button)
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    const printBtn = screen.getByRole("button", { name: "Print" });
+    expect(document.activeElement).toBe(printBtn);
+  });
+
+  // --- RR4-30: no inline <style> injection ---
+
+  it("RR4-30: does not inject an inline <style> element", () => {
+    const { container } = render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    // The component itself should not render a <style> tag
+    const styleTag = container.querySelector("style");
+    expect(styleTag).not.toBeInTheDocument();
   });
 });

@@ -75,6 +75,25 @@ export function VotingPage() {
     }
   }, [meetingId]);
 
+  // RR4-13: Restore multiChoiceSelections from sessionStorage on mount.
+  // This runs after initial render and only seeds state that has not yet been
+  // set by the motions-based seeding effect (which runs later when motions load).
+  // Using a useEffect (rather than a lazy useState initializer) so that the
+  // restore does not interfere with server-seeded selections from already-voted motions.
+  useEffect(() => {
+    if (!meetingId) return;
+    try {
+      const raw = sessionStorage.getItem(`meeting_mc_selections_${meetingId}`);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as Record<string, OptionChoiceMap>;
+      // Merge stored selections with any existing state; existing state takes priority
+      // so that server-seeded choices (from the motions effect) are not overwritten.
+      setMultiChoiceSelections((prev) => ({ ...stored, ...prev }));
+    } catch {
+      // ignore parse errors — stale or corrupted sessionStorage is acceptable
+    }
+  }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // On every VotingPage mount: call restoreSession via the HttpOnly agm_session cookie
   // to get server-authoritative voted_motion_ids from the DB. This ensures that:
   // - voted_motion_ids is not stale from a previous session
@@ -413,8 +432,15 @@ export function VotingPage() {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
 
-  const handleMultiChoiceChange = (motionId: string, choices: OptionChoiceMap) => {
-    setMultiChoiceSelections((prev) => ({ ...prev, [motionId]: choices }));
+  const handleMultiChoiceChange = (motionId: string, newChoices: OptionChoiceMap) => {
+    setMultiChoiceSelections((prev) => {
+      const next = { ...prev, [motionId]: newChoices };
+      // RR4-13: persist to sessionStorage on every update so state survives page refresh
+      if (meetingId) {
+        sessionStorage.setItem(`meeting_mc_selections_${meetingId}`, JSON.stringify(next));
+      }
+      return next;
+    });
   };
 
   // A motion is "individually closed" when voting_closed_at is set and the voter

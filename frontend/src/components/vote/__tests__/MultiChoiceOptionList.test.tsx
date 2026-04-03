@@ -123,7 +123,7 @@ describe("MultiChoiceOptionList", () => {
     expect(onChoiceChange).toHaveBeenCalledWith("mot-mc-001", {});
   });
 
-  it("For buttons remain enabled even when option_limit is reached (limit is for tally only)", () => {
+  it("RR4-35: For button is disabled for unselected options when option_limit is reached", () => {
     render(
       <MultiChoiceOptionList
         motion={mcMotion}
@@ -132,10 +132,52 @@ describe("MultiChoiceOptionList", () => {
         disabled={false}
       />
     );
-    // All For buttons remain enabled regardless of how many are selected
-    expect(screen.getByTestId("mc-for-opt-3")).not.toBeDisabled();
+    // opt-3 is not voted For and limit is reached — its For button must be disabled
+    expect(screen.getByTestId("mc-for-opt-3")).toBeDisabled();
+    // opt-1 and opt-2 are already voted For — their For buttons remain enabled (deselect toggle)
     expect(screen.getByTestId("mc-for-opt-1")).not.toBeDisabled();
     expect(screen.getByTestId("mc-for-opt-2")).not.toBeDisabled();
+  });
+
+  it("RR4-35: aria-describedby is set on disabled For buttons when limit is reached", () => {
+    render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        optionChoices={{ "opt-1": "for", "opt-2": "for" }}
+        onChoiceChange={() => {}}
+        disabled={false}
+      />
+    );
+    const forOpt3 = screen.getByTestId("mc-for-opt-3");
+    expect(forOpt3).toHaveAttribute("aria-describedby");
+    const describedById = forOpt3.getAttribute("aria-describedby")!;
+    const descEl = document.getElementById(describedById);
+    expect(descEl).toBeInTheDocument();
+    expect(descEl?.textContent).toMatch(/Maximum selections reached/i);
+  });
+
+  it("RR4-35: Maximum selections reached message is visible in DOM when limit is reached", () => {
+    render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        optionChoices={{ "opt-1": "for", "opt-2": "for" }}
+        onChoiceChange={() => {}}
+        disabled={false}
+      />
+    );
+    expect(screen.getByText(/Maximum selections reached/i)).toBeInTheDocument();
+  });
+
+  it("RR4-35: Maximum selections reached message is absent when limit not reached", () => {
+    render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        optionChoices={{ "opt-1": "for" }}
+        onChoiceChange={() => {}}
+        disabled={false}
+      />
+    );
+    expect(screen.queryByText(/Maximum selections reached/i)).not.toBeInTheDocument();
   });
 
   it("does not disable Against/Abstain buttons when limit is reached", () => {
@@ -149,6 +191,21 @@ describe("MultiChoiceOptionList", () => {
     );
     expect(screen.getByTestId("mc-against-opt-3")).not.toBeDisabled();
     expect(screen.getByTestId("mc-abstain-opt-3")).not.toBeDisabled();
+  });
+
+  it("RR4-35: does not call onChoiceChange when For is clicked on limit-reached unselected option", async () => {
+    const user = userEvent.setup();
+    const onChoiceChange = vi.fn();
+    render(
+      <MultiChoiceOptionList
+        motion={mcMotion}
+        optionChoices={{ "opt-1": "for", "opt-2": "for" }}
+        onChoiceChange={onChoiceChange}
+        disabled={false}
+      />
+    );
+    await user.click(screen.getByTestId("mc-for-opt-3"));
+    expect(onChoiceChange).not.toHaveBeenCalled();
   });
 
   it("counter shows singular 'option' for option_limit=1", () => {

@@ -299,7 +299,7 @@ function EditModal({
             </button>
           </div>
           {emailError && (
-            <p className="field__error" style={{ marginTop: 6 }}>
+            <p className="field__error" style={{ marginTop: 6 }} role="alert">
               {emailError}
             </p>
           )}
@@ -345,7 +345,7 @@ function EditModal({
             </div>
           )}
           {proxyError && (
-            <p className="field__error" style={{ marginTop: 6 }}>{proxyError}</p>
+            <p className="field__error" style={{ marginTop: 6 }} role="alert">{proxyError}</p>
           )}
         </div>
 
@@ -357,7 +357,7 @@ function EditModal({
           </p>
           <div className="field">
             <label className="field__label" htmlFor="edit-given-name">
-              Given Name
+              Given Name (optional)
             </label>
             <input
               id="edit-given-name"
@@ -370,7 +370,7 @@ function EditModal({
 
           <div className="field">
             <label className="field__label" htmlFor="edit-surname">
-              Surname
+              Surname (optional)
             </label>
             <input
               id="edit-surname"
@@ -412,7 +412,7 @@ function EditModal({
           </div>
 
           {formError && (
-            <p className="field__error" style={{ marginBottom: 12 }}>
+            <p className="field__error" style={{ marginBottom: 12 }} role="alert">
               {formError}
             </p>
           )}
@@ -570,7 +570,7 @@ function AddForm({
 
           <div className="field">
             <label className="field__label" htmlFor="add-given-name">
-              Given Name
+              Given Name (optional)
             </label>
             <input
               id="add-given-name"
@@ -583,7 +583,7 @@ function AddForm({
 
           <div className="field">
             <label className="field__label" htmlFor="add-surname">
-              Surname
+              Surname (optional)
             </label>
             <input
               id="add-surname"
@@ -638,7 +638,7 @@ function AddForm({
           </div>
 
           {formError && (
-            <p className="field__error" style={{ marginBottom: 12 }}>
+            <p className="field__error" style={{ marginBottom: 12 }} role="alert">
               {formError}
             </p>
           )}

@@ -132,9 +132,10 @@ export function ConfirmationPage() {
 
         <div className="vote-summary">
           <p className="vote-summary__heading">Your votes</p>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {isMultiLot
-              ? data.submitted_lots.map((lot) => (
+          {isMultiLot
+            ? (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {data.submitted_lots.map((lot) => (
                   <li key={lot.lot_owner_id} style={{ marginBottom: "12px" }}>
                     <p style={{ fontWeight: 600, marginBottom: "4px" }}>Lot {lot.lot_number}</p>
                     {renderSubmitterInfo(lot)}
@@ -149,10 +150,14 @@ export function ConfirmationPage() {
                       ))}
                     </ul>
                   </li>
-                ))
-              : (
-                <>
-                  {data.submitted_lots.length === 1 && renderSubmitterInfo(data.submitted_lots[0])}
+                ))}
+              </ul>
+            )
+            : (
+              <>
+                {data.submitted_lots.length === 1 && renderSubmitterInfo(data.submitted_lots[0])}
+                {/* RR4-37: wrap <li> elements in a <ul> to ensure valid semantic HTML */}
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                   {sortedVotes.map((v) => (
                     <li className="vote-item" key={v.motion_id}>
                       <span className="vote-item__motion">Motion {v.motion_number?.trim() || v.display_order}. {v.motion_title}</span>
@@ -161,9 +166,10 @@ export function ConfirmationPage() {
                       </span>
                     </li>
                   ))}
-                </>
-              )}
-          </ul>
+                </ul>
+              </>
+            )
+          }
         </div>
 
         <div className="submit-section" style={{ borderTop: "none", marginTop: "24px", paddingTop: "0" }}>

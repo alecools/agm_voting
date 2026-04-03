@@ -83,4 +83,16 @@ describe("App", () => {
       expect(screen.getByTestId("auth-page")).toBeInTheDocument();
     });
   });
+
+  // --- RR4-38: VoteMeetingRedirect useNavigate is called at top-level ---
+  it("RR4-38: VoteMeetingRedirect redirects without crashing (useNavigate at top level)", async () => {
+    // This test verifies that VoteMeetingRedirect does not conditionally call useNavigate.
+    // React's Rules of Hooks enforcement would throw if useNavigate() were inside a condition or callback.
+    // The successful render + redirect proves the hook is called correctly.
+    renderApp("/vote/test-meeting-id");
+    await waitFor(() => {
+      // Should redirect to auth page
+      expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+    });
+  });
 });

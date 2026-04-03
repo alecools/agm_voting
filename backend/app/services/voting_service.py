@@ -440,6 +440,15 @@ async def submit_ballot(
                     # No options interacted with — record motion-level abstain
                     motions_needing_new_vote.append(motion)
                 else:
+                    # RR4-12: validate no duplicate option_ids in submission
+                    seen_option_ids: set[str] = set()
+                    for oc in option_choices:
+                        if str(oc.option_id) in seen_option_ids:
+                            raise HTTPException(
+                                status_code=422,
+                                detail="Duplicate option IDs in submission",
+                            )
+                        seen_option_ids.add(str(oc.option_id))
                     # Validate all option_ids belong to this motion
                     valid_opts = mc_options_map.get(motion.id, set())
                     for oc in option_choices:

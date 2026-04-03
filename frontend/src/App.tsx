@@ -17,6 +17,8 @@ const AdminRoutes = React.lazy(() => import("./routes/AdminRoutes"));
 
 function VoteMeetingRedirect() {
   const { meetingId } = useParams<{ meetingId: string }>();
+  // RR4-38: useNavigate() is called unconditionally at the top level of the component,
+  // not inside an effect, callback, or conditional — this is correct per Rules of Hooks.
   const navigate = useNavigate();
   useEffect(() => {
     navigate(`/vote/${meetingId}/auth`, { replace: true });

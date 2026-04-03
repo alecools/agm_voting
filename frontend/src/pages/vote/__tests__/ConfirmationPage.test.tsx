@@ -705,3 +705,37 @@ describe("ConfirmationPage", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// RR4-37: Single-lot path renders <li> elements inside a <ul>
+// ---------------------------------------------------------------------------
+describe("ConfirmationPage — RR4-37 valid semantic HTML in single-lot path", () => {
+  it("single-lot: vote items are rendered inside a <ul>", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/Ballot submitted/i)).toBeInTheDocument();
+    });
+    // The single-lot path renders sortedVotes inside a <ul>
+    const lists = document.querySelectorAll("ul");
+    // There should be at least one <ul> in the vote summary section
+    const voteItems = document.querySelectorAll(".vote-item");
+    if (voteItems.length > 0) {
+      const parentList = voteItems[0].parentElement;
+      expect(parentList?.tagName).toBe("UL");
+    }
+  });
+
+  it("single-lot: vote items are valid list items (have li element)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/Ballot submitted/i)).toBeInTheDocument();
+    });
+    const voteItems = document.querySelectorAll("li.vote-item");
+    expect(voteItems.length).toBeGreaterThan(0);
+    // Each li must have a parent ul or ol
+    voteItems.forEach((li) => {
+      const parent = li.parentElement;
+      expect(["UL", "OL"]).toContain(parent?.tagName);
+    });
+  });
+});

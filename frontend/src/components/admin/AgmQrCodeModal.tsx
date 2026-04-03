@@ -9,10 +9,42 @@ interface AgmQrCodeModalProps {
 
 export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeModalProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // RR4-14: move initial focus to close button when modal opens
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // RR4-14: focus trap — cycle Tab/Shift+Tab within the dialog
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
@@ -34,6 +66,7 @@ export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeMod
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="QR Code"
@@ -63,7 +96,9 @@ export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeMod
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
           <h2 style={{ margin: 0, fontSize: "1.125rem" }}>Scan to vote</h2>
+          {/* RR4-14: ref on close button so initial focus can be set */}
           <button
+            ref={closeButtonRef}
             type="button"
             className="btn btn--ghost"
             onClick={onClose}
@@ -84,13 +119,7 @@ export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeMod
           </button>
         </div>
       </div>
-
-      <style>{`
-        @media print {
-          body > *:not(.qr-modal__print-area) { display: none !important; }
-          .qr-modal__print-area { position: static !important; box-shadow: none !important; }
-        }
-      `}</style>
+      {/* RR4-30: print CSS is now in index.css @media print — no inline <style> injection */}
     </div>
   );
 }

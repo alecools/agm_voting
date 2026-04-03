@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -412,6 +412,118 @@ describe("AdminVoteEntryPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // --- RR4-18: scope="col" on table headers ---
+  it("RR4-18: vote grid table headers have scope='col'", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Enter In-Person Votes/i })).toBeInTheDocument();
+    });
+    const headers = document.querySelectorAll("th");
+    headers.forEach((th) => {
+      expect(th).toHaveAttribute("scope", "col");
+    });
+  });
+
+  // --- RR4-15: ConfirmDialog focus trap ---
+  it("RR4-15: ConfirmDialog focuses Cancel button on open", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    // Cancel button should have focus
+    const cancelBtn = screen.getAllByRole("button", { name: "Cancel" })[0];
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
+  it("RR4-15: Escape closes ConfirmDialog", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Submit in-person votes/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("RR4-15: Tab from last button in ConfirmDialog wraps to first", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    // Focus the Confirm button (last in dialog)
+    const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+    const cancelBtns = screen.getAllByRole("button", { name: "Cancel" });
+    const cancelBtn = cancelBtns[cancelBtns.length - 1]; // last Cancel is in ConfirmDialog
+    act(() => { confirmBtn.focus(); });
+    expect(document.activeElement).toBe(confirmBtn);
+    // Tab from last should wrap to Cancel (first)
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: false });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
+  it("RR4-15: Shift+Tab from first button in ConfirmDialog wraps to last", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    // Focus the Cancel button (first in dialog)
+    const cancelBtns = screen.getAllByRole("button", { name: "Cancel" });
+    const cancelBtn = cancelBtns[cancelBtns.length - 1];
+    const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+    act(() => { cancelBtn.focus(); });
+    expect(document.activeElement).toBe(cancelBtn);
+    // Shift+Tab from first should wrap to Confirm (last)
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(confirmBtn);
+  });
+
   it("shows 'all answered' indicator when all motions are voted on", async () => {
     const user = userEvent.setup();
     renderPanel();
@@ -620,5 +732,47 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     const optChoices = body.entries[0].multi_choice_votes[0].option_choices;
     // Only 1 entry (Alice); Bob and Carol omitted
     expect(optChoices.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RR4-11: React.memo on LotBinaryVoteCell prevents full re-render on vote click
+// ---------------------------------------------------------------------------
+describe("AdminVoteEntryPanel — RR4-11 memoized LotBinaryVoteCell", () => {
+  it("clicking one lot's vote button does not affect the other lot's vote state", async () => {
+    // Verify the component structure: clicking one lot's vote does not error
+    // and updates only that lot (behavioural test since render-count tracking
+    // requires React DevTools integration — we verify the correct aria-pressed state
+    // changes only on the clicked lot)
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    // Select both lots so multiple lot columns appear
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByLabelText("Select lot 2B"));
+    await user.click(screen.getByText("Proceed to vote entry (2 lots)"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /for lot/i }).length).toBeGreaterThan(0);
+    });
+
+    // Get all "For" buttons for lot 1A and lot 2B (one per motion)
+    const forLot1Buttons = screen.getAllByRole("button", { name: /for lot 1A/i });
+    const forLot2Buttons = screen.getAllByRole("button", { name: /for lot 2B/i });
+
+    // Use the first button for each lot (first motion)
+    const forLot1Btn = forLot1Buttons[0];
+    const forLot2Btn = forLot2Buttons[0];
+
+    // Initially both are not pressed
+    expect(forLot1Btn).toHaveAttribute("aria-pressed", "false");
+    expect(forLot2Btn).toHaveAttribute("aria-pressed", "false");
+
+    // Click lot 1A's button — only lot 1A should change
+    await user.click(forLot1Btn);
+    expect(forLot1Btn).toHaveAttribute("aria-pressed", "true");
+    // Lot 2B must remain unaffected
+    expect(forLot2Btn).toHaveAttribute("aria-pressed", "false");
   });
 });

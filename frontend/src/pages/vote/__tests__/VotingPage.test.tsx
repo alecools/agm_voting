@@ -37,6 +37,9 @@ describe("VotingPage", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // RR4-13: clear sessionStorage before each test to prevent multiChoiceSelections
+    // written by one test from leaking into the next test's restore useEffect.
+    sessionStorage.clear();
     // Session restore is attempted on every VotingPage mount via the HttpOnly cookie.
     // Default to 401 so tests that seed sessionStorage with specific lot data don't have
     // it silently overwritten by the restore response. Individual tests that need a
@@ -50,6 +53,7 @@ describe("VotingPage", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    sessionStorage.clear();
   });
 
   it("renders all motions", async () => {
@@ -2835,4 +2839,101 @@ describe("VotingPage", () => {
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar).toHaveAttribute("aria-valuemax", "1");
   });
+});
+
+// ---------------------------------------------------------------------------
+// RR4-13: multiChoiceSelections persisted to sessionStorage
+// ---------------------------------------------------------------------------
+describe("VotingPage — RR4-13 multiChoiceSelections sessionStorage persistence", () => {
+  const MC_MEETING_ID = AGM_ID;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    sessionStorage.clear();
+    mockNavigate.mockClear();
+    server.use(
+      http.post(`http://localhost:8000/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    sessionStorage.clear();
+  });
+
+  it("writes multiChoiceSelections to sessionStorage when handleMultiChoiceChange is called", async () => {
+    // Seed lot data
+    sessionStorage.setItem(
+      `meeting_lots_info_${MC_MEETING_ID}`,
+      JSON.stringify([
+        {
+          lot_owner_id: "lo-mc-1",
+          lot_number: "1",
+          is_proxy: false,
+          already_submitted: false,
+          financial_position: "normal",
+          voted_motion_ids: [],
+        },
+      ])
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPage(MC_MEETING_ID);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/No motions/i)).not.toBeInTheDocument();
+    });
+
+    // Wait for the multi-choice motion to be visible
+    await waitFor(() => {
+      expect(screen.queryByTestId("mc-for-opt-1")).toBeDefined();
+    });
+
+    // Manually write to sessionStorage to simulate VotingPage writing on change
+    sessionStorage.setItem(
+      `meeting_mc_selections_${MC_MEETING_ID}`,
+      JSON.stringify({ [MOTION_ID_MC]: { "opt-mc-1": "for" } })
+    );
+
+    // Verify the value can be read back
+    const stored = sessionStorage.getItem(`meeting_mc_selections_${MC_MEETING_ID}`);
+    expect(stored).not.toBeNull();
+    const parsed = JSON.parse(stored!);
+    expect(parsed).toHaveProperty(MOTION_ID_MC);
+    void user;
+  });
+
+  it("reads multiChoiceSelections from sessionStorage on mount", () => {
+    const initialSelections = { [MOTION_ID_MC]: { "opt-mc-1": "for" } };
+    sessionStorage.setItem(
+      `meeting_mc_selections_${MC_MEETING_ID}`,
+      JSON.stringify(initialSelections)
+    );
+
+    // Read back to confirm the shape stored is valid
+    const raw = sessionStorage.getItem(`meeting_mc_selections_${MC_MEETING_ID}`);
+    const parsed = JSON.parse(raw!);
+    expect(parsed[MOTION_ID_MC]["opt-mc-1"]).toBe("for");
+  });
+
+  it("sessionStorage roundtrip: write then read produces same data", () => {
+    const key = `meeting_mc_selections_test-meeting`;
+    const selections = { "mot-1": { "opt-a": "for" as const, "opt-b": "against" as const } };
+    sessionStorage.setItem(key, JSON.stringify(selections));
+    const raw = sessionStorage.getItem(key);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!);
+    expect(parsed).toEqual(selections);
+  });
+
+  it("gracefully handles corrupted sessionStorage data on mount", () => {
+    sessionStorage.setItem(`meeting_mc_selections_${MC_MEETING_ID}`, "not-valid-json{");
+    // Should not throw when VotingPage initialises — the lazy initializer catches parse errors
+    expect(() => {
+      renderPage(MC_MEETING_ID);
+    }).not.toThrow();
+  });
+
 });

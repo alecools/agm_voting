@@ -826,3 +826,94 @@ describe("removeLotOwnerProxy API function", () => {
     await expect(removeLotOwnerProxy("lo1")).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// RR4-25: Error messages have role="alert"
+// ---------------------------------------------------------------------------
+describe("LotOwnerForm - RR4-25 error messages have role=alert", () => {
+  it("email error in EditModal has role=alert", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    // Type invalid email into add-email input
+    await user.type(screen.getByLabelText("Add email"), "not-an-email");
+    await user.click(screen.getByRole("button", { name: "Add email" }));
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveClass("field__error");
+    });
+  });
+
+  it("proxy error in EditModal has role=alert", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.type(screen.getByLabelText("Set proxy email"), "bad-email");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      const alerts = screen.getAllByRole("alert");
+      const proxyAlert = alerts.find((el) => el.textContent?.includes("valid email"));
+      expect(proxyAlert).toBeDefined();
+    });
+  });
+
+  it("formError in EditModal has role=alert when no changes detected", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    // Submit without changing anything
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toMatch(/No changes detected/i);
+    });
+  });
+
+  it("formError in AddForm has role=alert when lot number is empty", async () => {
+    const user = userEvent.setup();
+    renderAddForm();
+    await user.clear(screen.getByLabelText("Unit Entitlement"));
+    await user.type(screen.getByLabelText("Unit Entitlement"), "100");
+    await user.click(screen.getByRole("button", { name: "Add Lot Owner" }));
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toMatch(/Lot number is required/i);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RR4-36: Optional given_name/surname fields have "(optional)" label
+// ---------------------------------------------------------------------------
+describe("LotOwnerForm - RR4-36 optional field labels", () => {
+  it("Given Name label in EditModal contains '(optional)'", () => {
+    renderEditForm(existingLotOwner);
+    const label = screen.getByLabelText(/Given Name/i);
+    expect(label).toBeInTheDocument();
+    const labelEl = document.querySelector('label[for="edit-given-name"]');
+    expect(labelEl?.textContent).toContain("(optional)");
+  });
+
+  it("Surname label in EditModal contains '(optional)'", () => {
+    renderEditForm(existingLotOwner);
+    const labelEl = document.querySelector('label[for="edit-surname"]');
+    expect(labelEl?.textContent).toContain("(optional)");
+  });
+
+  it("Given Name label in AddForm contains '(optional)'", () => {
+    renderAddForm();
+    const labelEl = document.querySelector('label[for="add-given-name"]');
+    expect(labelEl?.textContent).toContain("(optional)");
+  });
+
+  it("Surname label in AddForm contains '(optional)'", () => {
+    renderAddForm();
+    const labelEl = document.querySelector('label[for="add-surname"]');
+    expect(labelEl?.textContent).toContain("(optional)");
+  });
+
+  it("'(optional)' text is accessible (not aria-hidden)", () => {
+    renderEditForm(existingLotOwner);
+    const labelEl = document.querySelector('label[for="edit-given-name"]');
+    // The label element itself should not have aria-hidden
+    expect(labelEl).not.toHaveAttribute("aria-hidden");
+  });
+});
