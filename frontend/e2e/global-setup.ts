@@ -204,7 +204,7 @@ export default async function globalSetup(_config: FullConfig) {
   // Lambda instances concurrently — a warmup against one endpoint does not
   // guarantee other endpoints on other instances are ready. We therefore retry
   // each seeding step individually using a shared helper.
-  const retryGet = async (url: string, maxAttempts = 5): Promise<Awaited<ReturnType<typeof api.get>>> => {
+  const retryGet = async (url: string, maxAttempts = 10): Promise<Awaited<ReturnType<typeof api.get>>> => {
     let lastErr: unknown;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -215,7 +215,7 @@ export default async function globalSetup(_config: FullConfig) {
       } catch (err) {
         lastErr = err;
       }
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 5000));
     }
     throw new Error(`${url} did not return 200 after ${maxAttempts} attempts. Last error: ${lastErr}`);
   };
@@ -402,6 +402,23 @@ export default async function globalSetup(_config: FullConfig) {
         ],
       },
     });
+  }
+
+  // Warm up the Lambda before seeding
+  console.log('[global-setup] Warming up Lambda...');
+  const warmupMaxAttempts = 10;
+  const warmupDelay = 5000;
+  for (let i = 0; i < warmupMaxAttempts; i++) {
+    try {
+      const res = await api.get(`${baseURL}/api/health`, { timeout: 15000 });
+      if (res.ok()) {
+        console.log('[global-setup] Lambda ready');
+        break;
+      }
+    } catch {}
+    if (i < warmupMaxAttempts - 1) {
+      await new Promise(r => setTimeout(r, warmupDelay));
+    }
   }
 
   // Seed voting building first, then admin building.
