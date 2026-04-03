@@ -3243,14 +3243,12 @@ async def enter_votes_for_meeting(
     # Load multi-choice options for validation
     mc_motion_ids = [m.id for m in visible_motions if m.is_multi_choice]
     mc_options_map: dict[uuid.UUID, set[uuid.UUID]] = {}
-    mc_motion_map: dict[uuid.UUID, Motion] = {}
     if mc_motion_ids:
         opts_result = await db.execute(
             select(MotionOption).where(MotionOption.motion_id.in_(mc_motion_ids))
         )
         for opt in opts_result.scalars().all():
             mc_options_map.setdefault(opt.motion_id, set()).add(opt.id)
-        mc_motion_map = {m.id: m for m in visible_motions if m.is_multi_choice}
 
     submitted_count = 0
     skipped_count = 0
@@ -3306,7 +3304,6 @@ async def enter_votes_for_meeting(
                     detail=f"Unknown motion ID {mid}",
                 )
             valid_opts = mc_options_map.get(mid, set())
-            mc_m = mc_motion_map.get(mid)
 
             # New format: option_choices takes precedence over option_ids
             raw_option_choices = mv.get("option_choices") or []
@@ -3335,13 +3332,6 @@ async def enter_votes_for_meeting(
                             detail=f"Invalid choice '{oc.get('choice')}' for option {oid}",
                         )
                     pairs.append((oid, option_choice_map[choice_str]))
-                # Enforce option_limit on "for" choices only
-                for_count = sum(1 for _, c in pairs if c == VoteChoice.selected)
-                if mc_m and mc_m.option_limit is not None and for_count > mc_m.option_limit:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"Selected {for_count} 'for' options but limit is {mc_m.option_limit}",
-                    )
                 mc_lookup[mid] = pairs
             else:
                 # Legacy format: option_ids treated as all "for"
@@ -3355,12 +3345,6 @@ async def enter_votes_for_meeting(
                             status_code=422,
                             detail=f"Invalid option ID {oid} for motion {mid}",
                         )
-                # Validate option_limit (legacy: all are "for")
-                if mc_m and mc_m.option_limit is not None and len(opt_ids) > mc_m.option_limit:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"Selected {len(opt_ids)} options but limit is {mc_m.option_limit}",
-                    )
                 mc_lookup[mid] = [(oid, VoteChoice.selected) for oid in opt_ids]
 
         # Build Vote rows for all visible motions

@@ -123,7 +123,7 @@ describe("MultiChoiceOptionList", () => {
     expect(onChoiceChange).toHaveBeenCalledWith("mot-mc-001", {});
   });
 
-  it("disables For button for unselected options when limit is reached", () => {
+  it("For buttons remain enabled even when option_limit is reached (limit is for tally only)", () => {
     render(
       <MultiChoiceOptionList
         motion={mcMotion}
@@ -132,7 +132,8 @@ describe("MultiChoiceOptionList", () => {
         disabled={false}
       />
     );
-    expect(screen.getByTestId("mc-for-opt-3")).toBeDisabled();
+    // All For buttons remain enabled regardless of how many are selected
+    expect(screen.getByTestId("mc-for-opt-3")).not.toBeDisabled();
     expect(screen.getByTestId("mc-for-opt-1")).not.toBeDisabled();
     expect(screen.getByTestId("mc-for-opt-2")).not.toBeDisabled();
   });

@@ -340,14 +340,12 @@ async def submit_ballot(
     # Load options for all visible multi-choice motions (single query to avoid N+1)
     mc_motion_ids = [m.id for m in visible_motions if m.is_multi_choice]
     mc_options_map: dict[uuid.UUID, set[uuid.UUID]] = {}  # motion_id -> set of valid option ids
-    mc_motion_map: dict[uuid.UUID, Motion] = {}
     if mc_motion_ids:
         opts_result = await db.execute(
             select(MotionOption).where(MotionOption.motion_id.in_(mc_motion_ids))
         )
         for opt in opts_result.scalars().all():
             mc_options_map.setdefault(opt.motion_id, set()).add(opt.id)
-        mc_motion_map = {m.id: m for m in visible_motions if m.is_multi_choice}
 
     mc_votes_map: dict[uuid.UUID, list[MultiChoiceOptionChoice]] = dict(multi_choice_votes) if multi_choice_votes else {}
 
@@ -449,15 +447,6 @@ async def submit_ballot(
                             raise HTTPException(
                                 status_code=400,
                                 detail=f"Invalid option ID {oc.option_id} for motion {motion.id}",
-                            )
-                    # Validate option limit: only "for" choices count toward the limit
-                    for_count = sum(1 for oc in option_choices if oc.choice == "for")
-                    mc_motion = mc_motion_map.get(motion.id)
-                    if mc_motion and mc_motion.option_limit is not None:
-                        if for_count > mc_motion.option_limit:
-                            raise HTTPException(
-                                status_code=422,
-                                detail=f"Selected {for_count} 'for' options but limit is {mc_motion.option_limit}",
                             )
                     # Build one Vote per option_choice (deferred — no db.add yet)
                     for oc in option_choices:

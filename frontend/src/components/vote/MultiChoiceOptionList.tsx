@@ -20,7 +20,6 @@ export function MultiChoiceOptionList({
 }: MultiChoiceOptionListProps) {
   const optionLimit = motion.option_limit ?? motion.options.length;
   const forCount = Object.values(optionChoices).filter((c) => c === "for").length;
-  const limitReached = forCount >= optionLimit;
 
   function handleOptionChoice(optionId: string, choice: "for" | "against" | "abstained") {
     if (disabled || readOnly) return;
@@ -48,8 +47,7 @@ export function MultiChoiceOptionList({
         const isForSelected = currentChoice === "for";
         const isAgainstSelected = currentChoice === "against";
         const isAbstainSelected = currentChoice === "abstained";
-        // "For" is disabled when the limit is reached and this option is not already "For"
-        const isForDisabled = disabled || readOnly || (limitReached && !isForSelected);
+        const isForDisabled = disabled || readOnly;
         const isEffectivelyDisabled = disabled || readOnly;
 
         return (

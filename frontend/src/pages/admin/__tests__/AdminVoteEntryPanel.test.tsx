@@ -489,17 +489,17 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     expect(againstAlice).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("For buttons for unselected options become disabled when option_limit is reached", async () => {
+  it("For buttons remain enabled even when option_limit is reached (limit is for tally only)", async () => {
     const user = await goToStepTwo();
     // option_limit = 2; vote For on Alice and Bob
     await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
     await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
-    // Carol's For button should now be disabled
+    // Carol's For button should still be enabled — unlimited For selections allowed
     const forCarol = screen.getByRole("button", { name: "For option Carol lot 1A" });
-    expect(forCarol).toBeDisabled();
+    expect(forCarol).not.toBeDisabled();
   });
 
-  it("Against button is NOT disabled when For limit is reached", async () => {
+  it("Against button is always enabled regardless of For count", async () => {
     const user = await goToStepTwo();
     await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
     await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
@@ -515,13 +515,14 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     expect(screen.getByText("1 of 2 voted For")).toBeInTheDocument();
   });
 
-  it("already-selected For button remains enabled even at limit (allows deselection)", async () => {
+  it("all For buttons remain enabled regardless of how many are already selected", async () => {
     const user = await goToStepTwo();
     await user.click(screen.getByRole("button", { name: "For option Alice lot 1A" }));
     await user.click(screen.getByRole("button", { name: "For option Bob lot 1A" }));
-    // Alice's For button should still be enabled (already selected, can deselect)
-    const forAlice = screen.getByRole("button", { name: "For option Alice lot 1A" });
-    expect(forAlice).not.toBeDisabled();
+    // All For buttons remain enabled — no cap on For votes
+    expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "For option Bob lot 1A" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "For option Carol lot 1A" })).not.toBeDisabled();
   });
 
   it("submission sends option_choices array (not option_ids)", async () => {

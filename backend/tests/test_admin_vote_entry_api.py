@@ -264,10 +264,10 @@ class TestAdminVoteEntry:
         resp = await client.post(f"/api/admin/general-meetings/{fake_id}/enter-votes", json=payload)
         assert resp.status_code == 404
 
-    async def test_multi_choice_option_limit_enforced(
+    async def test_multi_choice_option_limit_not_enforced_on_for(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Sending options over option_limit returns 422."""
+        """Sending more option_ids than option_limit is now allowed (option_limit is for tally only)."""
         b = make_building("VE MC Limit")
         db_session.add(b)
         await db_session.flush()
@@ -303,6 +303,7 @@ class TestAdminVoteEntry:
         for opt in opts:
             await db_session.refresh(opt)
 
+        # All 3 options as "for" with option_limit=2 — should now succeed
         payload = {
             "entries": [
                 {
@@ -315,7 +316,8 @@ class TestAdminVoteEntry:
             ]
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
 
     async def test_multi_choice_happy_path(
         self, client: AsyncClient, db_session: AsyncSession
@@ -981,40 +983,12 @@ class TestAdminVoteEntrySlice9:
         assert all_votes[0].choice == VoteChoice.selected
         assert all_votes[0].motion_option_id == opts[0].id
 
-    async def test_option_limit_enforced_on_for_only(
+    async def test_for_choices_unlimited_with_option_limit(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """More than option_limit For choices → 422; Against does not count toward limit."""
+        """Voters can select For on more options than option_limit (limit is for tally only)."""
         agm, lo, m, opts = await _setup_mc_meeting(db_session, "LimitFor", option_limit=2, n_options=3)
-        # 3 Against + 2 For (limit=2): should succeed because Against doesn't count
-        payload_ok = {
-            "entries": [
-                {
-                    "lot_owner_id": str(lo.id),
-                    "votes": [],
-                    "multi_choice_votes": [
-                        {
-                            "motion_id": str(m.id),
-                            "option_choices": [
-                                {"option_id": str(opts[0].id), "choice": "for"},
-                                {"option_id": str(opts[1].id), "choice": "for"},
-                                {"option_id": str(opts[2].id), "choice": "against"},
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
-        resp_ok = await client.post(
-            f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload_ok
-        )
-        assert resp_ok.status_code == 200
-
-    async def test_for_exceeds_limit_returns_422(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
-        """Sending more For options than option_limit → 422."""
-        agm, lo, m, opts = await _setup_mc_meeting(db_session, "LimitExceed", option_limit=2, n_options=3)
+        # All 3 For with option_limit=2 — should succeed
         payload = {
             "entries": [
                 {
@@ -1033,8 +1007,11 @@ class TestAdminVoteEntrySlice9:
                 }
             ]
         }
-        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
-        assert resp.status_code == 422
+        resp = await client.post(
+            f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload
+        )
+        assert resp.status_code == 200
+        assert resp.json()["submitted_count"] == 1
 
     async def test_legacy_option_ids_still_works(
         self, client: AsyncClient, db_session: AsyncSession

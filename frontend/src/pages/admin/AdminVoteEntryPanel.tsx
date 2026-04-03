@@ -534,8 +534,6 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                         // US-AVE2-01: per-option For/Against/Abstain buttons
                         const motionChoices = votes_data.multiChoiceChoices[motion.id] ?? {};
                         const forCount = Object.values(motionChoices).filter((c) => c === "for").length;
-                        const atForLimit =
-                          motion.option_limit !== null && forCount >= motion.option_limit;
 
                         return (
                           <td key={lo.id} style={{ verticalAlign: "top", padding: "8px" }}>
@@ -556,8 +554,6 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                     <div style={{ display: "flex", gap: 3 }}>
                                       {(["for", "against", "abstained"] as OptionChoice[]).map((choice) => {
                                         const isActive = currentChoice === choice;
-                                        const isForDisabled =
-                                          choice === "for" && !isActive && atForLimit;
                                         return (
                                           <button
                                             key={choice}
@@ -567,15 +563,13 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                             }
                                             aria-label={`${choice === "for" ? "For" : choice === "against" ? "Against" : "Abstain"} option ${opt.text} lot ${lo.lot_number}`}
                                             aria-pressed={isActive}
-                                            disabled={isForDisabled}
                                             style={{
                                               padding: "2px 6px",
                                               fontSize: "0.65rem",
                                               fontWeight: isActive ? 700 : 400,
                                               borderRadius: "var(--r-sm)",
                                               border: "1px solid",
-                                              cursor: isForDisabled ? "not-allowed" : "pointer",
-                                              opacity: isForDisabled ? 0.4 : 1,
+                                              cursor: "pointer",
                                               background: isActive
                                                 ? choice === "for"
                                                   ? "var(--green)"

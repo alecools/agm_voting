@@ -1129,17 +1129,17 @@ class TestSubmitBallotMultiChoice:
         )
         assert resp.status_code == 400
 
-    async def test_submit_exceeding_option_limit_rejected(
+    async def test_submit_exceeding_option_limit_allowed(
         self,
         client: AsyncClient,
         mc_meeting: dict,
         db_session: AsyncSession,
         mc_building: Building,
     ):
-        """Submitting more option_ids than option_limit returns 422."""
+        """Submitting more 'for' option_choices than option_limit is now allowed (option_limit is for tally only)."""
         meeting_id = uuid.UUID(mc_meeting["id"])
         mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
-        # option_limit=2, try to submit 3
+        # option_limit=2, try to submit all 3 as For — should succeed
         opt_ids = [o["id"] for o in mc_motion["options"]]
 
         lots_result = await db_session.execute(
@@ -1158,7 +1158,7 @@ class TestSubmitBallotMultiChoice:
             "multi_choice_votes": [
                 {
                     "motion_id": mc_motion["id"],
-                    "option_choices": [{"option_id": oid, "choice": "for"} for oid in opt_ids],  # 3 opts, limit=2
+                    "option_choices": [{"option_id": oid, "choice": "for"} for oid in opt_ids],  # 3 opts, limit=2 — now allowed
                 }
             ],
         }
@@ -1167,7 +1167,7 @@ class TestSubmitBallotMultiChoice:
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 200
 
     async def test_submit_unknown_mc_motion_id_rejected(
         self,
@@ -2235,17 +2235,17 @@ class TestSlice3ForAgainstAbstain:
         assert len(mc_votes) == 1
         assert mc_votes[0].choice == VoteChoice.against
 
-    async def test_submit_for_exceeds_limit_returns_422(
+    async def test_submit_for_exceeds_limit_allowed(
         self,
         client: AsyncClient,
         mc_meeting: dict,
         db_session: AsyncSession,
         mc_building: Building,
     ):
-        """Submitting more 'for' choices than option_limit returns 422."""
+        """Submitting more 'for' choices than option_limit is now allowed (option_limit is for tally only)."""
         meeting_id = uuid.UUID(mc_meeting["id"])
         mc_motion = next(m for m in mc_meeting["motions"] if m["is_multi_choice"])
-        # option_limit=2, send 3 'for' choices
+        # option_limit=2, send 3 'for' choices — should now succeed
         opt_ids = [o["id"] for o in mc_motion["options"]]
 
         lots_result = await db_session.execute(
@@ -2275,7 +2275,7 @@ class TestSlice3ForAgainstAbstain:
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 200
 
     async def test_against_does_not_consume_option_limit(
         self,
