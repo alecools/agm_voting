@@ -584,7 +584,7 @@ class TestSmtpTest:
              patch("app.routers.admin._smtp_test_call_times", []):
             mock_smtp.send = AsyncMock()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test")
+                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
@@ -598,7 +598,7 @@ class TestSmtpTest:
              patch("app.routers.admin._smtp_test_call_times", []):
             mock_smtp.send = AsyncMock(side_effect=Exception("Connection refused"))
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test")
+                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 400
         assert "Connection refused" in resp.json()["detail"]
 
@@ -606,7 +606,7 @@ class TestSmtpTest:
         await _clear_smtp_config(db_session)
         with patch("app.routers.admin._smtp_test_call_times", []):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test")
+                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 409
 
     async def test_rate_limit_after_5_calls(self, app, db_session: AsyncSession):
@@ -621,7 +621,7 @@ class TestSmtpTest:
 
         with patch.object(admin_module, "_smtp_test_call_times", fake_times):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test")
+                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 429
 
     async def test_rate_limit_pruned_after_60_seconds(self, app, db_session: AsyncSession):
@@ -640,7 +640,7 @@ class TestSmtpTest:
              patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test")
+                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 200
 
 

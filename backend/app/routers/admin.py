@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import aiosmtplib
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

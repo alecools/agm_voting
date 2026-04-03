@@ -31,7 +31,7 @@ def _decode_key(key_b64: str) -> bytes:
         padding = 4 - len(normalised) % 4
         if padding != 4:
             normalised += "=" * padding
-        key = base64.b64decode(normalised)
+        key = base64.b64decode(normalised, validate=True)
     except Exception as exc:
         raise ValueError(f"SMTP_ENCRYPTION_KEY is not valid base64: {exc}") from exc
     if len(key) != 32:
