@@ -166,18 +166,27 @@ async def db_session(db_conn: AsyncConnection) -> AsyncGenerator[AsyncSession, N
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiters():
-    """Reset all in-memory rate limiters before each test (RR3-33).
+    """Reset all in-memory rate limiters before each test (RR3-33, RR4-31).
 
     The rate limiters are module-level singletons. Without a reset, tests that
     call the same endpoint multiple times could accidentally trigger 429 responses
     and fail, or interfere with each other when running in parallel.
     """
-    from app.rate_limiter import ballot_submit_limiter, public_limiter
+    from app.rate_limiter import (
+        admin_close_limiter,
+        admin_import_limiter,
+        ballot_submit_limiter,
+        public_limiter,
+    )
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
+    admin_import_limiter._timestamps.clear()
+    admin_close_limiter._timestamps.clear()
     yield
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
+    admin_import_limiter._timestamps.clear()
+    admin_close_limiter._timestamps.clear()
 
 
 @pytest.fixture

@@ -1774,3 +1774,36 @@ class TestBuildingImportFileSizeLimit:
         )
         assert response.status_code == 413
         assert "5 MB" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — admin import endpoints (RR4-31)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminImportRateLimitBuildings:
+    """Verify admin_import_limiter returns 429 on the 21st request (RR4-31)."""
+
+    async def test_buildings_import_rate_limited_after_max_requests(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """21st call to /buildings/import within the window returns 429 with Retry-After."""
+        from app.rate_limiter import admin_import_limiter
+
+        # Exhaust the limit
+        admin_import_limiter._timestamps["admin"] = []
+        for _ in range(20):
+            admin_import_limiter._timestamps["admin"].append(
+                __import__("time").monotonic()
+            )
+
+        csv_data = make_csv(
+            ["building_name", "manager_email"],
+            [["Rate Limit Test Building", "rl@test.com"]],
+        )
+        response = await client.post(
+            "/api/admin/buildings/import",
+            files={"file": ("b.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"

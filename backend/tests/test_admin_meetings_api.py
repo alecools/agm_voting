@@ -6849,3 +6849,41 @@ class TestCloseMotion:
         data = response.json()
         assert "voting_closed_at" in data
         assert data["voting_closed_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — meeting close endpoint (RR4-31)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminCloseMeetingRateLimit:
+    """Verify admin_close_limiter returns 429 on the 11th request (RR4-31)."""
+
+    async def test_close_meeting_rate_limited_after_max_requests(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """11th call to /general-meetings/{id}/close within the window returns 429."""
+        from app.rate_limiter import admin_close_limiter
+        import time
+
+        # Exhaust the limit (10 req/min)
+        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(10)]
+
+        # Create an open meeting to close
+        b = Building(name="Rate Limit Close Building", manager_email="rlc@test.com")
+        db_session.add(b)
+        await db_session.flush()
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Rate Limit Close Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.commit()
+        await db_session.refresh(agm)
+
+        response = await client.post(f"/api/admin/general-meetings/{agm.id}/close")
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"

@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import aiosmtplib
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +57,7 @@ from app.services import admin_service
 from app.services import config_service
 from app.services import smtp_config_service
 from app.services import blob_service
+from app.rate_limiter import admin_import_limiter, admin_close_limiter
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -153,9 +154,11 @@ def _detect_file_format(file: UploadFile) -> str:
     status_code=status.HTTP_200_OK,
 )
 async def import_buildings(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> BuildingImportResult:
+    admin_import_limiter.check("admin")
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -283,10 +286,12 @@ async def list_lot_owners(
     status_code=status.HTTP_200_OK,
 )
 async def import_lot_owners(
+    request: Request,
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerImportResult:
+    admin_import_limiter.check("admin")
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -307,10 +312,12 @@ async def import_lot_owners(
     status_code=status.HTTP_200_OK,
 )
 async def import_proxy_nominations(
+    request: Request,
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> ProxyImportResult:
+    admin_import_limiter.check("admin")
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -331,10 +338,12 @@ async def import_proxy_nominations(
     status_code=status.HTTP_200_OK,
 )
 async def import_financial_positions(
+    request: Request,
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> FinancialPositionImportResult:
+    admin_import_limiter.check("admin")
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -645,10 +654,12 @@ async def start_general_meeting_endpoint(
     response_model=GeneralMeetingCloseOut,
 )
 async def close_general_meeting(
+    request: Request,
     general_meeting_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> GeneralMeetingCloseOut:
+    admin_close_limiter.check("admin")
     meeting = await admin_service.close_general_meeting(general_meeting_id, db)
     email_service = EmailService()
     background_tasks.add_task(email_service.trigger_with_retry, meeting.id)

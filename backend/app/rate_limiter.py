@@ -5,6 +5,26 @@ Uses a dictionary mapping (key) -> list[timestamp] to track requests within
 a sliding window. Thread-safe for single-process deployments (Lambda/Uvicorn
 with a single worker); not shared across multiple processes.
 
+RR4-17 — in-memory vs. DB-backed rate limiters:
+  The OTP request rate limit (POST /api/auth/request) is DB-backed via the
+  ``OTPRateLimit`` table, so it is shared across Lambda instances and survives
+  cold starts (see ``backend/app/models/otp_rate_limit.py``).
+
+  The limiters in this module (``ballot_submit_limiter``, ``public_limiter``,
+  and the admin import/close limiters in ``admin.py``) are intentionally
+  in-memory because:
+    • The endpoints they guard are idempotent or low-risk enough that
+      per-instance limiting is an acceptable approximation.
+    • Ballot submissions are additionally protected by a DB-level unique
+      constraint on ``(general_meeting_id, lot_owner_id)``, so duplicates
+      are rejected at the DB layer regardless of rate-limit state.
+    • Admin operations are session-authenticated; a single compromised admin
+      session hitting multiple Lambda instances simultaneously is an unlikely
+      threat model relative to public OTP enumeration.
+
+  No action required for these limiters (finding is NOT APPLICABLE — already
+  acceptable for their respective threat models).
+
 Usage:
     limiter = RateLimiter(max_requests=10, window_seconds=60)
 
@@ -75,3 +95,11 @@ ballot_submit_limiter = RateLimiter(max_requests=10, window_seconds=60)
 
 # Public endpoints: 60 requests per minute per IP.
 public_limiter = RateLimiter(max_requests=60, window_seconds=60)
+
+# Admin import endpoints: 20 requests per minute per admin session (RR4-31).
+# Applies to buildings/import, lot-owners/import, import-proxies,
+# and import-financial-positions endpoints.
+admin_import_limiter = RateLimiter(max_requests=20, window_seconds=60)
+
+# Admin meeting close: 10 requests per minute per admin session (RR4-31).
+admin_close_limiter = RateLimiter(max_requests=10, window_seconds=60)

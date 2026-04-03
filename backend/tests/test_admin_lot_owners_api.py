@@ -2076,3 +2076,32 @@ class TestLotOwnerNames:
         assert proxy.given_name == "Henry"
         assert proxy.surname == "King"
         assert proxy.proxy_email == "new@test.com"
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — admin lot owner import endpoint (RR4-31)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminImportRateLimitLotOwners:
+    """Verify admin_import_limiter returns 429 on the 21st lot owner import (RR4-31)."""
+
+    async def test_lot_owners_import_rate_limited_after_max_requests(
+        self, client: AsyncClient, building: "Building", db_session: "AsyncSession"
+    ):
+        """21st call to lot-owners/import within the window returns 429 with Retry-After."""
+        from app.rate_limiter import admin_import_limiter
+        import time
+
+        admin_import_limiter._timestamps["admin"] = [time.monotonic() for _ in range(20)]
+
+        csv_data = make_csv(
+            ["Lot#", "UOE2", "Email"],
+            [["99", "100", "rl_test@test.com"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("lo.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"

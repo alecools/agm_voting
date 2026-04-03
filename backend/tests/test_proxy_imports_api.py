@@ -1628,3 +1628,56 @@ class TestImportFinancialPositionsTOCSExcel:
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — import-proxies and import-financial-positions (RR4-31)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminImportRateLimitProxiesAndFinancial:
+    """Verify admin_import_limiter returns 429 on the 21st request (RR4-31)."""
+
+    async def test_import_proxies_rate_limited_after_max_requests(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """21st call to import-proxies within the window returns 429 with Retry-After."""
+        from app.rate_limiter import admin_import_limiter
+        import time
+
+        admin_import_limiter._timestamps["admin"] = [time.monotonic() for _ in range(20)]
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Lot#", "Proxy Email"])
+        writer.writerow(["1A", "proxy_rl@test.com"])
+        csv_data = buf.getvalue().encode()
+
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import-proxies",
+            files={"file": ("proxies.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"
+
+    async def test_import_financial_positions_rate_limited_after_max_requests(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """21st call to import-financial-positions within the window returns 429 with Retry-After."""
+        from app.rate_limiter import admin_import_limiter
+        import time
+
+        admin_import_limiter._timestamps["admin"] = [time.monotonic() for _ in range(20)]
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Lot#", "Closing Balance"])
+        writer.writerow(["1A", "0.00"])
+        csv_data = buf.getvalue().encode()
+
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import-financial-positions",
+            files={"file": ("fp.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"

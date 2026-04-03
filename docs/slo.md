@@ -59,3 +59,15 @@ An "AGM window" is defined as the period from `meeting_at` to `voting_closes_at`
 - Health check endpoint: `GET /api/health` — returns `{"status": "ok", "db": "connected"}` when healthy.
 - Liveness probe: `GET /api/health/live` — always returns 200 (process-level check only).
 - Incident runbooks: `docs/runbooks/`
+
+### Runbook Index
+
+| Runbook | Purpose |
+|---------|---------|
+| [`app-down.md`](runbooks/app-down.md) | Application is down or returning errors |
+| [`database-connectivity.md`](runbooks/database-connectivity.md) | DB connection failures |
+| [`email-delivery-failures.md`](runbooks/email-delivery-failures.md) | Email report delivery issues |
+| [`incident-response.md`](runbooks/incident-response.md) | General incident response process |
+| [`disaster-recovery.md`](runbooks/disaster-recovery.md) | DR and data recovery |
+| [`smoke-test.md`](runbooks/smoke-test.md) | Post-deployment validation |
+| [`admin-vote-entry.md`](runbooks/admin-vote-entry.md) | Admin vote entry for in-person voters and per-motion window controls |
