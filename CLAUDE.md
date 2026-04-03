@@ -94,7 +94,7 @@ Key decisions that must not be inadvertently reversed:
 - **Ballots are keyed on `lot_owner_id`** — `BallotSubmission` and `Vote` unique constraints use `(general_meeting_id, lot_owner_id)`, not `voter_email`. `voter_email` is retained on both tables for audit only. Auth resolves lots via `LotOwnerEmail` records, then all operations key on `lot_owner_id`.
 - **Migrations run during Vercel build (`buildCommand`)** — `vercel.json`'s `buildCommand` runs `alembic upgrade head` once before the Lambda goes live. The Lambda cold start performs no DB operations. If the migration step fails, the Vercel build fails and the deploy is blocked (desirable).
 - **Neon connection strings** — strip `channel_binding=require` before passing to alembic/asyncpg. Use `ssl=require` only. The build script does this transformation; `api/index.py` does it for the runtime `DATABASE_URL` used by the app.
-- **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `preview`) to avoid migration conflicts on the shared preview DB. The `test` agent creates it before pushing; `cleanup` deletes it after merge.
+- **Isolated Neon DB branch per migration branch** — every branch containing schema migrations gets its own Neon DB branch (off `demo`) to avoid migration conflicts on the shared demo DB. The `test` agent creates it before pushing; `cleanup` deletes it after merge.
 - **Branch-scoped Vercel env vars** — `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are set as Vercel preview env vars scoped to the feature branch so the branch deployment migrates against its own Neon DB. Removed by `cleanup` after merge.
 
 ---
@@ -142,8 +142,8 @@ Run all stages in order. Never skip. Never raise a PR until Branch E2E passes. N
 | **Local testing** | During development + before every push | pytest (100% cov) · Vitest (100% cov) · bandit · eslint-security | Run manually — re-run on every meaningful change for fast feedback |
 | **Branch CI** | Auto on `git push` | Same as local + semgrep + Alembic migration on clean DB | `gh run list --branch <branch> --workflow ci.yml` |
 | **Branch E2E** | Auto after Vercel preview deploys | Full Playwright suite against the branch's Preview deployment | `gh run list --branch <branch> --workflow e2e.yml` |
-| **Post-merge CI** | Auto after PR merges to `preview` | Same as Branch CI | `gh run list --branch preview --workflow ci.yml` |
-| **Demo E2E** | Orchestrator-directed after all slices merged | Full Playwright suite against Demo URL (`demo_url`) | `gh run list --branch preview --workflow e2e.yml` |
+| **Post-merge CI** | Auto after PR merges to `demo` | Same as Branch CI | `gh run list --branch demo --workflow ci.yml` |
+| **Demo E2E** | Orchestrator-directed after all slices merged | Full Playwright suite against Demo URL (`demo_url`) | `gh run list --branch demo --workflow e2e.yml` |
 
 Local testing checks are fast (seconds) — use them as a tight feedback loop while developing, not just as a pre-push gate. All CI/E2E stages are automated and only need monitoring.
 
@@ -217,11 +217,11 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 | Environment | Trigger | URL pattern |
 |---|---|---|
 | **Production** | Push to `master` only | `agm-voting.vercel.app` |
-| **Demo** | Push to `preview` branch | `agm-voting-env-demo-ocss.vercel.app` |
+| **Demo** | Push to `demo` branch | `agm-voting-env-demo-ocss.vercel.app` |
 | **Preview** | Push to any other branch | `agm-voting-git-<branch>-ocss.vercel.app` |
 
 - **Never** run `vercel deploy --prod` or target production from the CLI
-- The `preview` branch deploys to the **Demo** Vercel environment (for stakeholder review)
+- The `demo` branch deploys to the **Demo** Vercel environment (for stakeholder review)
 - Feature and fix branches deploy to the **Preview** Vercel environment
 - **Neon DB mapping:** Demo env → `demo` Neon branch (`br-orange-sound-a76hyf9w`); Preview env (feature branches) → `preview` Neon branch (`br-bold-cherry-a7yzlzj1`)
 - When setting branch-scoped env vars for feature branches, target `["preview"]`; the demo env DATABASE_URL is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
@@ -263,29 +263,29 @@ Retrieve with: `security find-generic-password -s "agm-survey" -a "<account>" -w
 The Vercel `buildCommand` runs `scripts/migrate.sh` which calls `alembic upgrade head` and requires `DATABASE_URL_UNPOOLED` to be set — even on branches with no schema migrations (alembic runs as a no-op but the env var must be present). Without it the Vercel build fails immediately with `BUILD_FAILED`.
 
 **Every branch** must have branch-scoped `DATABASE_URL` and `DATABASE_URL_UNPOOLED` Vercel env vars set before pushing:
-- **No migrations**: point to the existing `preview` Neon branch connection strings (no new Neon branch needed)
+- **No migrations**: point to the existing `demo` Neon branch connection strings (no new Neon branch needed)
 - **Has migrations**: create a new Neon DB branch first (step 1 below), then use those connection strings
 
 ### Schema migration branches — Neon DB branch + Vercel env var setup
 
-Run before `git push`. For non-migration branches, skip step 1 and use the `preview` Neon branch connection strings directly in step 2.
+Run before `git push`. For non-migration branches, skip step 1 and use the `demo` Neon branch connection strings directly in step 2.
 
-**1. Create Neon DB branch** (branched off `preview`):
+**1. Create Neon DB branch** (branched off `demo`):
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
 NEON_PROJECT_ID="divine-dust-41291876"
 BRANCH="<branch-name>"   # e.g. feat/my-feature
 
-# Get the preview branch ID
-PREVIEW_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
+# Get the demo branch ID
+DEMO_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
   -H "Authorization: Bearer $NEON_API_KEY" \
-  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; print(next(b['id'] for b in bs if b['name']=='preview'))")
+  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; print(next(b['id'] for b in bs if b['name']=='demo'))")
 
 # Create branch
 RESPONSE=$(curl -s -X POST "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
   -H "Authorization: Bearer $NEON_API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"branch\":{\"name\":\"preview/${BRANCH}\",\"parent_id\":\"${PREVIEW_ID}\"},\"endpoints\":[{\"type\":\"read_write\"}]}")
+  -d "{\"branch\":{\"name\":\"demo/${BRANCH}\",\"parent_id\":\"${DEMO_ID}\"},\"endpoints\":[{\"type\":\"read_write\"}]}")
 
 # Extract connection strings (strip channel_binding=require, use ssl=require)
 DATABASE_URL=$(echo "$RESPONSE" | python3 -c "
@@ -327,7 +327,7 @@ BRANCH="<branch-name>"
 
 BRANCH_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
   -H "Authorization: Bearer $NEON_API_KEY" \
-  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; b=next((b for b in bs if b['name']==f'preview/${BRANCH}'),None); print(b['id'] if b else '')")
+  | python3 -c "import sys,json; bs=json.load(sys.stdin)['branches']; b=next((b for b in bs if b['name']==f'demo/${BRANCH}'),None); print(b['id'] if b else '')")
 
 [ -n "$BRANCH_ID" ] && curl -s -X DELETE \
   "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${BRANCH_ID}" \
@@ -359,7 +359,7 @@ These fields are read by the generic agent definitions. Values here override use
 | Key | Value |
 |-----|-------|
 | `production_branch` | `master` |
-| `testing_branch` | `preview` |
+| `testing_branch` | `demo` |
 | `stack` | React (Vite) · FastAPI · PostgreSQL · SQLAlchemy · Alembic |
 | `backend_dir` | `backend` |
 | `frontend_dir` | `frontend` |
