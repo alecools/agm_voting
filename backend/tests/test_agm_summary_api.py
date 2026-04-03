@@ -355,3 +355,114 @@ class TestAGMSummary:
         response = await client.get(f"/api/general-meeting/{agm.id}/summary")
         for motion in response.json()["motions"]:
             assert motion["motion_type"] == "general"
+
+    # --- RR4-02: Hidden motions must not appear in public summary ---
+
+    async def test_hidden_motion_excluded_from_summary(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR4-02: Hidden motions (is_visible=False) must not appear in the public summary.
+
+        Only visible motions are exposed to voters to prevent leaking confidential
+        agenda items before they are officially revealed.
+        """
+        from app.models import GeneralMeetingStatus
+
+        b = Building(name="RR402 Summary Building", manager_email="rr402@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RR402 Summary Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        visible_motion = Motion(
+            general_meeting_id=agm.id, title="Visible Motion", display_order=1, is_visible=True
+        )
+        hidden_motion = Motion(
+            general_meeting_id=agm.id, title="Hidden Motion", display_order=2, is_visible=False
+        )
+        db_session.add_all([visible_motion, hidden_motion])
+        await db_session.flush()
+
+        response = await client.get(f"/api/general-meeting/{agm.id}/summary")
+        assert response.status_code == 200
+        motions = response.json()["motions"]
+        titles = [m["title"] for m in motions]
+        assert "Visible Motion" in titles
+        assert "Hidden Motion" not in titles, "Hidden motions must not appear in the public summary"
+
+    async def test_summary_with_only_hidden_motions_returns_empty_list(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR4-02: If all motions are hidden, the public summary returns an empty motions list."""
+        from app.models import GeneralMeetingStatus
+
+        b = Building(name="RR402 All Hidden Building", manager_email="rr402h@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RR402 All Hidden Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=datetime.now(UTC) - timedelta(hours=1),
+            voting_closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        hidden1 = Motion(
+            general_meeting_id=agm.id, title="Hidden 1", display_order=1, is_visible=False
+        )
+        hidden2 = Motion(
+            general_meeting_id=agm.id, title="Hidden 2", display_order=2, is_visible=False
+        )
+        db_session.add_all([hidden1, hidden2])
+        await db_session.flush()
+
+        response = await client.get(f"/api/general-meeting/{agm.id}/summary")
+        assert response.status_code == 200
+        assert response.json()["motions"] == []
+
+    async def test_closed_meeting_summary_excludes_hidden_motions(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR4-02: Closed meetings also exclude hidden motions from the public summary."""
+        from app.models import GeneralMeetingStatus
+
+        b = Building(name="RR402 Closed Building", manager_email="rr402c@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RR402 Closed Meeting",
+            status=GeneralMeetingStatus.closed,
+            meeting_at=datetime.now(UTC) - timedelta(days=2),
+            voting_closes_at=datetime.now(UTC) - timedelta(days=1),
+            closed_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        visible_motion = Motion(
+            general_meeting_id=agm.id, title="Public Result", display_order=1, is_visible=True
+        )
+        hidden_motion = Motion(
+            general_meeting_id=agm.id, title="Confidential Addendum", display_order=2, is_visible=False
+        )
+        db_session.add_all([visible_motion, hidden_motion])
+        await db_session.flush()
+
+        response = await client.get(f"/api/general-meeting/{agm.id}/summary")
+        assert response.status_code == 200
+        titles = [m["title"] for m in response.json()["motions"]]
+        assert "Public Result" in titles
+        assert "Confidential Addendum" not in titles

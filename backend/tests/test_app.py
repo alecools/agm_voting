@@ -688,6 +688,7 @@ class TestDatabaseUrlValidator:
 class TestMigrationHeadCheck:
     async def test_check_migration_head_ok_logs_info(self):
         """_check_migration_head logs migration_head_ok when revision matches head."""
+        import app.main as main_module
         import structlog.testing
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -712,19 +713,29 @@ class TestMigrationHeadCheck:
         mock_script = MagicMock()
         mock_script.get_current_head.return_value = mock_head
 
-        # The function imports AsyncSessionLocal locally from app.database; patch there.
-        with (
-            patch("app.database.AsyncSessionLocal", mock_session_local),
-            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
-        ):
-            with structlog.testing.capture_logs() as logs:
-                await _check_migration_head()
+        # RR4-34: Reset the module-level cache so the DB query actually runs.
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            # The function imports AsyncSessionLocal locally from app.database; patch there.
+            with (
+                patch("app.database.AsyncSessionLocal", mock_session_local),
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    await _check_migration_head()
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
 
         info_logs = [l for l in logs if l.get("log_level") == "info"]
         assert any("migration_head_ok" in str(l) for l in info_logs)
 
-    async def test_check_migration_head_mismatch_logs_critical(self):
-        """_check_migration_head logs critical when current revision != head."""
+    async def test_check_migration_head_mismatch_logs_critical_and_raises(self):
+        """RR4-16: _check_migration_head logs critical and raises RuntimeError on mismatch."""
+        import app.main as main_module
         import structlog.testing
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -750,35 +761,56 @@ class TestMigrationHeadCheck:
         mock_script = MagicMock()
         mock_script.get_current_head.return_value = mock_head
 
-        with (
-            patch("app.database.AsyncSessionLocal", mock_session_local),
-            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
-        ):
-            with structlog.testing.capture_logs() as logs:
-                await _check_migration_head()
+        # RR4-34: Reset cache so the DB query runs.
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with (
+                patch("app.database.AsyncSessionLocal", mock_session_local),
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    with pytest.raises(RuntimeError, match="Migration head mismatch"):
+                        await _check_migration_head()
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
 
         critical_logs = [l for l in logs if l.get("log_level") == "critical"]
         assert any("migration_head_mismatch" in str(l) for l in critical_logs)
 
     async def test_check_migration_head_exception_logs_error(self):
         """_check_migration_head logs error when an exception occurs."""
+        import app.main as main_module
         import structlog.testing
         from unittest.mock import patch
 
         from app.main import _check_migration_head
 
-        with patch(
-            "alembic.script.ScriptDirectory.from_config",
-            side_effect=Exception("alembic config not found"),
-        ):
-            with structlog.testing.capture_logs() as logs:
-                await _check_migration_head()
+        # RR4-34: Reset cache so the function actually runs.
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with patch(
+                "alembic.script.ScriptDirectory.from_config",
+                side_effect=Exception("alembic config not found"),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    await _check_migration_head()
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
 
         error_logs = [l for l in logs if l.get("log_level") in ("error", "warning")]
         assert any("migration_head_check_failed" in str(l) for l in error_logs)
 
     async def test_check_migration_head_no_revision_row(self):
-        """_check_migration_head handles missing alembic_version row (fresh DB)."""
+        """RR4-16: _check_migration_head raises RuntimeError when alembic_version row missing."""
+        import app.main as main_module
         import structlog.testing
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -800,13 +832,98 @@ class TestMigrationHeadCheck:
         mock_script = MagicMock()
         mock_script.get_current_head.return_value = mock_head
 
-        with (
-            patch("app.database.AsyncSessionLocal", mock_session_local),
-            patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
-        ):
-            with structlog.testing.capture_logs() as logs:
-                await _check_migration_head()
+        # RR4-34: Reset cache so the DB query runs.
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with (
+                patch("app.database.AsyncSessionLocal", mock_session_local),
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    # current_rev is None, head is "abc123" — mismatch, should raise
+                    with pytest.raises(RuntimeError, match="Migration head mismatch"):
+                        await _check_migration_head()
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
 
-        # current_rev is None, head is "abc123" — should log critical
         critical_logs = [l for l in logs if l.get("log_level") == "critical"]
         assert any("migration_head_mismatch" in str(l) for l in critical_logs)
+
+    async def test_check_migration_head_cache_skips_db_on_second_call(self):
+        """RR4-34: _check_migration_head only queries DB once; warm invocations are no-ops."""
+        import app.main as main_module
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_head = "abc123"
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, idx: mock_head
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_row
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = mock_result
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = mock_head
+
+        # RR4-34: Reset cache for first call.
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with (
+                patch("app.database.AsyncSessionLocal", mock_session_local),
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                # First call: queries DB
+                await _check_migration_head()
+                assert mock_db.execute.call_count == 1
+
+                # Second call: _migration_head_checked=True, DB must NOT be queried again
+                await _check_migration_head()
+                assert mock_db.execute.call_count == 1, "DB should not be queried on second call"
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
+
+    async def test_migration_mismatch_returns_503_on_requests(self):
+        """RR4-16: When migration mismatch detected, all routes return 503."""
+        import app.main as main_module
+        from app.main import app
+
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_mismatch = True
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health")
+            assert response.status_code == 503
+            assert "migration" in response.json()["detail"].lower()
+        finally:
+            main_module._migration_head_mismatch = original_mismatch
+
+    async def test_migration_mismatch_allows_health_live(self):
+        """RR4-16: health/live probe still returns 200 even when migration mismatch detected."""
+        import app.main as main_module
+        from app.main import app
+
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_mismatch = True
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/health/live")
+            assert response.status_code == 200
+        finally:
+            main_module._migration_head_mismatch = original_mismatch

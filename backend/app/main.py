@@ -50,6 +50,18 @@ _SECURITY_HEADERS = {
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # RR4-16: Block all requests when a migration head mismatch was detected
+        # at startup, ensuring the Lambda does not serve stale/incompatible data.
+        # Health probes (/api/health/live) are exempted so load balancers can
+        # detect the degraded state and route traffic elsewhere.
+        if _migration_head_mismatch and request.url.path != "/api/health/live":
+            mismatch_response = JSONResponse(
+                status_code=503,
+                content={"detail": "Service unavailable: database migration mismatch"},
+            )
+            for header, value in _SECURITY_HEADERS.items():
+                mismatch_response.headers[header] = value
+            return mismatch_response
         try:
             response = await call_next(request)
         except Exception as exc:
@@ -129,16 +141,30 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# RR4-34: Cache the migration head check result after the first cold-start
+# invocation so subsequent warm Lambda invocations skip the DB query entirely.
+_migration_head_checked: bool = False
+# RR4-16: When a mismatch is detected, set this flag so all routes return 503.
+_migration_head_mismatch: bool = False
+
+
 async def _check_migration_head() -> None:
     """Verify the DB schema is at the expected Alembic head revision (RR3-20).
 
     Performs a direct SELECT on alembic_version rather than running
     `alembic current` (which spawns a subprocess) so the check completes
-    in < 100 ms.  Logs a CRITICAL error if the revision does not match
-    head — this makes the mismatch visible in structured logs and alerting
-    systems without hard-crashing the Lambda (which would prevent rollback
-    via a revert deploy).
+    in < 100 ms.
+
+    RR4-16: Raises RuntimeError on mismatch so the Lambda fails fast.
+    RR4-34: Caches the result in a module-level flag so warm invocations
+    skip the DB query entirely.
     """
+    global _migration_head_checked, _migration_head_mismatch  # noqa: PLW0603
+
+    # RR4-34: Skip the DB query on warm invocations.
+    if _migration_head_checked:
+        return
+
     try:
         from alembic.config import Config as AlembicConfig
         from alembic.script import ScriptDirectory
@@ -159,18 +185,29 @@ async def _check_migration_head() -> None:
             current_rev = row[0] if row else None
 
         if current_rev != head_rev:
+            _migration_head_mismatch = True
             _structlog_logger.critical(
                 "migration_head_mismatch",
                 current_revision=current_rev,
                 expected_head=head_rev,
+            )
+            # RR4-16: Raise so that requests are blocked until the Lambda is
+            # redeployed with the correct migration applied.
+            raise RuntimeError(
+                f"Migration head mismatch: DB has {current_rev!r}, expected {head_rev!r}"
             )
         else:
             _structlog_logger.info(
                 "migration_head_ok",
                 revision=current_rev,
             )
+    except RuntimeError:
+        raise
     except Exception as exc:
         _structlog_logger.error("migration_head_check_failed", error=str(exc))
+    finally:
+        # Mark as checked regardless of outcome so warm invocations skip the DB query.
+        _migration_head_checked = True
 
 
 @asynccontextmanager

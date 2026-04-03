@@ -121,9 +121,18 @@ async def get_general_meeting_summary(
     )
     building = building_result.scalar_one()
 
+    # RR4-02: Only return visible motions on the public summary endpoint.
+    # Hidden motions (is_visible=False) are admin-only; exposing them here would
+    # leak confidential agenda items before they are revealed.
+    # Note: for closed meetings we still only return visible motions — the admin
+    # detail view (get_general_meeting_detail) is the appropriate place to see all
+    # motions including hidden ones.
     motions_result = await db.execute(
         select(Motion)
-        .where(Motion.general_meeting_id == general_meeting_id)
+        .where(
+            Motion.general_meeting_id == general_meeting_id,
+            Motion.is_visible == True,  # noqa: E712
+        )
         .order_by(Motion.display_order)
     )
     motions = motions_result.scalars().all()

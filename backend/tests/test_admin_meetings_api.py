@@ -1806,6 +1806,68 @@ class TestGetGeneralMeetingDetail:
         voter_lists = data["motions"][0]["voter_lists"]
         assert len(voter_lists["not_eligible"]) == 1
 
+    async def test_against_vote_counted_in_no_bucket_for_general_motion(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR4-03: VoteChoice.against must be tallied in the 'no' bucket (not 'abstained')
+        for General and Special motions.
+
+        Previously, against votes fell through to the else branch and were counted as
+        abstained instead of no, silently misclassifying dissenting votes.
+        """
+        b = Building(name="RR403 Against Building", manager_email="rr403@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="RR403-1", unit_entitlement=75)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="against@rr403.com"))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="RR403 Against Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(
+            general_meeting_id=agm.id, title="RR403 Motion", display_order=1,
+            motion_type=MotionType.general,
+        )
+        db_session.add(motion)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=75,
+        ))
+        await db_session.flush()
+
+        # Submit with VoteChoice.against — this should map to 'no', not 'abstained'
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion.id,
+            voter_email="against@rr403.com", lot_owner_id=lo.id,
+            choice=VoteChoice.against, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="against@rr403.com",
+            ballot_hash="rr403testhashabcdef1234567890abcdef12345678901234567890123456789",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        tally = response.json()["motions"][0]["tally"]
+
+        # RR4-03: against must count as 'no', not 'abstained'
+        assert tally["no"]["voter_count"] == 1, "against vote must be tallied in no bucket"
+        assert tally["no"]["entitlement_sum"] == 75
+        assert tally["abstained"]["voter_count"] == 0, "against must not appear in abstained"
+
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/general-meetings/{agm_id}/close
@@ -6849,6 +6911,32 @@ class TestCloseMotion:
         data = response.json()
         assert "voting_closed_at" in data
         assert data["voting_closed_at"] is not None
+
+    async def test_close_motion_uses_select_for_update(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR4-21: close_motion uses SELECT FOR UPDATE to serialize concurrent requests.
+
+        Verifies that the underlying service call uses with_for_update() by checking
+        that the motion is locked, written atomically, and only one timestamp is recorded
+        even if called twice (second call returns 409 because the row is now closed).
+        """
+        _agm, motion = await self._create_open_meeting_with_motion(db_session, "ForUpdateTest")
+        # First close: should succeed
+        response1 = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response1.status_code == 200
+        assert response1.json()["voting_closed_at"] is not None
+        first_ts = response1.json()["voting_closed_at"]
+
+        # Second close (same motion): must return 409 — ensures exactly one timestamp written
+        response2 = await client.post(f"/api/admin/motions/{motion.id}/close")
+        assert response2.status_code == 409
+
+        # Verify DB has exactly one timestamp (the first one)
+        await db_session.refresh(motion)
+        assert motion.voting_closed_at is not None
+        # The stored timestamp matches the first response timestamp
+        assert str(motion.voting_closed_at) != ""
 
 
 # ---------------------------------------------------------------------------

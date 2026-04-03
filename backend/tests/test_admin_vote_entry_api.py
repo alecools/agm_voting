@@ -756,6 +756,77 @@ class TestAdminVoteEntry:
         assert result["submitted_count"] == 0
         assert result["skipped_count"] == 1
 
+    async def test_savepoint_preserves_prior_lots_when_middle_lot_has_integrity_error(
+        self, db_session: AsyncSession
+    ):
+        """RR4-05: When lot B has an IntegrityError, lots A and C must still be committed.
+
+        Using begin_nested() (savepoint) ensures only the failing lot is rolled back;
+        the outer transaction retains all successfully flushed lots.
+        Previously, db.rollback() wiped the entire session including already-submitted lots.
+        """
+        from app.schemas.admin import AdminVoteEntry, AdminVoteEntryRequest
+        from app.services.admin_service import enter_votes_for_meeting
+        from sqlalchemy import select as _select
+
+        # Set up meeting with 3 lots
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "SavepointTest", n_lots=3)
+        lot_a, lot_b, lot_c = lots[0], lots[1], lots[2]
+
+        request = AdminVoteEntryRequest(
+            entries=[
+                AdminVoteEntry(
+                    lot_owner_id=lot_a.id,
+                    votes=[{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    multi_choice_votes=[],
+                ),
+                AdminVoteEntry(
+                    lot_owner_id=lot_b.id,
+                    votes=[{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    multi_choice_votes=[],
+                ),
+                AdminVoteEntry(
+                    lot_owner_id=lot_c.id,
+                    votes=[{"motion_id": str(motions[0].id), "choice": "yes"}],
+                    multi_choice_votes=[],
+                ),
+            ]
+        )
+
+        # Track flush count to only fail on lot B (second lot's flush)
+        flush_count = 0
+        original_flush = db_session.flush
+
+        async def patched_flush(*args, **kwargs):
+            nonlocal flush_count
+            flush_count += 1
+            if flush_count == 2:
+                raise IntegrityError("duplicate key for lot B", {}, Exception())
+            return await original_flush(*args, **kwargs)
+
+        db_session.flush = patched_flush  # type: ignore[method-assign]
+        try:
+            result = await enter_votes_for_meeting(agm.id, request, db_session)
+        finally:
+            db_session.flush = original_flush  # type: ignore[method-assign]
+
+        # Lots A and C must succeed; lot B must be skipped
+        assert result["submitted_count"] == 2, "Lots A and C must be submitted"
+        assert result["skipped_count"] == 1, "Only lot B must be skipped"
+
+        # Verify lots A and C have BallotSubmission records in DB
+        from app.models import BallotSubmission as BS
+        subs_result = await db_session.execute(
+            _select(BS.lot_owner_id).where(
+                BS.general_meeting_id == agm.id,
+                BS.is_absent == False,  # noqa: E712
+            )
+        )
+        submitted_ids = {row[0] for row in subs_result.all()}
+        assert lot_a.id in submitted_ids, "Lot A must be recorded"
+        assert lot_b.id not in submitted_ids, "Lot B (failed) must NOT be recorded"
+        assert lot_c.id in submitted_ids, "Lot C must be recorded"
+
 
 # ---------------------------------------------------------------------------
 # Slice 9 — US-AVE2-01: For/Against/Abstain per multi-choice option

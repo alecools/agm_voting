@@ -291,7 +291,10 @@ async def submit_ballot(
     for row in all_voted_result.all():
         already_voted_by_lot.setdefault(row[0], set()).add(row[1])
 
-    # Get all visible motions for this General Meeting
+    # RR4-09: Load visible motions with FOR UPDATE so that the voting_closed_at
+    # check below sees a consistent snapshot that cannot be changed between our
+    # read and our write.  This prevents the race where close_motion sets
+    # voting_closed_at after we read the motions but before we insert votes.
     motions_result = await db.execute(
         select(Motion)
         .where(
@@ -299,6 +302,7 @@ async def submit_ballot(
             Motion.is_visible == True,  # noqa: E712
         )
         .order_by(Motion.display_order)
+        .with_for_update()
     )
     visible_motions = list(motions_result.scalars().all())
 

@@ -6,10 +6,12 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+import zipfile
 from datetime import UTC, datetime, timezone
 
 import bleach
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
@@ -142,9 +144,10 @@ async def import_buildings_from_excel(
     Returns {"created": int, "updated": int}.
     Raises HTTPException 422 on validation errors.
     """
+    # RR4-26: Narrow exception catch to file-format errors only; re-raise unexpected ones.
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
-    except Exception as exc:
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid Excel file: {exc}") from exc
 
     ws = wb.worksheets[0]
@@ -628,9 +631,10 @@ async def import_lot_owners_from_excel(
     """
     await get_building_or_404(building_id, db)
 
+    # RR4-26: Narrow exception catch to file-format errors only; re-raise unexpected ones.
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
-    except Exception as exc:
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid Excel file: {exc}") from exc
 
     ws = wb.worksheets[0]
@@ -1493,6 +1497,20 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     is_closed = get_effective_status(general_meeting) == GeneralMeetingStatus.closed
     absent_ids_global: set[uuid.UUID] = set(absent_submissions.keys()) if is_closed else set()
 
+    # RR4-10: Pre-index submitted_votes by motion_id so per-motion filtering is O(1)
+    # lookup rather than O(V) linear scan repeated for each motion (O(V×M) total).
+    votes_by_motion: dict[uuid.UUID, list] = {}
+    for _v in submitted_votes:
+        if _v.lot_owner_id in submitted_lot_owner_ids:
+            votes_by_motion.setdefault(_v.motion_id, []).append(_v)
+    # Also index by (motion_id, choice) for General/Special motion tally
+    votes_by_motion_choice: dict[tuple[uuid.UUID, str], set[uuid.UUID]] = {}
+    for _v in submitted_votes:
+        _choice = _v.choice.value if hasattr(_v.choice, "value") else _v.choice
+        _key = (_v.motion_id, _choice)
+        if _v.lot_owner_id in submitted_lot_owner_ids and _v.lot_owner_id is not None:
+            votes_by_motion_choice.setdefault(_key, set()).add(_v.lot_owner_id)
+
     motion_details = []
     for motion in motions:
         motion_type_str = motion.motion_type.value if hasattr(motion.motion_type, "value") else motion.motion_type
@@ -1500,8 +1518,8 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
 
         if motion.is_multi_choice:
             # Multi-choice: per-option tallying
-            # Collect votes for this motion
-            motion_vote_rows = [v for v in submitted_votes if v.motion_id == motion.id and v.lot_owner_id in submitted_lot_owner_ids]
+            # Collect votes for this motion using the pre-built index (O(1))
+            motion_vote_rows = votes_by_motion.get(motion.id, [])
 
             # not_eligible lots
             not_eligible_ids: set[uuid.UUID] = {
@@ -1608,13 +1626,15 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             })
         else:
             # General / Special: existing yes/no/abstained/not_eligible logic
+            # RR4-10: Build motion_votes from the pre-indexed dict (O(1)) instead
+            # of scanning all submitted_votes again (O(V)).
+            motion_vote_rows_standard = votes_by_motion.get(motion.id, [])
             motion_votes: dict[uuid.UUID, str] = {}
-            for vote in submitted_votes:
-                if vote.motion_id == motion.id:
-                    lot_id = vote.lot_owner_id
-                    if lot_id is not None and lot_id in submitted_lot_owner_ids:
-                        choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
-                        motion_votes[lot_id] = choice or "abstained"
+            for vote in motion_vote_rows_standard:
+                lot_id = vote.lot_owner_id
+                if lot_id is not None:
+                    choice = vote.choice.value if vote.choice and hasattr(vote.choice, "value") else vote.choice
+                    motion_votes[lot_id] = choice or "abstained"
 
             yes_ids: set[uuid.UUID] = set()
             no_ids: set[uuid.UUID] = set()
@@ -1627,7 +1647,9 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 choice = motion_votes.get(lot_id, "abstained")
                 if choice == "yes":
                     yes_ids.add(lot_id)
-                elif choice == "no":
+                elif choice in ("no", "against"):
+                    # RR4-03: VoteChoice.against is semantically equivalent to "no" for
+                    # General/Special motions. Map it to the no bucket so tallies are correct.
                     no_ids.add(lot_id)
                 elif choice == "not_eligible":
                     not_eligible_ids.add(lot_id)
@@ -1803,7 +1825,13 @@ async def close_motion(
       - voting_closed_at IS NOT NULL (already closed)
       - meeting effective_status != "open"
     """
-    result = await db.execute(select(Motion).where(Motion.id == motion_id))
+    # RR4-21: Use SELECT FOR UPDATE so concurrent close-motion requests serialize
+    # and exactly one request writes voting_closed_at.  Without the lock, two
+    # concurrent requests could both read voting_closed_at=None and both proceed
+    # to write a timestamp, resulting in a non-deterministic last-write-wins outcome.
+    result = await db.execute(
+        select(Motion).where(Motion.id == motion_id).with_for_update()
+    )
     motion = result.scalar_one_or_none()
     if motion is None:
         raise HTTPException(status_code=404, detail="Motion not found")
@@ -2231,9 +2259,6 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
                     is_absent=True,
                 ))
 
-    # Compute multi-choice pass/fail outcomes (Slice 4)
-    await compute_multi_choice_outcomes(general_meeting_id, db)
-
     # Create EmailDelivery record
     email_delivery = EmailDelivery(
         general_meeting_id=general_meeting_id,
@@ -2242,8 +2267,15 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
     )
     db.add(email_delivery)
 
+    # RR4-04: Commit ballot data BEFORE computing multi-choice outcomes so that
+    # compute_multi_choice_outcomes reads fully-committed Vote rows, not
+    # in-flight rows that may be rolled back.
     await db.commit()
     await db.refresh(general_meeting)
+
+    # Compute multi-choice pass/fail outcomes (Slice 4) — runs after commit
+    # so it reads the committed ballot data.
+    await compute_multi_choice_outcomes(general_meeting_id, db)
 
     absent_count = len(absent_lot_owner_ids) if eligible_lot_owner_ids else 0
     lot_count = len(eligible_lot_owner_ids) if eligible_lot_owner_ids else 0
@@ -2294,25 +2326,37 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
     )
     total_entitlement = weights_result.scalar() or 0
 
-    # Build entitlement lookup: lot_owner_id -> unit_entitlement_snapshot
-    entitlement_rows = await db.execute(
+    # RR4-06: Use a single SQL GROUP BY aggregate query to count and sum entitlements
+    # per (option_id, choice), avoiding O(V) Python-side iteration over all votes.
+    # This is O(1) in application memory regardless of vote count.
+    agg_rows = await db.execute(
         select(
-            GeneralMeetingLotWeight.lot_owner_id,
-            GeneralMeetingLotWeight.unit_entitlement_snapshot,
-        ).where(GeneralMeetingLotWeight.general_meeting_id == general_meeting_id)
-    )
-    entitlement_map: dict[uuid.UUID, int] = {
-        row[0]: row[1] for row in entitlement_rows.all()
-    }
-
-    # Load all submitted votes for this meeting
-    votes_result = await db.execute(
-        select(Vote).where(
+            Vote.motion_option_id,
+            Vote.choice,
+            func.count(Vote.id).label("voter_count"),
+            func.coalesce(
+                func.sum(GeneralMeetingLotWeight.unit_entitlement_snapshot), 0
+            ).label("entitlement_sum"),
+        )
+        .join(
+            GeneralMeetingLotWeight,
+            (GeneralMeetingLotWeight.lot_owner_id == Vote.lot_owner_id)
+            & (GeneralMeetingLotWeight.general_meeting_id == general_meeting_id),
+            isouter=True,
+        )
+        .where(
             Vote.general_meeting_id == general_meeting_id,
             Vote.status == VoteStatus.submitted,
+            Vote.motion_option_id.is_not(None),
         )
+        .group_by(Vote.motion_option_id, Vote.choice)
     )
-    all_votes = list(votes_result.scalars().all())
+    # Index aggregated results by (option_id, choice_str) for O(1) lookup
+    agg_by_opt_choice: dict[tuple[uuid.UUID, str], tuple[int, int]] = {}
+    for row in agg_rows.all():
+        opt_id_key = row[0]
+        choice_str = row[1].value if hasattr(row[1], "value") else row[1]
+        agg_by_opt_choice[(opt_id_key, choice_str)] = (int(row[2]), int(row[3]))
 
     for motion in mc_motions:
         # Load options for this motion
@@ -2327,7 +2371,7 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
 
         option_limit = motion.option_limit or len(options)
 
-        # Per-option tally: voter counts and entitlement sums for For/Against/Abstained
+        # Read per-option tallies from the pre-aggregated lookup
         for_voter_counts: dict[uuid.UUID, int] = {}
         for_sums: dict[uuid.UUID, int] = {}
         against_voter_counts: dict[uuid.UUID, int] = {}
@@ -2335,30 +2379,15 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
         abstained_voter_counts: dict[uuid.UUID, int] = {}
         abstained_sums: dict[uuid.UUID, int] = {}
         for opt in options:
-            for_voter_counts[opt.id] = 0
-            for_sums[opt.id] = 0
-            against_voter_counts[opt.id] = 0
-            against_sums[opt.id] = 0
-            abstained_voter_counts[opt.id] = 0
-            abstained_sums[opt.id] = 0
-
-        for vote in all_votes:
-            if vote.motion_id != motion.id or vote.motion_option_id is None:
-                continue
-            opt_id = vote.motion_option_id
-            if opt_id not in for_sums:
-                continue
-            ent = entitlement_map.get(vote.lot_owner_id, 0)
-            choice = vote.choice.value if hasattr(vote.choice, "value") else vote.choice
-            if choice == "selected":
-                for_voter_counts[opt_id] = for_voter_counts.get(opt_id, 0) + 1
-                for_sums[opt_id] = for_sums.get(opt_id, 0) + ent
-            elif choice == "against":
-                against_voter_counts[opt_id] = against_voter_counts.get(opt_id, 0) + 1
-                against_sums[opt_id] = against_sums.get(opt_id, 0) + ent
-            elif choice == "abstained":
-                abstained_voter_counts[opt_id] = abstained_voter_counts.get(opt_id, 0) + 1
-                abstained_sums[opt_id] = abstained_sums.get(opt_id, 0) + ent
+            fc, fs = agg_by_opt_choice.get((opt.id, "selected"), (0, 0))
+            ac, as_ = agg_by_opt_choice.get((opt.id, "against"), (0, 0))
+            abc, abs_ = agg_by_opt_choice.get((opt.id, "abstained"), (0, 0))
+            for_voter_counts[opt.id] = fc
+            for_sums[opt.id] = fs
+            against_voter_counts[opt.id] = ac
+            against_sums[opt.id] = as_
+            abstained_voter_counts[opt.id] = abc
+            abstained_sums[opt.id] = abs_
 
         # Step 3: mark failed options (>50% against)
         failed_by_against: set[uuid.UUID] = set()
@@ -2653,9 +2682,10 @@ def _parse_proxy_excel_rows(content: bytes) -> list[dict]:
 
     Raises HTTPException 422 on invalid file or missing headers.
     """
+    # RR4-26: Narrow exception catch to file-format errors only; re-raise unexpected ones.
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
-    except Exception as exc:
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid Excel file: {exc}") from exc
 
     ws = wb.worksheets[0]
@@ -3066,9 +3096,10 @@ def _parse_financial_position_excel_rows(content: bytes) -> list[dict]:
 
     Raises HTTPException 422 on invalid file or missing headers.
     """
+    # RR4-26: Narrow exception catch to file-format errors only; re-raise unexpected ones.
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
-    except Exception as exc:
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid Excel file: {exc}") from exc
 
     ws = wb.worksheets[0]
@@ -3461,21 +3492,24 @@ async def enter_votes_for_meeting(
                 status=VoteStatus.submitted,
             ))
 
-        # Create BallotSubmission with submitted_by_admin=True
+        # Create BallotSubmission with submitted_by_admin=True.
+        # RR4-05: Use a savepoint (begin_nested) so that only this lot's flush is
+        # rolled back on IntegrityError.  Previously a full session rollback wiped
+        # all successfully flushed lots that preceded the conflicting one.
         try:
-            submission = BallotSubmission(
-                general_meeting_id=general_meeting_id,
-                lot_owner_id=lot_owner_id,
-                voter_email="admin",
-                proxy_email=None,
-                submitted_by_admin=True,
-            )
-            db.add(submission)
-            for vote in votes_to_add:
-                db.add(vote)
-            await db.flush()
+            async with db.begin_nested():
+                submission = BallotSubmission(
+                    general_meeting_id=general_meeting_id,
+                    lot_owner_id=lot_owner_id,
+                    voter_email="admin",
+                    proxy_email=None,
+                    submitted_by_admin=True,
+                )
+                db.add(submission)
+                for vote in votes_to_add:
+                    db.add(vote)
+                await db.flush()
         except IntegrityError:
-            await db.rollback()
             skipped_count += 1
             continue
 
