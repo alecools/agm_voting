@@ -857,8 +857,12 @@ async def update_smtp_config(
     )
 
 
+class SmtpTestRequest(BaseModel):
+    to_email: str
+
+
 @router.post("/config/smtp/test")
-async def test_smtp_config(db: AsyncSession = Depends(get_db)) -> dict:
+async def test_smtp_config(body: SmtpTestRequest, db: AsyncSession = Depends(get_db)) -> dict:
     """Attempt to connect to the configured SMTP server and send a test email.
 
     Rate limited to 5 requests per minute per server process.
@@ -878,7 +882,7 @@ async def test_smtp_config(db: AsyncSession = Depends(get_db)) -> dict:
     msg = MIMEText("This is a test email from AGM Voting App.", "plain")
     msg["Subject"] = "Test email from AGM Voting App"
     msg["From"] = config.smtp_from_email
-    msg["To"] = config.smtp_from_email
+    msg["To"] = body.to_email
 
     try:
         await aiosmtplib.send(

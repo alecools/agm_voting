@@ -53,7 +53,7 @@ describe("SMTP config API", () => {
     server.use(
       http.post(`${BASE}/api/admin/config/smtp/test`, () => HttpResponse.json({ ok: true }))
     );
-    const result = await testSmtpConfig();
+    const result = await testSmtpConfig("test@example.com");
     expect(result.ok).toBe(true);
   });
 

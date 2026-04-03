@@ -668,6 +668,9 @@ describe("SettingsPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Recipient email"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(screen.getByText(/Test email sent to/)).toBeInTheDocument());
   });
 
@@ -690,7 +693,10 @@ describe("SettingsPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
-    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Recipient email"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByText(/Connection refused/)).toBeInTheDocument());
   });
 
   it("shows fallback error when test email throws non-Error", async () => {
@@ -710,6 +716,9 @@ describe("SettingsPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Recipient email"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(screen.getByText("Test email failed.")).toBeInTheDocument());
   });
 
@@ -764,6 +773,9 @@ describe("SettingsPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
+    await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Recipient email"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Send" }));
     expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
     await waitFor(() => expect(screen.getByText(/Test email sent to/)).toBeInTheDocument());
   });

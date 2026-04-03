@@ -34,6 +34,8 @@ export default function SettingsPage() {
   const [smtpSaveError, setSmtpSaveError] = useState("");
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [testEmailRecipient, setTestEmailRecipient] = useState("");
 
   useEffect(() => {
     Promise.all([getAdminConfig(), getSmtpConfig()])
@@ -124,16 +126,18 @@ export default function SettingsPage() {
   }
 
   async function handleSmtpTest() {
+    setShowTestEmailModal(false);
     setSmtpTestResult(null);
     setIsTestingSmtp(true);
     try {
-      await testSmtpConfig();
-      setSmtpTestResult({ ok: true, message: `Test email sent to ${smtpFromEmail}` });
+      await testSmtpConfig(testEmailRecipient);
+      setSmtpTestResult({ ok: true, message: `Test email sent to ${testEmailRecipient}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Test email failed.";
       setSmtpTestResult({ ok: false, message });
     } finally {
       setIsTestingSmtp(false);
+      setTestEmailRecipient("");
     }
   }
 
@@ -418,7 +422,7 @@ export default function SettingsPage() {
                 type="button"
                 className="btn btn--secondary"
                 disabled={isTestingSmtp || isSmtpUnconfigured}
-                onClick={() => { void handleSmtpTest(); }}
+                onClick={() => { setSmtpTestResult(null); setShowTestEmailModal(true); }}
               >
                 {isTestingSmtp ? "Sending…" : "Send test email"}
               </button>
@@ -426,6 +430,52 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
+
+      {showTestEmailModal && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="test-email-modal-title"
+          onKeyDown={(e) => { if (e.key === "Escape") setShowTestEmailModal(false); }}
+        >
+          <div className="modal-box">
+            <h2 id="test-email-modal-title" className="modal-box__title">Send test email</h2>
+            <p style={{ color: "var(--text-secondary)", marginBottom: 16, fontSize: "0.9rem" }}>
+              Enter the email address to send the test to.
+            </p>
+            <div className="field">
+              <label className="field__label" htmlFor="test-email-recipient">Recipient email</label>
+              <input
+                id="test-email-recipient"
+                className="field__input"
+                type="email"
+                value={testEmailRecipient}
+                onChange={(e) => setTestEmailRecipient(e.target.value)}
+                placeholder="you@example.com"
+                autoFocus
+              />
+            </div>
+            <div className="modal-box__actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setShowTestEmailModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={!testEmailRecipient || isTestingSmtp}
+                onClick={() => { void handleSmtpTest(); }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
