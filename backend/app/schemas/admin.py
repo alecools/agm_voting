@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.motion import MotionType
 
@@ -27,8 +27,8 @@ class BuildingOut(BaseModel):
 
 
 class BuildingCreate(BaseModel):
-    name: str
-    manager_email: str
+    name: str = Field(..., max_length=255)
+    manager_email: str = Field(..., max_length=254)
 
     @field_validator("name")
     @classmethod
@@ -46,8 +46,8 @@ class BuildingCreate(BaseModel):
 
 
 class BuildingUpdate(BaseModel):
-    name: str | None = None
-    manager_email: str | None = None
+    name: str | None = Field(default=None, max_length=255)
+    manager_email: str | None = Field(default=None, max_length=254)
 
     @field_validator("name")
     @classmethod
@@ -94,9 +94,9 @@ class LotOwnerOut(BaseModel):
 
 
 class LotOwnerCreate(BaseModel):
-    lot_number: str
-    given_name: str | None = None
-    surname: str | None = None
+    lot_number: str = Field(..., max_length=255)
+    given_name: str | None = Field(default=None, max_length=255)
+    surname: str | None = Field(default=None, max_length=255)
     unit_entitlement: int
     financial_position: str = "normal"
     emails: list[str] = []
@@ -124,8 +124,8 @@ class LotOwnerCreate(BaseModel):
 
 
 class LotOwnerUpdate(BaseModel):
-    given_name: str | None = None
-    surname: str | None = None
+    given_name: str | None = Field(default=None, max_length=255)
+    surname: str | None = Field(default=None, max_length=255)
     unit_entitlement: int | None = None
     financial_position: str | None = None
 
@@ -156,7 +156,7 @@ class LotOwnerUpdate(BaseModel):
 
 
 class AddEmailRequest(BaseModel):
-    email: str
+    email: str = Field(..., max_length=254)
 
     @field_validator("email")
     @classmethod
@@ -167,9 +167,9 @@ class AddEmailRequest(BaseModel):
 
 
 class SetProxyRequest(BaseModel):
-    proxy_email: str
-    given_name: str | None = None
-    surname: str | None = None
+    proxy_email: str = Field(..., max_length=254)
+    given_name: str | None = Field(default=None, max_length=255)
+    surname: str | None = Field(default=None, max_length=255)
 
     @field_validator("proxy_email")
     @classmethod
@@ -217,35 +217,17 @@ class MotionOptionOut(BaseModel):
 
 
 class MotionCreate(BaseModel):
-    title: str
-    description: str | None = None
+    title: str = Field(..., max_length=500)
+    description: str | None = Field(default=None, max_length=5000)
     display_order: int
     motion_type: MotionType = MotionType.general
     is_multi_choice: bool = False
-    motion_number: str | None = None
+    motion_number: str | None = Field(default=None, max_length=50)
     option_limit: int | None = None
     options: list[MotionOptionCreate] = []
 
-    @field_validator("title")
-    @classmethod
-    def title_max_length(cls, v: str) -> str:
-        if len(v) > 500:
-            raise ValueError("title must not exceed 500 characters")
-        return v
-
-    @field_validator("description")
-    @classmethod
-    def description_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 2000:
-            raise ValueError("description must not exceed 2000 characters")
-        return v
-
-    @field_validator("motion_number")
-    @classmethod
-    def motion_number_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 50:
-            raise ValueError("motion_number must not exceed 50 characters")
-        return v
+    # Note: max_length limits are enforced by Field() above.
+    # No separate length validators needed — Field(max_length=...) runs first.
 
     @model_validator(mode="after")
     def validate_multi_choice_fields(self) -> "MotionCreate":
@@ -299,11 +281,11 @@ class MotionVisibilityOut(BaseModel):
 
 
 class MotionAddRequest(BaseModel):
-    title: str
-    description: str | None = None
+    title: str = Field(..., max_length=500)
+    description: str | None = Field(default=None, max_length=5000)
     motion_type: MotionType = MotionType.general
     is_multi_choice: bool = False
-    motion_number: str | None = None
+    motion_number: str | None = Field(default=None, max_length=50)
     option_limit: int | None = None
     options: list[MotionOptionCreate] = []
 
@@ -312,23 +294,9 @@ class MotionAddRequest(BaseModel):
     def title_non_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("title must not be empty")
-        if len(v) > 500:
-            raise ValueError("title must not exceed 500 characters")
         return v
 
-    @field_validator("description")
-    @classmethod
-    def description_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 2000:
-            raise ValueError("description must not exceed 2000 characters")
-        return v
-
-    @field_validator("motion_number")
-    @classmethod
-    def motion_number_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 50:
-            raise ValueError("motion_number must not exceed 50 characters")
-        return v
+    # Note: description, motion_number max_length enforced by Field() above.
 
     @model_validator(mode="after")
     def validate_multi_choice_fields(self) -> "MotionAddRequest":
@@ -348,11 +316,11 @@ class MotionAddRequest(BaseModel):
 
 
 class MotionUpdateRequest(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=5000)
     motion_type: MotionType | None = None
     is_multi_choice: bool | None = None
-    motion_number: str | None = None
+    motion_number: str | None = Field(default=None, max_length=50)
     option_limit: int | None = None
     options: list[MotionOptionCreate] | None = None
 
@@ -375,23 +343,9 @@ class MotionUpdateRequest(BaseModel):
     def title_non_empty(cls, v: str | None) -> str | None:
         if v is not None and not v.strip():
             raise ValueError("title must not be empty")
-        if v is not None and len(v) > 500:
-            raise ValueError("title must not exceed 500 characters")
         return v
 
-    @field_validator("description")
-    @classmethod
-    def description_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 2000:
-            raise ValueError("description must not exceed 2000 characters")
-        return v
-
-    @field_validator("motion_number")
-    @classmethod
-    def motion_number_max_length(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 50:
-            raise ValueError("motion_number must not exceed 50 characters")
-        return v
+    # Note: description, motion_number max_length enforced by Field() above.
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +355,7 @@ class MotionUpdateRequest(BaseModel):
 
 class GeneralMeetingCreate(BaseModel):
     building_id: uuid.UUID
-    title: str
+    title: str = Field(..., max_length=500)
     meeting_at: datetime
     voting_closes_at: datetime
     motions: list[MotionCreate]

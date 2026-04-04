@@ -395,21 +395,21 @@ class TestMotionDescriptionSanitisationIntegration:
     async def test_description_max_length_422_on_add_motion(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """Descriptions exceeding 2000 chars are rejected with 422."""
+        """Descriptions exceeding 5000 chars are rejected with 422 (RR5-13: limit raised to 5000)."""
         agm = building_and_meeting["agm"]
-        long_desc = "A" * 2001
+        long_desc = "A" * 5001
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Long Desc Motion", "description": long_desc},
         )
         assert response.status_code == 422
 
-    async def test_description_exactly_2000_chars_accepted(
+    async def test_description_exactly_5000_chars_accepted(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """Descriptions of exactly 2000 characters are accepted."""
+        """Descriptions of exactly 5000 characters are accepted (RR5-13: limit raised from 2000 to 5000)."""
         agm = building_and_meeting["agm"]
-        max_desc = "A" * 2000
+        max_desc = "A" * 5000
         response = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
             json={"title": "Max Desc Motion", "description": max_desc},
@@ -467,7 +467,7 @@ class TestMotionDescriptionSanitisationIntegration:
     async def test_update_motion_description_max_length_422(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):
-        """Updating a motion with a description > 2000 chars is rejected with 422."""
+        """Updating a motion with a description > 5000 chars is rejected with 422 (RR5-13: limit raised to 5000)."""
         agm = building_and_meeting["agm"]
         add_resp = await client.post(
             f"/api/admin/general-meetings/{agm.id}/motions",
@@ -475,7 +475,7 @@ class TestMotionDescriptionSanitisationIntegration:
         )
         motion_id = add_resp.json()["id"]
 
-        long_desc = "B" * 2001
+        long_desc = "B" * 5001
         response = await client.patch(
             f"/api/admin/motions/{motion_id}",
             json={"description": long_desc},
@@ -521,7 +521,7 @@ class TestMotionDescriptionSanitisationIntegration:
     async def test_create_meeting_description_max_length_422(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Motion description > 2000 chars in GeneralMeetingCreate is rejected with 422."""
+        """Motion description > 5000 chars in GeneralMeetingCreate is rejected with 422 (RR5-13: limit raised to 5000)."""
         building = Building(name=f"LenBldg {uuid.uuid4().hex[:6]}", manager_email="len@test.com")
         db_session.add(building)
         await db_session.flush()
@@ -534,7 +534,7 @@ class TestMotionDescriptionSanitisationIntegration:
             "motions": [
                 {
                     "title": "Motion",
-                    "description": "D" * 2001,
+                    "description": "D" * 5001,
                     "display_order": 1,
                 }
             ],

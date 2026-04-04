@@ -178,15 +178,18 @@ def reset_rate_limiters():
         ballot_submit_limiter,
         public_limiter,
     )
+    from app.routers.admin import _smtp_test_rate_limiter
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
     admin_import_limiter._timestamps.clear()
     admin_close_limiter._timestamps.clear()
+    _smtp_test_rate_limiter.reset("smtp_test")
     yield
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
     admin_import_limiter._timestamps.clear()
     admin_close_limiter._timestamps.clear()
+    _smtp_test_rate_limiter.reset("smtp_test")
 
 
 @pytest.fixture

@@ -693,8 +693,9 @@ async def close_general_meeting(
 async def delete_general_meeting_endpoint(
     general_meeting_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_admin),
 ):
+    # RR5-15: removed redundant _: str = Depends(require_admin) — the router-level
+    # dependency already enforces authentication for all endpoints on this router.
     await admin_service.delete_general_meeting(general_meeting_id, db)
 
 
@@ -849,20 +850,21 @@ async def update_admin_config(
 # SMTP configuration
 # ---------------------------------------------------------------------------
 
-_smtp_test_call_times: list[datetime] = []
-_SMTP_TEST_RATE_LIMIT = 5  # calls per minute
+# RR5-06: Use the project-standard RateLimiter singleton instead of a bare list.
+# Keyed on a fixed string "smtp_test" so the limit is server-wide (not per-IP),
+# matching the original intent of protecting the SMTP server from excessive load.
+# 5 requests per 60-second sliding window.
+from app.rate_limiter import RateLimiter as _RateLimiter
+
+_smtp_test_rate_limiter = _RateLimiter(max_requests=5, window_seconds=60)
 
 
 def _check_smtp_test_rate_limit() -> None:
     """Raise 429 if more than 5 calls to /config/smtp/test occurred in the last 60s."""
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=60)
-    # Prune old entries
-    while _smtp_test_call_times and _smtp_test_call_times[0] < cutoff:
-        _smtp_test_call_times.pop(0)
-    if len(_smtp_test_call_times) >= _SMTP_TEST_RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 test emails per minute")
-    _smtp_test_call_times.append(now)
+    try:
+        _smtp_test_rate_limiter.check("smtp_test")
+    except HTTPException as exc:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 test emails per minute") from exc
 
 
 @router.get("/config/smtp/status", response_model=SmtpStatusOut)

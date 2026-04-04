@@ -6,6 +6,7 @@ Password encryption/decryption is handled by app.crypto using SMTP_ENCRYPTION_KE
 """
 from __future__ import annotations
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,12 +64,14 @@ async def update_smtp_config(data: SmtpConfigUpdate, db: AsyncSession) -> Tenant
     if data.smtp_password:
         key = settings.smtp_encryption_key
         if not key:
-            logger.warning(
-                "smtp_encryption_key_missing",
-                message="SMTP_ENCRYPTION_KEY is not set — password cannot be encrypted",
+            # RR5-05: Raise 500 when a new password is supplied but the encryption key
+            # is absent — silently discarding the password would create a confusing state
+            # where the admin thinks they set a password but SMTP still fails.
+            raise HTTPException(
+                status_code=500,
+                detail="SMTP encryption key not configured on server",
             )
-        else:
-            config.smtp_password_enc = encrypt_smtp_password(data.smtp_password, key)
+        config.smtp_password_enc = encrypt_smtp_password(data.smtp_password, key)
 
     await db.flush()
     await db.commit()

@@ -1306,30 +1306,31 @@ async def count_general_meetings(
     building_id: uuid.UUID | None = None,
     status: str | None = None,
 ) -> int:
-    """Return total count of general meetings matching the optional filters."""
-    # When a status filter is applied we must compute effective status in Python,
-    # so we fetch IDs and count them rather than using a SQL COUNT.
-    if status is not None:
-        q = (
-            select(GeneralMeeting)
-            .join(Building, GeneralMeeting.building_id == Building.id)
-        )
-        if name is not None:
-            q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
-        if building_id is not None:
-            q = q.where(GeneralMeeting.building_id == building_id)
-        result = await db.execute(q)
-        meetings = result.scalars().all()
-        return sum(
-            1
-            for m in meetings
-            if (get_effective_status(m).value if hasattr(get_effective_status(m), "value") else get_effective_status(m)) == status
-        )
+    """Return total count of general meetings matching the optional filters.
+
+    RR5-09: When a status filter is applied, use a SQL CASE expression to derive
+    effective status in the database rather than loading all rows into Python.
+    The CASE expression mirrors get_effective_status():
+      1. stored status = 'closed'  → 'closed'
+      2. voting_closes_at < NOW()  → 'closed'
+      3. meeting_at > NOW()        → 'pending'
+      4. otherwise                 → 'open'
+    """
+    from sqlalchemy import case, literal
+    now_expr = func.now()
+    effective_status_expr = case(
+        (GeneralMeeting.status == GeneralMeetingStatus.closed.value, literal("closed")),
+        (GeneralMeeting.voting_closes_at < now_expr, literal("closed")),
+        (GeneralMeeting.meeting_at > now_expr, literal("pending")),
+        else_=literal("open"),
+    )
     q = select(func.count()).select_from(GeneralMeeting)
     if name is not None:
         q = q.where(func.lower(GeneralMeeting.title).contains(name.lower()))
     if building_id is not None:
         q = q.where(GeneralMeeting.building_id == building_id)
+    if status is not None:
+        q = q.where(effective_status_expr == status)
     result = await db.execute(q)
     return result.scalar_one()
 
@@ -2312,6 +2313,12 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
                 row[0]: row[1] for row in proxies_result.all() if row[1]
             }
 
+            # Pre-load lot_number for absent lots to include in the warning (RR5-12)
+            absent_lot_owners_result = await db.execute(
+                select(LotOwner.id, LotOwner.lot_number).where(LotOwner.id.in_(absent_lot_owner_ids))
+            )
+            absent_lot_number_map: dict[uuid.UUID, str] = {row[0]: row[1] for row in absent_lot_owners_result.all()}
+
             for lid in absent_lot_owner_ids:
                 owner_emails = emails_by_owner.get(lid, [])
                 proxy_email_val = proxy_by_owner.get(lid)
@@ -2319,6 +2326,13 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
                 contact_emails = list(owner_emails)
                 if proxy_email_val and proxy_email_val not in contact_emails:
                     contact_emails.append(proxy_email_val)
+                # RR5-12: Warn when a lot has no contact emails at all
+                if not contact_emails:
+                    logger.warning(
+                        "lot_no_contact_email",
+                        lot_id=str(lid),
+                        lot_number=absent_lot_number_map.get(lid, "unknown"),
+                    )
                 voter_email_str = ", ".join(contact_emails)
                 db.add(BallotSubmission(
                     general_meeting_id=general_meeting_id,
@@ -2519,6 +2533,23 @@ async def delete_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession
         raise HTTPException(status_code=404, detail="General Meeting not found")
     if meeting.status == GeneralMeetingStatus.open:
         raise HTTPException(status_code=409, detail="Cannot delete an open General Meeting")
+    # RR5-11: Block deletion of pending meetings that already have data (motions or lot weights),
+    # to prevent accidental loss of configured but not-yet-started meetings.
+    if meeting.status == GeneralMeetingStatus.pending:
+        motion_count_result = await db.execute(
+            select(func.count()).select_from(Motion).where(Motion.general_meeting_id == general_meeting_id)
+        )
+        motion_count = motion_count_result.scalar_one()
+        if motion_count > 0:
+            raise HTTPException(status_code=409, detail="Cannot delete a pending General Meeting that has motions or lot weights")
+        weight_count_result = await db.execute(
+            select(func.count()).select_from(GeneralMeetingLotWeight).where(
+                GeneralMeetingLotWeight.general_meeting_id == general_meeting_id
+            )
+        )
+        weight_count = weight_count_result.scalar_one()
+        if weight_count > 0:
+            raise HTTPException(status_code=409, detail="Cannot delete a pending General Meeting that has motions or lot weights")
     # Use a statement-level DELETE so PostgreSQL's ondelete=CASCADE FK constraints handle
     # child rows (votes, motions, ballot_submissions, etc.) at the DB level.  The ORM-level
     # db.delete() path requires all child collections to be eagerly loaded in the async
@@ -2831,6 +2862,16 @@ async def import_proxies(
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
+    # Batch-load all existing proxies for this building's lots in a single query
+    # to avoid N+1 SELECT per row (RR5-04).
+    lot_owner_ids = list({lo.id for lo in lot_owner_map.values()})
+    existing_proxies_result = await db.execute(
+        select(LotProxy).where(LotProxy.lot_owner_id.in_(lot_owner_ids))
+    )
+    proxy_map: dict[uuid.UUID, LotProxy] = {
+        p.lot_owner_id: p for p in existing_proxies_result.scalars().all()
+    }
+
     upserted = 0
     removed = 0
     skipped = 0
@@ -2849,11 +2890,8 @@ async def import_proxies(
             skipped += 1
             continue
 
-        # Load existing proxy for this lot owner
-        proxy_result = await db.execute(
-            select(LotProxy).where(LotProxy.lot_owner_id == lot_owner.id)
-        )
-        existing_proxy = proxy_result.scalar_one_or_none()
+        # Lookup existing proxy from pre-loaded dict (RR5-04: no per-row SELECT)
+        existing_proxy = proxy_map.get(lot_owner.id)
 
         given_name = row.get("given_name")
         surname = row.get("surname")

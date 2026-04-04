@@ -3526,6 +3526,60 @@ class TestDeleteGeneralMeeting:
             response = await unauthenticated_client.delete(f"/api/admin/general-meetings/{agm.id}")
             assert response.status_code == 401
 
+    # --- RR5-11: block pending meetings with data ---
+
+    async def test_delete_pending_meeting_with_motions_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR5-11: DELETE on a pending meeting that has motions returns 409."""
+        agm = await self._create_meeting(db_session, "DeletePendingMotions", GeneralMeetingStatus.pending)
+        motion = Motion(
+            general_meeting_id=agm.id,
+            title="Some Motion",
+            description=None,
+            display_order=1,
+        )
+        db_session.add(motion)
+        await db_session.commit()
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 409
+        assert "Cannot delete a pending General Meeting that has motions or lot weights" in response.json()["detail"]
+
+    async def test_delete_pending_meeting_with_lot_weights_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR5-11: DELETE on a pending meeting that has lot weight records returns 409."""
+        agm = await self._create_meeting(db_session, "DeletePendingWeights", GeneralMeetingStatus.pending)
+        b_result = await db_session.execute(
+            select(Building).where(Building.id == agm.building_id)
+        )
+        building = b_result.scalar_one()
+        lot = LotOwner(
+            building_id=building.id,
+            lot_number="W01",
+            unit_entitlement=10,
+        )
+        db_session.add(lot)
+        await db_session.flush()
+        weight = GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lot.id,
+            unit_entitlement_snapshot=10,
+        )
+        db_session.add(weight)
+        await db_session.commit()
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 409
+        assert "Cannot delete a pending General Meeting that has motions or lot weights" in response.json()["detail"]
+
+    async def test_delete_pending_meeting_without_data_succeeds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """RR5-11: DELETE on a pending meeting with no motions or lot weights returns 204."""
+        agm = await self._create_meeting(db_session, "DeletePendingEmpty", GeneralMeetingStatus.pending)
+        response = await client.delete(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 204
+
 
 class TestReorderMotions:
     """Tests for the bulk motion reorder endpoint."""

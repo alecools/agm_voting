@@ -244,8 +244,9 @@ class TestSmtpConfigService:
         assert config.id == 1
         assert config.smtp_host == "new.smtp.com"
 
-    async def test_update_smtp_config_no_key_logs_warning_no_encrypt(self, db_session: AsyncSession):
-        """When SMTP_ENCRYPTION_KEY is empty, password is not encrypted (key missing warning)."""
+    async def test_update_smtp_config_no_key_raises_500(self, db_session: AsyncSession):
+        """RR5-05: When SMTP_ENCRYPTION_KEY is absent and a new password is set, raise HTTPException(500)."""
+        from fastapi import HTTPException
         await _seed_smtp_config(db_session)
         data = SmtpConfigUpdate(
             smtp_host="smtp.example.com",
@@ -256,9 +257,10 @@ class TestSmtpConfigService:
         )
         with patch("app.services.smtp_config_service.settings") as mock_settings:
             mock_settings.smtp_encryption_key = ""
-            config = await update_smtp_config(data, db_session)
-        # Password not stored when key is missing
-        assert config.smtp_password_enc is None or config.smtp_password_enc == ""
+            with pytest.raises(HTTPException) as exc_info:
+                await update_smtp_config(data, db_session)
+        assert exc_info.value.status_code == 500
+        assert "SMTP encryption key not configured" in exc_info.value.detail
 
     # --- is_smtp_configured ---
 
@@ -538,6 +540,22 @@ class TestUpdateSmtpConfig:
         # password_is_set should still be True since we retained it
         assert resp.json()["password_is_set"] is True
 
+    async def test_returns_500_when_encryption_key_absent_and_password_set(self, app, db_session: AsyncSession):
+        """RR5-05: PUT /config/smtp with a new password and no SMTP_ENCRYPTION_KEY returns 500."""
+        await _seed_smtp_config(db_session)
+        payload = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_username": "user",
+            "smtp_from_email": "from@example.com",
+            "smtp_password": "NewPassword",
+        }
+        with patch("app.services.smtp_config_service.settings") as mock_settings:
+            mock_settings.smtp_encryption_key = ""
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.put("/api/admin/config/smtp", json=payload)
+        assert resp.status_code == 500
+
 
 # ---------------------------------------------------------------------------
 # API endpoints — GET /api/admin/config/smtp/status
@@ -582,9 +600,10 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
+        import app.routers.admin as admin_module
+        admin_module._smtp_test_rate_limiter.reset("smtp_test")
         with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
-             patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"), \
-             patch("app.routers.admin._smtp_test_call_times", []):
+             patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
@@ -596,9 +615,10 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
+        import app.routers.admin as admin_module
+        admin_module._smtp_test_rate_limiter.reset("smtp_test")
         with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
-             patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"), \
-             patch("app.routers.admin._smtp_test_call_times", []):
+             patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock(side_effect=Exception("Connection refused"))
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
@@ -607,39 +627,38 @@ class TestSmtpTest:
 
     async def test_returns_409_when_not_configured(self, app, db_session: AsyncSession):
         await _clear_smtp_config(db_session)
-        with patch("app.routers.admin._smtp_test_call_times", []):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
+        import app.routers.admin as admin_module
+        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 409
 
     async def test_rate_limit_after_5_calls(self, app, db_session: AsyncSession):
+        """6th request within 60 seconds returns 429 (RR5-06)."""
         key = _make_test_key()
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
         import app.routers.admin as admin_module
-        # Manually fill up the rate limit list with recent timestamps
-        now = datetime.now(UTC)
-        fake_times = [now - timedelta(seconds=i) for i in range(5)]
+        # Pre-fill the RateLimiter with 5 requests to simulate hitting the limit
+        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        for _ in range(5):
+            admin_module._smtp_test_rate_limiter.check("smtp_test")
 
-        with patch.object(admin_module, "_smtp_test_call_times", fake_times):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 429
 
     async def test_rate_limit_pruned_after_60_seconds(self, app, db_session: AsyncSession):
-        """Old entries older than 60s are pruned; test then succeeds."""
+        """After the rate limit window expires, a new request succeeds."""
         key = _make_test_key()
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
         import app.routers.admin as admin_module
-        # Fill with old timestamps (>60s ago) — should be pruned
-        now = datetime.now(UTC)
-        old_times = [now - timedelta(seconds=120 + i) for i in range(5)]
-
-        with patch.object(admin_module, "_smtp_test_call_times", old_times), \
-             patch("app.routers.admin.aiosmtplib") as mock_smtp, \
+        # Reset to a clean state — simulate window having passed
+        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
              patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
