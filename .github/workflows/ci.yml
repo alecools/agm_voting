@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [demo, master]  # CI on PRs targeting demo or master
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     name: Detect changed files
