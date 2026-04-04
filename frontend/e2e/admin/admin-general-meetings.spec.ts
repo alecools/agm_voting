@@ -18,6 +18,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test.describe("Admin General Meetings", () => {
+  test.describe.configure({ mode: "serial" });
+
   test("open General Meeting shows Close Voting button", async ({ page, request }) => {
     const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     const meetings = await meetingsRes.json() as { id: string; status: string }[];

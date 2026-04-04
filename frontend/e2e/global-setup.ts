@@ -97,45 +97,77 @@ export default async function globalSetup(_config: FullConfig) {
   //   - Loop runs for up to 3 minutes (18 attempts × 10s)
   if (BYPASS_TOKEN) {
     const loginUrl = `${baseURL}/api/admin/auth/login`;
+    const healthUrl = `${baseURL}/api/health`;
     const maxAttempts = 18; // up to 3 minutes
-    let warmedUp = false;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      let res: Response | undefined;
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    // Warm up login endpoint and health endpoint in parallel with a 100ms stagger
+    // to avoid hammering the same Lambda instance simultaneously.
+    const warmupLogin = async (): Promise<void> => {
+      let warmedUp = false;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        let res: Response | undefined;
         try {
-          res = await fetch(loginUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-vercel-protection-bypass": BYPASS_TOKEN,
-            },
-            body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timeoutId);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          try {
+            res = await fetch(loginUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-vercel-protection-bypass": BYPASS_TOKEN,
+              },
+              body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+        } catch {
+          // Network error or timeout — treat as cold start, retry
+          if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
+          continue;
         }
-      } catch {
-        // Network error or timeout — treat as cold start, retry
+        if (res.ok) {
+          warmedUp = true;
+          break;
+        }
+        if (res.status >= 400 && res.status < 500) {
+          throw new Error(
+            `Lambda warmup login returned ${res.status} — credentials problem, not a cold start. ` +
+            `Check ADMIN_USERNAME / ADMIN_PASSWORD env vars.`
+          );
+        }
+        // 5xx — Lambda still cold, wait and retry
         if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-        continue;
       }
-      if (res.ok) {
-        warmedUp = true;
-        break;
+      if (!warmedUp) console.warn(`Lambda warmup (login) did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
+    };
+
+    const warmupHealth = async (): Promise<void> => {
+      // 100ms stagger to avoid hitting the same Lambda instance as login warmup
+      await new Promise((r) => setTimeout(r, 100));
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          let res: Response | undefined;
+          try {
+            res = await fetch(healthUrl, {
+              headers: BYPASS_TOKEN ? { "x-vercel-protection-bypass": BYPASS_TOKEN } : {},
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+          if (res && res.ok) {
+            break;
+          }
+        } catch {}
+        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
       }
-      if (res.status >= 400 && res.status < 500) {
-        throw new Error(
-          `Lambda warmup login returned ${res.status} — credentials problem, not a cold start. ` +
-          `Check ADMIN_USERNAME / ADMIN_PASSWORD env vars.`
-        );
-      }
-      // 5xx — Lambda still cold, wait and retry
-      if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-    }
-    if (!warmedUp) console.warn(`Lambda warmup did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
+    };
+
+    await Promise.all([warmupLogin(), warmupHealth()]);
   }
 
   const browser = await chromium.launch();
@@ -404,8 +436,9 @@ export default async function globalSetup(_config: FullConfig) {
     });
   }
 
-  // Warm up the Lambda before seeding
-  console.log('[global-setup] Warming up Lambda...');
+  // Warm up the Lambda before seeding (safety net — Phase 1 warmup may have
+  // targeted a different Lambda instance than the one handling API requests).
+  console.log('[global-setup] Verifying Lambda readiness before seeding...');
   const warmupMaxAttempts = 10;
   const warmupDelay = 5000;
   for (let i = 0; i < warmupMaxAttempts; i++) {
@@ -421,12 +454,12 @@ export default async function globalSetup(_config: FullConfig) {
     }
   }
 
-  // Seed voting building first, then admin building.
-  // The admin AGM must be created last so it has the newest created_at and
-  // therefore sorts first in the admin AGM list — keeping admin tests away
-  // from the voting-test AGM.
-  await seedVotingBuilding();
-  await seedAdminBuilding();
+  // Seed voting building and admin building in parallel — they create independent
+  // buildings with no shared state. Both complete before any test worker starts.
+  // Note: the sort-order concern (admin AGM newest → first in list) is addressed
+  // by the serial guard added to the "Admin General Meetings" describe block, which
+  // prevents parallel workers from racing on the same shared open AGM.
+  await Promise.all([seedVotingBuilding(), seedAdminBuilding()]);
 
   await api.dispose();
 }

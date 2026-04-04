@@ -1,8 +1,10 @@
-import { test, expect, RUN_SUFFIX } from "../fixtures";
+import { test, expect } from "../fixtures";
 
 // Serial: the "CSV import" test replaces all lot owners, which would race with
 // "add lot owner" if they ran in parallel on the same E2E Building.
-const E2E_BUILDING = `E2E Building-${RUN_SUFFIX}`;
+// Use Date.now() to guarantee a unique name per run and avoid collision with
+// the global "E2E Test Building" used by voting-flow tests.
+const E2E_BUILDING = `E2E LotOwners-${Date.now()}`;
 
 test.describe.serial("Admin Lot Owners", () => {
   // Note: Requires a building to exist. Seed via API before tests.
