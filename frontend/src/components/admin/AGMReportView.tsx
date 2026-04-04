@@ -341,7 +341,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                       totalEntitlement={totalEntitlement}
                     />
                   ))}
-                  {(["abstained", "absent", "not_eligible"] as const).map((cat) => (
+                  {(["absent", "not_eligible"] as const).map((cat) => (
                     <tr key={cat}>
                       <td>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>

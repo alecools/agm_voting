@@ -464,10 +464,16 @@ describe("AGMReportView", () => {
     expect(screen.queryByText("Against")).not.toBeInTheDocument();
   });
 
-  it("renders Abstained and Absent rows for multi_choice motion", () => {
+  it("renders Absent row at motion level for multi_choice motion", () => {
     render(<AGMReportView motions={[mcMotionFixture]} />);
-    expect(screen.getByText("Abstained")).toBeInTheDocument();
     expect(screen.getByText("Absent")).toBeInTheDocument();
+  });
+
+  it("does not render motion-level Abstained row for multi_choice motion", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    // Abstained appears at the option level (inside expand/collapse), not at the motion level.
+    // The motion-level Abstained row must be absent so it is not double-counted.
+    expect(screen.queryByText("Abstained")).not.toBeInTheDocument();
   });
 
   it("CSV export for multi_choice motion uses Option: prefix", async () => {
