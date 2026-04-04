@@ -388,9 +388,20 @@ export async function deleteMeeting(api: APIRequestContext, meetingId: string): 
 
 /**
  * Clear all ballots for a meeting (idempotent re-run safety).
+ *
+ * Asserts that the DELETE request succeeds (200 OK). If the server returns 403
+ * it means ENABLE_BALLOT_RESET is not set to true in the deployment environment
+ * — fix this before running E2E tests, otherwise stale ballot state will
+ * accumulate across retries and cause false test failures (e.g. WF10.1).
  */
 export async function clearBallots(api: APIRequestContext, meetingId: string): Promise<void> {
-  await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
+  const res = await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
+  if (!res.ok()) {
+    throw new Error(
+      `clearBallots failed (${res.status()}): ${await res.text()}\n` +
+      "Hint: set ENABLE_BALLOT_RESET=true in the deployment environment."
+    );
+  }
 }
 
 // ── Tally helpers ─────────────────────────────────────────────────────────────
