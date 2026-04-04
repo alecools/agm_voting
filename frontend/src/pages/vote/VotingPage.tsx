@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -53,6 +53,12 @@ export function VotingPage() {
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNoSelectionError, setShowNoSelectionError] = useState(false);
+
+  // Tracks the motions count from the previous re-seed run.
+  // Used to detect when genuinely new motions are revealed (count increases),
+  // distinguishing that from a normal poll refetch of the same motion list.
+  // Prevents the re-seed effect from overwriting an explicit "Deselect All" action.
+  const prevMotionsLengthRef = useRef(0);
 
   // Load allLots from sessionStorage on mount, then immediately restore from server
   // if a session token is available. This ensures voted_motion_ids is always fresh
@@ -227,11 +233,18 @@ export function VotingPage() {
     [motions]
   );
 
-  // Re-seed selectedIds whenever motions or allLots change.
-  // This handles the case where motions refetch reveals new motions that make a
-  // previously-submitted lot not-yet-submitted again (it was locked, now unlocked).
+  // Re-seed selectedIds when new motions are revealed (motions count increases).
+  // Skipping on normal poll refetches (same count) preserves explicit user deselections
+  // such as "Deselect All", which would otherwise be overwritten every refetch cycle.
+  // The `prevMotionsLengthRef.current > 0` guard ensures the initial seed on page load
+  // still runs even when the previous count is 0.
   useEffect(() => {
     if (!motions || allLots.length === 0) return;
+
+    // Only re-seed when new motions are revealed (motions count increased).
+    if (motions.length <= prevMotionsLengthRef.current && prevMotionsLengthRef.current > 0) return;
+    prevMotionsLengthRef.current = motions.length;
+
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const lot of allLots) {
