@@ -582,20 +582,11 @@ export default function GeneralMeetingDetailPage() {
           />
         )}
         {meeting.status === "open" && (
-          <>
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => { setVoteEntrySuccess(null); setShowVoteEntryPanel(true); }}
-            >
-              Enter In-Person Votes
-            </button>
-            <CloseGeneralMeetingButton
-              meetingId={meetingId!}
-              meetingTitle={meeting.title}
-              onSuccess={handleCloseSuccess}
-            />
-          </>
+          <CloseGeneralMeetingButton
+            meetingId={meetingId!}
+            meetingTitle={meeting.title}
+            onSuccess={handleCloseSuccess}
+          />
         )}
         {(meeting.status === "closed" || meeting.status === "pending") && (
           <button
@@ -695,13 +686,24 @@ export default function GeneralMeetingDetailPage() {
       <h2 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Motions</h2>
       {meeting.status !== "closed" && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
-          >
-            Add Motion
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => { setShowAddMotionModal(true); setAddMotionError(null); }}
+            >
+              Add Motion
+            </button>
+            {meeting.status === "open" && (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => { setVoteEntrySuccess(null); setShowVoteEntryPanel(true); }}
+              >
+                Enter In-Person Votes
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
               type="button"
