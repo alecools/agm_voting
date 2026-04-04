@@ -533,6 +533,25 @@ class TestRequestOtp:
         assert response.status_code == 200
         mock_send.assert_not_called()
 
+    async def test_request_otp_skip_email_true_ignored_in_non_testing_mode(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """skip_email=True is silently ignored when testing_mode is False — email is still sent (RR5-03)."""
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock) as mock_send, \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id), "skip_email": True},
+            )
+
+        assert response.status_code == 200
+        # skip_email is ignored in non-testing mode — email MUST be sent
+        mock_send.assert_awaited_once()
+
     async def test_request_otp_expired_meeting_still_accepts(
         self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
     ):

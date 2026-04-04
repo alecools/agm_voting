@@ -2394,6 +2394,20 @@ class TestResendReport:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def enable_ballot_reset():
+    """Patch settings.enable_ballot_reset=True for the duration of a test (RR5-01).
+
+    The endpoint imports settings at call time via 'from app.config import settings as _settings'.
+    Patching the attribute on the already-imported module-level singleton is the correct approach.
+    """
+    from app.config import settings as _cfg_settings
+    original = _cfg_settings.enable_ballot_reset
+    _cfg_settings.enable_ballot_reset = True
+    yield
+    _cfg_settings.enable_ballot_reset = original
+
+
 class TestResetAGMBallots:
     async def _create_agm_with_ballot(
         self, db_session: AsyncSession, name: str
@@ -2449,7 +2463,7 @@ class TestResetAGMBallots:
     # --- Happy path ---
 
     async def test_reset_ballots_deletes_submissions_and_returns_count(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, enable_ballot_reset
     ):
         agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Happy Reset")
         response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
@@ -2464,7 +2478,7 @@ class TestResetAGMBallots:
         assert subs.scalars().all() == []
 
     async def test_reset_ballots_deletes_submitted_votes(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, enable_ballot_reset
     ):
         agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Vote Delete Reset")
         response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
@@ -2477,7 +2491,7 @@ class TestResetAGMBallots:
         assert votes.scalars().all() == []
 
     async def test_reset_ballots_on_agm_with_no_submissions_returns_zero(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, enable_ballot_reset
     ):
         b = Building(name="Empty Reset Building", manager_email="empty_reset@test.com")
         db_session.add(b)
@@ -2497,7 +2511,7 @@ class TestResetAGMBallots:
         assert response.json()["deleted"] == 0
 
     async def test_reset_ballots_preserves_draft_votes(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, enable_ballot_reset
     ):
         b = Building(name="Draft Preserve Building", manager_email="draft_pres@test.com")
         db_session.add(b)
@@ -2542,7 +2556,7 @@ class TestResetAGMBallots:
         assert len(remaining.scalars().all()) == 1
 
     async def test_reset_multiple_submissions_deletes_all(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, enable_ballot_reset
     ):
         b = Building(name="Multi Reset Building", manager_email="multi_reset@test.com")
         db_session.add(b)
@@ -2589,9 +2603,36 @@ class TestResetAGMBallots:
 
     # --- State / precondition errors ---
 
-    async def test_reset_ballots_not_found_returns_404(self, client: AsyncClient):
+    async def test_reset_ballots_not_found_returns_404(self, client: AsyncClient, enable_ballot_reset):
         response = await client.delete(f"/api/admin/general-meetings/{uuid.uuid4()}/ballots")
         assert response.status_code == 404
+
+    # --- Security guard (RR5-01) ---
+
+    async def test_reset_ballots_returns_403_when_flag_absent(self, client: AsyncClient, db_session: AsyncSession):
+        """Returns 403 when ENABLE_BALLOT_RESET is False (default) — production guard (RR5-01)."""
+        from app.config import settings as _cfg_settings
+        original = _cfg_settings.enable_ballot_reset
+        _cfg_settings.enable_ballot_reset = False
+        try:
+            agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Guard Test")
+            response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
+            assert response.status_code == 403
+            assert "disabled" in response.json()["detail"].lower()
+        finally:
+            _cfg_settings.enable_ballot_reset = original
+
+    async def test_reset_ballots_returns_200_when_flag_enabled(self, client: AsyncClient, db_session: AsyncSession):
+        """Returns 200 when ENABLE_BALLOT_RESET=True is explicitly set (RR5-01)."""
+        from app.config import settings as _cfg_settings
+        original = _cfg_settings.enable_ballot_reset
+        _cfg_settings.enable_ballot_reset = True
+        try:
+            agm, _lo, _motion = await self._create_agm_with_ballot(db_session, "Flag Enabled Test")
+            response = await client.delete(f"/api/admin/general-meetings/{agm.id}/ballots")
+            assert response.status_code == 200
+        finally:
+            _cfg_settings.enable_ballot_reset = original
 
     # --- Edge cases ---
 

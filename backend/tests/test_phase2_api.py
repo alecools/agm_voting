@@ -857,7 +857,7 @@ class TestAuthVerify:
     async def test_verify_returns_session_token_in_body(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """POST /api/auth/verify must return session_token in the response body for localStorage persistence."""
+        """POST /api/auth/verify returns session_token="" in the body (RR5-02 — token is now HttpOnly cookie only)."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         code = await make_otp(db_session, voter_email, agm.id)
@@ -874,7 +874,8 @@ class TestAuthVerify:
         data = response.json()
         assert "session_token" in data
         assert isinstance(data["session_token"], str)
-        assert len(data["session_token"]) > 0
+        # Deprecated: token is now delivered via HttpOnly cookie only. Field retained for backward compat.
+        assert data["session_token"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -907,7 +908,8 @@ class TestSessionRestore:
         assert data["building_name"] == building.name
         assert data["meeting_title"] == agm.title
         assert isinstance(data["session_token"], str)
-        assert len(data["session_token"]) > 0
+        # Deprecated: token is now delivered via HttpOnly cookie only. Field retained for backward compat (RR5-02).
+        assert data["session_token"] == ""
 
     async def test_valid_token_sets_agm_session_cookie(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
@@ -1096,7 +1098,7 @@ class TestSessionRestore:
     async def test_valid_token_returns_new_session_token(
         self, client: AsyncClient, db_session: AsyncSession, building_with_agm: dict
     ):
-        """The restored session returns a new session_token (fresh session created)."""
+        """The restored session returns session_token="" in body (RR5-02 — new token delivered via HttpOnly cookie only)."""
         voter_email = building_with_agm["voter_email"]
         agm = building_with_agm["agm"]
         building = building_with_agm["building"]
@@ -1109,9 +1111,9 @@ class TestSessionRestore:
         )
         assert response.status_code == 200
         new_token = response.json()["session_token"]
-        # A new token is issued each restore; it may differ from the original
+        # Deprecated: token is now delivered via HttpOnly cookie only. Field retained for backward compat.
         assert isinstance(new_token, str)
-        assert len(new_token) > 0
+        assert new_token == ""
 
     # --- Input validation ---
 

@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     testing_mode: bool = False
     email_override: str = ""
     environment: str = "development"
+    # Production guard for the ballot-reset endpoint (RR5-01).
+    # Must be explicitly set to True via ENABLE_BALLOT_RESET env var to enable the endpoint.
+    # Defaults to False so the endpoint is blocked in all deployed environments unless opted in.
+    enable_ballot_reset: bool = False
 
     # DB connection pool settings — tuned for serverless Lambda.
     # Override via DB_POOL_SIZE / DB_MAX_OVERFLOW / DB_POOL_TIMEOUT env vars

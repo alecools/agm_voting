@@ -297,8 +297,10 @@ async def request_otp(
         if not settings.testing_mode:
             await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
 
-        # 7. Send the OTP email (skipped when skip_email=True, e.g. in E2E test helpers)
-        if not body.skip_email:
+        # 7. Send the OTP email (skipped when skip_email=True in testing_mode only).
+        # skip_email is silently ignored in non-testing environments (RR5-03).
+        skip_email_effective = body.skip_email and settings.testing_mode
+        if not skip_email_effective:
             try:
                 await send_otp_email(
                     to_email=body.email,
@@ -458,7 +460,8 @@ async def verify_auth(
         building_name=building.name,
         meeting_title=meeting.title,
         unvoted_visible_count=unvoted_visible_count,
-        session_token=token,
+        # Deprecated: token is now delivered via HttpOnly cookie only. Field retained for backward compat. (RR5-02)
+        session_token="",
     )
 
 
@@ -561,7 +564,8 @@ async def restore_session(
         building_name=building.name,
         meeting_title=meeting.title,
         unvoted_visible_count=unvoted_visible_count,
-        session_token=new_token,
+        # Deprecated: token is now delivered via HttpOnly cookie only. Field retained for backward compat. (RR5-02)
+        session_token="",
     )
 
 

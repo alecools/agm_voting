@@ -725,7 +725,17 @@ async def reset_general_meeting_ballots(
 
     Intended for E2E test setup only — clears submitted votes so the test
     suite can re-run the voting flow without hitting a 409 conflict.
+
+    Requires ENABLE_BALLOT_RESET=true env var (RR5-01). Returns 403 when unset
+    to prevent accidental production use.
     """
+    from app.config import settings as _settings  # noqa: PLC0415
+
+    if not _settings.enable_ballot_reset:
+        raise HTTPException(
+            status_code=403,
+            detail="Ballot reset is disabled. Set ENABLE_BALLOT_RESET=true to enable.",
+        )
     result = await admin_service.reset_general_meeting_ballots(general_meeting_id, db)
     return GeneralMeetingBallotResetOut(**result)
 
