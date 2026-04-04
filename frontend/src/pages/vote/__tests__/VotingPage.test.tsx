@@ -1186,6 +1186,38 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  it("Deselect All selection survives a motions refetch (same motion count)", async () => {
+    // Regression test for: re-seed useEffect overwrites explicit deselection on every
+    // motions refetch when motions count has not changed.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false },
+      ])
+    );
+    renderPage();
+    // Wait for initial seed — 2 lots selected
+    await waitFor(() => expect(screen.getAllByText("You are voting for 2 lots.")[0]).toBeInTheDocument());
+
+    // Click Deselect All — 0 lots selected
+    await user.click(screen.getByRole("button", { name: "Deselect all lots" }));
+    expect(screen.getAllByText("You are voting for 0 lots.")[0]).toBeInTheDocument();
+
+    // Simulate a motions refetch by triggering window focus (React Query refetches on focus).
+    // The same 2 motions are returned — count has NOT increased.
+    // The re-seed effect must NOT fire and must NOT restore the deselected lots.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => {
+      // Selection must remain at 0 — the refetch must not have overwritten Deselect All.
+      expect(screen.getAllByText("You are voting for 0 lots.")[0]).toBeInTheDocument();
+    });
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("Select Proxy Lots button only shown when there is a proxy lot and selects only proxy lots", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     sessionStorage.setItem(
