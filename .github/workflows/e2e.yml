@@ -49,10 +49,24 @@ jobs:
           fi
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
+      - name: Determine test URL
+        id: test_url
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          DEMO_URL="https://vms-demo.ocss.tech"
+          if [ "$BRANCH" = "demo" ]; then
+            # For the demo branch, always use the canonical alias URL.
+            # The deployment_status event returns a raw unique URL (e.g. votingms-xxxx.vercel.app)
+            # which may be cold by the time post-merge E2E runs. The canonical alias stays warm.
+            echo "url=${DEMO_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ github.event.deployment_status.environment_url }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run E2E tests
         run: cd frontend && npx playwright test
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ steps.test_url.outputs.url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
