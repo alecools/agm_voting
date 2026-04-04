@@ -65,8 +65,8 @@ export function AuthForm({
         <div className="auth-card__header">
           {/* US-ACC-05: Step indicator — lets screen readers and sighted users know which step they are on */}
           <p
-            className="auth-card__hint"
-            style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "6px" }}
+            className="auth-card__step-indicator"
+            aria-live="polite"
             aria-current="step"
           >
             {step === "email" ? "Step 1 of 2: Enter your email" : "Step 2 of 2: Enter your code"}
@@ -86,7 +86,7 @@ export function AuthForm({
 
         {step === "email" && (
           <form onSubmit={handleRequestOtp} noValidate>
-            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <p className="auth-card__required-legend">
               <span aria-hidden="true">*</span> Required field
             </p>
             <div className="field">
@@ -111,7 +111,7 @@ export function AuthForm({
             </div>
 
             {error && (
-              <p className="field__error mt-8" role="alert" style={{ marginBottom: "16px" }}>
+              <p className="field__error mt-8 mb-16" role="alert">
                 {error}
               </p>
             )}
@@ -128,7 +128,7 @@ export function AuthForm({
 
         {step === "code" && (
           <form onSubmit={handleVerify} noValidate>
-            <p className="auth-card__hint" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <p className="auth-card__required-legend">
               <span aria-hidden="true">*</span> Required field
             </p>
             <p
@@ -163,7 +163,7 @@ export function AuthForm({
             </div>
 
             {error && (
-              <p className="field__error mt-8" role="alert" style={{ marginBottom: "16px" }}>
+              <p className="field__error mt-8 mb-16" role="alert">
                 {error}
               </p>
             )}

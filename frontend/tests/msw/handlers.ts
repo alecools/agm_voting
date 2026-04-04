@@ -1291,6 +1291,30 @@ export const handlers = [
     HttpResponse.json(myBallotFixture)
   ),
 
+  http.get(`${BASE}/api/general-meeting/:meetingId`, ({ params }) => {
+    if (params.meetingId === "non-existent-meeting-id") {
+      return HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 });
+    }
+    if (params.meetingId === AGM_ID) {
+      return HttpResponse.json({
+        id: AGM_ID,
+        title: "2024 AGM",
+        status: "open",
+        meeting_at: "2024-06-01T10:00:00Z",
+        voting_closes_at: "2024-06-01T12:00:00Z",
+        building_name: "Sunset Towers",
+      });
+    }
+    return HttpResponse.json({
+      id: params.meetingId,
+      title: "2024 AGM",
+      status: "open",
+      meeting_at: "2024-06-01T10:00:00Z",
+      voting_closes_at: "2024-06-01T12:00:00Z",
+      building_name: "Sunset Towers",
+    });
+  }),
+
   http.get(`${BASE}/api/general-meeting/:meetingId/summary`, ({ params }) => {
     if (params.meetingId === "agm-summary-notfound") {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });

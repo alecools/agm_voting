@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import { VotingPage } from "../VotingPage";
-import { AGM_ID, BUILDING_ID, MOTION_ID_1, MOTION_ID_2, MOTION_ID_MC, mcMotionFixtureVoter } from "../../../../tests/msw/handlers";
+import { AGM_ID, MOTION_ID_1, MOTION_ID_2, MOTION_ID_MC, mcMotionFixtureVoter } from "../../../../tests/msw/handlers";
 import * as voterApi from "../../../api/voter";
 
 const BASE = "http://localhost:8000";
@@ -317,21 +317,20 @@ describe("VotingPage", () => {
 
   it("shows ClosedBanner and disables inputs when poll detects closed AGM", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
-        HttpResponse.json([
-          {
-            id: AGM_ID,
-            title: "2024 AGM",
-            status: "closed",
-            meeting_at: "2024-06-01T10:00:00Z",
-            voting_closes_at: "2024-06-01T12:00:00Z",
-          },
-        ])
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () =>
+        HttpResponse.json({
+          id: AGM_ID,
+          title: "2024 AGM",
+          status: "closed",
+          meeting_at: "2024-06-01T10:00:00Z",
+          voting_closes_at: "2024-06-01T12:00:00Z",
+          building_name: "Sunset Towers",
+        })
       )
     );
     renderPage();
 
-    // Wait for buildings to load (needed before polling starts)
+    // Wait for meeting data to load (needed before polling starts)
     await waitFor(() => screen.getByText("2024 AGM"));
 
     // Advance past the 10-second poll interval
@@ -351,16 +350,15 @@ describe("VotingPage", () => {
       http.get(`${BASE}/api/server-time`, () =>
         HttpResponse.json({ utc: new Date().toISOString() })
       ),
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
-        HttpResponse.json([
-          {
-            id: AGM_ID,
-            title: "2024 AGM",
-            status: "open",
-            meeting_at: "2024-06-01T10:00:00Z",
-            voting_closes_at: closesAt,
-          },
-        ])
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () =>
+        HttpResponse.json({
+          id: AGM_ID,
+          title: "2024 AGM",
+          status: "open",
+          meeting_at: "2024-06-01T10:00:00Z",
+          voting_closes_at: closesAt,
+          building_name: "Sunset Towers",
+        })
       )
     );
     renderPage();
@@ -394,18 +392,17 @@ describe("VotingPage", () => {
   });
 
   it("poll finds open AGM (no status change - stays open)", async () => {
-    // AGM remains open in poll — the `if (found) return` branch
+    // AGM remains open in poll — status is "open" so ClosedBanner should NOT appear
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () =>
-        HttpResponse.json([
-          {
-            id: AGM_ID,
-            title: "2024 AGM",
-            status: "open",
-            meeting_at: "2024-06-01T10:00:00Z",
-            voting_closes_at: "2024-06-01T12:00:00Z",
-          },
-        ])
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () =>
+        HttpResponse.json({
+          id: AGM_ID,
+          title: "2024 AGM",
+          status: "open",
+          meeting_at: "2024-06-01T10:00:00Z",
+          voting_closes_at: "2024-06-01T12:00:00Z",
+          building_name: "Sunset Towers",
+        })
       )
     );
     renderPage();
@@ -420,8 +417,22 @@ describe("VotingPage", () => {
   });
 
   it("poll handles fetch error gracefully (continues)", async () => {
+    // First call (initial load) returns success; subsequent calls (poll) return error.
+    // The poll error should be caught silently — voter stays on voting page.
+    let callCount = 0;
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () => {
+        callCount += 1;
+        if (callCount > 1) return HttpResponse.error();
+        return HttpResponse.json({
+          id: AGM_ID,
+          title: "2024 AGM",
+          status: "open",
+          meeting_at: "2024-06-01T10:00:00Z",
+          voting_closes_at: "2024-06-01T12:00:00Z",
+          building_name: "Sunset Towers",
+        });
+      })
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
@@ -432,15 +443,15 @@ describe("VotingPage", () => {
     expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
   });
 
-  it("handles fetch error during initial building lookup", async () => {
+  it("handles fetch error during initial meeting lookup — meeting-not-found shown", async () => {
     server.use(
-      http.get(`${BASE}/api/buildings/${BUILDING_ID}/general-meetings`, () => HttpResponse.error())
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () =>
+        HttpResponse.json({ detail: "General Meeting not found" }, { status: 404 })
+      )
     );
     renderPage();
-    // Motions still load (separate query), building info just won't appear
-    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // Building name and AGM title won't appear (header not shown)
-    expect(screen.queryByText("2024 AGM")).not.toBeInTheDocument();
+    // Motions still load (separate query), but meeting header not shown; not-found error shown
+    await waitFor(() => screen.getByTestId("meeting-not-found-error"));
   });
 
   // --- Back navigation ---
@@ -2705,19 +2716,10 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  // ── RR3-27: Error state when all building queries fail to find the meeting ──
+  // ── RR3-27 / RR5-07: Error state when meeting not found via direct lookup ──
 
-  it("RR3-27: shows meeting-not-found error when all building queries return empty results", async () => {
-    // Override buildings to return one building, and that building returns no meetings
-    server.use(
-      http.get(`${BASE}/api/buildings`, () =>
-        HttpResponse.json([{ id: "bld-no-match", name: "No Match Building" }])
-      ),
-      http.get(`${BASE}/api/buildings/:buildingId/general-meetings`, () =>
-        HttpResponse.json([])
-      ),
-    );
-
+  it("RR3-27: shows meeting-not-found error when direct meeting lookup returns 404", async () => {
+    // Direct GET /api/general-meeting/{id} returns 404 → not-found error shown
     renderPage("non-existent-meeting-id");
 
     await waitFor(() => {
@@ -2728,23 +2730,19 @@ describe("VotingPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("RR3-27: does NOT show meeting-not-found error when all building queries fail with network errors (transient)", async () => {
-    // Override buildings to return one building, and that building's meetings endpoint fails
-    // Network errors are treated as transient — no error state is shown (only empty results → error)
-    server.use(
-      http.get(`${BASE}/api/buildings`, () =>
-        HttpResponse.json([{ id: "bld-failing", name: "Failing Building" }])
-      ),
-      http.get(`${BASE}/api/buildings/:buildingId/general-meetings`, () =>
-        HttpResponse.error()
-      ),
-    );
-
-    renderPage("non-existent-meeting-id");
-
-    // Wait a reasonable time — error state should NOT appear since queries errored
-    await new Promise((r) => setTimeout(r, 100));
-    expect(screen.queryByTestId("meeting-not-found-error")).not.toBeInTheDocument();
+  it("RR5-07: only one API call made on mount (no buildings waterfall)", async () => {
+    // Verify that VotingPage uses a single fetchGeneralMeeting call on mount,
+    // not the old buildings → meetings waterfall.
+    const fetchMeetingSpy = vi.spyOn(voterApi, "fetchGeneralMeeting");
+    const fetchBuildingsSpy = vi.spyOn(voterApi, "fetchBuildings");
+    renderPage();
+    await waitFor(() => screen.getByText("2024 AGM"));
+    // Exactly one call to fetchGeneralMeeting (from the useQuery)
+    expect(fetchMeetingSpy).toHaveBeenCalledWith(AGM_ID);
+    // fetchBuildings should NOT have been called (old waterfall removed)
+    expect(fetchBuildingsSpy).not.toHaveBeenCalled();
+    fetchMeetingSpy.mockRestore();
+    fetchBuildingsSpy.mockRestore();
   });
 
   // ---------------------------------------------------------------------------
@@ -2838,6 +2836,44 @@ describe("VotingPage", () => {
     // The total motions count in the progress bar should be 1 (not 2)
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar).toHaveAttribute("aria-valuemax", "1");
+  });
+
+  // --- RR5-14: poll interval cleared after closure detected ---
+
+  it("RR5-14: interval fires 0 times after closure is detected on the first tick", async () => {
+    // Override the meeting endpoint to return closed status on first poll
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}`, () =>
+        HttpResponse.json({
+          id: AGM_ID,
+          title: "2024 AGM",
+          status: "closed",
+          meeting_at: "2024-06-01T10:00:00Z",
+          voting_closes_at: "2024-06-01T12:00:00Z",
+          building_name: "Sunset Towers",
+        })
+      )
+    );
+    const fetchSpy = vi.spyOn(voterApi, "fetchGeneralMeeting");
+    renderPage();
+    await waitFor(() => screen.getByText("2024 AGM"));
+
+    // Fire the first poll tick — should detect closure and clear the interval
+    act(() => { vi.advanceTimersByTime(10001); });
+    await waitFor(() => {
+      expect(screen.getByText("Voting has closed for this meeting.")).toBeInTheDocument();
+    });
+
+    // Count calls after first poll (the initial mount call + one poll call)
+    const callsAfterFirstTick = fetchSpy.mock.calls.length;
+
+    // Advance by another full interval — should fire 0 more times (interval cleared)
+    act(() => { vi.advanceTimersByTime(10001); });
+    act(() => { vi.advanceTimersByTime(10001); });
+
+    // No additional calls — interval was cleared
+    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirstTick);
+    fetchSpy.mockRestore();
   });
 });
 

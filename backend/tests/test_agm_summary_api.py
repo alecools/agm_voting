@@ -466,3 +466,127 @@ class TestAGMSummary:
         titles = [m["title"] for m in response.json()["motions"]]
         assert "Public Result" in titles
         assert "Confidential Addendum" not in titles
+
+
+# ---------------------------------------------------------------------------
+# GET /api/general-meeting/{general_meeting_id}  (RR5-07)
+# ---------------------------------------------------------------------------
+
+
+class TestGetGeneralMeeting:
+    # --- Happy path ---
+
+    async def test_open_meeting_returns_200(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        assert response.status_code == 200
+
+    async def test_open_meeting_returns_correct_id(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["id"] == str(agm.id)
+
+    async def test_open_meeting_returns_title(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["title"] == agm.title
+
+    async def test_open_meeting_returns_status_open(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["status"] == "open"
+
+    async def test_open_meeting_returns_meeting_at(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert "meeting_at" in data
+        assert data["meeting_at"] is not None
+
+    async def test_open_meeting_returns_voting_closes_at(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert "voting_closes_at" in data
+        assert data["voting_closes_at"] is not None
+
+    async def test_open_meeting_returns_building_name(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        agm = open_agm_with_motions["agm"]
+        building = open_agm_with_motions["building"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["building_name"] == building.name
+
+    async def test_response_does_not_include_motions(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        """The lightweight endpoint does not return motion details."""
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert "motions" not in data
+
+    async def test_closed_meeting_returns_status_closed(
+        self, client: AsyncClient, closed_agm: dict
+    ):
+        agm = closed_agm["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["status"] == "closed"
+
+    async def test_closed_meeting_returns_building_name(
+        self, client: AsyncClient, closed_agm: dict
+    ):
+        agm = closed_agm["agm"]
+        building = closed_agm["building"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        data = response.json()
+        assert data["building_name"] == building.name
+
+    # --- Input validation ---
+
+    async def test_nonexistent_meeting_returns_404(self, client: AsyncClient):
+        response = await client.get(f"/api/general-meeting/{uuid.uuid4()}")
+        assert response.status_code == 404
+
+    async def test_malformed_uuid_returns_422(self, client: AsyncClient):
+        response = await client.get("/api/general-meeting/not-a-uuid")
+        assert response.status_code == 422
+
+    # --- Edge cases ---
+
+    async def test_no_auth_header_returns_200(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        """Endpoint is public — no auth required."""
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(f"/api/general-meeting/{agm.id}")
+        assert response.status_code == 200
+
+    async def test_extra_auth_header_ignored(
+        self, client: AsyncClient, open_agm_with_motions: dict
+    ):
+        """Supplying a token header does not break the public endpoint."""
+        agm = open_agm_with_motions["agm"]
+        response = await client.get(
+            f"/api/general-meeting/{agm.id}",
+            headers={"Authorization": "Bearer sometoken"},
+        )
+        assert response.status_code == 200

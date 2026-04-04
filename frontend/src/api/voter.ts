@@ -14,6 +14,15 @@ export interface GeneralMeetingOut {
   voting_closes_at: string;
 }
 
+export interface GeneralMeetingWithBuildingOut {
+  id: string;
+  title: string;
+  status: GeneralMeetingStatus;
+  meeting_at: string;
+  voting_closes_at: string;
+  building_name: string;
+}
+
 export interface OtpRequestBody {
   email: string;
   general_meeting_id: string;
@@ -161,6 +170,10 @@ export function fetchBuildings(): Promise<BuildingOut[]> {
 
 export function fetchGeneralMeetings(buildingId: string): Promise<GeneralMeetingOut[]> {
   return apiFetch<GeneralMeetingOut[]>(`/api/buildings/${buildingId}/general-meetings`);
+}
+
+export function fetchGeneralMeeting(meetingId: string): Promise<GeneralMeetingWithBuildingOut> {
+  return apiFetch<GeneralMeetingWithBuildingOut>(`/api/general-meeting/${meetingId}`);
 }
 
 export function requestOtp(req: OtpRequestBody): Promise<OtpRequestResponse> {

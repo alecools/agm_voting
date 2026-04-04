@@ -1323,6 +1323,18 @@ button, input, select, textarea {
   font-size: 0.875rem;
 }
 
+.auth-card__step-indicator {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 6px;
+}
+
+.auth-card__required-legend {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
 /* === ADMIN LAYOUT === */
 .admin-layout {
   display: flex;
@@ -2318,6 +2330,7 @@ button, input, select, textarea {
 .mt-16 { margin-top: 16px; }
 .mt-24 { margin-top: 24px; }
 .mb-0  { margin-bottom: 0; }
+.mb-16 { margin-bottom: 16px; }
 .text-center { text-align: center; }
 
 /* === SUPPORT CONTACT === */

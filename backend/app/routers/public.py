@@ -3,6 +3,7 @@ Public endpoints (no auth required):
   GET /api/server-time
   GET /api/buildings
   GET /api/buildings/{building_id}/general-meetings
+  GET /api/general-meeting/{general_meeting_id}
   GET /api/general-meeting/{general_meeting_id}/summary
 """
 import uuid
@@ -18,7 +19,7 @@ from app.database import get_db
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.building import Building
 from app.models.motion import Motion
-from app.schemas.agm import GeneralMeetingOut, GeneralMeetingSummaryOut, MotionSummaryOut
+from app.schemas.agm import GeneralMeetingOut, GeneralMeetingSummaryOut, GeneralMeetingWithBuildingOut, MotionSummaryOut
 from app.schemas.building import BuildingOut
 from app.schemas.config import TenantConfigOut
 from app.services import config_service
@@ -98,6 +99,37 @@ async def list_general_meetings(
         )
         for m in meetings
     ]
+
+
+@router.get("/general-meeting/{general_meeting_id}", response_model=GeneralMeetingWithBuildingOut)
+async def get_general_meeting(
+    general_meeting_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> GeneralMeetingWithBuildingOut:
+    """Return a single General Meeting with building name — public, no auth required."""
+    # Rate limit: 60 requests per minute per IP
+    public_limiter.check(get_client_ip(request))
+    meeting_result = await db.execute(
+        select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id)
+    )
+    meeting = meeting_result.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="General Meeting not found")
+
+    building_result = await db.execute(
+        select(Building).where(Building.id == meeting.building_id)
+    )
+    building = building_result.scalar_one()
+
+    return GeneralMeetingWithBuildingOut(
+        id=meeting.id,
+        title=meeting.title,
+        status=get_effective_status(meeting),
+        meeting_at=meeting.meeting_at,
+        voting_closes_at=meeting.voting_closes_at,
+        building_name=building.name,
+    )
 
 
 @router.get("/general-meeting/{general_meeting_id}/summary", response_model=GeneralMeetingSummaryOut)

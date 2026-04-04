@@ -4,13 +4,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchMotions,
   submitBallot,
-  fetchGeneralMeetings,
-  fetchBuildings,
+  fetchGeneralMeeting,
   restoreSession,
 } from "../../api/voter";
 import { optionChoiceMapToRequest } from "../../components/vote/MultiChoiceOptionList";
 import type { VoteChoice } from "../../types";
-import type { GeneralMeetingOut, LotInfo } from "../../api/voter";
+import type { GeneralMeetingWithBuildingOut, LotInfo } from "../../api/voter";
 
 type OptionChoiceMap = Record<string, "for" | "against" | "abstained">;
 
@@ -48,8 +47,7 @@ export function VotingPage() {
   const [meetingNotFound, setMeetingNotFound] = useState(false);
 
   // Current meeting metadata
-  const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingOut | null>(null);
-  const [buildingName, setBuildingName] = useState("");
+  const [currentMeeting, setCurrentMeeting] = useState<GeneralMeetingWithBuildingOut | null>(null);
 
   // Lot selection state
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
@@ -116,41 +114,25 @@ export function VotingPage() {
       });
   }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch buildings to find the building for this meeting
-  const { data: buildings } = useQuery({
-    queryKey: ["buildings"],
-    queryFn: fetchBuildings,
+  // Fetch the meeting directly by ID — single request, no waterfall (RR5-07)
+  const { data: meetingData, isError: meetingFetchError } = useQuery({
+    queryKey: ["general-meeting", meetingId],
+    queryFn: () => fetchGeneralMeeting(meetingId!),
+    enabled: !!meetingId,
+    retry: false,
   });
 
   useEffect(() => {
-    if (!buildings || !meetingId) return;
-    // Reset not-found state when buildings list changes
-    setMeetingNotFound(false);
-
-    const findBuilding = async () => {
-      let anyQuerySucceeded = false;
-      for (const building of buildings) {
-        try {
-          const meetings = await fetchGeneralMeetings(building.id);
-          anyQuerySucceeded = true;
-          const found = meetings.find((a) => a.id === meetingId);
-          if (found) {
-            setCurrentMeeting(found);
-            setBuildingName(building.name);
-            return;
-          }
-        } catch {
-          // continue searching other buildings — don't treat fetch errors as "not found"
-        }
-      }
-      // Only show error when at least one query succeeded but meeting was not found (RR3-27)
-      // If all queries failed (network error), silently fall through — may be transient
-      if (anyQuerySucceeded) {
-        setMeetingNotFound(true);
-      }
-    };
-    void findBuilding();
-  }, [buildings, meetingId]);
+    if (!meetingId) return;
+    if (meetingFetchError) {
+      setMeetingNotFound(true);
+      return;
+    }
+    if (meetingData) {
+      setMeetingNotFound(false);
+      setCurrentMeeting(meetingData);
+    }
+  }, [meetingData, meetingFetchError, meetingId]);
 
   const { data: motions } = useQuery({
     queryKey: ["motions", meetingId],
@@ -263,29 +245,32 @@ export function VotingPage() {
     });
   }, [motions, allLots, isLotSubmitted]);
 
-  // Poll meeting status every 10s
+  // Poll meeting status every 10s — single endpoint, clears interval on closure (RR5-07, RR5-14)
   useEffect(() => {
-    if (!meetingId || !buildings) return;
+    if (!meetingId) return;
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const poll = async () => {
-      for (const building of buildings) {
-        try {
-          const meetings = await fetchGeneralMeetings(building.id);
-          const found = meetings.find((a) => a.id === meetingId);
-          if (found && found.status === "closed") {
-            setIsClosed(true);
-            return;
+      try {
+        const meeting = await fetchGeneralMeeting(meetingId);
+        if (meeting.status === "closed") {
+          setIsClosed(true);
+          if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
           }
-          if (found) return;
-        } catch {
-          // continue
         }
+      } catch {
+        // transient error — continue polling
       }
     };
 
-    const id = setInterval(() => void poll(), 10000);
-    return () => clearInterval(id);
-  }, [meetingId, buildings]);
+    intervalId = setInterval(() => void poll(), 10000);
+    return () => {
+      if (intervalId !== null) clearInterval(intervalId);
+    };
+  }, [meetingId]);
 
   const submitMutation = useMutation({
     mutationFn: ({ lotsToSubmit, votes, multiChoiceVotes }: SubmitPayload) =>
@@ -624,7 +609,7 @@ export function VotingPage() {
 
       {currentMeeting && (
         <div className="agm-header">
-          <p className="agm-header__building">{buildingName}</p>
+          <p className="agm-header__building">{currentMeeting.building_name}</p>
           <h1 className="agm-header__title">{currentMeeting.title}</h1>
           <div className="agm-header__meta">
             <span>

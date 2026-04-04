@@ -27,6 +27,17 @@ class MotionSummaryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GeneralMeetingWithBuildingOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: GeneralMeetingStatus
+    meeting_at: datetime
+    voting_closes_at: datetime
+    building_name: str
+
+    model_config = {"from_attributes": True}
+
+
 class GeneralMeetingSummaryOut(BaseModel):
     general_meeting_id: uuid.UUID
     building_id: uuid.UUID
