@@ -4,7 +4,7 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:5173";
 const isDeployed = !!process.env.PLAYWRIGHT_BASE_URL;
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "../e2e_tests",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   // Retry once on deployed targets (cold-start flakiness); twice in CI
@@ -12,7 +12,7 @@ export default defineConfig({
   // Serialise in CI to prevent inter-test state interference; limit on deployed targets
   workers: process.env.CI ? 2 : isDeployed ? 4 : undefined,
   reporter: "html",
-  globalSetup: "./e2e/global-setup.ts",
+  globalSetup: "../e2e_tests/global-setup.ts",
   // Increase default expect/action timeout for deployed Lambda targets: API
   // calls can take up to 10s on cold start; the Playwright default of 5s is
   // too short and causes flaky failures on the first assertion after page load.
@@ -29,19 +29,19 @@ export default defineConfig({
     // Admin tests — reuse authenticated session created by globalSetup
     {
       name: "admin",
-      testMatch: /e2e\/admin\/.*\.spec\.ts/,
+      testMatch: /e2e_tests\/admin\/.*\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "e2e/.auth/admin.json",
+        storageState: "../e2e_tests/.auth/admin.json",
       },
     },
     // Public / voting tests — use bypass cookie only (no admin session)
     {
       name: "public",
-      testMatch: /e2e\/(?!admin\/).*\.spec\.ts/,
+      testMatch: /e2e_tests\/(?!admin\/).*\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "e2e/.auth/public.json",
+        storageState: "../e2e_tests/.auth/public.json",
       },
     },
   ],

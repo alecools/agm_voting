@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "lint:security": "eslint src/ --config eslint.config.js",
     "e2e": "playwright test",
-    "e2e:smoke": "playwright test e2e/smoke.spec.ts"
+    "e2e:smoke": "playwright test e2e_tests/smoke.spec.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
