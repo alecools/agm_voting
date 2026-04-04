@@ -211,8 +211,20 @@ async def _check_migration_head() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # pragma: no cover
-    # Startup: check migration head and requeue pending email deliveries
+async def lifespan(app: FastAPI):
+    # Startup: check migration head and requeue pending email deliveries.
+    #
+    # IMPORTANT — sequential execution is intentional and must not be changed
+    # to asyncio.gather() or any concurrent form.
+    #
+    # Both _check_migration_head() and requeue_pending_on_startup() acquire a
+    # DB connection from AsyncSessionLocal (pool_size=1, max_overflow=0).  With
+    # only one connection slot available, running them concurrently would cause
+    # the second coroutine to block on pool acquisition and time out, leaving
+    # the pool exhausted for all subsequent requests on this Lambda instance.
+    #
+    # Sequential awaits ensure the first operation fully acquires, uses, and
+    # releases its connection before the second one begins.
     await _check_migration_head()
     from app.database import AsyncSessionLocal
     from app.services.email_service import EmailService

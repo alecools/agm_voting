@@ -927,3 +927,149 @@ class TestMigrationHeadCheck:
             assert response.status_code == 200
         finally:
             main_module._migration_head_mismatch = original_mismatch
+
+
+# ---------------------------------------------------------------------------
+# app.main — lifespan: sequential startup DB operations
+# ---------------------------------------------------------------------------
+
+
+class TestLifespan:
+    """Verify that startup DB operations run sequentially, not concurrently.
+
+    pool_size=1, max_overflow=0 means only one DB connection slot exists.
+    If _check_migration_head() and requeue_pending_on_startup() were run
+    concurrently (e.g. via asyncio.gather), the second would time out
+    waiting for a pool slot, leaving the pool exhausted for all requests.
+    Sequential awaits ensure each operation acquires, uses, and releases its
+    connection before the next one starts.
+    """
+
+    # --- Happy path ---
+
+    async def test_lifespan_runs_check_then_requeue_sequentially(self):
+        """Lifespan awaits _check_migration_head then requeue_pending_on_startup in order."""
+        from unittest.mock import AsyncMock, MagicMock, patch, call
+        from fastapi import FastAPI
+        from app.main import lifespan
+
+        call_order = []
+
+        async def mock_check_migration_head():
+            call_order.append("check_migration_head")
+
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock(
+            side_effect=lambda db: call_order.append("requeue_pending_on_startup")
+        )
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        with (
+            patch("app.main._check_migration_head", mock_check_migration_head),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+        ):
+            app_instance = FastAPI()
+            async with lifespan(app_instance):
+                pass  # just exercise startup
+
+        assert call_order == ["check_migration_head", "requeue_pending_on_startup"], (
+            "startup operations must run sequentially: check_migration_head first, "
+            "then requeue_pending_on_startup"
+        )
+
+    async def test_lifespan_check_migration_head_called_once(self):
+        """_check_migration_head is called exactly once during lifespan startup."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import FastAPI
+        from app.main import lifespan
+
+        mock_check = AsyncMock()
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock()
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        with (
+            patch("app.main._check_migration_head", mock_check),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+        ):
+            app_instance = FastAPI()
+            async with lifespan(app_instance):
+                pass
+
+        mock_check.assert_awaited_once()
+
+    async def test_lifespan_requeue_pending_called_with_db_session(self):
+        """requeue_pending_on_startup receives a DB session from AsyncSessionLocal."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import FastAPI
+        from app.main import lifespan
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        captured_db_args = []
+
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock(
+            side_effect=lambda db: captured_db_args.append(db)
+        )
+
+        with (
+            patch("app.main._check_migration_head", AsyncMock()),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+        ):
+            app_instance = FastAPI()
+            async with lifespan(app_instance):
+                pass
+
+        assert len(captured_db_args) == 1
+        assert captured_db_args[0] is mock_db
+
+    # --- Edge cases ---
+
+    async def test_lifespan_check_migration_head_raises_does_not_call_requeue(self):
+        """If _check_migration_head raises, requeue_pending_on_startup is NOT called."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import FastAPI
+        from app.main import lifespan
+
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock()
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        async def raising_check():
+            raise RuntimeError("Migration head mismatch")
+
+        with (
+            patch("app.main._check_migration_head", raising_check),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+        ):
+            app_instance = FastAPI()
+            with pytest.raises(RuntimeError, match="Migration head mismatch"):
+                async with lifespan(app_instance):
+                    pass  # pragma: no cover
+
+        # requeue must not have been called
+        mock_email_service.requeue_pending_on_startup.assert_not_awaited()
