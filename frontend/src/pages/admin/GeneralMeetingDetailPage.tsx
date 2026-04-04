@@ -240,7 +240,18 @@ export default function GeneralMeetingDetailPage() {
       navigate("/admin/general-meetings");
     },
     onError: (err: Error) => {
-      setDeleteMeetingError(err.message || "Failed to delete meeting");
+      // Extract the detail message from the raw "HTTP 4xx: {...}" error string
+      let msg = err.message || "Failed to delete meeting";
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart !== -1) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { detail?: string };
+          if (parsed.detail) msg = parsed.detail;
+        } catch {
+          // leave msg as-is if JSON parse fails
+        }
+      }
+      setDeleteMeetingError(msg);
     },
   });
 
