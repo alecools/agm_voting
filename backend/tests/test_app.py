@@ -95,13 +95,14 @@ class TestDatabase:
 
         assert engine is not None
 
-    def test_engine_uses_nullpool(self):
-        """Verify the engine is configured with NullPool for serverless Lambda (RR3-05)."""
-        from sqlalchemy.pool import NullPool
+    def test_engine_uses_persistent_pool(self):
+        """Verify the engine is configured with a small persistent pool (pool_size=1)."""
+        from sqlalchemy.pool import QueuePool
 
         from app.database import engine
 
-        assert isinstance(engine.pool, NullPool)
+        assert isinstance(engine.pool, QueuePool)
+        assert engine.pool.size() == 1
 
     def test_session_factory_created(self):
         from app.database import AsyncSessionLocal
@@ -924,10 +925,9 @@ class TestMigrationHeadCheck:
 class TestLifespan:
     """Verify that startup DB operations run sequentially, not concurrently.
 
-    NullPool means each DB operation acquires a fresh direct connection.
     If _check_migration_head() and requeue_pending_on_startup() were run
-    concurrently (e.g. via asyncio.gather), both would race to acquire
-    connections and the startup sequence would be non-deterministic.
+    concurrently (e.g. via asyncio.gather), both would race for the single
+    pooled connection and the startup sequence would be non-deterministic.
     Sequential awaits ensure each operation acquires, uses, and releases its
     connection before the next one starts.
     """

@@ -284,6 +284,10 @@ class TestDebugDbHealth:
         assert response.status_code == 200
         data = response.json()
         assert "pool_type" in data
+        assert "pool_size" in data
+        assert "checked_in" in data
+        assert "checked_out" in data
+        assert "overflow" in data
 
     async def test_pool_type_is_string(self, client: AsyncClient, enable_testing_mode):
         response = await client.get("/api/admin/debug/db-health")
@@ -291,16 +295,17 @@ class TestDebugDbHealth:
         assert isinstance(data["pool_type"], str)
         assert len(data["pool_type"]) > 0
 
-    async def test_returns_numeric_pool_fields_or_na(self, client: AsyncClient, enable_testing_mode):
-        """Pool fields are either numeric (real pool) or 'n/a' string (NullPool)."""
+    async def test_returns_numeric_pool_fields(self, client: AsyncClient, enable_testing_mode):
+        """Pool fields are non-negative integers from the persistent pool."""
         response = await client.get("/api/admin/debug/db-health")
         data = response.json()
-        # If we have numeric fields, they should be non-negative integers or 'n/a'
-        if "pool_size" in data:
-            assert isinstance(data["pool_size"], (int, float))
-        else:
-            # NullPool path returns status=n/a
-            assert data.get("status") == "n/a"
+        assert isinstance(data["pool_size"], int)
+        assert isinstance(data["checked_in"], int)
+        assert isinstance(data["checked_out"], int)
+        assert isinstance(data["overflow"], int)
+        assert data["pool_size"] >= 0
+        assert data["checked_in"] >= 0
+        assert data["checked_out"] >= 0
 
     async def test_returns_404_when_testing_mode_disabled(self, client: AsyncClient):
         """Debug db-health endpoint returns 404 when testing_mode=False (RR3-34)."""

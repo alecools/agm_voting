@@ -1021,11 +1021,16 @@ async def debug_email_deliveries(
 async def debug_db_health() -> dict:
     """Return DB connection pool diagnostic information.
 
-    NullPool is used — no application-level connection pooling. Each request
-    acquires a direct connection and releases it immediately. Pool size/overflow
-    metrics are not applicable.
+    A small persistent pool (pool_size=1) is used per Lambda instance.
+    Returns pool type and current checked-in/checked-out/overflow counts.
     Only available when TESTING_MODE=true (RR3-34).
     """
     _require_debug_access()
     pool = engine.pool
-    return {"pool_type": type(pool).__name__, "status": "n/a"}
+    return {
+        "pool_type": type(pool).__name__,
+        "pool_size": pool.size(),
+        "checked_in": pool.checkedin(),
+        "checked_out": pool.checkedout(),
+        "overflow": pool.overflow(),
+    }

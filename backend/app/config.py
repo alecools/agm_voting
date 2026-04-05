@@ -70,11 +70,12 @@ class Settings(BaseSettings):
     # Defaults to False so the endpoint is blocked in all deployed environments unless opted in.
     enable_ballot_reset: bool = False
 
-    # NullPool is used for DB connections (see database.py).
-    # No application-level pool settings are needed — each request acquires and
-    # releases its own direct connection. The DB_POOL_SIZE, DB_MAX_OVERFLOW, and
-    # DB_POOL_TIMEOUT env vars are no longer read by the app and can be removed
-    # from Vercel environment configuration.
+    # Pool settings for the small persistent pool (see database.py).
+    # pool_size=1 keeps exactly one connection alive per Lambda instance.
+    # Override via DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_POOL_TIMEOUT env vars if needed.
+    db_pool_size: int = 1
+    db_max_overflow: int = 0
+    db_pool_timeout: int = 30
 
     @field_validator("admin_password")
     @classmethod
