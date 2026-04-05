@@ -72,6 +72,7 @@ jobs:
           path: |
             e2e_tests/.auth
             e2e_tests/.run-suffix
+          include-hidden-files: true
           retention-days: 1
 
   # ── 2a. Admin tests ──────────────────────────────────────────────────────────
