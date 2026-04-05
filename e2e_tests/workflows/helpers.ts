@@ -20,7 +20,7 @@ export const ADMIN_AUTH_PATH = path.join(__dirname, "../.auth/admin.json");
 
 /**
  * Retry an async function up to `maxRetries` times with `delayMs` between
- * attempts. Useful for seeding helpers that can fail on Lambda cold-start.
+ * attempts. Useful for seeding helpers that can fail transiently on server errors.
  */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, delayMs = 5000): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -94,11 +94,11 @@ export async function seedBuilding(
     const buildingsRes = await api.get(
       `/api/admin/buildings?name=${encodeURIComponent(name)}`
     );
-    // Guard against Lambda cold-start 5xx responses: parsing a non-array JSON body
+    // Guard against 5xx responses: parsing a non-array JSON body
     // (e.g. {"detail":"..."}) and calling .find() on it throws "is not a function".
     if (!buildingsRes.ok()) {
       throw new Error(
-        `GET /api/admin/buildings returned ${buildingsRes.status()} — Lambda may be cold-starting; retry the test run. Body: ${await buildingsRes.text()}`
+        `GET /api/admin/buildings returned ${buildingsRes.status()} — server error, retrying. Body: ${await buildingsRes.text()}`
       );
     }
     const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
