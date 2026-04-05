@@ -541,6 +541,22 @@ describe("BuildingsPage", () => {
     expect(cancelBtn).toHaveFocus();
   });
 
+  it("Shift+Tab from a middle element in modal does not wrap focus", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    // Focus the Manager Email input (middle element) and Shift+Tab — should move to Building Name
+    const managerEmail = screen.getByLabelText("Manager Email");
+    const nameInput = screen.getByLabelText("Building Name");
+    managerEmail.focus();
+    await user.tab({ shift: true });
+    // Focus should have moved backwards to Building Name (normal browser behaviour, not wrapped)
+    expect(nameInput).toHaveFocus();
+  });
+
   it("modal shows Required field legend", async () => {
     const user = userEvent.setup();
     renderPage();

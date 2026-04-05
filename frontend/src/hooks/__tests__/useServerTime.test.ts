@@ -110,4 +110,29 @@ describe("useServerTime", () => {
     expect(clearTimeoutSpy).toHaveBeenCalled();
     clearTimeoutSpy.mockRestore();
   });
+
+  it("RR3-29: timeout callback aborts fetch when server response is slow", async () => {
+    // Simulate a slow server — the fetch never resolves within 5s
+    server.use(
+      http.get(`${BASE}/api/server-time`, async () => {
+        // Never respond — the AbortController timeout should fire
+        await new Promise(() => {});
+        return HttpResponse.json({ utc: new Date().toISOString() });
+      })
+    );
+
+    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderHook(() => useServerTime());
+
+    // Advance past the 5-second timeout so the setTimeout callback fires
+    await vi.advanceTimersByTimeAsync(5100);
+
+    // The timeout callback should have called abort()
+    expect(abortSpy).toHaveBeenCalled();
+
+    vi.useRealTimers();
+    abortSpy.mockRestore();
+  });
 });
