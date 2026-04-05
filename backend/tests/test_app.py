@@ -132,8 +132,8 @@ class TestDatabase:
         assert cparams.get("statement_cache_size") == 0, (
             "statement_cache_size must be 0 for PgBouncer transaction mode compatibility"
         )
-        assert cparams.get("timeout") == 10, (
-            "timeout must be 10 so asyncpg raises after 10s during Neon wake-up "
+        assert cparams.get("timeout") == 5, (
+            "timeout must be 5 so asyncpg raises after 5s during Neon wake-up "
             "instead of hanging indefinitely"
         )
 
@@ -141,6 +141,23 @@ class TestDatabase:
         from app.database import AsyncSessionLocal
 
         assert AsyncSessionLocal is not None
+
+    def test_engine_connect_args_timeout(self):
+        """Engine connect_args has timeout=5 to detect hung Neon connections quickly.
+
+        SQLAlchemy merges connect_args into the pool creator's closure (cparams).
+        We inspect that closure to verify the timeout value — dialect.create_connect_args
+        only returns driver defaults, not user-supplied overrides.
+        """
+        import inspect
+
+        from app.database import engine
+
+        # The pool creator is a closure that captures `cparams` — the merged
+        # connect kwargs including any user-supplied connect_args.
+        pool_creator = engine.sync_engine.pool._creator
+        cparams = inspect.getclosurevars(pool_creator).nonlocals.get("cparams", {})
+        assert cparams.get("timeout") == 5
 
     async def test_get_db_yields_session(self):
         from sqlalchemy.ext.asyncio import AsyncSession

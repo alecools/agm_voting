@@ -25,10 +25,12 @@ from app.config import settings
 # - pool_timeout=30: request fails fast if the single connection is somehow unavailable.
 #
 # statement_cache_size=0 is required for PgBouncer transaction mode compatibility.
-# timeout=10 sets a 10-second asyncpg connection timeout. When Neon is waking from
+# timeout=5 sets a 5-second asyncpg connection timeout. When Neon is waking from
 # auto-suspend the TCP connection can hang indefinitely without this guard. asyncpg
 # raises an asyncio.TimeoutError (wrapped in OperationalError by SQLAlchemy) after
-# 10 seconds, which triggers the get_db() retry logic below.
+# 5 seconds, which triggers the get_db() retry logic below. Using 5s (rather than
+# 10s) keeps total retry time (5s + 1s + 5s + 2s + 5s = 18s) well within the 60s
+# Playwright E2E timeout.
 #
 # Neon auto-suspend note: the free/launch Neon plan auto-suspends the compute after
 # 5 minutes of idle. This cannot be disabled programmatically on those tiers. When a
@@ -44,7 +46,7 @@ engine = create_async_engine(
     pool_timeout=settings.db_pool_timeout,
     pool_pre_ping=True,
     pool_recycle=300,
-    connect_args={"statement_cache_size": 0, "timeout": 10},
+    connect_args={"statement_cache_size": 0, "timeout": 5},
 )
 
 AsyncSessionLocal = async_sessionmaker(

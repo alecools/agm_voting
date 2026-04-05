@@ -264,6 +264,7 @@ export default async function globalSetup(_config: FullConfig) {
     if (!building) {
       const created = await api.post("/api/admin/buildings", {
         data: { name: E2E_BUILDING_NAME, manager_email: "e2e-manager@test.com" },
+        timeout: 60000,
       });
       building = (await created.json()) as { id: string; name: string };
     }
@@ -284,6 +285,7 @@ export default async function globalSetup(_config: FullConfig) {
           emails: [E2E_LOT_EMAIL],
           unit_entitlement: E2E_LOT_ENTITLEMENT,
         },
+        timeout: 60000,
       });
       if (!createRes.ok()) {
         throw new Error(
@@ -294,6 +296,7 @@ export default async function globalSetup(_config: FullConfig) {
       // Lot owner exists but is missing the required email — add it via the emails endpoint
       const addEmailRes = await api.post(`/api/admin/lot-owners/${existingLotOwner.id}/emails`, {
         data: { email: E2E_LOT_EMAIL },
+        timeout: 60000,
       });
       if (!addEmailRes.ok()) {
         throw new Error(
@@ -336,7 +339,7 @@ export default async function globalSetup(_config: FullConfig) {
       (a) => a.building_id === building!.id && (a.status === "open" || a.status === "pending")
     );
     for (const agm of openE2eAgms) {
-      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+      await api.post(`/api/admin/general-meetings/${agm.id}/close`, { timeout: 60000 });
     }
 
     // Set meeting_at to 1 hour ago so the effective status is "open" (meeting has
@@ -361,6 +364,7 @@ export default async function globalSetup(_config: FullConfig) {
           },
         ],
       },
+      timeout: 60000,
     });
     const newAgm = (await createAgmRes.json()) as { id: string };
 
@@ -368,7 +372,7 @@ export default async function globalSetup(_config: FullConfig) {
     // runs: if a previous attempt submitted a ballot before the suite failed,
     // global-setup needs to clear it so the voting-flow test can re-vote
     // without hitting a 409 conflict).
-    await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
+    await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`, { timeout: 60000 });
   }
 
   // ── Task B: admin-test building ─────────────────────────────────────────────
@@ -386,6 +390,7 @@ export default async function globalSetup(_config: FullConfig) {
     if (!adminBuilding) {
       const created = await api.post("/api/admin/buildings", {
         data: { name: E2E_ADMIN_BUILDING_NAME, manager_email: "e2e-admin-mgr@test.com" },
+        timeout: 60000,
       });
       adminBuilding = (await created.json()) as { id: string; name: string };
     }
@@ -396,6 +401,7 @@ export default async function globalSetup(_config: FullConfig) {
     if (!adminLotOwners.find((l) => l.lot_number === "ADMIN-1")) {
       await api.post(`/api/admin/buildings/${adminBuilding.id}/lot-owners`, {
         data: { lot_number: "ADMIN-1", emails: ["admin-voter@test.com"], unit_entitlement: 1 },
+        timeout: 60000,
       });
     }
 
@@ -410,7 +416,7 @@ export default async function globalSetup(_config: FullConfig) {
       (a) => a.building_id === adminBuilding!.id && (a.status === "open" || a.status === "pending")
     );
     for (const agm of openAdminAgms) {
-      await api.post(`/api/admin/general-meetings/${agm.id}/close`);
+      await api.post(`/api/admin/general-meetings/${agm.id}/close`, { timeout: 60000 });
     }
 
     // Set meeting_at to 2 hours ago so admin tests can find it as status="open".
@@ -433,6 +439,7 @@ export default async function globalSetup(_config: FullConfig) {
           },
         ],
       },
+      timeout: 60000,
     });
   }
 
