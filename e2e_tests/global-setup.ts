@@ -27,6 +27,13 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// In CI, use GITHUB_WORKSPACE to get an absolute path to e2e_tests/ regardless
+// of how Playwright's TypeScript transform resolves import.meta.url.
+// Locally, fall back to __dirname (which is the e2e_tests/ directory).
+const E2E_TESTS_DIR = process.env.GITHUB_WORKSPACE
+  ? path.join(process.env.GITHUB_WORKSPACE, "e2e_tests")
+  : __dirname;
+
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
@@ -59,7 +66,7 @@ export const RUN_SUFFIX = getBranchSuffix();
 
 // Write suffix to a file so worker processes (which don't run globalSetup)
 // can read it without re-computing the branch name.
-fs.writeFileSync(path.join(__dirname, ".run-suffix"), RUN_SUFFIX);
+fs.writeFileSync(path.join(E2E_TESTS_DIR, ".run-suffix"), RUN_SUFFIX);
 
 export const E2E_BUILDING_NAME = `E2E Test Building-${RUN_SUFFIX}`;
 export const E2E_LOT_NUMBER = "E2E-1";
@@ -81,7 +88,7 @@ export default async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
   // ── 1. Admin auth state ────────────────────────────────────────────────────
-  const authDir = path.join(__dirname, ".auth");
+  const authDir = path.join(E2E_TESTS_DIR, ".auth");
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
   // ── Pre-warm the Lambda before any browser navigation ─────────────────────
