@@ -220,13 +220,13 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 | Environment | Trigger | URL pattern |
 |---|---|---|
 | **Production** | Push to `master` only | `agm-voting.vercel.app` |
-| **Demo** | Push to `demo` branch | `votingms-env-demo-ocss.vercel.app` |
+| **Demo** | Push to `demo` branch | `vms-demo.ocss.tech` |
 | **Preview** | Push to any other branch | `votingms-git-<branch>-ocss.vercel.app` |
 
 - **Never** run `vercel deploy --prod` or target production from the CLI
 - The `demo` branch deploys to the **Demo** Vercel environment (for stakeholder review)
 - Feature and fix branches deploy to the **Preview** Vercel environment
-- **Neon DB mapping:** Demo env → `demo` Neon branch (`br-orange-sound-a76hyf9w`); Preview env (feature branches) → `preview` Neon branch (`br-bold-cherry-a7yzlzj1`)
+- **Neon DB mapping:** Demo env → `demo` Neon branch (`br-restless-truth-a7rjsd35`); Preview env (feature branches) → `preview` Neon branch (`br-bold-cherry-a7yzlzj1`)
 - When setting branch-scoped env vars for feature branches, target `["preview"]`; the demo env DATABASE_URL is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
 - Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SMTP_ENCRYPTION_KEY`, `ALLOWED_ORIGIN`
 - SMTP settings (host, port, username, password, from_email) are now configured via the admin Settings page and stored encrypted in the database — no longer needed as env vars
@@ -267,8 +267,10 @@ Retrieve with: `security find-generic-password -s "agm-survey" -a "<account>" -w
 The Vercel `buildCommand` runs `scripts/migrate.sh` which calls `alembic upgrade head` and requires `DATABASE_URL_UNPOOLED` to be set — even on branches with no schema migrations (alembic runs as a no-op but the env var must be present). Without it the Vercel build fails immediately with `BUILD_FAILED`.
 
 **Every branch** must have branch-scoped `DATABASE_URL` and `DATABASE_URL_UNPOOLED` Vercel env vars set before pushing:
-- **No migrations**: point to the existing `demo` Neon branch connection strings (no new Neon branch needed)
+- **No migrations**: point to the `preview` Neon branch connection strings (direct, no pooler) — `ep-floral-silence-a71yigr8.ap-southeast-2.aws.neon.tech` — branch `br-bold-cherry-a7yzlzj1`
 - **Has migrations**: create a new Neon DB branch first (step 1 below), then use those connection strings
+
+**Connection string guidance:** The demo endpoint (`ep-square-flower-a7wd7rz5`) has `pooler_enabled=true` (transaction mode). `DATABASE_URL` uses the pooler hostname (`-pooler.` suffix); `DATABASE_URL_UNPOOLED` uses the direct hostname. The preview endpoint (`ep-floral-silence-a71yigr8`) has `pooler_enabled=false` — use direct connection strings only for preview branches.
 
 ### Schema migration branches — Neon DB branch + Vercel env var setup
 
@@ -381,8 +383,8 @@ These fields are read by the generic agent definitions. Values here override use
 | `prd_dir` | `tasks/prd` |
 | `design_dir` | `tasks/design` |
 | `keychain_service` | `agm-survey` |
-| `demo_url` | `https://votingms-env-demo-ocss.vercel.app` |
-| `cleanup_demo_url` | `https://votingms-env-demo-ocss.vercel.app` |
+| `demo_url` | `https://vms-demo.ocss.tech` |
+| `cleanup_demo_url` | `https://vms-demo.ocss.tech` |
 
 ---
 
