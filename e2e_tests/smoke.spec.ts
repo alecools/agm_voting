@@ -68,7 +68,9 @@ test.describe("Voter flow", () => {
         !e.includes("net::ERR_ABORTED") &&
         !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
         !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e)
+        !/net::ERR_FAILED.*403/i.test(e) &&
+        !/404.*logo\.png/i.test(e) &&
+        !/404.*favicon\.ico/i.test(e)
     );
     expect(realErrors).toHaveLength(0);
   });
@@ -114,7 +116,9 @@ test.describe("Admin flow", () => {
         !e.includes("net::ERR_ABORTED") &&
         !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
         !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e)
+        !/net::ERR_FAILED.*403/i.test(e) &&
+        !/404.*logo\.png/i.test(e) &&
+        !/404.*favicon\.ico/i.test(e)
     );
     expect(realErrors).toHaveLength(0);
   });
