@@ -124,6 +124,205 @@ class TestDatabase:
         except Exception:
             pass
 
+    # --- Retry logic ---
+
+    async def test_get_db_retries_on_operational_error_then_succeeds(self):
+        """get_db retries when OperationalError occurs on first attempt, then yields a session."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.exc import OperationalError
+
+        from app.database import get_db
+
+        call_count = 0
+        real_session = AsyncMock()
+
+        async def flaky_session_cm():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OperationalError("connection refused", None, None)
+            # Second call succeeds — return a context manager yielding the mock session
+            cm = AsyncMock()
+            cm.__aenter__ = AsyncMock(return_value=real_session)
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        with patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, \
+             patch("app.database.AsyncSessionLocal") as mock_factory:
+            mock_factory.side_effect = lambda: flaky_session_cm().__await__()
+
+            # Use a simpler approach: patch the context manager directly
+            mock_factory.reset_mock()
+
+            call_count = 0
+            sessions_returned = []
+
+            async def patched_factory():
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise OperationalError("connection refused", None, None)
+                cm = MagicMock()
+                cm.__aenter__ = AsyncMock(return_value=real_session)
+                cm.__aexit__ = AsyncMock(return_value=False)
+                return cm
+
+            # Patch AsyncSessionLocal as a callable that returns an async context manager
+            mock_factory.side_effect = None
+            mock_factory.return_value = None
+
+            call_count = 0
+
+            class FlakySessionLocal:
+                def __init__(self):
+                    nonlocal call_count
+                    call_count += 1
+                    self._should_fail = (call_count == 1)
+
+                async def __aenter__(self):
+                    if self._should_fail:
+                        raise OperationalError("connection refused", None, None)
+                    return real_session
+
+                async def __aexit__(self, *args):
+                    return False
+
+            with patch("app.database.AsyncSessionLocal", FlakySessionLocal), \
+                 patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep2:
+                gen = get_db()
+                session = await gen.__anext__()
+                assert session is real_session
+                assert mock_sleep2.call_count == 1
+                assert mock_sleep2.call_args[0][0] == 1  # waited 1s on first retry
+                try:
+                    await gen.aclose()
+                except Exception:
+                    pass
+
+    async def test_get_db_retries_on_dbapi_error_then_succeeds(self):
+        """get_db retries on DBAPIError (subclass of OperationalError) and eventually yields."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.exc import DBAPIError
+
+        from app.database import get_db
+
+        real_session = AsyncMock()
+        call_count = 0
+
+        class FlakySessionLocal:
+            def __init__(self):
+                nonlocal call_count
+                call_count += 1
+                self._should_fail = (call_count == 1)
+
+            async def __aenter__(self):
+                if self._should_fail:
+                    raise DBAPIError("db error", None, None)
+                return real_session
+
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.database.AsyncSessionLocal", FlakySessionLocal), \
+             patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            gen = get_db()
+            session = await gen.__anext__()
+            assert session is real_session
+            assert mock_sleep.call_count == 1
+
+    async def test_get_db_raises_after_all_retries_exhausted(self):
+        """get_db raises the last OperationalError after _DB_RETRY_ATTEMPTS failures."""
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy.exc import OperationalError
+
+        from app.database import get_db, _DB_RETRY_ATTEMPTS
+
+        class AlwaysFailSessionLocal:
+            async def __aenter__(self):
+                raise OperationalError("persistent connection failure", None, None)
+
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.database.AsyncSessionLocal", AlwaysFailSessionLocal), \
+             patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            gen = get_db()
+            with pytest.raises(OperationalError):
+                await gen.__anext__()
+            # Slept between all retries except after the last one
+            assert mock_sleep.call_count == _DB_RETRY_ATTEMPTS - 1
+
+    async def test_get_db_exponential_backoff_wait_times(self):
+        """get_db waits 1s then 2s between consecutive retries (exponential backoff)."""
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy.exc import OperationalError
+
+        from app.database import get_db
+
+        class AlwaysFailSessionLocal:
+            async def __aenter__(self):
+                raise OperationalError("timeout", None, None)
+
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.database.AsyncSessionLocal", AlwaysFailSessionLocal), \
+             patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            gen = get_db()
+            with pytest.raises(OperationalError):
+                await gen.__anext__()
+
+        wait_times = [call[0][0] for call in mock_sleep.call_args_list]
+        assert wait_times == [1, 2], f"Expected [1, 2] wait times, got {wait_times}"
+
+    async def test_get_db_no_sleep_on_non_connection_error(self):
+        """get_db does NOT retry on non-transient errors (e.g. ValueError) — raises immediately."""
+        from unittest.mock import AsyncMock, patch
+
+        from app.database import get_db
+
+        class FailWithValueError:
+            async def __aenter__(self):
+                raise ValueError("not a connection error")
+
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.database.AsyncSessionLocal", FailWithValueError), \
+             patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            gen = get_db()
+            with pytest.raises(ValueError):
+                await gen.__anext__()
+            # No sleep — we do not retry non-OperationalError / non-DBAPIError exceptions
+            assert mock_sleep.call_count == 0
+
+    async def test_get_db_succeeds_on_first_attempt_no_sleep(self):
+        """get_db does not call asyncio.sleep when the first attempt succeeds."""
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        from app.database import get_db
+
+        real_session = AsyncMock(spec=AsyncSession)
+
+        class HappySessionLocal:
+            async def __aenter__(self):
+                return real_session
+
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.database.AsyncSessionLocal", HappySessionLocal), \
+             patch("app.database.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            gen = get_db()
+            session = await gen.__anext__()
+            assert session is real_session
+            assert mock_sleep.call_count == 0
+            try:
+                await gen.aclose()
+            except Exception:
+                pass
+
 
 # ---------------------------------------------------------------------------
 # app.main

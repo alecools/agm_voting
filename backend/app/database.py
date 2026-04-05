@@ -1,5 +1,7 @@
+import asyncio
 from collections.abc import AsyncGenerator
 
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -23,6 +25,12 @@ from app.config import settings
 # - pool_timeout=30: request fails fast if the single connection is somehow unavailable.
 #
 # statement_cache_size=0 is required for PgBouncer transaction mode compatibility.
+#
+# Neon auto-suspend note: the free/launch Neon plan auto-suspends the compute after
+# 5 minutes of idle. This cannot be disabled programmatically on those tiers. When a
+# Lambda request arrives during wake-up the connection attempt raises OperationalError.
+# get_db() below retries up to 3× with exponential backoff to give the compute time
+# to become ready before surfacing a 500 to the client.
 engine = create_async_engine(
     settings.database_url,
     echo=False,
@@ -41,7 +49,29 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
+# Maximum number of attempts when the DB connection fails with a transient error.
+_DB_RETRY_ATTEMPTS = 3
+# Base wait in seconds between retries (doubles each attempt: 1s, 2s).
+_DB_RETRY_BASE_WAIT = 1
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        yield session
+    """Provide a DB session with retry logic for transient Neon compute wake-up errors.
+
+    When Neon auto-suspends and a request arrives during wake-up, SQLAlchemy raises
+    OperationalError or DBAPIError. We retry up to _DB_RETRY_ATTEMPTS times with
+    exponential backoff (_DB_RETRY_BASE_WAIT * 2^attempt seconds: 1s, 2s) to give
+    the compute time to become ready before propagating the error.
+    """
+    last_err: Exception | None = None
+    for attempt in range(_DB_RETRY_ATTEMPTS):
+        try:
+            async with AsyncSessionLocal() as session:
+                yield session
+                return
+        except (OperationalError, DBAPIError) as exc:
+            last_err = exc
+            if attempt < _DB_RETRY_ATTEMPTS - 1:
+                wait = _DB_RETRY_BASE_WAIT * (2 ** attempt)
+                await asyncio.sleep(wait)
+    raise last_err  # type: ignore[misc]
