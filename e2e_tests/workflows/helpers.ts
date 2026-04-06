@@ -22,7 +22,7 @@ export const ADMIN_AUTH_PATH = path.join(__dirname, "../.auth/admin.json");
  * Retry an async function up to `maxRetries` times with `delayMs` between
  * attempts. Useful for seeding helpers that can fail transiently on server errors.
  */
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, delayMs = 5000): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, delayMs = 5000): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
