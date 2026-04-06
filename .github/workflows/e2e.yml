@@ -105,6 +105,24 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
+      - name: Warm up Lambda
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          echo "Warming up Lambda at $URL"
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Lambda warm (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS — waiting 10s"
+            sleep 10
+          done
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
       - name: Download auth state
         uses: actions/download-artifact@v4
         with:
@@ -156,6 +174,24 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
+      - name: Warm up Lambda
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          echo "Warming up Lambda at $URL"
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Lambda warm (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS — waiting 10s"
+            sleep 10
+          done
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
       - name: Download auth state
         uses: actions/download-artifact@v4
         with:
@@ -206,6 +242,24 @@ jobs:
 
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: Warm up Lambda
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          echo "Warming up Lambda at $URL"
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Lambda warm (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS — waiting 10s"
+            sleep 10
+          done
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
 
       - name: Download auth state
         uses: actions/download-artifact@v4
