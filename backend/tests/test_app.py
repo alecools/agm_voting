@@ -1370,3 +1370,85 @@ class TestLifespan:
 
         # requeue must not have been called
         mock_email_service.requeue_pending_on_startup.assert_not_awaited()
+
+    # --- Retry / transient error ---
+
+    async def test_lifespan_retries_on_transient_error_then_succeeds(self):
+        """Lifespan retries startup DB tasks when a transient OperationalError fires on first attempt."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import FastAPI
+        from sqlalchemy.exc import OperationalError
+        from app.main import lifespan
+
+        attempt_count = 0
+
+        async def flaky_check():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                raise OperationalError("connect", {}, Exception("timeout"))
+
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock()
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        with (
+            patch("app.main._check_migration_head", flaky_check),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+            patch("asyncio.sleep", AsyncMock()) as mock_sleep,
+        ):
+            app_instance = FastAPI()
+            async with lifespan(app_instance):
+                pass
+
+        # First attempt failed; second succeeded — sleep must have been called once (1s backoff)
+        assert attempt_count == 2
+        mock_sleep.assert_awaited_once_with(1)
+        mock_email_service.requeue_pending_on_startup.assert_awaited_once()
+
+    async def test_lifespan_exhausts_retries_without_sleep_on_last_attempt(self):
+        """Lifespan does not sleep after the third (final) attempt, and silently continues."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import FastAPI
+        from sqlalchemy.exc import DBAPIError
+        from app.main import lifespan
+
+        async def always_fail():
+            raise DBAPIError("connect", {}, Exception("conn refused"))
+
+        mock_email_service = MagicMock()
+        mock_email_service.requeue_pending_on_startup = AsyncMock()
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        sleep_calls = []
+
+        async def record_sleep(secs):
+            sleep_calls.append(secs)
+
+        with (
+            patch("app.main._check_migration_head", always_fail),
+            patch("app.database.AsyncSessionLocal", mock_session_local),
+            patch("app.services.email_service.EmailService", return_value=mock_email_service),
+            patch("asyncio.sleep", record_sleep),
+        ):
+            app_instance = FastAPI()
+            # lifespan does not re-raise transient errors — it silently continues after exhausting retries
+            async with lifespan(app_instance):
+                pass
+
+        # Attempts 0 and 1 sleep (1s and 2s); attempt 2 is the last so no sleep
+        assert sleep_calls == [1, 2]
+        mock_email_service.requeue_pending_on_startup.assert_not_awaited()
