@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import compression from "vite-plugin-compression";
+import compression from "vite-plugin-compression2";
 
 export default defineConfig({
   plugins: [
@@ -11,10 +11,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
+        manualChunks(id) {
+          // Group React runtime into a vendor chunk for better caching.
           // xlsx is NOT listed here — it is pulled in only via dynamic imports
           // inside parseMotionsExcel.ts, so it will only be downloaded by admins.
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router-dom/") ||
+            id.includes("node_modules/react-router/")
+          ) {
+            return "vendor";
+          }
         },
       },
     },
