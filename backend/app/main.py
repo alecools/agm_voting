@@ -218,15 +218,30 @@ async def lifespan(app: FastAPI):
     # to asyncio.gather() or any concurrent form.
     #
     # Both _check_migration_head() and requeue_pending_on_startup() acquire a
-    # DB connection from AsyncSessionLocal (NullPool — direct connections, no
-    # application-level pool).  Sequential awaits ensure the first operation
+    # DB connection from AsyncSessionLocal (QueuePool via PgBouncer — same
+    # engine as request handlers).  Sequential awaits ensure the first operation
     # fully acquires, uses, and releases its connection before the second one
     # begins, keeping startup predictable.
-    await _check_migration_head()
+    #
+    # Retry startup DB tasks on transient connection errors.
+    # Under concurrent Lambda cold-starts (e.g. 3 parallel E2E shards), asyncpg's
+    # connect_timeout can fire when many instances race to connect simultaneously.
+    # Retry with backoff (1s, 2s) staggers attempts and gives PgBouncer time to clear.
+    # Uses the same exception types as get_db() in database.py.
     from app.database import AsyncSessionLocal
     from app.services.email_service import EmailService
-    async with AsyncSessionLocal() as db:
-        await EmailService().requeue_pending_on_startup(db)
+    from sqlalchemy.exc import DBAPIError, OperationalError
+    from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+
+    for attempt in range(3):
+        try:
+            await _check_migration_head()
+            async with AsyncSessionLocal() as db:
+                await EmailService().requeue_pending_on_startup(db)
+            break
+        except (OperationalError, DBAPIError, SQLAlchemyTimeoutError, asyncio.TimeoutError):
+            if attempt < 2:
+                await asyncio.sleep(1 * (2 ** attempt))  # 1s then 2s
     yield
     # Shutdown: cleanup
 
