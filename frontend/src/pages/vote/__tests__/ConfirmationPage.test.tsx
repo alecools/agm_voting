@@ -715,8 +715,6 @@ describe("ConfirmationPage — RR4-37 valid semantic HTML in single-lot path", (
     await waitFor(() => {
       expect(screen.getByText(/Ballot submitted/i)).toBeInTheDocument();
     });
-    // The single-lot path renders sortedVotes inside a <ul>
-    const lists = document.querySelectorAll("ul");
     // There should be at least one <ul> in the vote summary section
     const voteItems = document.querySelectorAll(".vote-item");
     if (voteItems.length > 0) {
