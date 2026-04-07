@@ -166,7 +166,7 @@ jobs:
   # ── 2b. Public voter tests ───────────────────────────────────────────────────
   test-public-voter:
     name: E2E Public (Voter)
-    needs: setup
+    needs: test-admin
     runs-on: ubuntu-latest
 
     steps:
@@ -251,7 +251,7 @@ jobs:
   # ── 2c. Public workflow tests ────────────────────────────────────────────────
   test-public-workflow:
     name: E2E Public (Workflow)
-    needs: setup
+    needs: test-public-voter
     runs-on: ubuntu-latest
 
     steps:
