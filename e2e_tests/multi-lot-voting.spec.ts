@@ -157,7 +157,7 @@ test.describe("Multi-lot voter journey", () => {
 
         // Clear any prior ballots for a clean slate
         await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

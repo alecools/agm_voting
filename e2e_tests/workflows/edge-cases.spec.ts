@@ -86,7 +86,7 @@ test.describe("WF8: Edge cases", () => {
 
         // Clear any prior ballots
         await clearBallots(api, openMeetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

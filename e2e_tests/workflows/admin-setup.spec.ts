@@ -75,7 +75,7 @@ test.describe("WF1: Admin building setup lifecycle", () => {
       await withRetry(async () => {
         // Pre-create the building so we know its ID for detail-page navigation
         buildingId = await seedBuilding(api, BUILDING_NAME, MANAGER_EMAIL);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -255,7 +255,7 @@ test.describe("WF2: Meeting creation and motion management", () => {
         ]);
         wf2MeetingIds.push(wf2MeetingId);
         await clearBallots(api, wf2MeetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

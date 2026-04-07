@@ -33,6 +33,7 @@ import {
   authenticateVoter,
   getTestOtp,
   submitBallot,
+  withRetry,
 } from "../workflows/helpers";
 
 // ---------------------------------------------------------------------------
@@ -54,18 +55,23 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const buildingId = await seedBuilding(api, BUILDING, `sess01-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingId, {
-      lotNumber: "SESS01-1",
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-    });
-    meetingId = await createOpenMeeting(api, buildingId, `SESS01 Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS01 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
-    ]);
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `sess01-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingId, {
+          lotNumber: "SESS01-1",
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+        });
+        meetingId = await createOpenMeeting(api, buildingId, `SESS01 Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS01 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
+        ]);
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -165,17 +171,22 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const buildingId = await seedBuilding(api, BUILDING, `sess04-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingId, {
-      lotNumber: "SESS04-1",
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-    });
-    meetingId = await createOpenMeeting(api, buildingId, `SESS04 Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS04 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
-    ]);
-    await api.dispose();
-  }, { timeout: 60000 });
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `sess04-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingId, {
+          lotNumber: "SESS04-1",
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+        });
+        meetingId = await createOpenMeeting(api, buildingId, `SESS04 Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS04 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
+        ]);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -231,27 +242,32 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const buildingIdA = await seedBuilding(api, BUILDING_A, `sess05a-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingIdA, {
-      lotNumber: "SESS05A-1",
-      emails: [LOT_EMAIL_A],
-      unitEntitlement: 10,
-    });
-    meetingIdA = await createOpenMeeting(api, buildingIdA, `SESS05A Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS05A Motion", description: "Meeting A motion.", orderIndex: 1, motionType: "general" },
-    ]);
+    try {
+      await withRetry(async () => {
+        const buildingIdA = await seedBuilding(api, BUILDING_A, `sess05a-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingIdA, {
+          lotNumber: "SESS05A-1",
+          emails: [LOT_EMAIL_A],
+          unitEntitlement: 10,
+        });
+        meetingIdA = await createOpenMeeting(api, buildingIdA, `SESS05A Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS05A Motion", description: "Meeting A motion.", orderIndex: 1, motionType: "general" },
+        ]);
 
-    const buildingIdB = await seedBuilding(api, BUILDING_B, `sess05b-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingIdB, {
-      lotNumber: "SESS05B-1",
-      emails: [LOT_EMAIL_B],
-      unitEntitlement: 10,
-    });
-    meetingIdB = await createOpenMeeting(api, buildingIdB, `SESS05B Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS05B Motion", description: "Meeting B motion.", orderIndex: 1, motionType: "general" },
-    ]);
-    await api.dispose();
-  }, { timeout: 60000 });
+        const buildingIdB = await seedBuilding(api, BUILDING_B, `sess05b-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingIdB, {
+          lotNumber: "SESS05B-1",
+          emails: [LOT_EMAIL_B],
+          unitEntitlement: 10,
+        });
+        meetingIdB = await createOpenMeeting(api, buildingIdB, `SESS05B Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS05B Motion", description: "Meeting B motion.", orderIndex: 1, motionType: "general" },
+        ]);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -313,17 +329,22 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const buildingId = await seedBuilding(api, BUILDING, `sess06-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingId, {
-      lotNumber: "SESS06-1",
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-    });
-    meetingId = await createOpenMeeting(api, buildingId, `SESS06 Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS06 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
-    ]);
-    await api.dispose();
-  }, { timeout: 60000 });
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `sess06-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingId, {
+          lotNumber: "SESS06-1",
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+        });
+        meetingId = await createOpenMeeting(api, buildingId, `SESS06 Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS06 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
+        ]);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -394,18 +415,23 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
     });
-    const buildingId = await seedBuilding(api, BUILDING, `sess08-mgr-${RUN_SUFFIX}@test.com`);
-    await seedLotOwner(api, buildingId, {
-      lotNumber: "SESS08-1",
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-    });
-    meetingId = await createOpenMeeting(api, buildingId, `SESS08 Meeting-${RUN_SUFFIX}`, [
-      { title: "SESS08 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
-    ]);
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `sess08-mgr-${RUN_SUFFIX}@test.com`);
+        await seedLotOwner(api, buildingId, {
+          lotNumber: "SESS08-1",
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+        });
+        meetingId = await createOpenMeeting(api, buildingId, `SESS08 Meeting-${RUN_SUFFIX}`, [
+          { title: "SESS08 Motion 1", description: "Session persistence test motion.", orderIndex: 1, motionType: "general" },
+        ]);
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";

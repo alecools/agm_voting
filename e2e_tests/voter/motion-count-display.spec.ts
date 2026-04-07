@@ -20,6 +20,7 @@ import {
   goToAuthPage,
   authenticateVoter,
   getTestOtp,
+  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `MC01 Motion Count Building-${RUN_SUFFIX}`;
@@ -40,30 +41,35 @@ test.describe("Motion count display starts at 1 (not 0)", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BUILDING, "mc01-mgr@test.com");
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, "mc01-mgr@test.com");
 
-    await seedLotOwner(api, buildingId, {
-      lotNumber: LOT,
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: LOT,
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
 
-    // Seed with orderIndex: 0 so the DB stores order_index=0.
-    // After the fix, the card renders "Motion 1" (0 + 1).
-    // Before the fix it would have rendered "Motion 0".
-    meetingId = await createOpenMeeting(api, buildingId, `MC01 Meeting-${RUN_SUFFIX}`, [
-      {
-        title: MOTION_TITLE,
-        description: "A single-motion meeting for count display testing.",
-        orderIndex: 0,
-        motionType: "general",
-      },
-    ]);
+        // Seed with orderIndex: 0 so the DB stores order_index=0.
+        // After the fix, the card renders "Motion 1" (0 + 1).
+        // Before the fix it would have rendered "Motion 0".
+        meetingId = await createOpenMeeting(api, buildingId, `MC01 Meeting-${RUN_SUFFIX}`, [
+          {
+            title: MOTION_TITLE,
+            description: "A single-motion meeting for count display testing.",
+            orderIndex: 0,
+            motionType: "general",
+          },
+        ]);
 
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test("first motion card shows 'Motion 1', not 'Motion 0'", async ({ page }) => {
     test.setTimeout(120000);

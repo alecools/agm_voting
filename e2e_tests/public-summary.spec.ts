@@ -121,7 +121,7 @@ test.describe("Public AGM summary page", () => {
         });
         const newAgm = (await createRes.json()) as { id: string };
         seededAgmId = newAgm.id;
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

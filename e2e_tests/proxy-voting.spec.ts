@@ -191,7 +191,7 @@ test.describe("Proxy voter journey", () => {
         const newAgm = (await createRes.json()) as { id: string };
         mixedAgmId = newAgm.id;
         await api.delete(`/api/admin/general-meetings/${newAgm.id}/ballots`);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

@@ -31,6 +31,7 @@ import {
   goToAuthPage,
   authenticateVoter,
   getTestOtp,
+  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `LS Shortcuts Building-${RUN_SUFFIX}`;
@@ -54,43 +55,48 @@ test.describe("Lot-selection shortcut buttons", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BUILDING, `ls-mgr-${RUN_SUFFIX}@test.com`);
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `ls-mgr-${RUN_SUFFIX}@test.com`);
 
-    // LS-A and LS-B: owned directly by the voter
-    await seedLotOwner(api, buildingId, {
-      lotNumber: LOT_A,
-      emails: [VOTER_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
-    await seedLotOwner(api, buildingId, {
-      lotNumber: LOT_B,
-      emails: [VOTER_EMAIL],
-      unitEntitlement: 20,
-      financialPosition: "normal",
-    });
+        // LS-A and LS-B: owned directly by the voter
+        await seedLotOwner(api, buildingId, {
+          lotNumber: LOT_A,
+          emails: [VOTER_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: LOT_B,
+          emails: [VOTER_EMAIL],
+          unitEntitlement: 20,
+          financialPosition: "normal",
+        });
 
-    // LS-C: owned by a different person, proxied to the voter
-    await seedLotOwner(api, buildingId, {
-      lotNumber: LOT_C,
-      emails: [PROXY_OWNER_EMAIL],
-      unitEntitlement: 15,
-      financialPosition: "normal",
-    });
-    await uploadProxyCsv(api, buildingId, `Lot#,Proxy Email\n${LOT_C},${VOTER_EMAIL}\n`);
+        // LS-C: owned by a different person, proxied to the voter
+        await seedLotOwner(api, buildingId, {
+          lotNumber: LOT_C,
+          emails: [PROXY_OWNER_EMAIL],
+          unitEntitlement: 15,
+          financialPosition: "normal",
+        });
+        await uploadProxyCsv(api, buildingId, `Lot#,Proxy Email\n${LOT_C},${VOTER_EMAIL}\n`);
 
-    meetingId = await createOpenMeeting(api, buildingId, `LS Meeting-${RUN_SUFFIX}`, [
-      {
-        title: "LS Motion — Budget",
-        description: "Do you approve the annual budget?",
-        orderIndex: 1,
-        motionType: "general",
-      },
-    ]);
+        meetingId = await createOpenMeeting(api, buildingId, `LS Meeting-${RUN_SUFFIX}`, [
+          {
+            title: "LS Motion — Budget",
+            description: "Do you approve the annual budget?",
+            orderIndex: 1,
+            motionType: "general",
+          },
+        ]);
 
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   // Helper: authenticate the voter and wait for the VotingPage to load.
   // Returns the page already on /voting.

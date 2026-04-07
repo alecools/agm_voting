@@ -25,6 +25,7 @@ import {
   goToAuthPage,
   authenticateVoter,
   getTestOtp,
+  withRetry,
 } from "../workflows/helpers";
 
 const BB_BUILDING = `BB01 Back Button Building-${RUN_SUFFIX}`;
@@ -44,22 +45,27 @@ test.describe("Back button navigation from VotingPage", () => {
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BB_BUILDING, `bb01-mgr-${RUN_SUFFIX}@test.com`);
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BB_BUILDING, `bb01-mgr-${RUN_SUFFIX}@test.com`);
 
-    await seedLotOwner(api, buildingId, {
-      lotNumber: BB_LOT,
-      emails: [BB_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: BB_LOT,
+          emails: [BB_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
 
-    bbMeetingId = await createOpenMeeting(api, buildingId, `BB01 Meeting-${RUN_SUFFIX}`, [
-      { title: "BB01 Motion 1", description: "Test motion for back button.", orderIndex: 0, motionType: "general" },
-    ]);
+        bbMeetingId = await createOpenMeeting(api, buildingId, `BB01 Meeting-${RUN_SUFFIX}`, [
+          { title: "BB01 Motion 1", description: "Test motion for back button.", orderIndex: 0, motionType: "general" },
+        ]);
 
-    await clearBallots(api, bbMeetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        await clearBallots(api, bbMeetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   // ── BB.1: in-page "← Back" button ────────────────────────────────────────
   test("BB.1: in-page Back button navigates to /auth page — not a blank page", async ({ page }) => {

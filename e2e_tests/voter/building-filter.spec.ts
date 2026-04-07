@@ -26,6 +26,7 @@ import {
   seedLotOwner,
   createOpenMeeting,
   closeMeeting,
+  withRetry,
 } from "../workflows/helpers";
 
 const SUFFIX = RUN_SUFFIX;
@@ -60,47 +61,51 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
       storageState: ADMIN_AUTH_PATH,
     });
 
-    // ── Building A: has an open meeting ────────────────────────────────────────
-    const buildingAId = await seedBuilding(api, BUILDING_OPEN, "bf01-mgr-a@test.com");
-    await seedLotOwner(api, buildingAId, {
-      lotNumber: "BF01-A-1",
-      emails: [`bf01-voter-a-${SUFFIX}@test.com`],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
-    await createOpenMeeting(api, buildingAId, `BF01 Open Meeting-${SUFFIX}`, [
-      {
-        title: "BF01 Test Motion",
-        description: "A test motion for building filter.",
-        orderIndex: 0,
-        motionType: "general",
-      },
-    ]);
+    try {
+      await withRetry(async () => {
+        // ── Building A: has an open meeting ──────────────────────────────────
+        const buildingAId = await seedBuilding(api, BUILDING_OPEN, "bf01-mgr-a@test.com");
+        await seedLotOwner(api, buildingAId, {
+          lotNumber: "BF01-A-1",
+          emails: [`bf01-voter-a-${SUFFIX}@test.com`],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
+        await createOpenMeeting(api, buildingAId, `BF01 Open Meeting-${SUFFIX}`, [
+          {
+            title: "BF01 Test Motion",
+            description: "A test motion for building filter.",
+            orderIndex: 0,
+            motionType: "general",
+          },
+        ]);
 
-    // ── Building B: create an open meeting then immediately close it ───────────
-    const buildingBId = await seedBuilding(api, BUILDING_CLOSED_ONLY, "bf01-mgr-b@test.com");
-    await seedLotOwner(api, buildingBId, {
-      lotNumber: "BF01-B-1",
-      emails: [`bf01-voter-b-${SUFFIX}@test.com`],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
-    const closedMeetingId = await createOpenMeeting(api, buildingBId, `BF01 Closed Meeting-${SUFFIX}`, [
-      {
-        title: "BF01 Closed Motion",
-        description: "This meeting will be closed before the test.",
-        orderIndex: 0,
-        motionType: "general",
-      },
-    ]);
-    await closeMeeting(api, closedMeetingId);
+        // ── Building B: create an open meeting then immediately close it ─────
+        const buildingBId = await seedBuilding(api, BUILDING_CLOSED_ONLY, "bf01-mgr-b@test.com");
+        await seedLotOwner(api, buildingBId, {
+          lotNumber: "BF01-B-1",
+          emails: [`bf01-voter-b-${SUFFIX}@test.com`],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
+        const closedMeetingId = await createOpenMeeting(api, buildingBId, `BF01 Closed Meeting-${SUFFIX}`, [
+          {
+            title: "BF01 Closed Motion",
+            description: "This meeting will be closed before the test.",
+            orderIndex: 0,
+            motionType: "general",
+          },
+        ]);
+        await closeMeeting(api, closedMeetingId);
 
-    // ── Building C: no meetings at all ─────────────────────────────────────────
-    await seedBuilding(api, BUILDING_NO_MEETINGS, "bf01-mgr-c@test.com");
-    // No lot owners or meetings created for Building C
-
-    await api.dispose();
-  }, { timeout: 60000 });
+        // ── Building C: no meetings at all ───────────────────────────────────
+        await seedBuilding(api, BUILDING_NO_MEETINGS, "bf01-mgr-c@test.com");
+        // No lot owners or meetings created for Building C
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   // ── Scenario A: Building with open meeting appears in dropdown ───────────────
   test("BF01-A: building with an open meeting appears in the dropdown", async ({ page }) => {

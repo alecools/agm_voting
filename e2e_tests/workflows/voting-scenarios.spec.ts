@@ -102,7 +102,7 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -292,7 +292,7 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -435,7 +435,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -610,7 +610,7 @@ test.describe("WF6: Proxy voting with tally verification", () => {
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -762,7 +762,7 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

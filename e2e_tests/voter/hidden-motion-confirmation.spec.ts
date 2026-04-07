@@ -36,6 +36,7 @@ import {
   getTestOtp,
   submitBallot,
   deleteMeeting,
+  withRetry,
 } from "../workflows/helpers";
 
 const BUILDING = `TCG06 Building-${RUN_SUFFIX}`;
@@ -56,32 +57,37 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BUILDING, `tcg06-mgr-${RUN_SUFFIX}@test.com`);
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, `tcg06-mgr-${RUN_SUFFIX}@test.com`);
 
-    await seedLotOwner(api, buildingId, {
-      lotNumber: "TCG06-1",
-      emails: [VOTER_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: "TCG06-1",
+          emails: [VOTER_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
 
-    meetingId = await createOpenMeeting(api, buildingId, `TCG06 Meeting-${RUN_SUFFIX}`, [
-      {
-        title: MOTION1_TITLE,
-        description: "First motion — general.",
-        orderIndex: 1,
-        motionType: "general",
-      },
-      {
-        title: MOTION2_TITLE,
-        description: "Second motion — special.",
-        orderIndex: 2,
-        motionType: "general",
-      },
-    ]);
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        meetingId = await createOpenMeeting(api, buildingId, `TCG06 Meeting-${RUN_SUFFIX}`, [
+          {
+            title: MOTION1_TITLE,
+            description: "First motion — general.",
+            orderIndex: 1,
+            motionType: "general",
+          },
+          {
+            title: MOTION2_TITLE,
+            description: "Second motion — special.",
+            orderIndex: 2,
+            motionType: "general",
+          },
+        ]);
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";

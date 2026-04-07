@@ -50,33 +50,38 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       storageState: ADMIN_AUTH_PATH,
     });
 
-    const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
+    try {
+      await withRetry(async () => {
+        const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
 
-    await seedLotOwner(api, buildingId, {
-      lotNumber: LOT,
-      emails: [LOT_EMAIL],
-      unitEntitlement: 10,
-      financialPosition: "normal",
-    });
+        await seedLotOwner(api, buildingId, {
+          lotNumber: LOT,
+          emails: [LOT_EMAIL],
+          unitEntitlement: 10,
+          financialPosition: "normal",
+        });
 
-    meetingId = await createOpenMeeting(api, buildingId, `RV01 Meeting-${RUN_SUFFIX}`, [
-      {
-        title: MOTION1_TITLE,
-        description: "Do you approve the annual budget?",
-        orderIndex: 0,
-        motionType: "general",
-      },
-      {
-        title: MOTION2_TITLE,
-        description: "Do you approve the bylaw change?",
-        orderIndex: 1,
-        motionType: "general",
-      },
-    ]);
+        meetingId = await createOpenMeeting(api, buildingId, `RV01 Meeting-${RUN_SUFFIX}`, [
+          {
+            title: MOTION1_TITLE,
+            description: "Do you approve the annual budget?",
+            orderIndex: 0,
+            motionType: "general",
+          },
+          {
+            title: MOTION2_TITLE,
+            description: "Do you approve the bylaw change?",
+            orderIndex: 1,
+            motionType: "general",
+          },
+        ]);
 
-    await clearBallots(api, meetingId);
-    await api.dispose();
-  }, { timeout: 60000 });
+        await clearBallots(api, meetingId);
+      }, 3, 30000);
+    } finally {
+      await api.dispose();
+    }
+  }, { timeout: 180000 });
 
   // ── Step 1: voter submits on all 2 visible motions ─────────────────────────
   test("RV01.1: voter submits on both visible motions — lands on confirmation", async ({ page }) => {
@@ -245,7 +250,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
         ]);
 
         await clearBallots(api, wf9MeetingId);
-      }, 6, 10000);  // 6 retries × 10s = up to 60s recovery time
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
@@ -440,7 +445,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
         ]);
 
         await clearBallots(api, wf10MeetingId);
-      }, 6, 10000);  // 6 retries × 10s = up to 60s recovery time
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

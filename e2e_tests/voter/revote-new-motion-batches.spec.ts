@@ -83,7 +83,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
         ]);
 
         await clearBallots(api, meetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }

@@ -67,7 +67,7 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
         ]);
 
         await clearBallots(api, crlMeetingId);
-      }, 6, 10000);
+      }, 3, 30000);
     } finally {
       await api.dispose();
     }
