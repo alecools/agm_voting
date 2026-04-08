@@ -120,13 +120,19 @@ export function VotingPage() {
       });
   }, [meetingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch the meeting directly by ID — single request, no waterfall (RR5-07)
-  const { data: meetingData, isError: meetingFetchError } = useQuery({
-    queryKey: ["general-meeting", meetingId],
-    queryFn: () => fetchGeneralMeeting(meetingId!),
+  // Fetch motions and meeting data in parallel — both are independent of each other (RR6)
+  const {
+    data: motionsAndMeeting,
+    isError: meetingFetchError,
+  } = useQuery({
+    queryKey: ["voting-init", meetingId],
+    queryFn: () => Promise.all([fetchMotions(meetingId!), fetchGeneralMeeting(meetingId!)]),
     enabled: !!meetingId,
     retry: false,
   });
+
+  const motions = motionsAndMeeting?.[0];
+  const meetingData = motionsAndMeeting?.[1];
 
   useEffect(() => {
     if (!meetingId) return;
@@ -139,12 +145,6 @@ export function VotingPage() {
       setCurrentMeeting(meetingData);
     }
   }, [meetingData, meetingFetchError, meetingId]);
-
-  const { data: motions } = useQuery({
-    queryKey: ["motions", meetingId],
-    queryFn: () => fetchMotions(meetingId!),
-    enabled: !!meetingId,
-  });
 
   // Derive selectedLots early so that readOnlyReferenceLots and isMotionReadOnly can be
   // defined before the choices seeding effect that depends on them.
@@ -296,7 +296,7 @@ export function VotingPage() {
         })),
       }),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ["motions", meetingId] });
+      void queryClient.invalidateQueries({ queryKey: ["voting-init", meetingId] });
 
       // Use the lot IDs captured at trigger time (passed as mutation variables),
       // not a re-read from sessionStorage which may have been cleared.

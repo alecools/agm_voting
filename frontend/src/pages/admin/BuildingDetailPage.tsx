@@ -9,6 +9,9 @@ import LotOwnerCSVUpload from "../../components/admin/LotOwnerCSVUpload";
 import ProxyNominationsUpload from "../../components/admin/ProxyNominationsUpload";
 import FinancialPositionUpload from "../../components/admin/FinancialPositionUpload";
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 interface DeleteBuildingConfirmModalProps {
   buildingName: string;
   deleting: boolean;
@@ -17,6 +20,15 @@ interface DeleteBuildingConfirmModalProps {
 }
 
 function DeleteBuildingConfirmModal({ buildingName, deleting, onConfirm, onCancel }: DeleteBuildingConfirmModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus first element on open
+  useEffect(() => {
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (focusable && focusable.length > 0) focusable[0].focus();
+  }, []);
+
+  // Escape key dismisses (only when not loading)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && !deleting) onCancel();
@@ -25,11 +37,27 @@ function DeleteBuildingConfirmModal({ buildingName, deleting, onConfirm, onCance
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [deleting, onCancel]);
 
+  // Tab/Shift+Tab focus trap
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Delete Building"
+      ref={dialogRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
         inset: 0,
@@ -43,13 +71,13 @@ function DeleteBuildingConfirmModal({ buildingName, deleting, onConfirm, onCance
     >
       <div
         style={{
-          background: "#fff",
-          borderRadius: 8,
+          background: "var(--white)",
+          borderRadius: "var(--r-md)",
           padding: 32,
           minWidth: 360,
           maxWidth: 480,
           width: "100%",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+          boxShadow: "var(--shadow-lg)",
         }}
       >
         <h2 style={{ marginTop: 0, marginBottom: 16 }}>Delete "{buildingName}"?</h2>
@@ -75,9 +103,6 @@ interface ArchiveConfirmModalProps {
   onConfirm: () => void;
   onCancel: () => void;
 }
-
-const FOCUSABLE_SELECTORS =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function ArchiveConfirmModal({ buildingName, archiving, onConfirm, onCancel }: ArchiveConfirmModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -130,13 +155,13 @@ function ArchiveConfirmModal({ buildingName, archiving, onConfirm, onCancel }: A
     >
       <div
         style={{
-          background: "#fff",
-          borderRadius: 8,
+          background: "var(--white)",
+          borderRadius: "var(--r-md)",
           padding: 32,
           minWidth: 360,
           maxWidth: 480,
           width: "100%",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+          boxShadow: "var(--shadow-lg)",
         }}
       >
         <h2 style={{ marginTop: 0, marginBottom: 16 }}>Archive "{buildingName}"?</h2>
@@ -239,44 +264,40 @@ function BuildingEditModal({ building, onSuccess, onCancel }: BuildingEditModalP
     >
       <div
         style={{
-          background: "#fff",
-          borderRadius: 8,
+          background: "var(--white)",
+          borderRadius: "var(--r-md)",
           padding: 32,
           minWidth: 360,
           maxWidth: 480,
           width: "100%",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+          boxShadow: "var(--shadow-lg)",
         }}
       >
         <h2 style={{ marginTop: 0, marginBottom: 20 }}>Edit Building</h2>
         <form onSubmit={(e) => { void handleSubmit(e); }}>
-          <div style={{ marginBottom: 16 }}>
-            <label htmlFor="edit-building-name" style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
-              Name
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="edit-building-name">Name</label>
             <input
               id="edit-building-name"
               type="text"
+              className="field__input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              style={{ width: "100%", padding: "8px 10px", boxSizing: "border-box" }}
             />
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label htmlFor="edit-building-manager-email" style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
-              Manager Email
-            </label>
+          <div className="field">
+            <label className="field__label" htmlFor="edit-building-manager-email">Manager Email</label>
             <input
               id="edit-building-manager-email"
               type="email"
+              className="field__input"
               value={managerEmail}
               onChange={(e) => setManagerEmail(e.target.value)}
               required
-              style={{ width: "100%", padding: "8px 10px", boxSizing: "border-box" }}
             />
           </div>
-          {error && <p style={{ color: "var(--red)", marginBottom: 12 }}>{error}</p>}
+          {error && <p className="field__error" style={{ marginBottom: 12 }}>{error}</p>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={saving}>
               Cancel

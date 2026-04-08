@@ -105,7 +105,7 @@ export function AuthPage() {
   if (isRestoringSession) {
     return (
       <main className="voter-content">
-        <p>Resuming your session…</p>
+        <p role="status">Resuming your session…</p>
       </main>
     );
   }

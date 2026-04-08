@@ -804,6 +804,81 @@ describe("BuildingDetailPage", () => {
     expect(saveBtn).toHaveFocus();
   });
 
+  // --- RR6: DeleteBuildingConfirmModal focus trap + Escape ---
+
+  it("DeleteBuildingConfirmModal focuses first element (Cancel button) when opened", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("DeleteBuildingConfirmModal wraps Tab from last button back to first", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Building" });
+    const cancelBtn = within(dialog).getByRole("button", { name: "Cancel" });
+    const deleteBtn = within(dialog).getByRole("button", { name: "Delete Building" });
+    deleteBtn.focus();
+    await user.tab();
+    expect(cancelBtn).toHaveFocus();
+  });
+
+  it("DeleteBuildingConfirmModal wraps Shift+Tab from first button to last", async () => {
+    server.use(
+      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+        return HttpResponse.json({
+          id: "b1",
+          name: "Alpha Tower",
+          manager_email: "alpha@example.com",
+          is_archived: true,
+          created_at: "2024-01-01T00:00:00Z",
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage("b1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete Building" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Building" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Building" });
+    const cancelBtn = within(dialog).getByRole("button", { name: "Cancel" });
+    const deleteBtn = within(dialog).getByRole("button", { name: "Delete Building" });
+    cancelBtn.focus();
+    await user.tab({ shift: true });
+    expect(deleteBtn).toHaveFocus();
+  });
+
   it("Delete Building button uses btn--danger class", async () => {
     server.use(
       http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
