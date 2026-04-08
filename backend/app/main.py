@@ -228,20 +228,20 @@ async def lifespan(app: FastAPI):
     # connect_timeout can fire when many instances race to connect simultaneously.
     # Retry with backoff (1s, 2s) staggers attempts and gives PgBouncer time to clear.
     # Uses the same exception types as get_db() in database.py.
-    from app.database import AsyncSessionLocal
+    from app.database import AsyncSessionLocal, _DB_RETRY_ATTEMPTS, _DB_RETRY_BASE_WAIT
     from app.services.email_service import EmailService
     from sqlalchemy.exc import DBAPIError, OperationalError
     from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
-    for attempt in range(3):
+    for attempt in range(_DB_RETRY_ATTEMPTS):
         try:
             await _check_migration_head()
             async with AsyncSessionLocal() as db:
                 await EmailService().requeue_pending_on_startup(db)
             break
         except (OperationalError, DBAPIError, SQLAlchemyTimeoutError, asyncio.TimeoutError):
-            if attempt < 2:
-                await asyncio.sleep(1 * (2 ** attempt))  # 1s then 2s
+            if attempt < _DB_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_DB_RETRY_BASE_WAIT * (2 ** attempt))
     yield
     # Shutdown: cleanup
 

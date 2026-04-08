@@ -28,15 +28,15 @@ from app.config import settings
 # timeout=5 sets a 5-second asyncpg connection timeout. When Neon is waking from
 # auto-suspend the TCP connection can hang indefinitely without this guard. asyncpg
 # raises an asyncio.TimeoutError (wrapped in OperationalError by SQLAlchemy) after
-# 5 seconds, which triggers the get_db() retry logic below. Using 5s (rather than
-# 10s) keeps total retry time (5s + 1s + 5s + 2s + 5s = 18s) well within the 60s
-# Playwright E2E timeout.
+# 5 seconds, which triggers the get_db() retry logic below.
 #
 # Neon auto-suspend note: the free/launch Neon plan auto-suspends the compute after
 # 5 minutes of idle. This cannot be disabled programmatically on those tiers. When a
 # Lambda request arrives during wake-up the connection attempt raises OperationalError.
-# get_db() below retries up to 3× with exponential backoff to give the compute time
-# to become ready before surfacing a 500 to the client.
+# get_db() below retries up to 5× with exponential backoff (2s, 4s, 8s, 16s — 30s
+# total wait) to cover Neon's full 20-30s wake-up window. Cold-start requests block
+# briefly and return a real response rather than failing with a 500.
+# Total worst-case latency: 5×5s + 2+4+8+16 = 55s — within Playwright's 180s timeout.
 engine = create_async_engine(
     settings.database_url,
     echo=False,
@@ -56,9 +56,9 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # Maximum number of attempts when the DB connection fails with a transient error.
-_DB_RETRY_ATTEMPTS = 3
-# Base wait in seconds between retries (doubles each attempt: 1s, 2s).
-_DB_RETRY_BASE_WAIT = 1
+_DB_RETRY_ATTEMPTS = 5
+# Base wait in seconds between retries (doubles each attempt: 2s, 4s, 8s, 16s).
+_DB_RETRY_BASE_WAIT = 2
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -68,8 +68,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     OperationalError or DBAPIError. Under Fluid Compute, concurrent requests can also
     exhaust the QueuePool (SQLAlchemyTimeoutError) or hit a TCP timeout
     (asyncio.TimeoutError). All four are retried up to _DB_RETRY_ATTEMPTS times with
-    exponential backoff (_DB_RETRY_BASE_WAIT * 2^attempt seconds: 1s, 2s) to give the
-    compute time to become ready before propagating the error.
+    exponential backoff (_DB_RETRY_BASE_WAIT * 2^attempt seconds: 2s, 4s, 8s, 16s) to
+    give the compute time to become ready before propagating the error.
     """
     last_err: Exception | None = None
     for attempt in range(_DB_RETRY_ATTEMPTS):

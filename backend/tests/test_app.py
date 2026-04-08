@@ -243,7 +243,7 @@ class TestDatabase:
                 session = await gen.__anext__()
                 assert session is real_session
                 assert mock_sleep2.call_count == 1
-                assert mock_sleep2.call_args[0][0] == 1  # waited 1s on first retry
+                assert mock_sleep2.call_args[0][0] == 2  # waited 2s on first retry
                 try:
                     await gen.aclose()
                 except Exception:
@@ -364,7 +364,7 @@ class TestDatabase:
             assert mock_sleep.call_count == _DB_RETRY_ATTEMPTS - 1
 
     async def test_get_db_exponential_backoff_wait_times(self):
-        """get_db waits 1s then 2s between consecutive retries (exponential backoff)."""
+        """get_db waits 2s, 4s, 8s, 16s between consecutive retries (exponential backoff)."""
         from unittest.mock import AsyncMock, patch
         from sqlalchemy.exc import OperationalError
 
@@ -384,7 +384,7 @@ class TestDatabase:
                 await gen.__anext__()
 
         wait_times = [call[0][0] for call in mock_sleep.call_args_list]
-        assert wait_times == [1, 2], f"Expected [1, 2] wait times, got {wait_times}"
+        assert wait_times == [2, 4, 8, 16], f"Expected [2, 4, 8, 16] wait times, got {wait_times}"
 
     async def test_get_db_no_sleep_on_non_connection_error(self):
         """get_db does NOT retry on non-transient errors (e.g. ValueError) — raises immediately."""
@@ -1408,13 +1408,13 @@ class TestLifespan:
             async with lifespan(app_instance):
                 pass
 
-        # First attempt failed; second succeeded — sleep must have been called once (1s backoff)
+        # First attempt failed; second succeeded — sleep must have been called once (2s backoff)
         assert attempt_count == 2
-        mock_sleep.assert_awaited_once_with(1)
+        mock_sleep.assert_awaited_once_with(2)
         mock_email_service.requeue_pending_on_startup.assert_awaited_once()
 
     async def test_lifespan_exhausts_retries_without_sleep_on_last_attempt(self):
-        """Lifespan does not sleep after the third (final) attempt, and silently continues."""
+        """Lifespan does not sleep after the fifth (final) attempt, and silently continues."""
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
         from fastapi import FastAPI
@@ -1449,6 +1449,6 @@ class TestLifespan:
             async with lifespan(app_instance):
                 pass
 
-        # Attempts 0 and 1 sleep (1s and 2s); attempt 2 is the last so no sleep
-        assert sleep_calls == [1, 2]
+        # Attempts 0-3 sleep (2s, 4s, 8s, 16s); attempt 4 is the last so no sleep
+        assert sleep_calls == [2, 4, 8, 16]
         mock_email_service.requeue_pending_on_startup.assert_not_awaited()
