@@ -178,6 +178,15 @@ async def _check_migration_head() -> None:
         alembic_cfg = AlembicConfig(os.path.join(_backend_dir, "alembic.ini"))
         script = ScriptDirectory.from_config(alembic_cfg)
         head_rev = script.get_current_head()
+        _structlog_logger.info("migration_head_resolved", head_rev=head_rev, backend_dir=_backend_dir)
+
+        if head_rev is None:
+            _structlog_logger.warning(
+                "migration_head_resolution_failed",
+                backend_dir=_backend_dir,
+                reason="get_current_head() returned None — skipping mismatch check",
+            )
+            return  # Do not set _migration_head_mismatch — benefit of doubt
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(_text("SELECT version_num FROM alembic_version LIMIT 1"))

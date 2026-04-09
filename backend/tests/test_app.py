@@ -1226,6 +1226,96 @@ class TestMigrationHeadCheck:
         finally:
             main_module._migration_head_mismatch = original_mismatch
 
+    async def test_check_migration_head_logs_resolved_head_rev(self):
+        """_check_migration_head logs migration_head_resolved with the resolved head_rev."""
+        import app.main as main_module
+        import structlog.testing
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_head = "abc123"
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, idx: mock_head
+
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_row
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = mock_result
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_local = MagicMock(return_value=mock_session_ctx)
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = mock_head
+
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with (
+                patch("app.database.AsyncSessionLocal", mock_session_local),
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    await _check_migration_head()
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
+
+        info_logs = [l for l in logs if l.get("log_level") == "info"]
+        resolved_logs = [l for l in info_logs if l.get("event") == "migration_head_resolved"]
+        assert resolved_logs, "migration_head_resolved info log must be emitted"
+        assert resolved_logs[0]["head_rev"] == mock_head
+
+    async def test_check_migration_head_none_head_rev_skips_check_no_mismatch(self):
+        """When get_current_head() returns None, log a warning and skip mismatch check.
+
+        In the Vercel Lambda environment, alembic script resolution may return None
+        if __file__ resolves to a different path and alembic.ini is not found.
+        The fix ensures _migration_head_mismatch is NOT set to True in this case,
+        preventing all subsequent requests from returning 503.
+        """
+        import app.main as main_module
+        import structlog.testing
+        from unittest.mock import MagicMock, patch
+
+        from app.main import _check_migration_head
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = None  # Simulate Lambda path resolution failure
+
+        original_checked = main_module._migration_head_checked
+        original_mismatch = main_module._migration_head_mismatch
+        main_module._migration_head_checked = False
+        main_module._migration_head_mismatch = False
+        try:
+            with (
+                patch("alembic.script.ScriptDirectory.from_config", return_value=mock_script),
+            ):
+                with structlog.testing.capture_logs() as logs:
+                    await _check_migration_head()
+
+            # Must NOT have set the mismatch flag
+            assert main_module._migration_head_mismatch is False, (
+                "None head_rev must not set _migration_head_mismatch — "
+                "treat as 'skip check, not a mismatch'"
+            )
+        finally:
+            main_module._migration_head_checked = original_checked
+            main_module._migration_head_mismatch = original_mismatch
+
+        # Must log a warning indicating the check was skipped
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        assert any("migration_head_resolution_failed" in str(l) for l in warning_logs), (
+            "migration_head_resolution_failed warning must be emitted when head_rev is None"
+        )
+
 
 # ---------------------------------------------------------------------------
 # app.main — lifespan: sequential startup DB operations
