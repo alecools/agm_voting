@@ -48,7 +48,8 @@ test.describe("Multi-lot voter journey", () => {
     const api = await makeAdminApi(baseURL);
 
     // ── Building ──────────────────────────────────────────────────────────
-    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+    const buildingsRes = await api.get(`/api/admin/buildings?name=${encodeURIComponent(BUILDING_NAME)}`);
+    if (!buildingsRes.ok()) throw new Error(`GET /api/admin/buildings returned ${buildingsRes.status()}: ${await buildingsRes.text()}`);
     const buildings = (await buildingsRes.json()) as { id: string; name: string }[];
     let building = buildings.find((b) => b.name === BUILDING_NAME);
     if (!building) {

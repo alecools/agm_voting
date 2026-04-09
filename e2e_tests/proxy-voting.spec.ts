@@ -73,7 +73,8 @@ test.describe("Proxy voter journey", () => {
     const api = await makeAdminApi(baseURL);
 
     // ── Seed Scenario 2 data: mixed voter building ──────────────────────────
-    const buildingsRes = await api.get("/api/admin/buildings?limit=1000");
+    const buildingsRes = await api.get(`/api/admin/buildings?name=${encodeURIComponent(MIXED_BUILDING_NAME)}`);
+    if (!buildingsRes.ok()) throw new Error(`GET /api/admin/buildings returned ${buildingsRes.status()}: ${await buildingsRes.text()}`);
     const buildings = (await buildingsRes.json()) as {
       id: string;
       name: string;
