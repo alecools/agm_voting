@@ -272,7 +272,7 @@ async def delete_building(
 )
 async def list_lot_owners(
     building_id: uuid.UUID,
-    limit: int = Query(default=100, le=1000),
+    limit: int = Query(default=1000, le=1000),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[LotOwnerOut]:

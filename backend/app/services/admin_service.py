@@ -108,30 +108,40 @@ async def import_buildings_from_csv(
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
+    # Bulk-load all matching buildings in a single query (N+1 fix).
+    all_names_lower = [row["building_name"].strip().lower() for row in rows]
+    bulk_result = await db.execute(
+        select(Building).where(func.lower(Building.name).in_(all_names_lower))
+    )
+    buildings_by_lower_name: dict[str, Building] = {
+        b.name.lower(): b for b in bulk_result.scalars().all()
+    }
+
     created = 0
     updated = 0
 
-    for row in rows:
-        building_name = row["building_name"].strip()
-        manager_email = row["manager_email"].strip()
+    try:
+        for row in rows:
+            building_name = row["building_name"].strip()
+            manager_email = row["manager_email"].strip()
 
-        # Case-insensitive lookup
-        result = await db.execute(
-            select(Building).where(
-                func.lower(Building.name) == func.lower(building_name)
-            )
-        )
-        existing = result.scalar_one_or_none()
+            existing = buildings_by_lower_name.get(building_name.lower())
 
-        if existing is None:
-            new_building = Building(name=building_name, manager_email=manager_email)
-            db.add(new_building)
-            created += 1
-        else:
-            existing.manager_email = manager_email
-            updated += 1
+            if existing is None:
+                new_building = Building(name=building_name, manager_email=manager_email)
+                db.add(new_building)
+                created += 1
+            else:
+                existing.manager_email = manager_email
+                updated += 1
 
-    await db.commit()
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent import conflict — please retry",
+        ) from exc
     return {"created": created, "updated": updated}
 
 
@@ -210,29 +220,40 @@ async def import_buildings_from_excel(
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
+    # Bulk-load all matching buildings in a single query (N+1 fix).
+    all_names_lower = [r["building_name"].lower() for r in parsed]
+    bulk_result = await db.execute(
+        select(Building).where(func.lower(Building.name).in_(all_names_lower))
+    )
+    buildings_by_lower_name: dict[str, Building] = {
+        b.name.lower(): b for b in bulk_result.scalars().all()
+    }
+
     created = 0
     updated = 0
 
-    for row_data in parsed:
-        building_name = row_data["building_name"]
-        manager_email = row_data["manager_email"]
+    try:
+        for row_data in parsed:
+            building_name = row_data["building_name"]
+            manager_email = row_data["manager_email"]
 
-        result = await db.execute(
-            select(Building).where(
-                func.lower(Building.name) == func.lower(building_name)
-            )
-        )
-        existing = result.scalar_one_or_none()
+            existing = buildings_by_lower_name.get(building_name.lower())
 
-        if existing is None:
-            new_building = Building(name=building_name, manager_email=manager_email)
-            db.add(new_building)
-            created += 1
-        else:
-            existing.manager_email = manager_email
-            updated += 1
+            if existing is None:
+                new_building = Building(name=building_name, manager_email=manager_email)
+                db.add(new_building)
+                created += 1
+            else:
+                existing.manager_email = manager_email
+                updated += 1
 
-    await db.commit()
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent import conflict — please retry",
+        ) from exc
     return {"created": created, "updated": updated}
 
 
@@ -417,7 +438,7 @@ async def _get_proxy_email(lot_owner_id: uuid.UUID, db: AsyncSession) -> str | N
     return row[0] if row is not None else None
 
 
-async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int = 100, offset: int = 0) -> list[dict]:
+async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int = 1000, offset: int = 0) -> list[dict]:
     await get_building_or_404(building_id, db)
     result = await db.execute(
         select(LotOwner).where(LotOwner.building_id == building_id).offset(offset).limit(limit)

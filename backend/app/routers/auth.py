@@ -4,6 +4,7 @@ Authentication endpoints:
   POST /api/auth/verify       — validate the OTP and create a session
   GET  /api/test/latest-otp   — test-only: retrieve latest OTP for (email, meeting_id)
 """
+import asyncio
 import hmac
 import secrets
 import uuid
@@ -14,7 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.logging_config import get_logger
 from app.models.auth_otp import AuthOtp
 from app.models.building import Building
@@ -196,6 +197,30 @@ async def _upsert_rate_limit(
     await db.flush()
 
 
+async def _cleanup_expired_otps() -> None:
+    """Delete expired OTP records — runs as a fire-and-forget background task."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(AuthOtp).where(AuthOtp.expires_at < datetime.now(UTC))
+            )
+            await session.commit()
+    except Exception:  # pragma: no cover
+        pass  # Background cleanup — never let failures surface to the caller
+
+
+async def _cleanup_expired_sessions() -> None:
+    """Delete expired session records — runs as a fire-and-forget background task."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(SessionRecord).where(SessionRecord.expires_at < datetime.now(UTC))
+            )
+            await session.commit()
+    except Exception:  # pragma: no cover
+        pass  # Background cleanup — never let failures surface to the caller
+
+
 @router.post("/auth/request-otp", response_model=OtpRequestResponse)
 async def request_otp(
     body: OtpRequestBody,
@@ -205,6 +230,9 @@ async def request_otp(
     Send a one-time verification code to the voter's email.
     Always returns 200 {"sent": true} to prevent email enumeration.
     """
+    # Fire-and-forget cleanup of expired OTPs — doesn't block the request.
+    asyncio.create_task(_cleanup_expired_otps())
+
     # Normalise email to lowercase for case-insensitive matching
     body = body.model_copy(update={"email": body.email.strip().lower()})
 
@@ -487,6 +515,9 @@ async def restore_session(
 
     Returns 401 if the token is invalid, expired, or the AGM is closed.
     """
+    # Fire-and-forget cleanup of expired sessions — doesn't block the request.
+    asyncio.create_task(_cleanup_expired_sessions())
+
     # Resolve the token: cookie takes priority over request body
     token_to_use = agm_session or request.session_token
 

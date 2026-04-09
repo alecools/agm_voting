@@ -3,7 +3,6 @@ Draft save and ballot submit service logic.
 """
 import hashlib
 import json
-import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -89,24 +88,15 @@ async def save_draft(
     if effective == GeneralMeetingStatus.closed:
         raise HTTPException(status_code=403, detail="Voting is closed for this meeting")
 
-    # Check not already submitted — check by lot_owner_id if provided, else by voter_email.
+    # Check not already submitted by lot_owner_id.
     # Exclude is_absent=True records (contact-email snapshots) — they are not real votes.
-    if lot_owner_id is not None:
-        submission_result = await db.execute(
-            select(BallotSubmission).where(
-                BallotSubmission.general_meeting_id == general_meeting_id,
-                BallotSubmission.lot_owner_id == lot_owner_id,
-                BallotSubmission.is_absent == False,  # noqa: E712
-            )
+    submission_result = await db.execute(
+        select(BallotSubmission).where(
+            BallotSubmission.general_meeting_id == general_meeting_id,
+            BallotSubmission.lot_owner_id == lot_owner_id,
+            BallotSubmission.is_absent == False,  # noqa: E712
         )
-    else:
-        submission_result = await db.execute(
-            select(BallotSubmission).where(
-                BallotSubmission.general_meeting_id == general_meeting_id,
-                BallotSubmission.voter_email == voter_email,
-                BallotSubmission.is_absent == False,  # noqa: E712
-            )
-        )
+    )
     if submission_result.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="Ballot already submitted for this voter")
 
