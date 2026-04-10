@@ -413,9 +413,6 @@ async def submit_ballot(
         # have already been flushed (C-8 race condition).
         votes_to_add: list[Vote] = []
 
-        # Multi-choice votes for this lot — keyed by motion_id
-        mc_votes_for_lot = mc_votes_map
-
         for motion in visible_motions:
             # Skip motions this lot has already voted on (re-entry scenario)
             if motion.id in already_voted_for_lot:
@@ -428,7 +425,7 @@ async def submit_ballot(
                     motions_needing_not_eligible.append(motion)
                     continue
 
-                option_choices = mc_votes_for_lot.get(motion.id, [])
+                option_choices = mc_votes_map.get(motion.id, [])
 
                 if not option_choices:
                     # No options interacted with — record motion-level abstain
@@ -763,6 +760,7 @@ async def get_my_ballot(
         # For multi-choice motions, group all Vote rows per motion into one item with
         # per-option choices (including "for", "against", and "abstained").
         seen_motion_ids: set[uuid.UUID] = set()
+        lot_votes_by_motion: dict[uuid.UUID, BallotVoteItem] = {}
         for vote, motion in lot_vote_rows:
             eligible = not (
                 is_in_arrear and motion.motion_type == MotionType.general
@@ -772,32 +770,31 @@ async def get_my_ballot(
                     # Already have an item for this motion; add to its option_choices
                     if vote.motion_option_id is not None:
                         opt = options_by_id.get(vote.motion_option_id)
-                        for existing_item in lot_votes:
-                            if existing_item.motion_id == motion.id:
-                                # Map stored VoteChoice back to display string
-                                if vote.choice == VoteChoice.selected:
-                                    choice_str = "for"
-                                elif vote.choice == VoteChoice.against:
-                                    choice_str = "against"
-                                else:
-                                    choice_str = "abstained"
-                                existing_item.option_choices.append(
-                                    BallotOptionChoiceItem(
-                                        option_id=vote.motion_option_id,
-                                        option_text=opt.text if opt else str(vote.motion_option_id),
-                                        choice=choice_str,
+                        existing_item = lot_votes_by_motion.get(motion.id)
+                        if existing_item is not None:
+                            # Map stored VoteChoice back to display string
+                            if vote.choice == VoteChoice.selected:
+                                choice_str = "for"
+                            elif vote.choice == VoteChoice.against:
+                                choice_str = "against"
+                            else:
+                                choice_str = "abstained"
+                            existing_item.option_choices.append(
+                                BallotOptionChoiceItem(
+                                    option_id=vote.motion_option_id,
+                                    option_text=opt.text if opt else str(vote.motion_option_id),
+                                    choice=choice_str,
+                                )
+                            )
+                            if vote.choice == VoteChoice.selected and opt is not None:
+                                from app.schemas.admin import MotionOptionOut as AdminMotionOptionOut
+                                existing_item.selected_options.append(
+                                    AdminMotionOptionOut(
+                                        id=opt.id,
+                                        text=opt.text,
+                                        display_order=opt.display_order,
                                     )
                                 )
-                                if vote.choice == VoteChoice.selected and opt is not None:
-                                    from app.schemas.admin import MotionOptionOut as AdminMotionOptionOut
-                                    existing_item.selected_options.append(
-                                        AdminMotionOptionOut(
-                                            id=opt.id,
-                                            text=opt.text,
-                                            display_order=opt.display_order,
-                                        )
-                                    )
-                                break
                     continue
                 seen_motion_ids.add(motion.id)
                 # Create the BallotVoteItem with per-option choices
@@ -827,7 +824,7 @@ async def get_my_ballot(
                             choice=choice_str,
                         )
                     )
-                lot_votes.append(BallotVoteItem(
+                new_item = BallotVoteItem(
                     motion_id=motion.id,
                     motion_title=motion.title,
                     display_order=motion.display_order,
@@ -838,7 +835,9 @@ async def get_my_ballot(
                     is_multi_choice=motion.is_multi_choice,
                     selected_options=selected_opts,
                     option_choices=initial_option_choices,
-                ))
+                )
+                lot_votes.append(new_item)
+                lot_votes_by_motion[motion.id] = new_item
             else:
                 lot_votes.append(BallotVoteItem(
                     motion_id=motion.id,

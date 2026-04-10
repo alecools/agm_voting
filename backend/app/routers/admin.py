@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine, get_db
+from app.logging_config import get_logger
 from app.models import EmailDelivery, GeneralMeeting, get_effective_status
 from app.routers.admin_auth import require_admin
 from app.services.email_service import EmailService
@@ -60,6 +61,7 @@ from app.services import blob_service
 from app.rate_limiter import admin_import_limiter, admin_close_limiter
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
+logger = get_logger(__name__)
 
 _CSV_CONTENT_TYPES = {
     "text/csv",
@@ -949,7 +951,11 @@ async def test_smtp_config(body: SmtpTestRequest, db: AsyncSession = Depends(get
             start_tls=True,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.error("smtp_test_failed", error=str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail="SMTP connection test failed. Check settings and try again.",
+        ) from exc
 
     return {"ok": True}
 

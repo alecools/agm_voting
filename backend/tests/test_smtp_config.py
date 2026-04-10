@@ -623,7 +623,10 @@ class TestSmtpTest:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 400
-        assert "Connection refused" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert detail == "SMTP connection test failed. Check settings and try again."
+        # Raw exception message must NOT be exposed to the client
+        assert "Connection refused" not in detail
 
     async def test_returns_409_when_not_configured(self, app, db_session: AsyncSession):
         await _clear_smtp_config(db_session)

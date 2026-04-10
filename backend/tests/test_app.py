@@ -1105,6 +1105,8 @@ class TestMigrationHeadCheck:
 
         error_logs = [l for l in logs if l.get("log_level") in ("error", "warning")]
         assert any("migration_head_check_failed" in str(l) for l in error_logs)
+        assert not main_module._migration_head_mismatch, \
+            "non-RuntimeError exceptions must not set _migration_head_mismatch to True"
 
     async def test_check_migration_head_no_revision_row(self):
         """RR4-16: _check_migration_head raises RuntimeError when alembic_version row missing."""
