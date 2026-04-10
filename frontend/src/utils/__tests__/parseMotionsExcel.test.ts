@@ -1,38 +1,94 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import * as XLSX from "xlsx";
 import { parseMotionsExcel } from "../parseMotionsExcel";
 
-vi.mock("xlsx");
+// ---------------------------------------------------------------------------
+// ExcelJS mock
+// ---------------------------------------------------------------------------
 
-const mockedXLSX = vi.mocked(XLSX);
+// We need a handle on the mock worksheet so setupMockSheetData can configure it.
+const mockWorksheetState: { rowCount: number; rowData: unknown[][] } = {
+  rowCount: 0,
+  rowData: [],
+};
 
-function makeMockFile(name = "test.xlsx", type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"): File {
+const mockWorksheet = {
+  get rowCount() {
+    return mockWorksheetState.rowCount;
+  },
+  getRow(n: number) {
+    // ExcelJS getRow is 1-indexed; rowData is 0-indexed internally here.
+    const rowIdx = n - 1;
+    const data = mockWorksheetState.rowData[rowIdx] ?? [];
+    // ExcelJS row.values is 1-indexed: index 0 is always undefined.
+    // The implementation does values.slice(1) to normalise to 0-based.
+    const values: unknown[] = [undefined, ...data];
+    return { values };
+  },
+};
+
+const mockWorkbookInstance = {
+  xlsx: {
+    load: vi.fn().mockResolvedValue(undefined),
+  },
+  worksheets: [mockWorksheet],
+};
+
+vi.mock("exceljs", () => {
+  function MockWorkbook(this: unknown) {
+    return mockWorkbookInstance;
+  }
+  return { Workbook: MockWorkbook };
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Configure the mock ExcelJS worksheet to return the given rows.
+ * @param rows 0-indexed row arrays (same shape as sheet_to_json({ header: 1 }) returned)
+ */
+function setupMockSheetData(rows: unknown[][]) {
+  mockWorksheetState.rowCount = rows.length;
+  mockWorksheetState.rowData = rows;
+}
+
+/**
+ * Create a mock .xlsx File whose arrayBuffer resolves to an empty ArrayBuffer.
+ * ExcelJS parsing is fully mocked so the actual buffer contents don't matter.
+ */
+function makeMockFile(
+  name = "test.xlsx",
+  type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+): File {
   const file = new File(["dummy"], name, { type });
   // jsdom does not implement arrayBuffer on File; provide a stub
   file.arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0));
   return file;
 }
 
-function makeMockCsvFile(): File {
-  return makeMockFile("test.csv", "text/csv");
-}
-
-function setupMockSheetData(rows: unknown[][]) {
-  const fakeSheet = {};
-  const fakeWorkbook = {
-    SheetNames: ["Sheet1"],
-    Sheets: { Sheet1: fakeSheet },
-  };
-  mockedXLSX.read = vi.fn().mockReturnValue(fakeWorkbook);
-  mockedXLSX.utils = {
-    ...mockedXLSX.utils,
-    sheet_to_json: vi.fn().mockReturnValue(rows),
-  };
+/**
+ * Create a real CSV File whose arrayBuffer contains the given CSV text
+ * encoded as UTF-8. The CSV branch does not use ExcelJS at all, so no
+ * mock configuration is needed — just pass real content.
+ */
+function makeCsvFile(csvText: string): File {
+  const bytes = new TextEncoder().encode(csvText);
+  const buffer = bytes.buffer;
+  const file = new File([""], "test.csv", { type: "text/csv" });
+  file.arrayBuffer = vi.fn().mockResolvedValue(buffer);
+  return file;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset worksheet state between tests
+  mockWorksheetState.rowCount = 0;
+  mockWorksheetState.rowData = [];
+  mockWorkbookInstance.xlsx.load.mockResolvedValue(undefined);
 });
+
+// ---------------------------------------------------------------------------
 
 describe("parseMotionsExcel", () => {
   // --- Happy path (old 2-column format — backwards compatibility) ---
@@ -137,6 +193,23 @@ describe("parseMotionsExcel", () => {
     expect(result).toEqual({
       motions: [{ title: "Motion content", description: "", motion_number: null, motion_type: "general" }],
     });
+  });
+
+  // --- ExcelJS-specific: workbook.xlsx.load is called with the buffer ---
+
+  it("calls workbook.xlsx.load with the file's ArrayBuffer", async () => {
+    setupMockSheetData([
+      ["Motion", "Description"],
+      [1, "Test motion"],
+    ]);
+
+    const file = makeMockFile();
+    const fakeBuffer = new ArrayBuffer(8);
+    (file.arrayBuffer as ReturnType<typeof vi.fn>).mockResolvedValue(fakeBuffer);
+
+    await parseMotionsExcel(file);
+
+    expect(mockWorkbookInstance.xlsx.load).toHaveBeenCalledWith(fakeBuffer);
   });
 
   // --- New 4-column format ---
@@ -653,46 +726,96 @@ describe("parseMotionsExcel", () => {
     });
   });
 
-  // --- CSV file support ---
+  // --- CSV file support (real content, no ExcelJS mock) ---
 
-  it("parses a CSV file using the same XLSX.read call (type: 'array')", async () => {
-    setupMockSheetData([
-      ["Motion", "Description"],
-      [1, "CSV motion text"],
-    ]);
-
-    const result = await parseMotionsExcel(makeMockCsvFile());
+  it("parses a CSV file with LF line endings (old 2-column format)", async () => {
+    const result = await parseMotionsExcel(
+      makeCsvFile("Motion,Description\n1,CSV motion text\n2,Second CSV motion\n")
+    );
     expect(result).toEqual({
-      motions: [{ title: "CSV motion text", description: "", motion_number: null, motion_type: "general" }],
+      motions: [
+        { title: "CSV motion text", description: "", motion_number: null, motion_type: "general" },
+        { title: "Second CSV motion", description: "", motion_number: null, motion_type: "general" },
+      ],
     });
-    // Verify XLSX.read was called with type: 'array' — the same call that handles both CSV and Excel
-    expect(mockedXLSX.read).toHaveBeenCalledWith(expect.any(ArrayBuffer), { type: "array" });
+    // ExcelJS must NOT be called for CSV files
+    expect(mockWorkbookInstance.xlsx.load).not.toHaveBeenCalled();
+  });
+
+  it("parses a CSV file with CRLF line endings (strips carriage returns)", async () => {
+    const result = await parseMotionsExcel(
+      makeCsvFile("Motion,Description\r\n1,My Motion\r\n")
+    );
+    expect(result).toEqual({
+      motions: [{ title: "My Motion", description: "", motion_number: null, motion_type: "general" }],
+    });
+  });
+
+  it("detects CSV by file extension regardless of MIME type", async () => {
+    // file.name ends with .csv but type is application/octet-stream
+    const file = new File([""], "motions.csv", { type: "application/octet-stream" });
+    const bytes = new TextEncoder().encode("Motion,Description\n1,Extension-only CSV\n");
+    file.arrayBuffer = vi.fn().mockResolvedValue(bytes.buffer);
+
+    const result = await parseMotionsExcel(file);
+    expect(result).toEqual({
+      motions: [{ title: "Extension-only CSV", description: "", motion_number: null, motion_type: "general" }],
+    });
+    expect(mockWorkbookInstance.xlsx.load).not.toHaveBeenCalled();
+  });
+
+  it("detects CSV by text/csv MIME type regardless of file extension", async () => {
+    // file.name has no .csv extension but type is text/csv
+    const file = new File([""], "upload", { type: "text/csv" });
+    const bytes = new TextEncoder().encode("Motion,Description\n1,MIME-type CSV\n");
+    file.arrayBuffer = vi.fn().mockResolvedValue(bytes.buffer);
+
+    const result = await parseMotionsExcel(file);
+    expect(result).toEqual({
+      motions: [{ title: "MIME-type CSV", description: "", motion_number: null, motion_type: "general" }],
+    });
+    expect(mockWorkbookInstance.xlsx.load).not.toHaveBeenCalled();
   });
 
   it("parses a CSV file in new 4-column format", async () => {
-    setupMockSheetData([
-      ["Motion", "Title", "Motion Type", "Description"],
-      [1, "CSV Title", "special", "CSV full description"],
-    ]);
-
-    const result = await parseMotionsExcel(makeMockCsvFile());
+    const result = await parseMotionsExcel(
+      makeCsvFile("Motion,Title,Motion Type,Description\n1,CSV Title,special,CSV full description\n")
+    );
     expect(result).toEqual({
       motions: [{ title: "CSV Title", description: "CSV full description", motion_number: null, motion_type: "special" }],
     });
   });
 
-  it("returns errors for an invalid CSV file just like an invalid Excel file", async () => {
-    setupMockSheetData([
-      ["OtherColumn"],
-      [1, "text"],
-    ]);
-
-    const result = await parseMotionsExcel(makeMockCsvFile());
+  it("returns errors for an invalid CSV file (missing required columns)", async () => {
+    const result = await parseMotionsExcel(
+      makeCsvFile("OtherColumn\n1,text\n")
+    );
     expect(result).toEqual({
       errors: [
         "Missing required column: Motion",
         "Missing required column: Description",
       ],
     });
+  });
+
+  it("returns errors for a CSV file with data row errors", async () => {
+    const result = await parseMotionsExcel(
+      makeCsvFile("Motion,Description\nabc,Some text\n2,\n")
+    );
+    expect(result).toEqual({
+      errors: [
+        "Row 1: Motion must be a number",
+        "Row 2: Description is empty",
+      ],
+    });
+  });
+
+  // --- ExcelJS load failure propagation ---
+
+  it("propagates errors thrown by workbook.xlsx.load", async () => {
+    mockWorkbookInstance.xlsx.load.mockRejectedValue(new Error("Corrupt file"));
+    const file = makeMockFile("bad.xlsx");
+
+    await expect(parseMotionsExcel(file)).rejects.toThrow("Corrupt file");
   });
 });

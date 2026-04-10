@@ -13,7 +13,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           // Group React runtime into a vendor chunk for better caching.
-          // xlsx is NOT listed here — it is pulled in only via dynamic imports
+          // exceljs is NOT listed here — it is pulled in only via dynamic imports
           // inside parseMotionsExcel.ts, so it will only be downloaded by admins.
           if (
             id.includes("node_modules/react/") ||

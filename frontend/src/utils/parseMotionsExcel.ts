@@ -13,11 +13,26 @@ function parseMotionType(raw: unknown): MotionType {
 }
 
 /**
+ * Parse a CSV buffer into a row-major 2D array (0-indexed rows and columns).
+ *
+ * Handles both LF and CRLF line endings. Cells are split on commas and
+ * whitespace-trimmed. This is a naive parser sufficient for the motion import
+ * template, which contains no quoted fields, embedded commas, or multi-line
+ * cells.
+ */
+function parseCsvBuffer(buffer: ArrayBuffer): unknown[][] {
+  const text = new TextDecoder("utf-8").decode(buffer);
+  const lines = text.split("\n").map((line) => line.replace(/\r$/, ""));
+  return lines.map((line) => line.split(",").map((cell) => cell.trim()));
+}
+
+/**
  * Parse motions from an uploaded file.
  *
- * Accepts CSV (.csv) and Excel (.xlsx / .xls) files. The xlsx library
- * (SheetJS) auto-detects the file format from the buffer contents, so no
- * special handling is required to support CSV — `XLSX.read` handles both.
+ * Accepts CSV (.csv) and Excel (.xlsx / .xls) files.
+ * - CSV files are detected by file extension (.csv) or MIME type (text/csv)
+ *   and parsed with a simple built-in text parser.
+ * - Excel files are parsed using exceljs (actively maintained, no known CVEs).
  *
  * Required columns (case-insensitive): Motion, Description
  * Optional columns:
@@ -31,22 +46,36 @@ function parseMotionType(raw: unknown): MotionType {
  * (old 2-column format) continue to work — Description is used as the title
  * and description is set to empty string.
  *
- * The xlsx library is dynamically imported so it is only downloaded when this
- * function is first called (i.e. when an admin actually uses the import UI).
- * Voter-flow bundles are never burdened with the ~650 KB xlsx payload.
+ * exceljs is dynamically imported so it is only downloaded when this function
+ * is first called (i.e. when an admin actually uses the import UI).
+ * Voter-flow bundles are never burdened with the exceljs payload.
  */
 export async function parseMotionsExcel(file: File): Promise<ParseResult> {
-  // Dynamic import: xlsx chunk is only fetched on first call.
-  const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
 
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-    header: 1,
-    defval: null,
-  });
+  let rows: unknown[][];
+
+  const isCsv =
+    file.name.endsWith(".csv") || file.type === "text/csv";
+
+  if (isCsv) {
+    // CSV branch: pure string parsing, no library needed.
+    rows = parseCsvBuffer(buffer);
+  } else {
+    // Excel branch: use exceljs (dynamic import — only downloaded by admins).
+    const ExcelJS = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
+
+    rows = [];
+    for (let r = 1; r <= worksheet.rowCount; r++) {
+      // getRow(n).values is 1-indexed: values[0] is always undefined.
+      // Slice off index 0 to produce a 0-based array matching the CSV shape.
+      const rawValues = worksheet.getRow(r).values as unknown[];
+      rows.push(rawValues.slice(1));
+    }
+  }
 
   if (rows.length === 0) {
     return { errors: ["Missing required column: Motion", "Missing required column: Description"] };
