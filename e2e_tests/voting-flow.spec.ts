@@ -25,7 +25,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 test.describe("Lot owner voting flow", () => {
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json"), timeout: 60000});
 
     await page.goto("/");
 
@@ -135,6 +135,8 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, TCG04_BUILDING, `tcg04-mgr-${RUN_SUFFIX}@test.com`);
@@ -189,6 +191,8 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, tcg04MeetingId);
     await api.dispose();
@@ -201,6 +205,8 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Navigate directly to the auth page by meeting ID — the building is not in the
@@ -237,6 +243,8 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Same direct-navigation approach as TCG04-A.

@@ -48,6 +48,8 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     tcg04BuildingId = await seedBuilding(
@@ -111,6 +113,8 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, tcg04MeetingId);
     await api.dispose();
@@ -126,6 +130,8 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Navigate directly to the closed meeting's auth page (bypasses the
@@ -159,6 +165,8 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Navigate directly to the closed meeting's auth page (bypasses the

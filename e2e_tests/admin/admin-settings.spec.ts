@@ -222,6 +222,8 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const configRes = await api.get("/api/admin/config");
     const config = await configRes.json() as { logo_url?: string };

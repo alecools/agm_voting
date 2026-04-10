@@ -178,7 +178,7 @@ test.describe("Multi-lot voter journey", () => {
   // ── Helper: authenticate with the shared email via OTP flow ─────────────────
   async function authenticate(page: import("@playwright/test").Page) {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json") });
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json"), timeout: 60000});
     await page.getByLabel("Email address").fill(LOT_EMAIL);
     await page.getByRole("button", { name: "Send Verification Code" }).click();
     await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
@@ -203,6 +203,8 @@ test.describe("Multi-lot voter journey", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: path.join(__dirname, ".auth", "admin.json"),
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
     await api.dispose();

@@ -53,6 +53,8 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const buildingId = await seedBuilding(api, BUILDING, `sess01-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
@@ -73,6 +75,8 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, meetingId);
     await api.dispose();
@@ -85,6 +89,8 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Ensure no session cookie exists so restore fails and OTP form is shown.
@@ -124,6 +130,8 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Authenticate to establish a real session cookie for this meeting
@@ -164,6 +172,8 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const buildingId = await seedBuilding(api, BUILDING, `sess04-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
@@ -183,6 +193,8 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, meetingId);
     await api.dispose();
@@ -230,6 +242,8 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const buildingIdA = await seedBuilding(api, BUILDING_A, `sess05a-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingIdA, {
@@ -259,6 +273,8 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, meetingIdA);
     await deleteMeeting(api, meetingIdB);
@@ -273,6 +289,8 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Step 1: Authenticate as Voter A for meeting A — sets the session cookie
@@ -312,6 +330,8 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const buildingId = await seedBuilding(api, BUILDING, `sess06-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
@@ -331,6 +351,8 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     // Meeting is already closed by the test — deleteMeeting handles that
     await deleteMeeting(api, meetingId);
@@ -344,6 +366,8 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);
@@ -362,6 +386,8 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await closeMeeting(api, meetingId);
     await api.dispose();
@@ -393,6 +419,8 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const buildingId = await seedBuilding(api, BUILDING, `sess08-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
@@ -413,6 +441,8 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, meetingId);
     await api.dispose();
@@ -425,6 +455,8 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);
@@ -448,6 +480,8 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Authenticate again (from a fresh browser context) — this sets a new session cookie.

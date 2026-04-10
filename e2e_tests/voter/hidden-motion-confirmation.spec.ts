@@ -54,6 +54,8 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BUILDING, `tcg06-mgr-${RUN_SUFFIX}@test.com`);
@@ -89,6 +91,8 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await deleteMeeting(api, meetingId);
     await api.dispose();
@@ -103,6 +107,8 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);
@@ -133,6 +139,8 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await closeMeeting(api, meetingId);
@@ -148,6 +156,8 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Navigate directly to auth for the closed meeting (not via home-page dropdown).

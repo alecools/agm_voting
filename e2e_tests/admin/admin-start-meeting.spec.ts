@@ -54,6 +54,8 @@ test.describe("Admin Start Meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: path.join(__dirname, "../.auth/admin.json"),
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Helper: create or find a building by name, with retry for transient 500s.

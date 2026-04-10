@@ -41,6 +41,8 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, CRL_BUILDING, `crl01-mgr-${RUN_SUFFIX}@test.com`);
@@ -75,6 +77,8 @@ test.describe("CRL.1: Confirmation page Vote for remaining lots", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Step 1: Authenticate as the shared voter via UI to get a real session token

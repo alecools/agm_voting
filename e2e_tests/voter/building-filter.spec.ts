@@ -58,6 +58,8 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // ── Building A: has an open meeting ──────────────────────────────────

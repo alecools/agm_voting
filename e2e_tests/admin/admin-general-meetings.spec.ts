@@ -121,6 +121,8 @@ test.describe("Admin General Meetings — motion type badges", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "badge-mgr@test.com");
@@ -171,6 +173,8 @@ test.describe("Admin General Meetings — motion type badges", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
@@ -189,6 +193,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     buildingId = await seedBuilding(api, BUILDING_NAME, "delete-mgr@test.com");
     await seedLotOwner(api, buildingId, {
@@ -208,6 +214,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const openMeetingId = await createOpenMeeting(api, buildingId, `Delete Test Open AGM-${Date.now()}`, [
       {
@@ -234,6 +242,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     // Any pending meeting seeded through this building will have lot weights (from the
     // lot owner seeded in beforeAll) and motions (required by the API), so the backend
@@ -280,6 +290,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await cleanupApi.post(`/api/admin/general-meetings/${pendingMeetingId}/close`);
     await cleanupApi.delete(`/api/admin/general-meetings/${pendingMeetingId}`);
@@ -294,6 +306,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     const closedMeetingId = await createOpenMeeting(
       api,
@@ -322,6 +336,8 @@ test.describe("Admin General Meetings — delete meeting button", () => {
       baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173",
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await cleanupApi.delete(`/api/admin/general-meetings/${closedMeetingId}`);
     await cleanupApi.dispose();
@@ -341,6 +357,8 @@ test.describe("Admin General Meetings — absent count", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "absent-mgr@test.com");
@@ -396,6 +414,8 @@ test.describe("Admin General Meetings — absent count", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await closeMeeting(api, meetingId);
     await api.dispose();
@@ -421,6 +441,8 @@ test.describe("Admin General Meetings — absent count", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
@@ -442,6 +464,8 @@ test.describe("Admin General Meetings — motion number workflows", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "mn-mgr@test.com");
@@ -565,6 +589,8 @@ test.describe("Admin General Meetings — motion number workflows", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
@@ -588,6 +614,8 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const bId = await seedBuilding(api, BUILDING_NAME, "tcg01-mgr@test.com");
@@ -622,6 +650,8 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
@@ -634,6 +664,8 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING_NAME);
@@ -678,6 +710,8 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING_NAME);

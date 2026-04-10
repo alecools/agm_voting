@@ -38,6 +38,8 @@ test.describe("Public AGM summary page", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: path.join(__dirname, ".auth", "admin.json"),
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Create or find the building
@@ -171,6 +173,8 @@ test.describe("Public AGM summary page", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: path.join(__dirname, ".auth", "admin.json"),
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await api.post(`/api/admin/general-meetings/${seededAgmId}/close`);
     await api.dispose();

@@ -54,6 +54,8 @@ test.describe("WF8: Edge cases", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     buildingId = await seedBuilding(api, BUILDING, "wf8-manager@test.com");
@@ -95,11 +97,11 @@ test.describe("WF8: Edge cases", () => {
     // Clear ballots so we start fresh
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     {
-      const adminApi = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
+      const adminApi = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
       await clearBallots(adminApi, openMeetingId);
       await adminApi.dispose();
     }
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
 
     // First session: authenticate and vote
     await goToAuthPage(page, BUILDING);
@@ -139,7 +141,7 @@ test.describe("WF8: Edge cases", () => {
     // WF8.1 already submitted a ballot for LOT1_EMAIL. Navigate to home and
     // re-auth to trigger the "all submitted" direct-to-confirmation path.
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH });
+    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, openMeetingId));
     await api.dispose();
@@ -162,6 +164,8 @@ test.describe("WF8: Edge cases", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await closeMeeting(api, openMeetingId);
     // Keep api alive for OTP retrieval
@@ -200,6 +204,8 @@ test.describe("WF8: Edge cases", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await createOpenMeeting(api, buildingId, `WF8 Open Meeting WF8.5-${RUN_SUFFIX}`, [
       {
@@ -246,6 +252,8 @@ test.describe("WF8: Edge cases", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Seed a dedicated building used only by WF8.6 so it never has an open
