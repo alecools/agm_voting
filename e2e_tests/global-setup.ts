@@ -234,8 +234,8 @@ export default async function globalSetup(_config: FullConfig) {
     baseURL,
     ignoreHTTPSErrors: true,
     storageState: path.join(authDir, "admin.json"),
-    // 30s timeout — Lambda cold starts are migration-free (migrations run at build time)
-    timeout: 30000,
+    // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+    timeout: 60000,
   });
 
   // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200

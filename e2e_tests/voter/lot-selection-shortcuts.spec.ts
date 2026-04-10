@@ -52,6 +52,8 @@ test.describe("Lot-selection shortcut buttons", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BUILDING, `ls-mgr-${RUN_SUFFIX}@test.com`);
@@ -114,6 +116,8 @@ test.describe("Lot-selection shortcut buttons", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await loginAndWaitForVotingPage(page, api);
@@ -151,6 +155,8 @@ test.describe("Lot-selection shortcut buttons", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await loginAndWaitForVotingPage(page, api);
@@ -188,6 +194,8 @@ test.describe("Lot-selection shortcut buttons", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await loginAndWaitForVotingPage(page, api);
@@ -224,6 +232,8 @@ test.describe("Lot-selection shortcut buttons", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await loginAndWaitForVotingPage(page, api);

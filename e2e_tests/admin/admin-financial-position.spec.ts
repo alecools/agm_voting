@@ -44,6 +44,8 @@ test.describe("Admin — TOCS CSV financial position upload", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "fin-pos-mgr@test.com");

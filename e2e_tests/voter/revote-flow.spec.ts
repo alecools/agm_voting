@@ -47,6 +47,8 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
@@ -86,6 +88,8 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);
@@ -112,6 +116,8 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Add a 3rd motion (new motions are created with is_visible=False)
@@ -146,6 +152,8 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Navigate to home first to clear any in-memory session state
@@ -176,6 +184,8 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await page.goto("/");
@@ -224,6 +234,8 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, WF9_BUILDING, `wf9-mgr-${RUN_SUFFIX}@test.com`);
@@ -254,6 +266,8 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, WF9_BUILDING);
@@ -283,6 +297,8 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const addRes = await api.post(`/api/admin/general-meetings/${wf9MeetingId}/motions`, {
@@ -313,6 +329,8 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await page.goto("/");
@@ -371,6 +389,8 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await page.goto("/");
@@ -409,6 +429,8 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, WF10_BUILDING, `wf10-mgr-${RUN_SUFFIX}@test.com`);
@@ -444,6 +466,8 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, WF10_BUILDING);
@@ -484,6 +508,8 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Idempotent: check whether Motion 2 already exists on this meeting (e.g. from
@@ -528,6 +554,8 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // ── Reset to the exact prerequisite state: LotA voted M1, LotB has not voted ──
@@ -646,6 +674,8 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // ── Seed independent data for WF10.2 ──────────────────────────────────

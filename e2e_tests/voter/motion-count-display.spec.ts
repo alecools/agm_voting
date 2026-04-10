@@ -38,6 +38,8 @@ test.describe("Motion count display starts at 1 (not 0)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BUILDING, "mc01-mgr@test.com");
@@ -73,6 +75,8 @@ test.describe("Motion count display starts at 1 (not 0)", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);

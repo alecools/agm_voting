@@ -52,6 +52,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BUILDING, `nmb-mgr-${RUN_SUFFIX}@test.com`);
@@ -92,6 +94,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await goToAuthPage(page, BUILDING);
@@ -119,6 +123,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Admin adds and reveals Motion 2
@@ -188,6 +194,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     await page.goto("/");
@@ -218,6 +226,8 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Admin adds and reveals Motion 3

@@ -69,6 +69,8 @@ test.describe("WF1: Admin building setup lifecycle", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     // Pre-create the building so we know its ID for detail-page navigation
     buildingId = await seedBuilding(api, BUILDING_NAME, MANAGER_EMAIL);
@@ -218,6 +220,8 @@ test.describe("WF2: Meeting creation and motion management", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     wf2BuildingId = await seedBuilding(api, WF2_BUILDING, "wf2-manager@test.com");
@@ -256,6 +260,8 @@ test.describe("WF2: Meeting creation and motion management", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     for (const id of wf2MeetingIds) {
       await deleteMeeting(api, id);
@@ -328,6 +334,8 @@ test.describe("WF2: Meeting creation and motion management", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
     await closeMeeting(api, wf2MeetingId);
     const pendingMeetingId = await createPendingMeeting(

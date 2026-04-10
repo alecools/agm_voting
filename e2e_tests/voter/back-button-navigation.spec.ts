@@ -42,6 +42,8 @@ test.describe("Back button navigation from VotingPage", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     const buildingId = await seedBuilding(api, BB_BUILDING, `bb01-mgr-${RUN_SUFFIX}@test.com`);
@@ -70,6 +72,8 @@ test.describe("Back button navigation from VotingPage", () => {
       baseURL,
       ignoreHTTPSErrors: true,
       storageState: ADMIN_AUTH_PATH,
+      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
+      timeout: 60000,
     });
 
     // Authenticate and land on voting page
