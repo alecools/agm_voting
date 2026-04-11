@@ -96,7 +96,7 @@ class TestDatabase:
         assert engine is not None
 
     def test_engine_uses_persistent_pool(self):
-        """Verify the engine is configured with a QueuePool sized for Fluid Compute concurrency + PgBouncer."""
+        """Verify the engine is configured with a QueuePool sized for Fluid Compute concurrency."""
         from sqlalchemy.pool import QueuePool
 
         from app.database import engine
@@ -105,7 +105,11 @@ class TestDatabase:
         assert engine.pool.size() == 20
 
     def test_engine_connect_args(self):
-        """Engine connect_args disables statement cache (PgBouncer compat) and sets asyncpg timeout.
+        """Engine connect_args enables statement cache (direct Neon connection) and sets asyncpg timeout.
+
+        With DATABASE_URL_UNPOOLED (direct endpoint, no PgBouncer), statement_cache_size=100
+        allows asyncpg to cache prepared statements per connection. This eliminates per-query
+        type introspection — the root cause of OutOfMemoryError under concurrent E2E load.
 
         SQLAlchemy merges connect_args into the asyncpg connection parameters dict, which
         is stored as a closure variable in the pool's creator function. We extract it from
@@ -129,8 +133,9 @@ class TestDatabase:
                 except ValueError:
                     pass
 
-        assert cparams.get("statement_cache_size") == 0, (
-            "statement_cache_size must be 0 for PgBouncer transaction mode compatibility"
+        assert cparams.get("statement_cache_size") == 100, (
+            "statement_cache_size must be 100 for direct Neon connection — "
+            "eliminates per-query type introspection and prevents OutOfMemoryError"
         )
         assert cparams.get("timeout") == 5, (
             "timeout must be 5 so asyncpg raises after 5s during Neon wake-up "
@@ -142,12 +147,59 @@ class TestDatabase:
 
         assert AsyncSessionLocal is not None
 
+    def test_engine_url_uses_database_url_unpooled_when_set(self):
+        """_engine_url prefers DATABASE_URL_UNPOOLED over settings.database_url when set.
+
+        The Neon-Vercel integration injects DATABASE_URL_UNPOOLED pointing to the direct
+        endpoint (no PgBouncer). Using it enables statement caching and prevents OOM errors.
+        """
+        import importlib
+        import sys
+        import os
+        from unittest.mock import patch
+
+        direct_url = "postgresql+asyncpg://user:pass@direct.neon.tech/db?ssl=require"
+        # Temporarily remove the cached module so it can be re-imported with the env var set.
+        saved = sys.modules.pop("app.database", None)
+        try:
+            with patch.dict(os.environ, {"DATABASE_URL_UNPOOLED": direct_url}):
+                import app.database as db_module_fresh
+                assert db_module_fresh._engine_url == direct_url
+        finally:
+            # Restore original module state
+            sys.modules.pop("app.database", None)
+            if saved is not None:
+                sys.modules["app.database"] = saved
+
+    def test_engine_url_falls_back_to_settings_when_unpooled_not_set(self):
+        """_engine_url falls back to settings.database_url when DATABASE_URL_UNPOOLED is absent.
+
+        In local development, DATABASE_URL_UNPOOLED is not set so the engine uses
+        settings.database_url (the dev/test database URL).
+        """
+        import sys
+        import os
+        from unittest.mock import patch
+
+        saved = sys.modules.pop("app.database", None)
+        try:
+            env_without_unpooled = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_UNPOOLED"}
+            with patch.dict(os.environ, env_without_unpooled, clear=True):
+                import app.database as db_module_fresh
+                from app.config import settings
+                assert db_module_fresh._engine_url == settings.database_url
+        finally:
+            sys.modules.pop("app.database", None)
+            if saved is not None:
+                sys.modules["app.database"] = saved
+
     def test_engine_connect_args_timeout(self):
         """Engine connect_args has timeout=5 to detect hung Neon connections quickly.
 
         SQLAlchemy merges connect_args into the pool creator's closure (cparams).
         We inspect that closure to verify the timeout value — dialect.create_connect_args
-        only returns driver defaults, not user-supplied overrides.
+        only returns driver defaults, not user-supplied overrides. The timeout guard is
+        needed so asyncpg raises after 5s during Neon wake-up instead of hanging indefinitely.
         """
         import inspect
 

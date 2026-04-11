@@ -45,6 +45,20 @@ if "DATABASE_URL" in os.environ:
         .replace("channel_binding=require", "")
     )
 
+# Sanitize DATABASE_URL_UNPOOLED the same way: the Neon-Vercel integration
+# injects it as a raw postgresql:// URL with channel_binding and sslmode.
+# database.py reads this directly so it must be in asyncpg format before import.
+if "DATABASE_URL_UNPOOLED" in os.environ:
+    os.environ["DATABASE_URL_UNPOOLED"] = (
+        os.environ["DATABASE_URL_UNPOOLED"]
+        .replace("postgres://", "postgresql+asyncpg://", 1)
+        .replace("postgresql://", "postgresql+asyncpg://", 1)
+        .replace("sslmode=require", "ssl=require")
+        .replace("&channel_binding=require", "")
+        .replace("channel_binding=require&", "")
+        .replace("channel_binding=require", "")
+    )
+
 _db_url = os.environ.get("DATABASE_URL", "")
 
 from app.main import app  # noqa: E402 — must come after sys.path manipulation

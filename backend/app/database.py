@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.exc import DBAPIError, OperationalError
@@ -11,12 +12,23 @@ from sqlalchemy.ext.asyncio import (
 
 from app.config import settings
 
+# Use the unpooled direct connection URL when available.
+# The Neon-Vercel integration provides DATABASE_URL_UNPOOLED pointing to the
+# direct Neon endpoint (no PgBouncer). Using the direct endpoint allows
+# statement_cache_size > 0 — asyncpg caches prepared statements and performs
+# type introspection once per connection lifetime rather than per query.
+# Under concurrent load, repeated type introspection with statement_cache_size=0
+# exhausts Neon's per-process MessageContext RAM, causing OutOfMemoryError.
+# Falls back to DATABASE_URL (settings.database_url) for local development.
+_engine_url = os.environ.get("DATABASE_URL_UNPOOLED") or settings.database_url
+
 # Persistent pool sized for Fluid Compute concurrency.
 #
-# Architecture rationale (Vercel Fluid Compute + Neon + PgBouncer):
-# - pool_size=20: PgBouncer accepts 10,000 client connections, so the Lambda-side pool
-#   is not a bottleneck on the Neon side. pool_size=20 supports heavy concurrent load
-#   under Fluid Compute's concurrent request handling without pool exhaustion.
+# Architecture rationale (Vercel Fluid Compute + Neon direct connections):
+# - pool_size=20: direct Neon connections are used (no PgBouncer pooler). Each
+#   Lambda instance holds up to 20 connections. Neon connection limits apply
+#   directly, so reduce DB_POOL_SIZE env var if approaching Neon's per-project
+#   connection limit across many concurrent Lambda instances.
 # - max_overflow=10: burst headroom up to 30 total connections per Lambda instance.
 # - pool_pre_ping=True: detects if Neon compute suspended mid-session and reconnects
 #   transparently on the next request.
@@ -24,7 +36,12 @@ from app.config import settings
 # - pool_timeout=10: longer wait (10s) since more connections are available, reducing
 #   the likelihood of TimeoutError under concurrent load.
 #
-# statement_cache_size=0 is required for PgBouncer transaction mode compatibility.
+# statement_cache_size=100: With a direct Neon connection (no PgBouncer transaction
+# mode), asyncpg can cache up to 100 prepared statements per connection. This
+# eliminates per-query type introspection, which is the root cause of
+# asyncpg.exceptions.OutOfMemoryError under concurrent E2E shard load.
+# (statement_cache_size=0 is only required for PgBouncer transaction mode.)
+#
 # timeout=5 sets a 5-second asyncpg connection timeout. When Neon is waking from
 # auto-suspend the TCP connection can hang indefinitely without this guard. asyncpg
 # raises an asyncio.TimeoutError (wrapped in OperationalError by SQLAlchemy) after
@@ -38,7 +55,7 @@ from app.config import settings
 # briefly and return a real response rather than failing with a 500.
 # Total worst-case latency: 5×5s + 2+4+8+16 = 55s — within Playwright's 180s timeout.
 engine = create_async_engine(
-    settings.database_url,
+    _engine_url,
     echo=False,
     future=True,
     pool_size=settings.db_pool_size,
@@ -46,7 +63,13 @@ engine = create_async_engine(
     pool_timeout=settings.db_pool_timeout,
     pool_pre_ping=True,
     pool_recycle=300,
-    connect_args={"statement_cache_size": 0, "timeout": 5},
+    connect_args={
+        # statement_cache_size=0 is required only for PgBouncer transaction mode.
+        # With a direct Neon connection (no pooler), we can cache up to 100 prepared
+        # statements per connection, eliminating per-query type introspection.
+        "statement_cache_size": 100,
+        "timeout": 5,
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(

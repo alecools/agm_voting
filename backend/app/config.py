@@ -71,9 +71,14 @@ class Settings(BaseSettings):
     enable_ballot_reset: bool = False
 
     # Pool settings for the persistent pool (see database.py).
-    # PgBouncer accepts 10,000 client connections so the Lambda-side pool is not a
-    # bottleneck on the Neon side. pool_size=20 supports up to 20 concurrent DB
-    # operations per Lambda instance under Fluid Compute's concurrent request handling.
+    # DATABASE_URL_UNPOOLED (direct Neon endpoint, no PgBouncer) is used for the
+    # runtime engine, so statement_cache_size can be non-zero — asyncpg caches
+    # prepared statements and performs type introspection once per connection
+    # lifetime instead of every query.
+    # pool_size=20 supports up to 20 concurrent DB operations per Lambda instance
+    # under Fluid Compute's concurrent request handling. Because direct connections
+    # are used (no PgBouncer), Neon's per-project connection limit applies directly.
+    # Reduce DB_POOL_SIZE if approaching that limit across many Lambda instances.
     # max_overflow=10 provides burst headroom up to 30 total connections per instance.
     # pool_timeout=10s: longer wait since more connections are available, reducing the
     # need to fail fast.
