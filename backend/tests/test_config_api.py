@@ -6,7 +6,7 @@ Covers:
   GET  /api/admin/config     (admin)
   PUT  /api/admin/config     (admin)
 
-And the config_service unit-level behaviour (seed fallback).
+And the config_service unit-level behaviour (seed fallback + cache).
 
 Structure per section:
   # --- Happy path ---
@@ -16,6 +16,8 @@ Structure per section:
   # --- Edge cases ---
 """
 from __future__ import annotations
+
+import time
 
 import pytest
 import pytest_asyncio
@@ -896,3 +898,139 @@ class TestFaviconUrlInConfig:
             primary_colour="#005f73",
         )
         assert data.favicon_url is None
+
+
+# ===========================================================================
+# config_service cache unit tests
+# ===========================================================================
+
+
+class TestConfigServiceCache:
+    """Unit tests for the module-level 60 s TTL cache in config_service."""
+
+    # --- Happy path ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cache_hit_skips_db_query(self, db_session):
+        """Second call within TTL must return cached object without hitting DB."""
+        await _seed_config(db_session, app_name="Cached")
+
+        # First call — populates cache
+        first = await config_service.get_config(db_session)
+        assert first.app_name == "Cached"
+
+        # Patch the DB execute so we can detect if it is called again
+        with patch.object(db_session, "execute", wraps=db_session.execute) as mock_exec:
+            second = await config_service.get_config(db_session)
+
+        assert second is first  # Same object returned from cache
+        mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cache_populated_after_first_miss(self, db_session):
+        """After a DB fetch the cache fields must be set."""
+        await _seed_config(db_session, app_name="Populate")
+        assert config_service._config_cache.config is None
+
+        await config_service.get_config(db_session)
+
+        assert config_service._config_cache.config is not None
+        assert config_service._config_cache.cached_at is not None
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_update_config_invalidates_cache(self, db_session):
+        """update_config must clear the cache so the next read goes to DB."""
+        await _seed_config(db_session, app_name="Before Update")
+
+        # Warm the cache
+        await config_service.get_config(db_session)
+        assert config_service._config_cache.config is not None
+
+        # Update — must clear cache
+        data = TenantConfigUpdate(app_name="After Update", primary_colour="#001122")
+        await config_service.update_config(data, db_session)
+
+        assert config_service._config_cache.config is None
+
+    # --- Boundary values ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cache_miss_after_ttl_expires(self, db_session):
+        """A cached_at timestamp older than TTL must trigger a fresh DB query."""
+        await _seed_config(db_session, app_name="Stale")
+
+        # Warm the cache but backdate the timestamp beyond TTL
+        await config_service.get_config(db_session)
+        config_service._config_cache.cached_at = (
+            time.monotonic() - config_service._CACHE_TTL_SECONDS - 1.0
+        )
+
+        with patch.object(db_session, "execute", wraps=db_session.execute) as mock_exec:
+            await config_service.get_config(db_session)
+
+        mock_exec.assert_called_once()
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cache_hit_just_before_ttl_boundary(self, db_session):
+        """A cached_at timestamp 1 ms before TTL expiry must still be a cache hit."""
+        await _seed_config(db_session, app_name="Fresh")
+
+        await config_service.get_config(db_session)
+        # Set cached_at so it is just inside the TTL window
+        config_service._config_cache.cached_at = (
+            time.monotonic() - config_service._CACHE_TTL_SECONDS + 0.5
+        )
+
+        with patch.object(db_session, "execute", wraps=db_session.execute) as mock_exec:
+            result = await config_service.get_config(db_session)
+
+        mock_exec.assert_not_called()
+        assert result.app_name == "Fresh"
+
+    # --- State / precondition errors ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cache_miss_when_config_is_none_but_cached_at_set(self, db_session):
+        """Cache must be treated as cold when config is None, even with a recent timestamp."""
+        await _seed_config(db_session, app_name="Null Config")
+
+        # Simulate a state where cached_at is set but config was cleared (e.g. by update)
+        config_service._config_cache.config = None
+        config_service._config_cache.cached_at = time.monotonic()
+
+        with patch.object(db_session, "execute", wraps=db_session.execute) as mock_exec:
+            result = await config_service.get_config(db_session)
+
+        mock_exec.assert_called_once()
+        assert result.app_name == "Null Config"
+
+    # --- Edge cases ---
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_cached_object_is_detached_from_session(self, db_session):
+        """Cached config must be detached (expunge called) so it is safe to return
+        across different DB sessions without raising DetachedInstanceError."""
+        from sqlalchemy import inspect as sa_inspect
+
+        await _seed_config(db_session, app_name="Detach Test")
+        config = await config_service.get_config(db_session)
+
+        insp = sa_inspect(config)
+        assert insp.detached or not insp.persistent, (
+            "Cached TenantConfig must be detached from the session"
+        )
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_seed_fallback_result_is_also_cached(self, db_session):
+        """When get_config creates the fallback seed row it must also populate the cache."""
+        # Ensure no row exists
+        await db_session.execute(delete(TenantConfig))
+        await db_session.flush()
+
+        assert config_service._config_cache.config is None
+
+        config = await config_service.get_config(db_session)
+
+        assert config_service._config_cache.config is not None
+        assert config_service._config_cache.cached_at is not None
+        assert config.app_name == "AGM Voting"
