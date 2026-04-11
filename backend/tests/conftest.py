@@ -192,6 +192,21 @@ def reset_rate_limiters():
     _smtp_test_rate_limiter.reset("smtp_test")
 
 
+@pytest.fixture(autouse=True)
+def reset_config_cache():
+    """Reset the module-level tenant config cache before and after each test.
+
+    The cache is a module-level singleton.  Without a reset, a cached value from
+    one test leaks into the next test and causes stale-data assertion failures.
+    """
+    from app.services import config_service
+    config_service._config_cache.config = None
+    config_service._config_cache.cached_at = None
+    yield
+    config_service._config_cache.config = None
+    config_service._config_cache.cached_at = None
+
+
 @pytest.fixture
 def app(db_session: AsyncSession):
     """
