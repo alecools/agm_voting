@@ -6,6 +6,7 @@ Voting endpoints (all require valid session):
   POST /api/general-meeting/{general_meeting_id}/submit
   GET  /api/general-meeting/{general_meeting_id}/my-ballot
 """
+import asyncio
 import uuid
 from typing import Optional
 
@@ -34,7 +35,11 @@ from app.schemas.voting import (
     MyBallotResponse,
     SubmitResponse,
 )
-from app.services.auth_service import get_session
+from app.services.auth_service import (
+    _load_direct_lot_owner_ids,
+    _load_proxy_lot_owner_ids,
+    get_session,
+)
 from app.services.voting_service import (
     get_drafts,
     get_my_ballot,
@@ -70,35 +75,16 @@ async def list_motions(
     """
     session = await get_session(general_meeting_id=general_meeting_id, db=db, agm_session=agm_session, authorization=authorization)
 
-    # Verify General Meeting exists
-    meeting_result = await db.execute(select(GeneralMeeting).where(GeneralMeeting.id == general_meeting_id))
-    meeting = meeting_result.scalar_one_or_none()
-    if meeting is None:  # pragma: no cover
-        raise HTTPException(status_code=404, detail="General Meeting not found")  # pragma: no cover
-
     voter_email = session.voter_email
+    building_id = session.building_id
 
-    # Find all lot_owner_ids for this voter (direct ownership + proxy)
-    email_lots_result = await db.execute(
-        select(LotOwnerEmail.lot_owner_id)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
-        .where(
-            LotOwnerEmail.email == voter_email,
-            LotOwner.building_id == meeting.building_id,
-        )
+    # Fire direct-owner and proxy-lot lookups concurrently.
+    # session.building_id is used directly — the session FK guarantees the meeting
+    # exists and provides building_id, so the meeting existence check is not needed.
+    direct_lot_owner_ids, proxy_lot_owner_ids = await asyncio.gather(
+        _load_direct_lot_owner_ids(voter_email, building_id),
+        _load_proxy_lot_owner_ids(voter_email, building_id),
     )
-    direct_lot_owner_ids = {row[0] for row in email_lots_result.all()}
-
-    proxy_lots_result = await db.execute(
-        select(LotProxy.lot_owner_id)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
-        .where(
-            LotProxy.proxy_email == voter_email,
-            LotOwner.building_id == meeting.building_id,
-        )
-    )
-    proxy_lot_owner_ids = {row[0] for row in proxy_lots_result.all()}
-
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
 
     # Get submitted vote motion IDs, choices, and option IDs for this voter's lots

@@ -253,6 +253,12 @@ def patch_parallel_lot_lookup(db_session: AsyncSession):
     ), patch(
         "app.routers.auth._load_proxy_lot_owner_ids",
         side_effect=_proxy_ids_via_test_session,
+    ), patch(
+        "app.routers.voting._load_direct_lot_owner_ids",
+        side_effect=_direct_ids_via_test_session,
+    ), patch(
+        "app.routers.voting._load_proxy_lot_owner_ids",
+        side_effect=_proxy_ids_via_test_session,
     ):
         yield
 
