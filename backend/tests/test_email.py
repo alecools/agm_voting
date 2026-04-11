@@ -1026,6 +1026,54 @@ class TestTriggerWithRetry:
         assert delivery.total_attempts == 30
         assert delivery.last_error == "always fails"
 
+    # --- Non-retryable errors ---
+
+    async def test_smtp_auth_error_fails_immediately(self, db_session: AsyncSession, mocker):
+        """SMTPAuthenticationError (535) marks delivery failed on the first attempt without retrying.
+
+        Wrong credentials will never become right — retrying wastes Lambda time on every
+        cold start and causes Lambda timeouts when many stale emails are requeued.
+        """
+        import aiosmtplib
+
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        await _create_motion(db_session, agm)
+        delivery = await _create_email_delivery(db_session, agm)
+        await db_session.commit()
+
+        mock_smtp_config = MagicMock()
+        mock_smtp_config.smtp_host = "smtp.test.com"
+        mock_smtp_config.smtp_port = 587
+        mock_smtp_config.smtp_username = "user"
+        mock_smtp_config.smtp_from_email = "noreply@test.com"
+        mock_smtp_config.smtp_password_enc = "enc"
+        mocker.patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config))
+        mocker.patch("app.services.email_service.get_decrypted_password", return_value="bad-password")
+        mocker.patch(
+            "aiosmtplib.send",
+            side_effect=aiosmtplib.SMTPAuthenticationError(535, "5.7.8 Authentication failed"),
+        )
+        sleep_mock = mocker.patch("asyncio.sleep", new=AsyncMock())
+
+        mock_factory = _make_mock_factory(db_session)
+        mocker.patch(
+            "app.services.email_service._make_session_factory",
+            return_value=mock_factory,
+        )
+
+        service = EmailService()
+        await service.trigger_with_retry(agm.id)
+
+        await db_session.refresh(delivery)
+        # Must fail immediately — no retries
+        assert delivery.status == EmailDeliveryStatus.failed
+        assert delivery.total_attempts == 1
+        assert delivery.next_retry_at is None
+        assert "535" in (delivery.last_error or "") or "Authentication" in (delivery.last_error or "")
+        # Sleep (backoff) must NOT have been called
+        sleep_mock.assert_not_called()
+
     # --- Already delivered ---
 
     async def test_already_delivered_skips(self, db_session: AsyncSession, mocker):
@@ -1346,7 +1394,7 @@ class TestRequeuePendingOnStartup:
     # --- Happy path ---
 
     async def test_requeues_pending_deliveries(self, db_session: AsyncSession, mocker):
-        """Pending deliveries with attempts < 30 are re-launched via asyncio.gather (RR3-19)."""
+        """Pending deliveries due for retry are launched as background tasks (non-blocking)."""
         await self._clear_pending_deliveries(db_session)
         building = await _create_building(db_session)
         agm = await _create_agm(db_session, building)
@@ -1355,13 +1403,14 @@ class TestRequeuePendingOnStartup:
         delivery.total_attempts = 5
         await db_session.commit()
 
-        # Patch trigger_with_retry as AsyncMock — requeue_pending_on_startup now uses
-        # asyncio.gather rather than asyncio.create_task (RR3-19), so we verify
-        # trigger_with_retry was called (awaited) the correct number of times.
+        # Patch trigger_with_retry as AsyncMock — tasks are fired via asyncio.create_task
+        # (non-blocking) so startup returns immediately without waiting for delivery.
         trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
+        # Yield to the event loop so the create_task coroutines run
+        await asyncio.sleep(0)
 
         assert trigger_mock.call_count == 1
 
@@ -1399,6 +1448,48 @@ class TestRequeuePendingOnStartup:
 
         trigger_mock.assert_not_called()
 
+    async def test_skips_deliveries_with_future_next_retry_at(self, db_session: AsyncSession, mocker):
+        """Pending delivery with next_retry_at in the future is not re-queued on cold start.
+
+        Without this guard, every cold start would immediately retry all pending emails,
+        ignoring the exponential backoff schedule and blocking startup.
+        """
+        from datetime import timedelta
+        await self._clear_pending_deliveries(db_session)
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        delivery = await _create_email_delivery(db_session, agm)
+        delivery.status = EmailDeliveryStatus.pending
+        delivery.total_attempts = 3
+        delivery.next_retry_at = datetime.now(UTC) + timedelta(hours=1)  # not due yet
+        await db_session.commit()
+
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+
+        service = EmailService()
+        await service.requeue_pending_on_startup(db_session)
+
+        trigger_mock.assert_not_called()
+
+    async def test_requeues_deliveries_with_past_next_retry_at(self, db_session: AsyncSession, mocker):
+        """Pending delivery with next_retry_at in the past IS re-queued on cold start."""
+        from datetime import timedelta
+        await self._clear_pending_deliveries(db_session)
+        building = await _create_building(db_session)
+        agm = await _create_agm(db_session, building)
+        delivery = await _create_email_delivery(db_session, agm)
+        delivery.status = EmailDeliveryStatus.pending
+        delivery.total_attempts = 3
+        delivery.next_retry_at = datetime.now(UTC) - timedelta(minutes=5)  # overdue
+        await db_session.commit()
+
+        trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
+
+        service = EmailService()
+        await service.requeue_pending_on_startup(db_session)
+
+        assert trigger_mock.call_count == 1
+
     async def test_ignores_failed_records(self, db_session: AsyncSession, mocker):
         """Failed records are not re-queued."""
         await self._clear_pending_deliveries(db_session)
@@ -1417,7 +1508,7 @@ class TestRequeuePendingOnStartup:
         trigger_mock.assert_not_called()
 
     async def test_multiple_pending_deliveries_all_requeued(self, db_session: AsyncSession, mocker):
-        """Multiple pending deliveries all get re-launched via asyncio.gather (RR3-19)."""
+        """Multiple pending deliveries all get re-launched as non-blocking background tasks."""
         await self._clear_pending_deliveries(db_session)
         for _ in range(3):
             building = await _create_building(db_session)
@@ -1427,12 +1518,11 @@ class TestRequeuePendingOnStartup:
             delivery.total_attempts = 0
         await db_session.commit()
 
-        # Now uses asyncio.gather instead of create_task — verify trigger_with_retry
-        # is called (awaited) once per pending delivery.
         trigger_mock = mocker.patch.object(EmailService, "trigger_with_retry", new_callable=AsyncMock)
 
         service = EmailService()
         await service.requeue_pending_on_startup(db_session)
+        await asyncio.sleep(0)  # yield so create_task coroutines run
 
         assert trigger_mock.call_count == 3
 

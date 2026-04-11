@@ -19,7 +19,7 @@ import aiosmtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -307,8 +307,10 @@ class EmailService:
                         )
                         return
 
-                    except SmtpNotConfiguredError as exc:
-                        # Non-retryable: SMTP is not configured — fail immediately
+                    except (SmtpNotConfiguredError, aiosmtplib.SMTPAuthenticationError) as exc:
+                        # Non-retryable: SMTP not configured or credentials rejected.
+                        # SMTPAuthenticationError (535) means wrong credentials — retrying
+                        # will never succeed and wastes Lambda time on every cold start.
                         error_str = str(exc)
                         delivery.total_attempts = current_attempt
                         delivery.last_error = error_str
@@ -383,28 +385,37 @@ class EmailService:
     async def requeue_pending_on_startup(self, db: AsyncSession) -> None:
         """
         Called on server startup. Finds all EmailDelivery records with
-        status='pending' and total_attempts < 30, and re-launches
-        trigger_with_retry tasks.
+        status='pending', total_attempts < 30, and next_retry_at <= now (or not set),
+        and re-launches trigger_with_retry tasks.
+
+        The next_retry_at guard is critical: without it, every cold start would
+        immediately retry all pending emails regardless of their scheduled retry time,
+        resetting the exponential backoff and blocking startup (via asyncio.gather)
+        for the duration of the retry loops — preventing the Lambda from handling
+        any HTTP requests until all retries complete (RR3-19).
 
         Tasks are collected and awaited via asyncio.gather so they are not
         silently dropped if the Lambda exits before they complete (RR3-19).
         """
+        now = datetime.now(UTC)
         result = await db.execute(
             select(EmailDelivery).where(
                 EmailDelivery.status == EmailDeliveryStatus.pending,
                 EmailDelivery.total_attempts < _MAX_ATTEMPTS,
+                or_(
+                    EmailDelivery.next_retry_at.is_(None),
+                    EmailDelivery.next_retry_at <= now,
+                ),
             )
         )
         pending_deliveries = list(result.scalars().all())
 
-        tasks = []
         for delivery in pending_deliveries:
             logger.info(
                 "requeueing_pending_email",
                 general_meeting_id=str(delivery.general_meeting_id),
                 total_attempts=delivery.total_attempts,
             )
-            tasks.append(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))
-
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            asyncio.create_task(
+                _send_with_limit(self.trigger_with_retry(delivery.general_meeting_id))
+            )
