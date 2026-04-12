@@ -20,6 +20,40 @@ AGM Voting App — a web application for body corporates to run weighted voting 
 - `tasks/prd/` — product requirements documents (`tasks/prd/TEMPLATE.md` is the PRD template)
 - `tasks/design/` — technical design docs (`tasks/design/TEMPLATE.md` is the design doc template)
 
+### PRD and design doc conventions
+
+PRDs and design docs are organised by feature area. **Always update an existing file rather than creating a new one** — only create a new file if the feature genuinely has no home in any existing file.
+
+**PRD files** (`tasks/prd/`):
+
+| File | Covers |
+|---|---|
+| `prd-agm-voting-app.md` | Master overview and table of contents |
+| `prd-buildings-and-lots.md` | Buildings, lot owners, CSV/Excel import, financial positions, proxies, owner names |
+| `prd-meetings.md` | Meeting lifecycle, status transitions, filters, per-motion voting windows |
+| `prd-motions.md` | Motion CRUD, ordering, visibility, multi-choice, Excel import, motion numbers |
+| `prd-voting-flow.md` | OTP auth, voting, proxy UX, multi-lot voting, re-voting, eligibility |
+| `prd-admin-panel.md` | Admin login, in-person vote entry, results, QR code, email actions |
+| `prd-platform.md` | Tenant branding, SMTP, email delivery, session security |
+| `prd-multi-tenant.md` | Future roadmap — multi-tenant SaaS (not yet implemented) |
+| `prd-review-recommendations.md` | Engineering review reference — do not modify |
+
+**Design docs** (`tasks/design/`):
+
+| File | Covers |
+|---|---|
+| `design-auth.md` | OTP auth, session management, admin login security |
+| `design-building-lot-management.md` | Building CRUD, lot owner management, financial positions, email export |
+| `design-meeting-management.md` | Meeting lifecycle, status management, filters |
+| `design-motion-management.md` | Motion CRUD, ordering, visibility, import, display |
+| `design-multi-choice-motions.md` | Multi-choice motion type — voting, results tally, admin vote entry |
+| `design-voting-flow.md` | Full voter flow, proxy voting, re-voting, accessibility |
+| `design-admin-panel.md` | Admin UI — vote entry, navigation, pagination, QR sharing |
+| `design-email-smtp.md` | Email delivery, SMTP configuration, meeting close email |
+| `design-branding-ui.md` | Multi-tenancy, branding, logo/favicon, layout, drag-and-drop |
+| `design-infrastructure.md` | Deployment, DB pool, query perf, bundle optimisation, testing strategy |
+| `design-system.md` | Frontend design system — read before writing any UI (do not modify) |
+
 ---
 
 ## Codebase Structure
