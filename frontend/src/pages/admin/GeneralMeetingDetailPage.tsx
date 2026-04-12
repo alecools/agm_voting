@@ -211,7 +211,7 @@ export default function GeneralMeetingDetailPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { config: branding, effectiveLogoUrl } = useBranding();
+  const { effectiveFaviconUrl } = useBranding();
   // Fix 10: per-motion drill-down — no global collapse needed
   const [visibilityErrors, setVisibilityErrors] = useState<Record<string, string>>({});
   const [motionsWithVotes, setMotionsWithVotes] = useState<Set<string>>(new Set());
@@ -646,57 +646,64 @@ export default function GeneralMeetingDetailPage() {
         )}
       </div>
 
-      <div className="admin-meta">
-        <span className="admin-meta__item">
-          <span className="admin-meta__label">Building</span>
-          {meeting.building_name}
-        </span>
-        <span className="admin-meta__item">
-          <span className="admin-meta__label">Meeting</span>
-          {formatLocalDateTime(meeting.meeting_at)}
-        </span>
-        <span className="admin-meta__item">
-          <span className="admin-meta__label">Voting closes</span>
-          {formatLocalDateTime(meeting.voting_closes_at)}
-        </span>
-        {meeting.closed_at && (
-          <span className="admin-meta__item">
-            <span className="admin-meta__label">Closed at</span>
-            {formatLocalDateTime(meeting.closed_at)}
-          </span>
-        )}
-        <span className="admin-meta__item">
-          <span className="admin-meta__label">Voting link</span>
-          <ShareSummaryLink meetingId={meetingId!} />
+      <div className="meeting-detail-layout">
+        <div className="meeting-detail-layout__info">
+          <div className="admin-meta">
+            <span className="admin-meta__item">
+              <span className="admin-meta__label">Building</span>
+              {meeting.building_name}
+            </span>
+            <span className="admin-meta__item">
+              <span className="admin-meta__label">Meeting</span>
+              {formatLocalDateTime(meeting.meeting_at)}
+            </span>
+            <span className="admin-meta__item">
+              <span className="admin-meta__label">Voting closes</span>
+              {formatLocalDateTime(meeting.voting_closes_at)}
+            </span>
+            {meeting.closed_at && (
+              <span className="admin-meta__item">
+                <span className="admin-meta__label">Closed at</span>
+                {formatLocalDateTime(meeting.closed_at)}
+              </span>
+            )}
+            <span className="admin-meta__item">
+              <span className="admin-meta__label">Voting link</span>
+              <ShareSummaryLink meetingId={meetingId!} />
+            </span>
+          </div>
+
+          <div className="admin-stats">
+            <div className="admin-stats__item">
+              <span className="admin-stats__label">Eligible voters</span>
+              <span className="admin-stats__value">{meeting.total_eligible_voters}</span>
+            </div>
+            <div className="admin-stats__item">
+              <span className="admin-stats__label">Submitted</span>
+              <span className="admin-stats__value">{meeting.total_submitted}</span>
+            </div>
+            <div className="admin-stats__item">
+              <span className="admin-stats__label">Participation</span>
+              <span className="admin-stats__value">
+                {meeting.total_eligible_voters > 0
+                  ? Math.round((meeting.total_submitted / meeting.total_eligible_voters) * 100)
+                  : 0}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="meeting-detail-layout__qr">
           <Suspense fallback={null}>
             <button
               type="button"
               aria-label="Show QR code"
+              className="meeting-detail-layout__qr-btn"
               onClick={() => setShowQrModal(true)}
-              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
             >
-              <AgmQrCode agmId={meetingId!} logoUrl={effectiveLogoUrl} size={120} />
+              <AgmQrCode agmId={meetingId!} faviconUrl={effectiveFaviconUrl} size={160} />
             </button>
           </Suspense>
-        </span>
-      </div>
-
-      <div className="admin-stats">
-        <div className="admin-stats__item">
-          <span className="admin-stats__label">Eligible voters</span>
-          <span className="admin-stats__value">{meeting.total_eligible_voters}</span>
-        </div>
-        <div className="admin-stats__item">
-          <span className="admin-stats__label">Submitted</span>
-          <span className="admin-stats__value">{meeting.total_submitted}</span>
-        </div>
-        <div className="admin-stats__item">
-          <span className="admin-stats__label">Participation</span>
-          <span className="admin-stats__value">
-            {meeting.total_eligible_voters > 0
-              ? Math.round((meeting.total_submitted / meeting.total_eligible_voters) * 100)
-              : 0}%
-          </span>
         </div>
       </div>
 
@@ -1115,7 +1122,7 @@ export default function GeneralMeetingDetailPage() {
         <Suspense fallback={null}>
           <AgmQrCodeModal
             agmId={meetingId!}
-            logoUrl={effectiveLogoUrl}
+            faviconUrl={effectiveFaviconUrl}
             onClose={() => setShowQrModal(false)}
           />
         </Suspense>

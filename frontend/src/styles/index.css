@@ -1895,6 +1895,56 @@ button, input, select, textarea {
   line-height: 1;
 }
 
+/* === MEETING DETAIL LAYOUT (Fix 7: QR code right-aligned) === */
+.meeting-detail-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 0;
+}
+
+.meeting-detail-layout__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-detail-layout__info .admin-meta {
+  margin-bottom: 20px;
+}
+
+.meeting-detail-layout__info .admin-stats {
+  margin-bottom: 24px;
+}
+
+.meeting-detail-layout__qr {
+  flex-shrink: 0;
+}
+
+.meeting-detail-layout__qr-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 0;
+  display: block;
+}
+
+.meeting-detail-layout__qr-btn:focus-visible {
+  outline: 3px solid var(--navy);
+  outline-offset: 4px;
+  border-radius: var(--r-sm);
+}
+
+@media (max-width: 640px) {
+  .meeting-detail-layout {
+    flex-direction: column;
+  }
+
+  .meeting-detail-layout__qr {
+    align-self: center;
+  }
+}
+
 /* === ADMIN FORM === */
 .admin-form {
   max-width: 560px;

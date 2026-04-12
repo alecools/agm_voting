@@ -3,20 +3,20 @@ import { QRCodeCanvas } from "qrcode.react";
 
 interface AgmQrCodeProps {
   agmId: string;
-  logoUrl: string | null;
+  faviconUrl: string | null;
   size?: number;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
   /** RR4-19: set to true to show a fallback error message instead of the canvas */
   hasError?: boolean;
 }
 
-export default function AgmQrCode({ agmId, logoUrl, size = 200, canvasRef, hasError = false }: AgmQrCodeProps) {
+export default function AgmQrCode({ agmId, faviconUrl, size = 200, canvasRef, hasError = false }: AgmQrCodeProps) {
   const voterUrl = window.location.origin + "/vote/" + agmId + "/auth";
 
   const imageSettings =
-    logoUrl
+    faviconUrl
       ? {
-          src: logoUrl,
+          src: faviconUrl,
           height: Math.round(size * 0.2),
           width: Math.round(size * 0.2),
           excavate: true,

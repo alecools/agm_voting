@@ -41,38 +41,38 @@ describe("AgmQrCodeModal", () => {
   });
 
   it("renders the modal with Download PNG and Print buttons", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     expect(screen.getByRole("button", { name: "Download PNG" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Print" })).toBeInTheDocument();
   });
 
   it("renders a close button", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 
   it("calls onClose when close button is clicked", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("calls onClose when backdrop is clicked", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     const dialog = screen.getByRole("dialog");
     fireEvent.click(dialog);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("calls onClose when Escape key is pressed", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("calls window.print when Print button is clicked", () => {
     const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "Print" }));
     expect(printSpy).toHaveBeenCalledTimes(1);
     printSpy.mockRestore();
@@ -80,7 +80,7 @@ describe("AgmQrCodeModal", () => {
 
   it("triggers PNG download with correct filename when Download PNG is clicked", () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    render(<AgmQrCodeModal agmId="agm-download-test" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-download-test" faviconUrl={null} onClose={onClose} />);
     fireEvent.click(screen.getByRole("button", { name: "Download PNG" }));
     expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/png");
     expect(clickSpy).toHaveBeenCalledTimes(1);
@@ -88,30 +88,30 @@ describe("AgmQrCodeModal", () => {
   });
 
   it("renders QR canvas inside the modal", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     expect(screen.getByTestId("qr-canvas")).toBeInTheDocument();
   });
 
-  it("passes logoUrl to AgmQrCode — imageSettings set when logoUrl is non-null", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl="https://example.com/logo.png" onClose={onClose} />);
+  it("passes faviconUrl to AgmQrCode — imageSettings set when faviconUrl is non-null", () => {
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl="https://example.com/logo.png" onClose={onClose} />);
     expect(screen.getByTestId("qr-canvas")).toHaveAttribute("data-has-image", "true");
   });
 
-  it("passes logoUrl to AgmQrCode — imageSettings absent when logoUrl is null", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+  it("passes faviconUrl to AgmQrCode — imageSettings absent when faviconUrl is null", () => {
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     expect(screen.getByTestId("qr-canvas")).toHaveAttribute("data-has-image", "false");
   });
 
   // --- RR4-14: focus trap and initial focus management ---
 
   it("RR4-14: initial focus is moved to the close button when modal opens", () => {
-    render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     const closeBtn = screen.getByRole("button", { name: "Close" });
     expect(document.activeElement).toBe(closeBtn);
   });
 
   it("RR4-14: Tab key wraps focus from last to first focusable element", () => {
-    render(<AgmQrCodeModal agmId="agm-focus-trap" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-focus-trap" faviconUrl={null} onClose={onClose} />);
     const dialog = screen.getByRole("dialog");
     // Focus the last button (Print)
     const printBtn = screen.getByRole("button", { name: "Print" });
@@ -125,7 +125,7 @@ describe("AgmQrCodeModal", () => {
   });
 
   it("RR4-14: Shift+Tab from first focusable wraps to last focusable element", () => {
-    render(<AgmQrCodeModal agmId="agm-focus-trap" logoUrl={null} onClose={onClose} />);
+    render(<AgmQrCodeModal agmId="agm-focus-trap" faviconUrl={null} onClose={onClose} />);
     const closeBtn = screen.getByRole("button", { name: "Close" });
     act(() => { closeBtn.focus(); });
     expect(document.activeElement).toBe(closeBtn);
@@ -138,7 +138,7 @@ describe("AgmQrCodeModal", () => {
   // --- RR4-30: no inline <style> injection ---
 
   it("RR4-30: does not inject an inline <style> element", () => {
-    const { container } = render(<AgmQrCodeModal agmId="agm-99" logoUrl={null} onClose={onClose} />);
+    const { container } = render(<AgmQrCodeModal agmId="agm-99" faviconUrl={null} onClose={onClose} />);
     // The component itself should not render a <style> tag
     const styleTag = container.querySelector("style");
     expect(styleTag).not.toBeInTheDocument();

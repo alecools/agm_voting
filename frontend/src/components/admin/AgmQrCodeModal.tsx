@@ -3,11 +3,11 @@ import AgmQrCode from "./AgmQrCode";
 
 interface AgmQrCodeModalProps {
   agmId: string;
-  logoUrl: string | null;
+  faviconUrl: string | null;
   onClose: () => void;
 }
 
-export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeModalProps) {
+export default function AgmQrCodeModal({ agmId, faviconUrl, onClose }: AgmQrCodeModalProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -108,7 +108,7 @@ export default function AgmQrCodeModal({ agmId, logoUrl, onClose }: AgmQrCodeMod
           </button>
         </div>
 
-        <AgmQrCode agmId={agmId} logoUrl={logoUrl} size={400} canvasRef={canvasRef} />
+        <AgmQrCode agmId={agmId} faviconUrl={faviconUrl} size={400} canvasRef={canvasRef} />
 
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" className="btn btn--secondary" onClick={handleDownload}>
