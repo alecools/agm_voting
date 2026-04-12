@@ -28,6 +28,8 @@ const existingLotOwner: LotOwner = {
   unit_entitlement: 100,
   financial_position: "normal",
   proxy_email: null,
+  proxy_given_name: null,
+  proxy_surname: null,
 };
 
 const multiEmailOwner: LotOwner = {
@@ -714,6 +716,8 @@ const lotOwnerWithoutProxy: LotOwner = {
   unit_entitlement: 100,
   financial_position: "normal",
   proxy_email: null,
+  proxy_given_name: null,
+  proxy_surname: null,
 };
 
 const lotOwnerWithProxy: LotOwner = {
@@ -727,23 +731,47 @@ const lotOwnerWithProxy: LotOwner = {
   unit_entitlement: 200,
   financial_position: "normal",
   proxy_email: "proxy@example.com",
+  proxy_given_name: null,
+  proxy_surname: null,
 };
 
 describe("LotOwnerForm - Edit modal proxy management", () => {
   // --- Happy path ---
 
-  it("shows Set proxy input and button when proxy_email is null", () => {
+  it("shows proxy name inputs, email input and Set proxy button when proxy_email is null", () => {
     renderEditForm(lotOwnerWithoutProxy);
+    expect(screen.getByLabelText("Proxy given name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Proxy surname")).toBeInTheDocument();
     expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set proxy" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove proxy" })).not.toBeInTheDocument();
   });
 
-  it("shows proxy email and Remove proxy button when proxy_email is set", () => {
+  it("shows proxy email and Remove proxy button when proxy_email is set (no name)", () => {
     renderEditForm(lotOwnerWithProxy);
     expect(screen.getByText("proxy@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Set proxy email")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Proxy given name")).not.toBeInTheDocument();
+  });
+
+  it("shows '— no name —' placeholder in proxy section when proxy is set but has no name", () => {
+    renderEditForm(lotOwnerWithProxy);
+    // Multiple "— no name —" may appear (owner emails + proxy) — assert at least one is present
+    expect(screen.getAllByText("— no name —").length).toBeGreaterThan(0);
+    // Proxy section shows the remove button when proxy is set
+    expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
+  });
+
+  it("shows proxy name + email when proxy is set with names", () => {
+    const loWithNamedProxy: LotOwner = {
+      ...lotOwnerWithProxy,
+      proxy_given_name: "Jane",
+      proxy_surname: "Doe",
+    };
+    renderEditForm(loWithNamedProxy);
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(screen.getByText("proxy@example.com")).toBeInTheDocument();
   });
 
   it("sets proxy successfully and shows new proxy email with Remove proxy button", async () => {
@@ -754,14 +782,74 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     await waitFor(() => {
       expect(screen.getByText("newproxy@example.com")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Remove proxy" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Set proxy email")).not.toBeInTheDocument();
     });
   });
 
-  it("removes proxy successfully and shows input and Set proxy button", async () => {
+  it("sets proxy with given name and surname — calls setLotOwnerProxy with correct name arguments", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+        capturedBody = await request.json();
+        const body = capturedBody as { proxy_email?: string; given_name?: string | null; surname?: string | null };
+        const updated: LotOwner = {
+          ...lotOwnerWithoutProxy,
+          id: params.lotOwnerId as string,
+          proxy_email: body?.proxy_email ?? null,
+          proxy_given_name: body?.given_name ?? null,
+          proxy_surname: body?.surname ?? null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    await user.type(screen.getByLabelText("Proxy given name"), "Jane");
+    await user.type(screen.getByLabelText("Proxy surname"), "Doe");
+    await user.type(screen.getByLabelText("Set proxy email"), "jane@proxy.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("jane@proxy.com")).toBeInTheDocument();
+    });
+    expect((capturedBody as Record<string, unknown>)?.given_name).toBe("Jane");
+    expect((capturedBody as Record<string, unknown>)?.surname).toBe("Doe");
+  });
+
+  it("sets proxy with blank name fields — calls setLotOwnerProxy with givenName: null, surname: null", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+        capturedBody = await request.json();
+        const body = capturedBody as { proxy_email?: string; given_name?: string | null; surname?: string | null };
+        const updated: LotOwner = {
+          ...lotOwnerWithoutProxy,
+          id: params.lotOwnerId as string,
+          proxy_email: body?.proxy_email ?? null,
+          proxy_given_name: null,
+          proxy_surname: null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    const user = userEvent.setup();
+    renderEditForm(lotOwnerWithoutProxy);
+    // Leave name inputs blank
+    await user.type(screen.getByLabelText("Set proxy email"), "noop@proxy.com");
+    await user.click(screen.getByRole("button", { name: "Set proxy" }));
+    await waitFor(() => {
+      expect(screen.getByText("noop@proxy.com")).toBeInTheDocument();
+    });
+    expect((capturedBody as Record<string, unknown>)?.given_name).toBeNull();
+    expect((capturedBody as Record<string, unknown>)?.surname).toBeNull();
+  });
+
+  it("removes proxy successfully and shows name inputs + Set proxy button", async () => {
     const user = userEvent.setup();
     renderEditForm(lotOwnerWithProxy);
     await user.click(screen.getByRole("button", { name: "Remove proxy" }));
     await waitFor(() => {
+      expect(screen.getByLabelText("Proxy given name")).toBeInTheDocument();
+      expect(screen.getByLabelText("Proxy surname")).toBeInTheDocument();
       expect(screen.getByLabelText("Set proxy email")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Set proxy" })).toBeInTheDocument();
     });
@@ -879,6 +967,33 @@ describe("setLotOwnerProxy API function", () => {
     expect(result.proxy_email).toBe("proxy@example.com");
   });
 
+  it("sets proxy with names and response includes proxy_given_name and proxy_surname", async () => {
+    server.use(
+      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+        const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
+        const updated: LotOwner = {
+          ...lotOwnerWithoutProxy,
+          id: params.lotOwnerId as string,
+          proxy_email: body?.proxy_email ?? null,
+          proxy_given_name: body?.given_name ?? null,
+          proxy_surname: body?.surname ?? null,
+        };
+        return HttpResponse.json(updated);
+      })
+    );
+    const result = await setLotOwnerProxy("lo1", "proxy@example.com", "Jane", "Doe");
+    expect(result.proxy_email).toBe("proxy@example.com");
+    expect(result.proxy_given_name).toBe("Jane");
+    expect(result.proxy_surname).toBe("Doe");
+  });
+
+  it("sets proxy with null names returns proxy_given_name: null and proxy_surname: null", async () => {
+    const result = await setLotOwnerProxy("lo1", "proxy@example.com", null, null);
+    expect(result.proxy_email).toBe("proxy@example.com");
+    expect(result.proxy_given_name).toBeNull();
+    expect(result.proxy_surname).toBeNull();
+  });
+
   it("handles server error when setting proxy", async () => {
     server.use(
       http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
@@ -890,9 +1005,11 @@ describe("setLotOwnerProxy API function", () => {
 });
 
 describe("removeLotOwnerProxy API function", () => {
-  it("removes proxy and returns updated lot owner with null proxy_email", async () => {
+  it("removes proxy and returns updated lot owner with null proxy_email, proxy_given_name, and proxy_surname", async () => {
     const result = await removeLotOwnerProxy("lo2");
     expect(result.proxy_email).toBeNull();
+    expect(result.proxy_given_name).toBeNull();
+    expect(result.proxy_surname).toBeNull();
   });
 
   it("handles 404 when no proxy to remove", async () => {
@@ -959,40 +1076,31 @@ describe("LotOwnerForm - RR4-25 error messages have role=alert", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RR4-36: Optional given_name/surname fields have "(optional)" label
+// Problem A: top-level given_name/surname inputs are removed from EditModal and AddForm
 // ---------------------------------------------------------------------------
-describe("LotOwnerForm - RR4-36 optional field labels", () => {
-  it("Given Name label in EditModal contains '(optional)'", () => {
+describe("LotOwnerForm - Problem A: no top-level name fields", () => {
+  it("EditModal does not render a 'Given Name' input for the top-level LotOwner", () => {
     renderEditForm(existingLotOwner);
-    // Use the specific label element to avoid ambiguity with the "add owner" given-name input
-    const labelEl = document.querySelector('label[for="edit-given-name"]');
-    expect(labelEl).not.toBeNull();
-    expect(labelEl?.textContent).toContain("(optional)");
+    expect(document.querySelector('label[for="edit-given-name"]')).toBeNull();
+    expect(document.querySelector('#edit-given-name')).toBeNull();
   });
 
-  it("Surname label in EditModal contains '(optional)'", () => {
+  it("EditModal does not render a 'Surname' input for the top-level LotOwner", () => {
     renderEditForm(existingLotOwner);
-    const labelEl = document.querySelector('label[for="edit-surname"]');
-    expect(labelEl?.textContent).toContain("(optional)");
+    expect(document.querySelector('label[for="edit-surname"]')).toBeNull();
+    expect(document.querySelector('#edit-surname')).toBeNull();
   });
 
-  it("Given Name label in AddForm contains '(optional)'", () => {
+  it("AddForm does not render top-level 'Given Name' field", () => {
     renderAddForm();
-    const labelEl = document.querySelector('label[for="add-given-name"]');
-    expect(labelEl?.textContent).toContain("(optional)");
+    expect(document.querySelector('label[for="add-given-name"]')).toBeNull();
+    expect(document.querySelector('#add-given-name')).toBeNull();
   });
 
-  it("Surname label in AddForm contains '(optional)'", () => {
+  it("AddForm does not render top-level 'Surname' field", () => {
     renderAddForm();
-    const labelEl = document.querySelector('label[for="add-surname"]');
-    expect(labelEl?.textContent).toContain("(optional)");
-  });
-
-  it("'(optional)' text is accessible (not aria-hidden)", () => {
-    renderEditForm(existingLotOwner);
-    const labelEl = document.querySelector('label[for="edit-given-name"]');
-    // The label element itself should not have aria-hidden
-    expect(labelEl).not.toHaveAttribute("aria-hidden");
+    expect(document.querySelector('label[for="add-surname"]')).toBeNull();
+    expect(document.querySelector('#add-surname')).toBeNull();
   });
 });
 

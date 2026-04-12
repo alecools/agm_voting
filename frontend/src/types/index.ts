@@ -33,6 +33,8 @@ export interface LotOwner {
   unit_entitlement: number;
   financial_position: FinancialPosition;
   proxy_email: string | null;
+  proxy_given_name: string | null;
+  proxy_surname: string | null;
 }
 
 export interface GeneralMeeting {

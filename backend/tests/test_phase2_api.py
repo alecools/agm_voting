@@ -1369,6 +1369,81 @@ class TestAuthLogout:
         assert response.status_code == 200
         assert response.json() == {"ok": True}
 
+    # --- Session row deletion ---
+
+    async def test_logout_deletes_session_record(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        building_with_agm: dict,
+    ):
+        """Logout with a valid session cookie deletes the SessionRecord row from the DB."""
+        from sqlalchemy import select as sa_select
+
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+
+        signed_token = await create_session(db_session, voter_email, building.id, agm.id)
+        await db_session.commit()
+
+        # Confirm the row exists before logout
+        from app.services.auth_service import _unsign_token
+        raw_token = _unsign_token(signed_token)
+        result = await db_session.execute(
+            sa_select(SessionRecord).where(SessionRecord.session_token == raw_token)
+        )
+        assert result.scalar_one_or_none() is not None
+
+        # Call logout with the signed cookie
+        client.cookies.set("agm_session", signed_token)
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+
+        # expire_all is synchronous — it marks all loaded objects as expired so the
+        # next access re-loads from the DB, picking up the committed DELETE from logout.
+        db_session.expire_all()
+        result = await db_session.execute(
+            sa_select(SessionRecord).where(SessionRecord.session_token == raw_token)
+        )
+        assert result.scalar_one_or_none() is None, "SessionRecord row must be deleted on logout"
+
+    async def test_logout_then_session_restore_returns_401(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        building_with_agm: dict,
+    ):
+        """After logout the same signed token can no longer restore a session."""
+        voter_email = building_with_agm["voter_email"]
+        building = building_with_agm["building"]
+        agm = building_with_agm["agm"]
+
+        signed_token = await create_session(db_session, voter_email, building.id, agm.id)
+        await db_session.commit()
+
+        # Log out with the valid cookie
+        client.cookies.set("agm_session", signed_token)
+        logout_resp = await client.post("/api/auth/logout")
+        assert logout_resp.status_code == 200
+
+        # Attempt to restore the session via cookie (session_token omitted — will be None) — must be 401
+        restore_resp = await client.post(
+            "/api/auth/session",
+            json={"general_meeting_id": str(agm.id)},
+            cookies={"agm_session": signed_token},
+        )
+        assert restore_resp.status_code == 401
+
+    # --- Edge cases ---
+
+    async def test_logout_with_expired_signature_returns_200(self, client: AsyncClient):
+        """A tampered/invalid cookie value does not cause an error — still returns 200."""
+        client.cookies.set("agm_session", "invalid.token.value")
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
 
 # ---------------------------------------------------------------------------
 # auth_service tests (get_session)

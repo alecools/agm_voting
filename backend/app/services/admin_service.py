@@ -429,13 +429,16 @@ async def get_building_or_404(building_id: uuid.UUID, db: AsyncSession) -> Build
     return building
 
 
-async def _get_proxy_email(lot_owner_id: uuid.UUID, db: AsyncSession) -> str | None:
-    """Return the proxy_email for a lot owner, or None if no proxy is set."""
+async def _get_proxy_info(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict | None:
+    """Return {proxy_email, given_name, surname} for the lot owner's proxy, or None."""
     proxy_result = await db.execute(
-        select(LotProxy.proxy_email).where(LotProxy.lot_owner_id == lot_owner_id)
+        select(LotProxy.proxy_email, LotProxy.given_name, LotProxy.surname)
+        .where(LotProxy.lot_owner_id == lot_owner_id)
     )
     row = proxy_result.first()
-    return row[0] if row is not None else None
+    if row is None:
+        return None
+    return {"proxy_email": row[0], "given_name": row[1], "surname": row[2]}
 
 
 async def count_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> int:
@@ -491,16 +494,18 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
         owner_emails_by_owner.setdefault(row.lot_owner_id, []).append(_owner_email_to_dict(row))
 
     proxies_result = await db.execute(
-        select(LotProxy.lot_owner_id, LotProxy.proxy_email).where(
+        select(LotProxy.lot_owner_id, LotProxy.proxy_email, LotProxy.given_name, LotProxy.surname).where(
             LotProxy.lot_owner_id.in_(owner_ids)
         )
     )
-    proxy_by_owner: dict[uuid.UUID, str | None] = {
-        row[0]: row[1] for row in proxies_result.all()
+    proxy_by_owner: dict[uuid.UUID, dict] = {
+        row[0]: {"proxy_email": row[1], "given_name": row[2], "surname": row[3]}
+        for row in proxies_result.all()
     }
 
     out = []
     for owner in owners:
+        proxy_info = proxy_by_owner.get(owner.id, {})
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
@@ -509,13 +514,15 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
             "owner_emails": owner_emails_by_owner.get(owner.id, []),
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": _format_financial_position(owner.financial_position),
-            "proxy_email": proxy_by_owner.get(owner.id),
+            "proxy_email": proxy_info.get("proxy_email"),
+            "proxy_given_name": proxy_info.get("given_name"),
+            "proxy_surname": proxy_info.get("surname"),
         })
     return out
 
 
 async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
-    """Return a single lot owner by ID, including proxy_email."""
+    """Return a single lot owner by ID, including proxy info."""
     result = await db.execute(
         select(LotOwner).where(LotOwner.id == lot_owner_id)
     )
@@ -524,7 +531,7 @@ async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -534,7 +541,9 @@ async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -911,6 +920,8 @@ async def add_lot_owner(
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
         "proxy_email": None,
+        "proxy_given_name": None,
+        "proxy_surname": None,
     }
 
 
@@ -938,7 +949,7 @@ async def update_lot_owner(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
     return {
         "id": lot_owner.id,
         "lot_number": lot_owner.lot_number,
@@ -947,7 +958,9 @@ async def update_lot_owner(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -980,7 +993,7 @@ async def add_email_to_lot_owner(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -990,7 +1003,9 @@ async def add_email_to_lot_owner(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -1021,7 +1036,7 @@ async def remove_email_from_lot_owner(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -1031,7 +1046,9 @@ async def remove_email_from_lot_owner(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -1081,6 +1098,8 @@ async def set_lot_owner_proxy(
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
         "proxy_email": proxy_email,
+        "proxy_given_name": given_name,
+        "proxy_surname": surname,
     }
 
 
@@ -1117,6 +1136,8 @@ async def remove_lot_owner_proxy(
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
         "proxy_email": None,
+        "proxy_given_name": None,
+        "proxy_surname": None,
     }
 
 
@@ -1158,7 +1179,7 @@ async def add_owner_email_to_lot_owner(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -1168,7 +1189,9 @@ async def add_owner_email_to_lot_owner(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -1223,7 +1246,7 @@ async def update_owner_email(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -1233,7 +1256,9 @@ async def update_owner_email(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -1262,7 +1287,7 @@ async def remove_owner_email_by_id(
     await db.commit()
 
     owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_email = await _get_proxy_email(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
         "id": lot_owner.id,
@@ -1272,7 +1297,9 @@ async def remove_owner_email_by_id(
         "owner_emails": owner_emails,
         "unit_entitlement": lot_owner.unit_entitlement,
         "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 

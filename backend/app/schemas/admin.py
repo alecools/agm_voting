@@ -99,6 +99,8 @@ class LotOwnerOut(BaseModel):
     unit_entitlement: int
     financial_position: str
     proxy_email: str | None = None
+    proxy_given_name: str | None = None
+    proxy_surname: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -496,6 +496,45 @@ This document covers all building management, lot owner management, CSV/Excel im
 
 ---
 
+### US-FIX11-A: Remove redundant top-level name fields from lot owner edit forms
+
+**Status:** ✅ Implemented — branch: `fix/proxy-names`, committed 2026-04-12
+
+**Description:** As a building manager, I want the lot owner edit and add modals to stop showing separate "Given Name" and "Surname" inputs for the lot-level record, so the UI does not confuse lot-level names with the per-owner-email names that are the authoritative source of identity.
+
+**Acceptance Criteria:**
+
+- [ ] The `EditModal` no longer renders "Given Name (optional)" and "Surname (optional)" inputs for the top-level `LotOwner` record in its edit form section
+- [ ] The `AddForm` no longer renders "Given Name (optional)" and "Surname (optional)" inputs for the top-level `LotOwner` record
+- [ ] Removing these inputs does not remove the underlying `given_name`/`surname` columns from `lot_owners` — those remain in the DB and are still returned in API responses (backward-compatible)
+- [ ] No regression in the per-owner-email name fields (the "Owners (name + email)" section is unchanged)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-FIX11-B: Display and collect proxy names in the lot owner edit modal
+
+**Status:** ✅ Implemented — branch: `fix/proxy-names`, committed 2026-04-12
+
+**Description:** As a building manager, I want the proxy section of the lot owner edit modal to show the proxy holder's name alongside their email (when a name is stored), and to let me enter a name when setting a new proxy, so proxy contacts are identified by name rather than email alone.
+
+**Acceptance Criteria:**
+
+- [ ] When no proxy is set, the "Set proxy" section shows: "Proxy given name" text input (optional), "Proxy surname" text input (optional), email input (required), and a "Set proxy" button — matching the "Add owner" section layout
+- [ ] When a proxy is set with names, the proxy display row shows: `Given Surname email@domain.com` + "Remove proxy" button
+- [ ] When a proxy is set without names, the proxy display row shows: `— no name —` followed by the proxy email + "Remove proxy" button
+- [ ] Clicking "Set proxy" with blank name fields is valid — names are optional; `null` is stored for both
+- [ ] Setting a proxy correctly passes `given_name` and `surname` (or `null`) to `PUT /api/admin/lot-owners/{id}/proxy`
+- [ ] After a successful "Set proxy", the modal proxy section immediately reflects the new name + email
+- [ ] After a successful "Remove proxy", the modal reverts to the three-input "Set proxy" form (given name, surname, email)
+- [ ] `GET /api/admin/buildings/{id}/lot-owners` and `GET /api/admin/lot-owners/{id}` return `proxy_given_name` and `proxy_surname` alongside `proxy_email` in `LotOwnerOut`
+- [ ] The lot owner table's "Proxy" column shows `Name (email)` when the proxy has a name, or just the email when no name is stored
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ### US-UX-01: Mobile and form usability fixes
 
 **Status:** ✅ Implemented

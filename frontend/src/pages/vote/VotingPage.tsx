@@ -6,6 +6,7 @@ import {
   submitBallot,
   fetchGeneralMeeting,
   restoreSession,
+  logout,
 } from "../../api/voter";
 import { optionChoiceMapToRequest } from "../../components/vote/MultiChoiceOptionList";
 import type { VoteChoice } from "../../types";
@@ -435,6 +436,22 @@ export function VotingPage() {
     navigate(`/vote/${meetingId}/confirmation`);
   };
 
+  const handleSignOut = useCallback(() => {
+    // Best-effort server logout — never block navigation on failure
+    logout().catch(() => {});
+    // Clear all meeting-scoped sessionStorage keys
+    if (meetingId) {
+      sessionStorage.removeItem(`meeting_lots_${meetingId}`);
+      sessionStorage.removeItem(`meeting_lots_info_${meetingId}`);
+      sessionStorage.removeItem(`meeting_lot_info_${meetingId}`);
+      sessionStorage.removeItem(`meeting_building_name_${meetingId}`);
+      sessionStorage.removeItem(`meeting_title_${meetingId}`);
+      sessionStorage.removeItem(`meeting_mc_selections_${meetingId}`);
+    }
+    queryClient.clear();
+    navigate("/");
+  }, [meetingId, queryClient, navigate]);
+
   const handleChoiceChange = (motionId: string, choice: VoteChoice | null) => {
     setChoices((prev) => ({ ...prev, [motionId]: choice }));
   };
@@ -630,8 +647,8 @@ export function VotingPage() {
 
   return (
     <main className="voter-content">
-      <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate(`/vote/${meetingId}/auth`)}>
-        ← Back
+      <button type="button" className="btn btn--ghost back-btn" onClick={handleSignOut}>
+        Sign out
       </button>
       {isClosed && <ClosedBanner />}
       {isWarning && !isClosed && (

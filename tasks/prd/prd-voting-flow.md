@@ -637,6 +637,30 @@ This document covers the complete voter journey: email OTP authentication, persi
 
 ---
 
+### US-SO-01: Voter sign-out from voting page
+
+**Status:** ✅ Implemented — branch: `fix/sign-out`, committed 2026-04-12
+
+**Description:** As a voter, I want a "Sign out" button on the voting page that ends my session and returns me to the home page, so I can hand off a shared device without leaving my session active.
+
+**Acceptance Criteria:**
+
+- [ ] The "← Back" button on `VotingPage` is renamed to "Sign out"
+- [ ] Clicking "Sign out" calls `POST /api/auth/logout` before navigating
+- [ ] `POST /api/auth/logout` deletes the `SessionRecord` row from the database (invalidates the server-side session) in addition to clearing the cookie
+- [ ] After logout the browser's `agm_session` cookie is cleared (delete-cookie response header)
+- [ ] All `sessionStorage` keys scoped to the meeting (`meeting_lots_<id>`, `meeting_lots_info_<id>`, `meeting_lot_info_<id>`, `meeting_building_name_<id>`, `meeting_title_<id>`, `meeting_mc_selections_<id>`) are removed
+- [ ] The React Query cache is cleared so stale voter state cannot leak to the next user
+- [ ] The voter is navigated to the home page (`/`) — not to the auth page — after sign-out
+- [ ] If the `POST /api/auth/logout` call fails (network error or non-2xx), the client still clears local state and navigates to `/` — sign-out must never be blocked by a failed server call
+- [ ] Sign-out is idempotent: calling it when no session exists still returns 200 and navigates cleanly
+- [ ] The "Sign out" button uses the `.btn--ghost` class, consistent with the existing back-button styling (design system: tertiary nav actions)
+- [ ] The "← Back" button in the error state (meeting-not-found) retains its existing label and behaviour (it navigates to `/vote/<id>/auth`; it does not trigger sign-out)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ## Functional Requirements
 
 - FR-4: Authentication is a two-step email OTP flow. The voter submits their email to `POST /api/auth/request-otp`; a cryptographically random 6-digit code is stored in `auth_otps` with a 5-minute expiry and emailed to the voter. The voter then calls `POST /api/auth/verify` with the code; on success the system identifies all lot owner records in that building sharing the same email (direct ownership and proxy nominations), and a server-side session is created. A 60-second rate limit applies to `request-otp` per `(email, meeting_id)` pair.

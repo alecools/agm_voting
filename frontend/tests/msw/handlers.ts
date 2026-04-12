@@ -101,6 +101,8 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     unit_entitlement: 100,
     financial_position: "normal",
     proxy_email: null,
+    proxy_given_name: null,
+    proxy_surname: null,
   },
   {
     id: "lo2",
@@ -115,6 +117,8 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     unit_entitlement: 200,
     financial_position: "normal",
     proxy_email: "proxy@example.com",
+    proxy_given_name: null,
+    proxy_surname: null,
   },
 ];
 
@@ -618,6 +622,8 @@ export const adminHandlers = [
       unit_entitlement: 50,
       financial_position: "normal",
       proxy_email: null,
+      proxy_given_name: null,
+      proxy_surname: null,
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),
@@ -713,11 +719,13 @@ export const adminHandlers = [
   }),
 
   http.put(`${BASE}/api/admin/lot-owners/:lotOwnerId/proxy`, async ({ request, params }) => {
-    const body = await request.json() as { proxy_email?: string };
+    const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
     const updated: LotOwner = {
       ...ADMIN_LOT_OWNERS[0],
       id: params.lotOwnerId as string,
       proxy_email: body?.proxy_email ?? null,
+      proxy_given_name: body?.given_name ?? null,
+      proxy_surname: body?.surname ?? null,
     };
     return HttpResponse.json(updated);
   }),
@@ -730,6 +738,8 @@ export const adminHandlers = [
     const updated: LotOwner = {
       ...owner,
       proxy_email: null,
+      proxy_given_name: null,
+      proxy_surname: null,
     };
     return HttpResponse.json(updated);
   }),

@@ -1,16 +1,16 @@
 /**
- * E2E tests: back button navigation from VotingPage (design-fix-back-button-blank-page).
+ * E2E tests: sign-out navigation from VotingPage.
  *
- * The in-page "← Back" button on VotingPage previously navigated to the
- * non-existent `/vote/:meetingId` route, producing a blank page.  It must
- * navigate to `/vote/:meetingId/auth` instead.
+ * The in-page "Sign out" button on VotingPage calls POST /api/auth/logout to
+ * invalidate the server session, clears client-side state, and navigates to the
+ * home page (/).
  *
  * The browser native back button from /voting navigates to /auth via the
  * history stack (populated by the auth → voting push navigation), which is
  * also verified here.
  *
  * Scenarios:
- *   BB.1 — in-page "← Back" button → URL is /vote/:meetingId/auth, email input visible
+ *   BB.1 — in-page "Sign out" button → URL is /, home page visible
  *   BB.2 — browser page.goBack() from /voting → URL is /vote/:meetingId/auth, email input visible
  */
 
@@ -63,8 +63,8 @@ test.describe("Back button navigation from VotingPage", () => {
     await api.dispose();
   });
 
-  // ── BB.1: in-page "← Back" button ────────────────────────────────────────
-  test("BB.1: in-page Back button navigates to /auth page — not a blank page", async ({ page }) => {
+  // ── BB.1: in-page "Sign out" button ──────────────────────────────────────
+  test("BB.1: in-page Sign out button navigates to home page and invalidates session", async ({ page }) => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -87,19 +87,16 @@ test.describe("Back button navigation from VotingPage", () => {
     const meetingIdMatch = votingUrl.match(/\/vote\/([^/]+)\//);
     const meetingId = meetingIdMatch?.[1] ?? bbMeetingId;
 
-    // Clear the session cookie BEFORE clicking Back so that when the /auth page
-    // loads it has no cookie — the restore useEffect returns 401 and the OTP
-    // form is shown instead of redirecting back to /voting.
-    // Session tokens are stored in HttpOnly cookies — not localStorage.
-    await page.context().clearCookies({ name: 'agm_session' });
+    // Click the in-page Sign out button — triggers logout API + navigates to /
+    await page.getByRole("button", { name: "Sign out" }).click();
 
-    // Click the in-page Back button
-    await page.getByRole("button", { name: "← Back" }).click();
+    // Must navigate to home page (/)
+    await expect(page).toHaveURL("/", { timeout: 10000 });
 
-    // Must navigate to /auth — not /vote/:meetingId (blank route)
-    await expect(page).toHaveURL(`/vote/${meetingId}/auth`, { timeout: 10000 });
+    // Navigate to /auth for the same meeting — session must be invalidated
+    await page.goto(`/vote/${meetingId}/auth`);
 
-    // Auth page must render (email input visible — no redirect because cookie was cleared)
+    // Auth page must render (email input visible — session was invalidated by logout)
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 20000 });
   });
 

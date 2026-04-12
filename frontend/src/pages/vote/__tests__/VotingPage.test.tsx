@@ -454,20 +454,57 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByTestId("meeting-not-found-error"));
   });
 
-  // --- Back navigation ---
+  // --- Sign out ---
 
-  it("renders back button", async () => {
+  it("renders sign out button", async () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("back button navigates to auth page", async () => {
+  it("sign out button navigates to home page", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    await user.click(screen.getByRole("button", { name: "← Back" }));
-    expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/auth`);
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+
+  it("sign out clears all meeting-scoped sessionStorage keys", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    // Seed all meeting-scoped sessionStorage keys
+    sessionStorage.setItem(`meeting_lots_${AGM_ID}`, JSON.stringify(["lo1"]));
+    sessionStorage.setItem(`meeting_lots_info_${AGM_ID}`, JSON.stringify([]));
+    sessionStorage.setItem(`meeting_lot_info_${AGM_ID}`, "{}");
+    sessionStorage.setItem(`meeting_building_name_${AGM_ID}`, "Test Building");
+    sessionStorage.setItem(`meeting_title_${AGM_ID}`, "Test AGM");
+    sessionStorage.setItem(`meeting_mc_selections_${AGM_ID}`, "{}");
+
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(sessionStorage.getItem(`meeting_lots_${AGM_ID}`)).toBeNull();
+    expect(sessionStorage.getItem(`meeting_lots_info_${AGM_ID}`)).toBeNull();
+    expect(sessionStorage.getItem(`meeting_lot_info_${AGM_ID}`)).toBeNull();
+    expect(sessionStorage.getItem(`meeting_building_name_${AGM_ID}`)).toBeNull();
+    expect(sessionStorage.getItem(`meeting_title_${AGM_ID}`)).toBeNull();
+    expect(sessionStorage.getItem(`meeting_mc_selections_${AGM_ID}`)).toBeNull();
+  });
+
+  it("sign out navigates to '/' even when logout() API call rejects", async () => {
+    // Simulate a network failure on the logout endpoint
+    server.use(
+      http.post(`http://localhost:8000/api/auth/logout`, () =>
+        HttpResponse.json({ detail: "Server error" }, { status: 500 })
+      )
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    // Navigation happens synchronously before the async logout resolves
+    expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 
   // --- Lot selection panel ---

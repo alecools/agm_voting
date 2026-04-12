@@ -40,8 +40,6 @@ function EditModal({
   const [financialPosition, setFinancialPosition] = useState(
     lotOwner.financial_position
   );
-  const [givenName, setGivenName] = useState(lotOwner.given_name ?? "");
-  const [surname, setSurname] = useState(lotOwner.surname ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   // Owner email management
@@ -61,6 +59,8 @@ function EditModal({
   // Proxy management
   const [proxyEmail, setProxyEmail] = useState<string | null>(lotOwner.proxy_email ?? null);
   const [newProxyEmail, setNewProxyEmail] = useState("");
+  const [proxyGivenName, setProxyGivenName] = useState(lotOwner.proxy_given_name ?? "");
+  const [proxySurname, setProxySurname] = useState(lotOwner.proxy_surname ?? "");
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [proxyModified, setProxyModified] = useState(false);
 
@@ -71,8 +71,6 @@ function EditModal({
   useEffect(() => {
     setUnitEntitlement(lotOwner.unit_entitlement.toString());
     setFinancialPosition(lotOwner.financial_position);
-    setGivenName(lotOwner.given_name ?? "");
-    setSurname(lotOwner.surname ?? "");
     setFormError(null);
     setOwnerEmails(lotOwner.owner_emails);
     setNewOwnerEmail("");
@@ -87,6 +85,8 @@ function EditModal({
     setEditError(null);
     setProxyEmail(lotOwner.proxy_email ?? null);
     setNewProxyEmail("");
+    setProxyGivenName(lotOwner.proxy_given_name ?? "");
+    setProxySurname(lotOwner.proxy_surname ?? "");
     setProxyError(null);
     setProxyModified(false);
   }, [lotOwner]);
@@ -164,10 +164,12 @@ function EditModal({
     },
   });
 
-  const setProxyMutation = useMutation<LotOwner, Error, string>({
-    mutationFn: (email) => setLotOwnerProxy(lotOwner.id, email),
+  const setProxyMutation = useMutation<LotOwner, Error, { email: string; givenName: string | null; surname: string | null }>({
+    mutationFn: ({ email, givenName, surname }) => setLotOwnerProxy(lotOwner.id, email, givenName, surname),
     onSuccess: (updated) => {
       setProxyEmail(updated.proxy_email ?? null);
+      setProxyGivenName(updated.proxy_given_name ?? "");
+      setProxySurname(updated.proxy_surname ?? "");
       setNewProxyEmail("");
       setProxyError(null);
       setProxyModified(true);
@@ -182,6 +184,8 @@ function EditModal({
     mutationFn: () => removeLotOwnerProxy(lotOwner.id),
     onSuccess: () => {
       setProxyEmail(null);
+      setProxyGivenName("");
+      setProxySurname("");
       setProxyError(null);
       setProxyModified(true);
       void queryClient.invalidateQueries({ queryKey: ["admin", "lot-owners", lotOwner.building_id] });
@@ -209,10 +213,6 @@ function EditModal({
     if (parsed !== lotOwner.unit_entitlement) updateData.unit_entitlement = parsed;
     if (financialPosition !== lotOwner.financial_position)
       updateData.financial_position = financialPosition;
-    const trimmedGivenName = givenName.trim() || null;
-    const trimmedSurname = surname.trim() || null;
-    if (trimmedGivenName !== (lotOwner.given_name ?? null)) updateData.given_name = trimmedGivenName;
-    if (trimmedSurname !== (lotOwner.surname ?? null)) updateData.surname = trimmedSurname;
 
     if (Object.keys(updateData).length === 0) {
       if (emailsModified || proxyModified) {
@@ -285,7 +285,11 @@ function EditModal({
     const trimmed = newProxyEmail.trim();
     if (!trimmed) { setProxyError("Proxy email is required."); return; }
     if (!isValidEmail(trimmed)) { setProxyError("Please enter a valid email address."); return; }
-    setProxyMutation.mutate(trimmed);
+    setProxyMutation.mutate({
+      email: trimmed,
+      givenName: proxyGivenName.trim() || null,
+      surname: proxySurname.trim() || null,
+    });
   }
 
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -492,7 +496,14 @@ function EditModal({
           <label className="field__label">Proxy</label>
           {proxyEmail ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", fontSize: "0.875rem" }}>
-              <span>{proxyEmail}</span>
+              <span>
+                {(lotOwner.proxy_given_name || lotOwner.proxy_surname)
+                  ? `${lotOwner.proxy_given_name ?? ""} ${lotOwner.proxy_surname ?? ""}`.trim()
+                  : <em style={{ color: "var(--text-muted)" }}>— no name —</em>
+                }
+                {" "}
+                <span style={{ color: "var(--text-secondary)" }}>{proxyEmail}</span>
+              </span>
               <button
                 type="button"
                 className="btn btn--secondary"
@@ -504,26 +515,46 @@ function EditModal({
               </button>
             </div>
           ) : (
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                id="set-proxy-input"
-                className="field__input"
-                type="email"
-                placeholder="proxy@example.com"
-                value={newProxyEmail}
-                onChange={(e) => setNewProxyEmail(e.target.value)}
-                aria-label="Set proxy email"
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSetProxy(); } }}
-              />
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={handleSetProxy}
-                disabled={isPending}
-                style={{ whiteSpace: "nowrap" }}
-              >
-                Set proxy
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="field__input"
+                  type="text"
+                  placeholder="Given name (optional)"
+                  value={proxyGivenName}
+                  onChange={(e) => setProxyGivenName(e.target.value)}
+                  aria-label="Proxy given name"
+                />
+                <input
+                  className="field__input"
+                  type="text"
+                  placeholder="Surname (optional)"
+                  value={proxySurname}
+                  onChange={(e) => setProxySurname(e.target.value)}
+                  aria-label="Proxy surname"
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  id="set-proxy-input"
+                  className="field__input"
+                  type="email"
+                  placeholder="proxy@example.com"
+                  value={newProxyEmail}
+                  onChange={(e) => setNewProxyEmail(e.target.value)}
+                  aria-label="Set proxy email"
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSetProxy(); } }}
+                />
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleSetProxy}
+                  disabled={isPending}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  Set proxy
+                </button>
+              </div>
             </div>
           )}
           {proxyError && (
@@ -537,32 +568,6 @@ function EditModal({
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
             <span aria-hidden="true">*</span> Required field
           </p>
-          <div className="field">
-            <label className="field__label" htmlFor="edit-given-name">
-              Given Name (optional)
-            </label>
-            <input
-              id="edit-given-name"
-              className="field__input"
-              type="text"
-              value={givenName}
-              onChange={(e) => setGivenName(e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor="edit-surname">
-              Surname (optional)
-            </label>
-            <input
-              id="edit-surname"
-              className="field__input"
-              type="text"
-              value={surname}
-              onChange={(e) => setSurname(e.target.value)}
-            />
-          </div>
-
           <div className="field">
             {/* US-ACC-08: visible * marker + aria-required */}
             <label className="field__label field__label--required" htmlFor="lot-entitlement">
@@ -635,8 +640,6 @@ function AddForm({
   onCancel: () => void;
 }) {
   const [lotNumber, setLotNumber] = useState("");
-  const [givenName, setGivenName] = useState("");
-  const [surname, setSurname] = useState("");
   const [email, setEmail] = useState("");
   const [unitEntitlement, setUnitEntitlement] = useState("");
   const [financialPosition, setFinancialPosition] = useState("normal");
@@ -659,8 +662,6 @@ function AddForm({
     mutationFn: (data) => addLotOwner(buildingId, data),
     onSuccess: () => {
       setLotNumber("");
-      setGivenName("");
-      setSurname("");
       setEmail("");
       setUnitEntitlement("");
       setFormError(null);
@@ -695,8 +696,6 @@ function AddForm({
 
     addMutation.mutate({
       lot_number: lotNumber,
-      given_name: givenName.trim() || null,
-      surname: surname.trim() || null,
       emails: email.trim() ? [email.trim().toLowerCase()] : [],
       unit_entitlement: parsed,
       financial_position: financialPosition,
@@ -747,32 +746,6 @@ function AddForm({
               value={lotNumber}
               onChange={(e) => setLotNumber(e.target.value)}
               aria-required="true"
-            />
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor="add-given-name">
-              Given Name (optional)
-            </label>
-            <input
-              id="add-given-name"
-              className="field__input"
-              type="text"
-              value={givenName}
-              onChange={(e) => setGivenName(e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor="add-surname">
-              Surname (optional)
-            </label>
-            <input
-              id="add-surname"
-              className="field__input"
-              type="text"
-              value={surname}
-              onChange={(e) => setSurname(e.target.value)}
             />
           </div>
 

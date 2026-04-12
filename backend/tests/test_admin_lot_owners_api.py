@@ -60,6 +60,46 @@ class TestListLotOwners:
         assert "unit_entitlement" in owner
         assert isinstance(owner["emails"], list)
 
+    async def test_proxy_given_name_and_surname_null_for_lot_without_proxy(
+        self, client: AsyncClient, building_with_owners: Building
+    ):
+        """proxy_given_name and proxy_surname are null for a lot with no proxy."""
+        response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        data = response.json()
+        owner = data[0]
+        assert owner["proxy_email"] is None
+        assert owner["proxy_given_name"] is None
+        assert owner["proxy_surname"] is None
+
+    async def test_proxy_given_name_and_surname_returned_for_lot_with_named_proxy(
+        self, client: AsyncClient, building_with_owners: Building, db_session: AsyncSession
+    ):
+        """proxy_given_name and proxy_surname are returned from GET list when proxy has names."""
+        list_response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lot_owner_id = owners[0]["id"]
+
+        db_session.add(LotProxy(
+            lot_owner_id=uuid.UUID(lot_owner_id),
+            proxy_email="named@proxy.com",
+            given_name="Alice",
+            surname="Brown",
+        ))
+        await db_session.flush()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        data = response.json()
+        owner = next(o for o in data if o["id"] == lot_owner_id)
+        assert owner["proxy_email"] == "named@proxy.com"
+        assert owner["proxy_given_name"] == "Alice"
+        assert owner["proxy_surname"] == "Brown"
+
     async def test_lot_owner_emails_populated(
         self, client: AsyncClient, building_with_owners: Building
     ):
@@ -220,6 +260,8 @@ class TestGetLotOwner:
         assert "unit_entitlement" in data
         assert "financial_position" in data
         assert data["proxy_email"] is None
+        assert data["proxy_given_name"] is None
+        assert data["proxy_surname"] is None
 
     async def test_returns_lot_owner_with_proxy(
         self, client: AsyncClient, building_with_owners: Building, db_session: AsyncSession
@@ -243,6 +285,33 @@ class TestGetLotOwner:
         assert response.status_code == 200
         data = response.json()
         assert data["proxy_email"] == "proxy@example.com"
+        assert data["proxy_given_name"] is None
+        assert data["proxy_surname"] is None
+
+    async def test_returns_lot_owner_with_named_proxy(
+        self, client: AsyncClient, building_with_owners: Building, db_session: AsyncSession
+    ):
+        """GET /lot-owners/{id} returns proxy_given_name and proxy_surname when proxy has names."""
+        list_response = await client.get(
+            f"/api/admin/buildings/{building_with_owners.id}/lot-owners"
+        )
+        owners = list_response.json()
+        lot_owner_id = owners[0]["id"]
+
+        db_session.add(LotProxy(
+            lot_owner_id=uuid.UUID(lot_owner_id),
+            proxy_email="named@proxy.com",
+            given_name="Jane",
+            surname="Doe",
+        ))
+        await db_session.flush()
+
+        response = await client.get(f"/api/admin/lot-owners/{lot_owner_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "named@proxy.com"
+        assert data["proxy_given_name"] == "Jane"
+        assert data["proxy_surname"] == "Doe"
 
     # --- Input validation ---
 
@@ -1779,6 +1848,28 @@ class TestSetLotOwnerProxy:
         assert response.status_code == 200
         data = response.json()
         assert data["proxy_email"] == "proxy@test.com"
+        # With omitted name fields, both proxy name fields are null
+        assert data["proxy_given_name"] is None
+        assert data["proxy_surname"] is None
+
+    async def test_set_proxy_with_names_returns_proxy_given_name_and_proxy_surname(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /proxy with given_name/surname returns proxy_given_name/proxy_surname in response."""
+        lo = LotOwner(building_id=building.id, lot_number="PX01B", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+        await db_session.refresh(lo)
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "named@test.com", "given_name": "Alice", "surname": "Brown"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "named@test.com"
+        assert data["proxy_given_name"] == "Alice"
+        assert data["proxy_surname"] == "Brown"
 
     async def test_set_proxy_replaces_existing_proxy(
         self, client: AsyncClient, db_session: AsyncSession, building: Building
@@ -1862,6 +1953,8 @@ class TestRemoveLotOwnerProxy:
         assert response.status_code == 200
         data = response.json()
         assert data["proxy_email"] is None
+        assert data["proxy_given_name"] is None
+        assert data["proxy_surname"] is None
 
     # --- State / precondition errors ---
 

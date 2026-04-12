@@ -193,7 +193,11 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
                   <FinancialPositionBadge position={lo.financial_position} />
                 </td>
                 <td style={{ fontSize: "0.875rem", color: lo.proxy_email ? "inherit" : "var(--text-muted, #888)" }}>
-                  {lo.proxy_email ?? "None"}
+                  {lo.proxy_email
+                    ? (lo.proxy_given_name || lo.proxy_surname)
+                        ? `${lo.proxy_given_name ?? ""} ${lo.proxy_surname ?? ""}`.trim() + ` (${lo.proxy_email})`
+                        : lo.proxy_email
+                    : "None"}
                 </td>
                 <td>
                   <button className="btn btn--secondary" style={{ padding: "5px 14px", fontSize: "0.8rem" }} onClick={() => onEdit(lo)}>

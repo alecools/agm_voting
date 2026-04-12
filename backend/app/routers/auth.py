@@ -344,11 +344,28 @@ async def request_otp(
 
 
 @router.post("/auth/logout")
-async def logout(response: Response) -> dict:
+async def logout(
+    response: Response,
+    agm_session: str | None = Cookie(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """
-    Clear the voter session cookie.  The frontend calls this instead of
-    localStorage.removeItem() to end a session.
+    Clear the voter session cookie and delete the server-side SessionRecord row.
+
+    The frontend calls this to end a session. Logout is idempotent — an expired,
+    invalid, or absent cookie still results in a 200 with the cookie cleared.
     """
+    if agm_session:
+        try:
+            raw_token = _unsign_token(agm_session)
+            await db.execute(
+                delete(SessionRecord).where(
+                    SessionRecord.session_token == raw_token
+                )
+            )
+            await db.commit()
+        except HTTPException:
+            pass  # Expired/invalid signature — no DB row to delete; still clear cookie
     response.delete_cookie(key="agm_session", path="/api")
     return {"ok": True}
 
