@@ -29,8 +29,9 @@ test.describe("Lot owner voting flow", () => {
 
     await page.goto("/");
 
-    const select = page.getByLabel("Select your building");
-    await select.selectOption({ label: E2E_BUILDING_NAME });
+    const combobox = page.getByLabel("Select your building");
+    await combobox.fill(E2E_BUILDING_NAME);
+    await page.getByRole("option", { name: E2E_BUILDING_NAME, exact: true }).click();
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Enter Voting" }).first().click();
 
@@ -75,8 +76,9 @@ test.describe("Lot owner voting flow", () => {
     await page.goto("/");
     // Select the E2E building — it has at least one closed AGM from the
     // previous run (globalSetup closes all open ones before creating a new one)
-    const select = page.getByLabel("Select your building");
-    await select.selectOption({ label: E2E_BUILDING_NAME });
+    const combobox = page.getByLabel("Select your building");
+    await combobox.fill(E2E_BUILDING_NAME);
+    await page.getByRole("option", { name: E2E_BUILDING_NAME, exact: true }).click();
 
     // Either "Enter Voting" (open) or "View My Submission" (closed) must be visible
     const hasAny = await page

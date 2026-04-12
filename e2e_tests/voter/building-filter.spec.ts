@@ -163,10 +163,11 @@ test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => 
     test.setTimeout(60000);
 
     await page.goto("/");
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible({ timeout: 15000 });
+    const combobox = page.getByLabel("Select your building");
+    await expect(combobox).toBeVisible({ timeout: 15000 });
 
-    await select.selectOption({ label: BUILDING_OPEN });
+    await combobox.fill(BUILDING_OPEN);
+    await page.getByRole("option", { name: BUILDING_OPEN, exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Enter Voting" }).first()
     ).toBeVisible({ timeout: 15000 });

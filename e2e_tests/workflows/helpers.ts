@@ -563,9 +563,10 @@ export async function goToAuthPage(page: Page, buildingName: string): Promise<vo
   // The session token is now stored in an HttpOnly cookie — localStorage is not used.
   await page.context().clearCookies({ name: 'agm_session' });
   await page.goto("/");
-  const select = page.getByLabel("Select your building");
-  await expect(select).toBeVisible();
-  await select.selectOption({ label: buildingName });
+  const combobox = page.getByLabel("Select your building");
+  await expect(combobox).toBeVisible();
+  await combobox.fill(buildingName);
+  await page.getByRole("option", { name: buildingName, exact: true }).click();
   await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible({
     timeout: 15000,
   });

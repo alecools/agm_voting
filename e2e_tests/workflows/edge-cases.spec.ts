@@ -224,7 +224,8 @@ test.describe("WF8: Edge cases", () => {
     await expect(page.getByRole("button", { name: "Enter Voting" })).not.toBeVisible();
 
     // Select the WF8 building → meeting list appears
-    await page.getByLabel("Select your building").selectOption({ label: BUILDING });
+    await page.getByLabel("Select your building").fill(BUILDING);
+    await page.getByRole("option", { name: BUILDING, exact: true }).click();
 
     // After selection, at least one meeting button should appear
     // (either Enter Voting for an open one, or View My Submission for a closed one)

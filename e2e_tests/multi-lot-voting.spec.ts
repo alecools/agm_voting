@@ -165,9 +165,10 @@ test.describe("Multi-lot voter journey", () => {
     // and bypass the OTP form. Session tokens are stored in cookies, not localStorage.
     await page.context().clearCookies({ name: 'agm_session' });
     await page.goto("/");
-    const select = page.getByLabel("Select your building");
-    await expect(select).toBeVisible();
-    await select.selectOption({ label: BUILDING_NAME });
+    const combobox = page.getByLabel("Select your building");
+    await expect(combobox).toBeVisible();
+    await combobox.fill(BUILDING_NAME);
+    await page.getByRole("option", { name: BUILDING_NAME, exact: true }).click();
     await expect(page.getByRole("button", { name: "Enter Voting" }).first()).toBeVisible({
       timeout: 15000,
     });
