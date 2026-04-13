@@ -1993,6 +1993,36 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  it("View Submission button visible when any lot has prior votes even if new unvoted motions exist", async () => {
+    // Regression: anySubmitted was derived from isLotSubmitted() which returns false when a new
+    // motion exists that the lot hasn't voted on yet. This caused View Submission to disappear
+    // even though the lot had previously submitted votes.
+    server.use(
+      http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
+        HttpResponse.json([
+          { id: MOTION_ID_1, title: "Motion 1", description: null, display_order: 1, motion_type: "general", is_visible: true, already_voted: true, submitted_choice: "yes" },
+          { id: MOTION_ID_2, title: "New Motion", description: null, display_order: 2, motion_type: "special", is_visible: true, already_voted: false, submitted_choice: null },
+        ])
+      )
+    );
+    // Lot has voted on MOTION_ID_1 but NOT MOTION_ID_2 (new motion added after prior submission)
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [MOTION_ID_1] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
+    // anySubmitted must be true (lot has prior votes) → View Submission button shown
+    // Submit ballot also shown because MOTION_ID_2 is unvoted
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("revote: submit button hidden when all motions in voted_motion_ids for all selected lots", async () => {
     // When all motions are in voted_motion_ids for the lot → all read-only → no submit button.
     server.use(
