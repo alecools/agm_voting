@@ -863,6 +863,26 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
+  it("partial-submitted lots (multi-lot): View Submission button appears in sidebar as soon as any lot submitted", async () => {
+    // Fix: anySubmitted (not allSubmitted) gates the View Submission button in the lot sidebar.
+    // One lot submitted, one pending — button must appear even though not all lots are done.
+    sessionStorage.setItem(
+      `meeting_lots_info_${AGM_ID}`,
+      JSON.stringify([
+        { lot_owner_id: "lo1", lot_number: "1", financial_position: "normal", already_submitted: true, is_proxy: false, voted_motion_ids: [MOTION_ID_1, MOTION_ID_2] },
+        { lot_owner_id: "lo2", lot_number: "2", financial_position: "normal", already_submitted: false, is_proxy: false, voted_motion_ids: [] },
+      ])
+    );
+    renderPage();
+    await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
+    // View Submission must be present (sidebar + submit-section both show it when anySubmitted)
+    const viewSubmissionBtns = screen.getAllByRole("button", { name: "View Submission" });
+    expect(viewSubmissionBtns.length).toBeGreaterThanOrEqual(1);
+    // Submit ballot must also be present because lo2 is still pending
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
+  });
+
   it("lot panel not shown when sessionStorage is empty", async () => {
     // No meeting_lots_info set — lotsConfirmed initialises to true
     renderPage();

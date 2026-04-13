@@ -580,6 +580,7 @@ export function VotingPage() {
       allLots={allLots}
       selectedIds={selectedIds}
       allSubmitted={allSubmitted}
+      anySubmitted={anySubmitted}
       votingCount={votingCount}
       hasProxyLot={hasProxyLot}
       showNoSelectionError={showNoSelectionError}

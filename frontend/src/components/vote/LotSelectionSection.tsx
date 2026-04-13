@@ -11,6 +11,7 @@ interface LotSelectionSectionProps {
   allLots: LotInfo[];
   selectedIds: Set<string>;
   allSubmitted: boolean;
+  anySubmitted: boolean;
   votingCount: number;
   hasProxyLot: boolean;
   showNoSelectionError: boolean;
@@ -27,6 +28,7 @@ export function LotSelectionSection({
   allLots,
   selectedIds,
   allSubmitted,
+  anySubmitted,
   votingCount,
   hasProxyLot,
   showNoSelectionError,
@@ -133,7 +135,7 @@ export function LotSelectionSection({
         <p role="alert">Please select at least one lot</p>
       )}
 
-      {allSubmitted && (
+      {anySubmitted && (
         <button
           type="button"
           className="btn btn--primary"
