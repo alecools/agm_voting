@@ -380,7 +380,7 @@ export function VotingPage() {
   // Derived values for lot panel
   const isMultiLot = allLots.length > 1;
   const allSubmitted = allLots.length > 0 && allLots.every((l) => isLotSubmitted(l));
-  const anySubmitted = allLots.some((l) => isLotSubmitted(l));
+  const anySubmitted = allLots.some((l) => (l.voted_motion_ids?.length ?? 0) > 0);
   const pendingLots = allLots.filter((l) => !isLotSubmitted(l));
   const votingCount = isMultiLot ? selectedIds.size : pendingLots.length;
 
