@@ -13,8 +13,6 @@ interface SubmitSectionProps {
   isClosed: boolean;
   showSidebar: boolean;
   isPending: boolean;
-  /** Fix 6: show "View Submission" as soon as any lot has been submitted */
-  anySubmitted: boolean;
   onSubmitClick: () => void;
   onViewSubmission: () => void;
 }
@@ -24,7 +22,6 @@ export function SubmitSection({
   isClosed,
   showSidebar,
   isPending,
-  anySubmitted,
   onSubmitClick,
   onViewSubmission,
 }: SubmitSectionProps) {
@@ -57,15 +54,6 @@ export function SubmitSection({
         >
           {isPending ? "Submitting…" : "Submit ballot"}
         </button>
-        {anySubmitted && (
-          <button
-            type="button"
-            className="btn btn--secondary"
-            onClick={onViewSubmission}
-          >
-            View Submission
-          </button>
-        )}
       </div>
     );
   }

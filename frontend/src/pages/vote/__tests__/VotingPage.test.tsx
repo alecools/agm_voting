@@ -875,9 +875,8 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Your Lots" }));
-    // View Submission must be present (sidebar + submit-section both show it when anySubmitted)
-    const viewSubmissionBtns = screen.getAllByRole("button", { name: "View Submission" });
-    expect(viewSubmissionBtns.length).toBeGreaterThanOrEqual(1);
+    // View Submission must be present in the sidebar (anySubmitted gates it in LotSelectionSection)
+    expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
     // Submit ballot must also be present because lo2 is still pending
     expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
@@ -2013,10 +2012,10 @@ describe("VotingPage", () => {
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 
-  it("View Submission button visible when any lot has prior votes even if new unvoted motions exist", async () => {
-    // Regression: anySubmitted was derived from isLotSubmitted() which returns false when a new
-    // motion exists that the lot hasn't voted on yet. This caused View Submission to disappear
-    // even though the lot had previously submitted votes.
+  it("single-lot with prior votes and new unvoted motions: Submit ballot shown, View Submission NOT shown in submit-section", async () => {
+    // The View Submission button is only shown in SubmitSection when unvotedCount === 0.
+    // For a single-lot voter with prior votes but a new unvoted motion, only Submit ballot
+    // is displayed — View Submission lives in the sidebar (multi-lot only).
     server.use(
       http.get(`${BASE}/api/general-meeting/${AGM_ID}/motions`, () =>
         HttpResponse.json([
@@ -2034,12 +2033,12 @@ describe("VotingPage", () => {
     );
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
-    // anySubmitted must be true (lot has prior votes) → View Submission button shown
-    // Submit ballot also shown because MOTION_ID_2 is unvoted
+    // Submit ballot shown because MOTION_ID_2 is unvoted
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    // View Submission is not shown alongside Submit ballot in the submit-section
+    expect(screen.queryByRole("button", { name: "View Submission" })).not.toBeInTheDocument();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
 

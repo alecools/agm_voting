@@ -2287,6 +2287,18 @@ button, input, select, textarea {
   min-width: 0;
 }
 
+@media (min-width: 641px) {
+  /* Sticky sidebar: keeps lot selection visible while the voter scrolls motions.
+     top accounts for the fixed app-header height (120px) plus 16px breathing room. */
+  .voting-layout__sidebar {
+    position: sticky;
+    top: 136px;
+    align-self: flex-start;
+    max-height: calc(100vh - 152px);
+    overflow-y: auto;
+  }
+}
+
 /* === MOBILE DRAWER === */
 .sidebar-drawer {
   display: none;

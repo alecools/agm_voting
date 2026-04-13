@@ -782,7 +782,6 @@ export function VotingPage() {
                     isClosed={isClosed}
                     showSidebar={showSidebar}
                     isPending={submitMutation.isPending}
-                    anySubmitted={anySubmitted}
                     onSubmitClick={handleSubmitClick}
                     onViewSubmission={handleViewSubmission}
                   />
