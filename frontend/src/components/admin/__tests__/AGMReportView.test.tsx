@@ -757,6 +757,140 @@ describe("AGMReportView", () => {
     expect(csv).toContain("Option: Alice — Abstained");
   });
 
+  // --- MC drill-down: table format (matching binary voter drill-down) ---
+
+  it("MC drill-down: expanded option shows admin-table with correct headers", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    const table = container.querySelector(".admin-table-wrapper .admin-table");
+    expect(table).not.toBeNull();
+    expect(screen.getAllByText("Lot #").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("UOE").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Submitted By").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Choice").length).toBeGreaterThan(0);
+  });
+
+  it("MC drill-down: voter row contains lot number, email, entitlement, and choice badge", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // opt-a has For: voter1 (L1, 100), voter2 (L2, 100); Against: voter3 (L3, 50)
+    expect(screen.getByText("voter1@example.com")).toBeInTheDocument();
+    expect(screen.getAllByText("L1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("100").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Voter").length).toBeGreaterThan(0);
+  });
+
+  it("MC drill-down: For voters show For choice badge", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // For voters get "For" badge — multiple exist (summary count + badge)
+    const forBadges = screen.getAllByText("For");
+    expect(forBadges.length).toBeGreaterThan(0);
+  });
+
+  it("MC drill-down: Against voters show Against choice badge", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // voter3 is Against for opt-a
+    const againstBadges = screen.getAllByText("Against");
+    expect(againstBadges.length).toBeGreaterThan(0);
+    expect(screen.getByText("voter3@example.com")).toBeInTheDocument();
+  });
+
+  it("MC drill-down: Abstained voters show Abstained choice badge", async () => {
+    const user = userEvent.setup();
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Bob/ })[0];
+    await user.click(showBtn);
+    // voter4 is Abstained for opt-b
+    expect(screen.getByText("voter4@example.com")).toBeInTheDocument();
+    const abstainedBadges = screen.getAllByText("Abstained");
+    expect(abstainedBadges.length).toBeGreaterThan(0);
+  });
+
+  it("MC drill-down: proxy voter shows (proxy) indicator next to email", async () => {
+    const user = userEvent.setup();
+    const mcWithProxy: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [
+            { voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" },
+          ],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [
+            { voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" },
+          ],
+          "opt-b": [],
+        },
+      },
+    };
+    render(<AGMReportView motions={[mcWithProxy]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    expect(screen.getByText("(proxy)")).toBeInTheDocument();
+  });
+
+  it("MC drill-down: admin-submitted ballot shows 'Admin' in Submitted By column", async () => {
+    const user = userEvent.setup();
+    const mcWithAdmin: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [
+            { voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true },
+          ],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [
+            { voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true },
+          ],
+          "opt-b": [],
+        },
+      },
+    };
+    render(<AGMReportView motions={[mcWithAdmin]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("MC drill-down: option with no voters shows 'No voter records.'", async () => {
+    const user = userEvent.setup();
+    const mcEmpty: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: { "opt-a": [], "opt-b": [] },
+        options_against: {},
+        options_abstained: {},
+        options: { "opt-a": [], "opt-b": [] },
+      },
+    };
+    render(<AGMReportView motions={[mcEmpty]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    expect(screen.getByText("No voter records.")).toBeInTheDocument();
+  });
+
   it("CSV row with proxy_email containing double-quotes has them escaped", async () => {
     const singleMotion: MotionDetail[] = [
       {

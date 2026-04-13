@@ -130,46 +130,94 @@ function MultiChoiceOptionRows({ optTally, motion, totalEntitlement, isWinner }:
           </div>
         </td>
       </tr>
-      {/* Fix 3: expanded section shows voter list only (summary counts moved to header) */}
+      {/* expanded section: flat table matching binary voter drill-down format */}
       {expanded && (
-        <>
-          {forVoters.length > 0 && (
-            <tr>
-              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                <span style={{ fontWeight: 600, color: "var(--green)", display: "block", marginBottom: 2 }}>For voters:</span>
-                {forVoters.map((v) => (
-                  <span key={`${v.lot_number}-for`} style={{ display: "block" }}>
-                    Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
-                  </span>
-                ))}
-              </td>
-            </tr>
-          )}
-          {againstVoters.length > 0 && (
-            <tr>
-              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                <span style={{ fontWeight: 600, color: "var(--red)", display: "block", marginBottom: 2 }}>Against voters:</span>
-                {againstVoters.map((v) => (
-                  <span key={`${v.lot_number}-against`} style={{ display: "block" }}>
-                    Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
-                  </span>
-                ))}
-              </td>
-            </tr>
-          )}
-          {abstainedVoters.length > 0 && (
-            <tr>
-              <td colSpan={3} style={{ paddingLeft: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                <span style={{ fontWeight: 600, display: "block", marginBottom: 2 }}>Abstained voters:</span>
-                {abstainedVoters.map((v) => (
-                  <span key={`${v.lot_number}-abs`} style={{ display: "block" }}>
-                    Lot {v.lot_number} — {v.voter_email}{v.proxy_email ? " (proxy)" : ""} — {v.entitlement} UOE
-                  </span>
-                ))}
-              </td>
-            </tr>
-          )}
-        </>
+        <tr>
+          <td colSpan={3} style={{ padding: 0, borderTop: "1px solid var(--border-subtle)" }}>
+            {(() => {
+              type OptionChoice = "for" | "against" | "abstained";
+              const OPTION_CHOICE_LABELS: Record<OptionChoice, string> = {
+                for: "For",
+                against: "Against",
+                abstained: "Abstained",
+              };
+              const OPTION_CHOICE_COLORS: Record<OptionChoice, string> = {
+                for: "var(--green)",
+                against: "var(--red)",
+                abstained: "var(--text-muted)",
+              };
+              const OPTION_CHOICE_BG: Record<OptionChoice, string> = {
+                for: "var(--green-bg)",
+                against: "var(--red-bg)",
+                abstained: "#F0EFEE",
+              };
+              const rows: Array<{ choice: OptionChoice; voter: typeof forVoters[number] }> = [
+                ...forVoters.map((v) => ({ choice: "for" as const, voter: v })),
+                ...againstVoters.map((v) => ({ choice: "against" as const, voter: v })),
+                ...abstainedVoters.map((v) => ({ choice: "abstained" as const, voter: v })),
+              ];
+              if (rows.length === 0) {
+                return (
+                  <p style={{ padding: "12px 20px", fontSize: "0.875rem", color: "var(--text-muted)" }}>
+                    No voter records.
+                  </p>
+                );
+              }
+              return (
+                <div className="admin-table-wrapper">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Lot #</th>
+                        <th>Email</th>
+                        <th style={{ textAlign: "right" }}>UOE</th>
+                        <th>Submitted By</th>
+                        <th>Choice</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(({ choice, voter }) => (
+                        <tr key={`${choice}-${voter.lot_number}-${voter.voter_email}`}>
+                          <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
+                            {voter.lot_number ?? "—"}
+                          </td>
+                          <td style={{ fontSize: "0.875rem" }}>
+                            {voter.voter_email ?? "—"}
+                            {voter.proxy_email && (
+                              <span style={{ marginLeft: 6, fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                (proxy)
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem", textAlign: "right" }}>
+                            {voter.entitlement}
+                          </td>
+                          <td style={{ fontSize: "0.875rem" }}>
+                            {voter.submitted_by_admin ? "Admin" : "Voter"}
+                          </td>
+                          <td>
+                            <span style={{
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.07em",
+                              padding: "3px 8px",
+                              borderRadius: "100px",
+                              color: OPTION_CHOICE_COLORS[choice],
+                              background: OPTION_CHOICE_BG[choice],
+                            }}>
+                              {OPTION_CHOICE_LABELS[choice]}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </td>
+        </tr>
       )}
     </>
   );
