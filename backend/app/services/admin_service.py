@@ -64,6 +64,23 @@ def _sanitise_option_text(text: str) -> str:
     return bleach.clean(text, tags=[], strip=True).strip()
 
 
+def _parse_name(raw: str) -> tuple[str | None, str | None]:
+    """Split a full name into (given_name, surname).
+
+    Last space-delimited token → surname.
+    Everything before → given_name.
+    Single token (e.g. company name) → (None, token).
+    Blank / whitespace-only → (None, None).
+    """
+    value = raw.strip()
+    if not value:
+        return None, None
+    parts = value.split()
+    if len(parts) == 1:
+        return None, parts[0]
+    return " ".join(parts[:-1]), parts[-1]
+
+
 # ---------------------------------------------------------------------------
 # Buildings
 # ---------------------------------------------------------------------------
@@ -605,9 +622,17 @@ async def import_lot_owners_from_csv(
 
     rows = list(reader)
 
+    # Determine name mode from available columns
+    if "given_name" in normalised_fieldnames and "surname" in normalised_fieldnames:
+        name_mode = "separate"
+    elif "name" in normalised_fieldnames:
+        name_mode = "name"
+    else:
+        name_mode = "none"
+
     errors: list[str] = []
     # Parse rows: group by lot_number
-    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
+    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, email_entries: list}
     # Track row numbers seen per lot_number to detect duplicates (RR3-31)
     lot_number_rows: dict[str, list[int]] = {}
 
@@ -648,20 +673,39 @@ async def import_lot_owners_from_csv(
         else:
             if lot_number:
                 lot_number_rows.setdefault(lot_number, []).append(i)
-            given_name = row.get("given_name", "").strip() or None
-            surname = row.get("surname", "").strip() or None
+
+            # Resolve per-row name fields
+            if name_mode == "separate":
+                row_given_name = row.get("given_name", "").strip() or None
+                row_surname = row.get("surname", "").strip() or None
+            elif name_mode == "name":
+                row_given_name, row_surname = _parse_name(row.get("name", ""))
+            else:
+                row_given_name, row_surname = None, None
+
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
-                    "emails": set(),
-                    "given_name": given_name,
-                    "surname": surname,
+                    "email_entries": [],
+                    "given_name": row_given_name,
+                    "surname": row_surname,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
                 if addr:
-                    lot_data[lot_number]["emails"].add(addr)
+                    # Deduplicate by email: last-row name wins
+                    existing_entry = next(
+                        (e for e in lot_data[lot_number]["email_entries"] if e["email"] == addr),
+                        None,
+                    )
+                    if existing_entry is not None:
+                        existing_entry["given_name"] = row_given_name
+                        existing_entry["surname"] = row_surname
+                    else:
+                        lot_data[lot_number]["email_entries"].append(
+                            {"email": addr, "given_name": row_given_name, "surname": row_surname}
+                        )
 
     # Check for duplicate lot numbers and report them with row details (RR3-31)
     for lot_num, row_nums in lot_number_rows.items():
@@ -723,12 +767,21 @@ async def import_lot_owners_from_excel(
     )
     given_name_idx = headers.index("given_name") if "given_name" in headers else None
     surname_idx = headers.index("surname") if "surname" in headers else None
+    name_idx = headers.index("name") if "name" in headers else None
+
+    # Determine name mode from available columns
+    if given_name_idx is not None and surname_idx is not None:
+        name_mode = "separate"
+    elif name_idx is not None:
+        name_mode = "name"
+    else:
+        name_mode = "none"
 
     data_rows = list(rows_iter)
     wb.close()
 
     errors: list[str] = []
-    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, emails: set}
+    lot_data: dict[str, dict] = {}  # lot_number -> {unit_entitlement, financial_position, email_entries: list}
     # Track row numbers seen per lot_number to detect duplicates (RR3-31)
     lot_number_rows: dict[str, list[int]] = {}
 
@@ -748,8 +801,6 @@ async def import_lot_owners_from_excel(
         email = _cell(email_idx) if email_idx is not None else ""
         unit_entitlement_raw = _cell(uoe2_idx)
         financial_position_raw = _cell(fp_idx) if fp_idx is not None else ""
-        given_name_raw = _cell(given_name_idx) if given_name_idx is not None else ""
-        surname_raw = _cell(surname_idx) if surname_idx is not None else ""
 
         row_errors = []
 
@@ -782,20 +833,39 @@ async def import_lot_owners_from_excel(
         else:
             if lot_number:
                 lot_number_rows.setdefault(lot_number, []).append(row_num)
-            given_name_val = given_name_raw.strip() or None
-            surname_val = surname_raw.strip() or None
+
+            # Resolve per-row name fields
+            if name_mode == "separate":
+                row_given_name = _cell(given_name_idx).strip() or None
+                row_surname = _cell(surname_idx).strip() or None
+            elif name_mode == "name":
+                row_given_name, row_surname = _parse_name(_cell(name_idx))
+            else:
+                row_given_name, row_surname = None, None
+
             if lot_number not in lot_data:
                 lot_data[lot_number] = {
                     "unit_entitlement": unit_entitlement,
                     "financial_position": financial_position,
-                    "emails": set(),
-                    "given_name": given_name_val,
-                    "surname": surname_val,
+                    "email_entries": [],
+                    "given_name": row_given_name,
+                    "surname": row_surname,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
                 if addr:
-                    lot_data[lot_number]["emails"].add(addr)
+                    # Deduplicate by email: last-row name wins
+                    existing_entry = next(
+                        (e for e in lot_data[lot_number]["email_entries"] if e["email"] == addr),
+                        None,
+                    )
+                    if existing_entry is not None:
+                        existing_entry["given_name"] = row_given_name
+                        existing_entry["surname"] = row_surname
+                    else:
+                        lot_data[lot_number]["email_entries"].append(
+                            {"email": addr, "given_name": row_given_name, "surname": row_surname}
+                        )
 
     # Check for duplicate lot numbers and report them with row details (RR3-31)
     for lot_num, row_nums in lot_number_rows.items():
@@ -816,7 +886,7 @@ async def _upsert_lot_owners(
 ) -> dict[str, int]:
     """
     Upsert lot owners from parsed lot_data.
-    lot_data: {lot_number -> {unit_entitlement, financial_position, emails: set}}
+    lot_data: {lot_number -> {unit_entitlement, financial_position, email_entries: list[dict]}}
     Returns {"imported": int, "emails": int}.
     """
     # Load existing lot owners keyed by lot_number to preserve IDs
@@ -840,12 +910,18 @@ async def _upsert_lot_owners(
             if data.get("surname") is not None:
                 lo.surname = data["surname"]
             await db.flush()
-            # Replace emails: delete existing, insert new set
+            # Replace emails: delete existing, insert new entries
             await db.execute(
                 delete(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
             )
-            for email in data["emails"]:
-                db.add(LotOwnerEmail(lot_owner_id=lo.id, email=email))
+            for entry in data["email_entries"]:
+                if entry["email"]:
+                    db.add(LotOwnerEmail(
+                        lot_owner_id=lo.id,
+                        email=entry["email"],
+                        given_name=entry["given_name"],
+                        surname=entry["surname"],
+                    ))
         else:
             new_lo = LotOwner(
                 building_id=building_id,
@@ -857,8 +933,14 @@ async def _upsert_lot_owners(
             )
             db.add(new_lo)
             await db.flush()
-            for email in data["emails"]:
-                db.add(LotOwnerEmail(lot_owner_id=new_lo.id, email=email))
+            for entry in data["email_entries"]:
+                if entry["email"]:
+                    db.add(LotOwnerEmail(
+                        lot_owner_id=new_lo.id,
+                        email=entry["email"],
+                        given_name=entry["given_name"],
+                        surname=entry["surname"],
+                    ))
 
     # Delete lot owners that are no longer in the import
     for lot_number, lo in existing.items():
@@ -867,7 +949,7 @@ async def _upsert_lot_owners(
 
     await db.commit()
 
-    total_emails = sum(len(data["emails"]) for data in lot_data.values())
+    total_emails = sum(len(data["email_entries"]) for data in lot_data.values())
     return {"imported": len(lot_data), "emails": total_emails}
 
 

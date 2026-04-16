@@ -800,6 +800,342 @@ class TestImportLotOwners:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/admin/buildings/{building_id}/lot-owners/import — owner name columns
+# ---------------------------------------------------------------------------
+
+
+class TestImportLotOwnersNameColumns:
+    """Tests for given_name/surname/name column support during lot owner import."""
+
+    # --- CSV with separate given_name / surname columns ---
+
+    async def test_csv_separate_given_name_surname_stored_on_email_record(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV with given_name and surname columns → names stored on LotOwnerEmail records."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement", "given_name", "surname"],
+            [["101", "alice@test.com", "100", "Alice", "Smith"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "alice@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Alice"
+        assert email_row.surname == "Smith"
+
+    # --- CSV with Name column ---
+
+    async def test_csv_name_column_parsed_and_stored_on_email_record(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV with Name column: last token → surname, rest → given_name, stored on LotOwnerEmail."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement", "name"],
+            [["102", "bob@test.com", "50", "Robert James Brown"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "bob@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Robert James"
+        assert email_row.surname == "Brown"
+
+    async def test_csv_name_column_single_token_stored_as_surname(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Single-token Name (company name) → given_name is None, surname is the token."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement", "name"],
+            [["103", "corp@test.com", "75", "ACME"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "corp@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name is None
+        assert email_row.surname == "ACME"
+
+    # --- CSV with no name columns ---
+
+    async def test_csv_no_name_columns_email_records_have_null_names(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """CSV with no name columns → LotOwnerEmail.given_name and surname are None."""
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["104", "noname@test.com", "30"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "noname@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name is None
+        assert email_row.surname is None
+
+    # --- Deduplication: same email appears twice for a lot ---
+
+    async def test_csv_dedup_same_email_last_name_wins(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """When same email address appears twice in semicolon list (same row), last-row name wins."""
+        # Two rows same lot — would normally be a 422 (duplicate lot_number).
+        # Use the semicolons-in-one-row approach: can't trigger the dedup path with
+        # a single row. Use reimport scenario: first import sets name, second import
+        # with updated name overwrites.
+        csv1 = make_csv(
+            ["lot_number", "email", "unit_entitlement", "name"],
+            [["DEDUP1", "dedup@test.com", "100", "First Name"]],
+        )
+        await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv1, "text/csv")},
+        )
+
+        csv2 = make_csv(
+            ["lot_number", "email", "unit_entitlement", "name"],
+            [["DEDUP1", "dedup@test.com", "100", "Second Name"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv2, "text/csv")},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "dedup@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Second"
+        assert email_row.surname == "Name"
+
+    # --- Excel with Name column ---
+
+    async def test_excel_name_column_parsed_and_stored(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel import with Name column: parsed into given_name/surname on LotOwnerEmail."""
+        b = Building(name="Excel Name Bldg", manager_email="en@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2", "Name"],
+            [["201", "excel.name@test.com", 80, "Carol Anne White"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "excel.name@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Carol Anne"
+        assert email_row.surname == "White"
+
+    async def test_excel_no_name_column_email_records_have_null_names(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel import with no name columns → LotOwnerEmail.given_name and surname are None."""
+        b = Building(name="Excel No Name Bldg", manager_email="enn@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2"],
+            [["202", "noname.xl@test.com", 60]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "noname.xl@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name is None
+        assert email_row.surname is None
+
+    # --- Real-world: Owners.csv has a Name column ---
+
+    async def test_csv_owners_file_name_column_stores_names(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Subset of the real Owners.csv format: Name column maps correctly to email record."""
+        # Simulate a typical row from examples/Owners.csv: Name column with full name,
+        # Email column with email address, UOE2 as unit_entitlement (mapped via Lot# alias).
+        # Using a small synthetic slice that mirrors the real file structure.
+        csv_data = make_csv(
+            ["Lot#", "Email", "UOE2", "Name"],
+            [
+                ["53", "ntassell@outlook.com", "1", "Nicholas Warren Tassell"],
+                ["55", "sbtunit5@gmail.com", "1", "Nicole Anne Seils"],
+            ],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("Owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+        assert response.json()["imported"] == 2
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "ntassell@outlook.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Nicholas Warren"
+        assert email_row.surname == "Tassell"
+
+        result2 = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "sbtunit5@gmail.com")
+        )
+        email_row2 = result2.scalar_one_or_none()
+        assert email_row2 is not None
+        assert email_row2.given_name == "Nicole Anne"
+        assert email_row2.surname == "Seils"
+
+    # --- CSV dedup: same email appears twice in semicolon-separated list ---
+
+    async def test_csv_duplicate_email_in_semicolon_list_last_name_wins(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Same email appearing twice in semicolons: last-seen name wins on the email record."""
+        # "dup@test.com;dup@test.com" — second occurrence overwrites name fields.
+        # Name mode is "name" so we get the parsed name.
+        csv_data = make_csv(
+            ["lot_number", "email", "unit_entitlement", "name"],
+            [["DUPCSV", "dup.csv@test.com;dup.csv@test.com", "100", "Final Name"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv_data, "text/csv")},
+        )
+        assert response.status_code == 200
+        # Only one LotOwnerEmail created (dedup)
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "dup.csv@test.com")
+        )
+        rows = result.scalars().all()
+        assert len(rows) == 1
+        assert rows[0].surname == "Name"
+
+    # --- Excel separate given_name / surname columns ---
+
+    async def test_excel_separate_given_name_surname_stored_on_email_record(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel with given_name and surname columns → names stored on LotOwnerEmail records."""
+        b = Building(name="Excel Sep Name Bldg", manager_email="esn@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2", "given_name", "surname"],
+            [["301", "sep.name@test.com", 90, "Diana", "Prince"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "sep.name@test.com")
+        )
+        email_row = result.scalar_one_or_none()
+        assert email_row is not None
+        assert email_row.given_name == "Diana"
+        assert email_row.surname == "Prince"
+
+    # --- Excel dedup: same email appears twice in semicolon-separated list ---
+
+    async def test_excel_duplicate_email_in_semicolon_list_last_name_wins(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Excel: same email appearing twice in semicolons — last-seen name wins."""
+        b = Building(name="Excel Dedup Bldg", manager_email="edp@test.com")
+        db_session.add(b)
+        await db_session.commit()
+
+        excel_data = make_excel(
+            ["Lot#", "Email", "UOE2", "Name"],
+            [["DUPXL", "dup.xl@test.com;dup.xl@test.com", 50, "Excel Final Name"]],
+        )
+        response = await client.post(
+            f"/api/admin/buildings/{b.id}/lot-owners/import",
+            files={
+                "file": (
+                    "owners.xlsx",
+                    excel_data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200
+        result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.email == "dup.xl@test.com")
+        )
+        rows = result.scalars().all()
+        assert len(rows) == 1
+        assert rows[0].surname == "Name"
+
+
+# ---------------------------------------------------------------------------
 # POST /api/admin/buildings/{building_id}/lot-owners
 # ---------------------------------------------------------------------------
 

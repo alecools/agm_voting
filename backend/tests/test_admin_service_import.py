@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.services.admin_service import (
+    _parse_name,
     import_buildings_from_csv,
     import_buildings_from_excel,
 )
@@ -65,6 +66,57 @@ def _make_mock_session(*, commit_side_effect=None) -> AsyncMock:
         session.commit = AsyncMock()
         session.rollback = AsyncMock()
     return session
+
+
+# ---------------------------------------------------------------------------
+# State / precondition errors — IntegrityError guard
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _parse_name — unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseName:
+    # --- Happy path ---
+
+    def test_two_part_name(self):
+        """Standard first last → (first, last)."""
+        assert _parse_name("John Smith") == ("John", "Smith")
+
+    def test_three_part_name(self):
+        """Three tokens → given_name gets first two, surname gets last."""
+        assert _parse_name("Steven Xiwen Sun") == ("Steven Xiwen", "Sun")
+
+    def test_four_part_name(self):
+        """Four tokens → given_name gets first three."""
+        assert _parse_name("Mary Jane Van Der Berg") == ("Mary Jane Van Der", "Berg")
+
+    # --- Single-token (company name) ---
+
+    def test_single_token_returns_none_given_name(self):
+        """Single token stored as surname only (company name case)."""
+        assert _parse_name("ACME") == (None, "ACME")
+
+    def test_single_token_with_leading_trailing_spaces(self):
+        """Surrounding whitespace is stripped before splitting."""
+        assert _parse_name("  Corp  ") == (None, "Corp")
+
+    # --- Boundary values / edge cases ---
+
+    def test_blank_string_returns_none_none(self):
+        """Empty string returns (None, None)."""
+        assert _parse_name("") == (None, None)
+
+    def test_whitespace_only_returns_none_none(self):
+        """Whitespace-only string returns (None, None)."""
+        assert _parse_name("   ") == (None, None)
+
+    def test_name_with_internal_multiple_spaces(self):
+        """Multiple internal spaces are collapsed by split()."""
+        # "Alice  Bob" → two tokens → ("Alice", "Bob")
+        assert _parse_name("Alice  Bob") == ("Alice", "Bob")
 
 
 # ---------------------------------------------------------------------------

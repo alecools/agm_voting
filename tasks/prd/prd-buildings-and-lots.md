@@ -434,6 +434,28 @@ This document covers all building management, lot owner management, CSV/Excel im
 
 ---
 
+### US-OUN-01: Lot owner import populates per-email owner names
+
+**Status:** ✅ Implemented — branch: `owner-upload-names`, committed 2026-04-16
+
+**Description:** As a building manager, I want the lot owner import (CSV and Excel) to populate the name associated with each email address, so that owner names appear in the admin UI alongside their contact email without requiring manual entry after every import.
+
+**Acceptance Criteria:**
+
+- [ ] If the import file contains **both** `given_name` and `surname` columns, those values are written to `LotOwnerEmail.given_name` and `LotOwnerEmail.surname` for the email on that row; no name parsing is performed
+- [ ] If the import file contains a `Name` column but no `given_name`/`surname` columns, the name is parsed: the last space-separated component becomes `surname`; everything before it becomes `given_name`; if there is only one component (or the cell is blank) `surname` is set to the whole string and `given_name` is `null`
+- [ ] A blank `Name` cell (or absent name data) results in `null` for both `given_name` and `surname` on the `LotOwnerEmail` record
+- [ ] Name data is stored per-row: each email row gets its own name, regardless of how many rows share the same `Lot#`
+- [ ] For backward compat, `LotOwner.given_name` and `LotOwner.surname` continue to be written from the resolved name of the **first** row for that lot (the same logic that currently reads lot-level names)
+- [ ] The `Name` column header is recognised case-insensitively
+- [ ] Importing without any name column (neither `given_name`/`surname` nor `Name`) succeeds without error; names remain `null` on all `LotOwnerEmail` records
+- [ ] All three behaviours (separate columns, Name column, no name columns) work identically for both CSV and Excel formats
+- [ ] `examples/Owners.csv` (which has a `Name` column) can be imported successfully; owner names are parsed and stored per-email
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ### US-LON-01: Lot owner given name and surname
 
 **Status:** ✅ Implemented
