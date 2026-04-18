@@ -4275,7 +4275,11 @@ class TestAdminAuth:
             _verify_admin_password("admin", "admin")
 
     async def test_login_plaintext_password_returns_500(self, db_session: AsyncSession):
-        """If ADMIN_PASSWORD is not a bcrypt hash, login returns 500 with a clear error."""
+        """If ADMIN_PASSWORD is not a bcrypt hash, login returns 500 with a generic error (LOW-7).
+
+        The raw ValueError message must not be exposed to clients — only a generic
+        'Server configuration error' is returned so internal details stay hidden.
+        """
         from app.main import create_app
 
         # Use default settings which has admin_password="admin" (plaintext)
@@ -4294,7 +4298,11 @@ class TestAdminAuth:
                 json={"username": "admin", "password": "admin"},
             )
         assert response.status_code == 500
-        assert "bcrypt hash" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail == "Server configuration error"
+        # Raw error message must NOT be exposed to the client (LOW-7)
+        assert "bcrypt" not in detail.lower()
+        assert "ADMIN_PASSWORD" not in detail
 
     # --- Rate limiting ---
 

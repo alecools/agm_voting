@@ -113,8 +113,12 @@ async def admin_login(
     try:
         valid_username = hmac.compare_digest(data.username, settings.admin_username)
         valid_password = _verify_admin_password(data.password, settings.admin_password)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except ValueError:
+        # ADMIN_PASSWORD is not a bcrypt hash — raised by _verify_admin_password.
+        # Return a generic 500 so the raw error message is never sent to the client
+        # (LOW-7). The startup validator in config.py catches this in non-development
+        # environments; this handler is the last-resort safety net for dev deployments.
+        raise HTTPException(status_code=500, detail="Server configuration error")
     valid = valid_username and valid_password
 
     if not valid:
@@ -171,14 +175,15 @@ async def hash_password(
 ) -> dict:
     """Dev helper: returns the bcrypt hash for a given plaintext password.
 
-    Requires admin authentication on all non-development environments so the
-    endpoint cannot be used unauthenticated on demo or preview deployments.
-    On the local development environment the require_admin dependency is still
-    enforced (admin session cookie required), keeping the behaviour consistent
-    across all environments while blocking unauthenticated use everywhere.
-    On production the endpoint is additionally hidden behind a 404.
+    Only available in the development environment (MED-6). On demo, preview,
+    and production deployments the endpoint returns 404 so it cannot be used
+    even by an authenticated admin — preventing accidental exposure of the
+    hashing utility on shared environments.
+
+    On local development the require_admin dependency is still enforced
+    (admin session cookie required).
     """
-    if settings.environment == "production":
+    if settings.environment != "development":
         raise HTTPException(status_code=404, detail="Not found")
     hashed = _bcrypt_lib.hashpw(data.password.encode(), _bcrypt_lib.gensalt()).decode()
     return {"hash": hashed}

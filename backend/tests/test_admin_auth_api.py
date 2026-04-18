@@ -287,6 +287,128 @@ class TestAdminAuth:
                 )
         assert response.status_code == 404
 
+    async def test_hash_password_endpoint_returns_404_in_demo_environment(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns 404 on demo env (MED-6: development-only gate)."""
+        import bcrypt
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "environment",
+            "demo",
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                response = await c.post(
+                    "/api/admin/auth/hash-password",
+                    json={"password": "mypassword"},
+                )
+        assert response.status_code == 404
+
+    async def test_hash_password_endpoint_returns_404_in_preview_environment(self, db_session: AsyncSession):
+        """POST /api/admin/auth/hash-password returns 404 on preview env (MED-6)."""
+        import bcrypt
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
+
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            hashed,
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "environment",
+            "preview",
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+                response = await c.post(
+                    "/api/admin/auth/hash-password",
+                    json={"password": "mypassword"},
+                )
+        assert response.status_code == 404
+
+    async def test_login_returns_500_with_generic_detail_when_password_not_bcrypt(self, db_session: AsyncSession):
+        """POST /api/admin/auth/login returns 500 with generic detail when ADMIN_PASSWORD is plaintext (LOW-7).
+
+        The raw ValueError message must never be sent to clients — a generic
+        'Server configuration error' must be returned instead.
+        """
+        from unittest.mock import patch
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        # Patch admin_password to the dev placeholder so _verify_admin_password raises ValueError
+        with patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_password",
+            "admin",
+        ), patch.object(
+            __import__("app.config", fromlist=["settings"]).settings,
+            "admin_username",
+            "admin",
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), base_url="http://test"
+            ) as c:
+                response = await c.post(
+                    "/api/admin/auth/login",
+                    json={"username": "admin", "password": "admin"},
+                )
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        # Must be generic — raw ValueError message must not be exposed
+        assert detail == "Server configuration error"
+        assert "ADMIN_PASSWORD" not in detail
+        assert "bcrypt" not in detail.lower()
+
     async def test_login_clears_rate_limit_record_on_success(self, db_session: AsyncSession):
         """Successful login with an existing rate-limit record deletes that record from the DB.
 

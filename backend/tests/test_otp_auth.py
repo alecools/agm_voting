@@ -701,6 +701,71 @@ class TestRequestOtp:
         otp = result.scalar_one_or_none()
         assert otp is not None
 
+    async def test_rate_limit_record_committed_after_known_email_request(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """CRIT-2: Rate-limit row is committed to the DB after OTP request for a known email.
+
+        Previously _upsert_rate_limit() only flushed and never committed, so the
+        rate-limit count was always 0 after the session ended. This test verifies
+        the record exists and is readable in the DB after the request completes.
+        """
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        # The rate-limit row must be present in the DB (committed, not merely flushed)
+        result = await db_session.execute(
+            select(OTPRateLimit).where(
+                OTPRateLimit.email == voter_email,
+                OTPRateLimit.building_id == building.id,
+            )
+        )
+        rl_record = result.scalar_one_or_none()
+        assert rl_record is not None, (
+            "Rate-limit record must be committed to DB after OTP request (CRIT-2)"
+        )
+        assert rl_record.attempt_count >= 1
+
+    async def test_rate_limit_record_committed_after_unknown_email_request(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """CRIT-2: Rate-limit row is committed to DB even for unknown emails (enumeration protection).
+
+        Verifies the commit in the else-branch (unknown email path) also persists.
+        """
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+        unknown_email = "crit2-unknown-email@test.com"
+
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            await client.post(
+                "/api/auth/request-otp",
+                json={"email": unknown_email, "general_meeting_id": str(agm.id)},
+            )
+
+        result = await db_session.execute(
+            select(OTPRateLimit).where(
+                OTPRateLimit.email == unknown_email,
+                OTPRateLimit.building_id == building.id,
+            )
+        )
+        rl_record = result.scalar_one_or_none()
+        assert rl_record is not None, (
+            "Rate-limit record must be committed to DB for unknown email path (CRIT-2)"
+        )
+        assert rl_record.attempt_count == 1
+
 
 # ---------------------------------------------------------------------------
 # GET /api/test/latest-otp
@@ -1107,3 +1172,42 @@ class TestConfigDefaults:
     def test_email_override_defaults_to_empty(self):
         from app.config import settings
         assert settings.email_override == ""
+
+
+# ---------------------------------------------------------------------------
+# Background cleanup tasks
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupExpiredRecords:
+    @pytest.mark.asyncio
+    async def test_cleanup_expired_otps_commits_on_success(self):
+        """_cleanup_expired_otps() executes delete and commits the session."""
+        from app.routers.auth import _cleanup_expired_otps
+
+        mock_session = AsyncMock()
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.routers.auth.AsyncSessionLocal", return_value=mock_cm):
+            await _cleanup_expired_otps()
+
+        mock_session.execute.assert_awaited_once()
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_expired_sessions_commits_on_success(self):
+        """_cleanup_expired_sessions() executes delete and commits the session."""
+        from app.routers.auth import _cleanup_expired_sessions
+
+        mock_session = AsyncMock()
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.routers.auth.AsyncSessionLocal", return_value=mock_cm):
+            await _cleanup_expired_sessions()
+
+        mock_session.execute.assert_awaited_once()
+        mock_session.commit.assert_awaited_once()

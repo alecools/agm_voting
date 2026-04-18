@@ -311,10 +311,14 @@ async def request_otp(
         db.add(otp)
         await db.commit()
 
-        # 6. Upsert DB rate-limit record (reset window on each successful OTP issue)
+        # 6. Upsert DB rate-limit record (reset window on each successful OTP issue).
+        # Committed separately so the rate-limit row persists even if a later step
+        # rolls back — the session was already committed for the OTP above, so this
+        # commit is for the rate-limit upsert only (CRIT-2).
         now_rl = datetime.now(UTC)
         if not settings.testing_mode:
             await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
+            await db.commit()
 
         # 7. Send the OTP email (skipped when skip_email=True in testing_mode only).
         # skip_email is silently ignored in non-testing environments (RR5-03).
@@ -339,6 +343,7 @@ async def request_otp(
         if not settings.testing_mode:
             now_rl = datetime.now(UTC)
             await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
+            await db.commit()
 
     return OtpRequestResponse(sent=True)
 

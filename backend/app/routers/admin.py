@@ -85,10 +85,14 @@ _IMAGE_CONTENT_TYPES = {
     "image/jpeg",
     "image/webp",
     "image/gif",
-    "image/svg+xml",
 }
 
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+# SVG files are explicitly rejected because they can contain <script> tags and
+# onload handlers that execute when served as image/svg+xml (HIGH-4 stored XSS).
+_SVG_EXTENSIONS = {".svg"}
+_SVG_CONTENT_TYPES = {"image/svg+xml"}
 
 _MAX_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB
 _MAX_IMPORT_BYTES = 5 * 1024 * 1024  # 5 MB — applied to all import/upload endpoints
@@ -96,12 +100,20 @@ _MAX_IMPORT_BYTES = 5 * 1024 * 1024  # 5 MB — applied to all import/upload end
 
 def _detect_image_format(file: UploadFile) -> str:
     """Return the MIME type for an image upload. Raise 415 if not a recognised image.
+    Raise 422 if the file is an SVG (HIGH-4: SVG can contain embedded scripts).
 
     Extension takes precedence over content-type.
     """
     content_type = (file.content_type or "").lower().split(";")[0].strip()
     filename = (file.filename or "").lower()
     ext = os.path.splitext(filename)[1]
+
+    # Reject SVG regardless of how it was detected — extension or content-type.
+    if ext in _SVG_EXTENSIONS or content_type in _SVG_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="SVG files are not supported. Please upload a PNG or WebP image.",
+        )
 
     if ext in _IMAGE_EXTENSIONS:
         # Map extension to a canonical MIME type
@@ -111,14 +123,13 @@ def _detect_image_format(file: UploadFile) -> str:
             ".jpeg": "image/jpeg",
             ".webp": "image/webp",
             ".gif": "image/gif",
-            ".svg": "image/svg+xml",
         }
         return ext_to_mime[ext]
     if content_type in _IMAGE_CONTENT_TYPES:
         return content_type
     raise HTTPException(
         status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        detail="File must be an image (PNG, JPEG, WebP, GIF, or SVG)",
+        detail="File must be an image (PNG, JPEG, WebP, or GIF)",
     )
 
 

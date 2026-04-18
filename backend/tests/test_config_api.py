@@ -449,14 +449,25 @@ class TestAdminUploadLogo:
         assert resp.status_code == 200
 
     @pytest.mark.asyncio(loop_scope="session")
-    async def test_accepts_svg_by_extension(self, app):
-        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_blob_success()):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post(
-                    "/api/admin/config/logo",
-                    files={"file": ("icon.svg", b"<svg/>", "image/svg+xml")},
-                )
-        assert resp.status_code == 200
+    async def test_rejects_svg_by_extension(self, app):
+        """HIGH-4: SVG uploads are rejected with 422 to prevent stored XSS via embedded scripts."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/logo",
+                files={"file": ("icon.svg", b"<svg/>", "image/svg+xml")},
+            )
+        assert resp.status_code == 422
+        assert "SVG" in resp.json()["detail"]
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_svg_by_content_type_only(self, app):
+        """HIGH-4: SVG content-type without .svg extension is also rejected."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/logo",
+                files={"file": ("logo", b"<svg/>", "image/svg+xml")},
+            )
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio(loop_scope="session")
     async def test_accepts_gif_by_extension(self, app):
@@ -645,14 +656,25 @@ class TestAdminUploadFavicon:
         assert resp.status_code == 200
 
     @pytest.mark.asyncio(loop_scope="session")
-    async def test_accepts_svg_by_extension(self, app):
-        with patch("app.routers.admin.blob_service.upload_to_blob", _make_mock_favicon_blob_success()):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post(
-                    "/api/admin/config/favicon",
-                    files={"file": ("icon.svg", b"<svg/>", "image/svg+xml")},
-                )
-        assert resp.status_code == 200
+    async def test_rejects_svg_by_extension(self, app):
+        """HIGH-4: SVG uploads are rejected with 422 to prevent stored XSS via embedded scripts."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/favicon",
+                files={"file": ("icon.svg", b"<svg/>", "image/svg+xml")},
+            )
+        assert resp.status_code == 422
+        assert "SVG" in resp.json()["detail"]
+
+    @pytest.mark.asyncio(loop_scope="session")
+    async def test_rejects_svg_by_content_type_only(self, app):
+        """HIGH-4: SVG content-type without .svg extension is also rejected."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/admin/config/favicon",
+                files={"file": ("favicon", b"<svg/>", "image/svg+xml")},
+            )
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio(loop_scope="session")
     async def test_accepts_gif_by_extension(self, app):
