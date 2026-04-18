@@ -485,6 +485,108 @@ export const ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY: GeneralMeetingDetail = {
   ],
 };
 
+/**
+ * Fix 5: meeting with admin-submitted votes on lot 1A (binary motion: yes),
+ * and lot 2B with no prior vote. Used for AdminRevoteWarningDialog tests.
+ */
+export const ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-admin-votes",
+  status: "open",
+  closed_at: null,
+  motions: [
+    {
+      id: "adm-vote-m1",
+      title: "Motion 1",
+      description: "Description 1",
+      display_order: 1,
+      motion_number: null,
+      motion_type: "general" as const,
+      is_visible: true,
+      option_limit: null,
+      options: [],
+      voting_closed_at: null,
+      tally: {
+        yes: { voter_count: 1, entitlement_sum: 100 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 1, entitlement_sum: 200 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
+      },
+      voter_lists: {
+        yes: [
+          { voter_email: "owner1@example.com", lot_number: "1A", entitlement: 100, submitted_by_admin: true },
+        ],
+        no: [],
+        abstained: [],
+        absent: [
+          { voter_email: "owner2@example.com", lot_number: "2B", entitlement: 200, submitted_by_admin: false },
+        ],
+        not_eligible: [],
+        options: {},
+      },
+    },
+  ],
+};
+
+/**
+ * Fix 5: meeting with admin-submitted votes on a multi-choice motion.
+ * Lot 1A voted For Alice and Against Bob via admin.
+ */
+export const ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES: GeneralMeetingDetail = {
+  ...ADMIN_MEETING_DETAIL,
+  id: "agm-mc-admin-votes",
+  status: "open",
+  closed_at: null,
+  motions: [
+    {
+      id: "mc-admin-m1",
+      title: "Board Election Admin",
+      description: null,
+      display_order: 1,
+      motion_number: "1",
+      motion_type: "general" as const,
+      is_multi_choice: true,
+      is_visible: true,
+      option_limit: 2,
+      options: [
+        { id: "mc-admin-opt-a", text: "Alice", display_order: 1 },
+        { id: "mc-admin-opt-b", text: "Bob", display_order: 2 },
+        { id: "mc-admin-opt-c", text: "Carol", display_order: 3 },
+      ],
+      voting_closed_at: null,
+      tally: {
+        yes: { voter_count: 0, entitlement_sum: 0 },
+        no: { voter_count: 0, entitlement_sum: 0 },
+        abstained: { voter_count: 0, entitlement_sum: 0 },
+        absent: { voter_count: 0, entitlement_sum: 0 },
+        not_eligible: { voter_count: 0, entitlement_sum: 0 },
+        options: [],
+      },
+      voter_lists: {
+        yes: [],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options_for: {
+          "mc-admin-opt-a": [
+            { voter_email: "owner1@example.com", lot_number: "1A", entitlement: 100, submitted_by_admin: true },
+          ],
+        },
+        options_against: {
+          "mc-admin-opt-b": [
+            { voter_email: "owner1@example.com", lot_number: "1A", entitlement: 100, submitted_by_admin: true },
+          ],
+        },
+        options_abstained: {},
+        options: {},
+      },
+    },
+  ],
+};
+
 export const adminHandlers = [
   http.get(`${BASE}/api/admin/auth/me`, () => {
     return HttpResponse.json({ authenticated: true });
@@ -828,6 +930,12 @@ export const adminHandlers = [
     }
     if (params.meetingId === "agm-all-hidden") {
       return HttpResponse.json(ADMIN_MEETING_DETAIL_ALL_HIDDEN);
+    }
+    if (params.meetingId === "agm-admin-votes") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES);
+    }
+    if (params.meetingId === "agm-mc-admin-votes") {
+      return HttpResponse.json(ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES);
     }
     return HttpResponse.json(ADMIN_MEETING_DETAIL);
   }),
