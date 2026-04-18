@@ -10,6 +10,8 @@ import {
   ADMIN_MEETING_DETAIL,
   ADMIN_LOT_OWNERS,
   ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY,
+  ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES,
+  ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES,
 } from "../../../../tests/msw/handlers";
 import type { GeneralMeetingDetail } from "../../../api/admin";
 
@@ -906,5 +908,648 @@ describe("AdminVoteEntryPanel — RR4-11 memoized LotBinaryVoteCell", () => {
     expect(forLot1Btn).toHaveAttribute("aria-pressed", "true");
     // Lot 2B must remain unaffected
     expect(forLot2Btn).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 5: Admin re-vote UX — AVE-RV-01 through AVE-RV-15
+// ---------------------------------------------------------------------------
+
+describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
+  // Helper: renders with the admin-votes fixture and advances to step 1
+  function renderWithAdminVotes(
+    props: Partial<{ onClose: () => void; onSuccess: () => void }> = {}
+  ) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const onClose = props.onClose ?? vi.fn();
+    const onSuccess = props.onSuccess ?? vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES}
+            onClose={onClose}
+            onSuccess={onSuccess}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    return { onClose, onSuccess };
+  }
+
+  // --- AVE-RV-01: Step 1 shows amber badge for admin-submitted lot ---
+  it("AVE-RV-01: Step 1 renders 'Previously entered by admin' badge for admin-submitted lot", async () => {
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    // Lot 1A has submitted_by_admin=true — badge must appear
+    const badges = screen.getAllByText("Previously entered by admin");
+    expect(badges.length).toBeGreaterThan(0);
+  });
+
+  // --- AVE-RV-02: No badge for non-admin-submitted lot ---
+  it("AVE-RV-02: Step 1 does not show badge for non-admin-submitted lot (lot 2B absent from voter_lists)", async () => {
+    // In ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES, lot 2B is in 'absent' (not admin-submitted)
+    // The absent list entry has submitted_by_admin: false, so no badge for 2B
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 2B")).toBeInTheDocument();
+    });
+    // Only lot 1A should have the badge — lot 2B must not
+    const lot1ALabel = screen.getByLabelText("Select lot 1A").closest("label");
+    const lot2BLabel = screen.getByLabelText("Select lot 2B").closest("label");
+    expect(lot1ALabel).toHaveTextContent("Previously entered by admin");
+    expect(lot2BLabel).not.toHaveTextContent("Previously entered by admin");
+  });
+
+  // --- AVE-RV-03: Step 2 pre-fills prior vote for admin-submitted lot ---
+  it("AVE-RV-03: Advancing to step 2 pre-fills prior 'yes' vote for admin-submitted lot 1A", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // The 'yes' button for lot 1A should be pre-filled (aria-pressed=true)
+      expect(screen.getByRole("button", { name: /yes for lot 1A/i })).toHaveAttribute("aria-pressed", "true");
+    });
+    // The 'no' button for lot 1A should not be pressed
+    expect(screen.getByRole("button", { name: /no for lot 1A/i })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  // --- AVE-RV-04: Step 2 shows 'Previously entered by admin' badge in column header ---
+  it("AVE-RV-04: Step 2 shows 'Previously entered by admin' badge in column header for admin-submitted lot", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getAllByText("Previously entered by admin").length).toBeGreaterThan(0);
+    });
+  });
+
+  // --- AVE-RV-05: Step 2 shows 'Prev. entry' label in vote cell for admin-submitted lot ---
+  it("AVE-RV-05: Step 2 shows 'Prev. entry' label above vote buttons for admin-submitted lot", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByText("Prev. entry")).toBeInTheDocument();
+    });
+  });
+
+  // --- AVE-RV-06: Submit with admin-submitted lot shows AdminRevoteWarningDialog ---
+  it("AVE-RV-06: Clicking 'Submit votes' with admin-submitted lot shows AdminRevoteWarningDialog", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+  });
+
+  // --- AVE-RV-07: AdminRevoteWarningDialog lists affected lot numbers ---
+  it("AVE-RV-07: AdminRevoteWarningDialog lists the admin-submitted lot numbers", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    // The lot number must appear in the dialog list (as a <li> element)
+    const listItems = screen.getAllByRole("listitem");
+    expect(listItems.some((li) => li.textContent === "Lot 1A")).toBe(true);
+  });
+
+  // --- AVE-RV-08: 'Go back' dismisses AdminRevoteWarningDialog without proceeding ---
+  it("AVE-RV-08: Clicking 'Go back' dismisses AdminRevoteWarningDialog without proceeding to ConfirmDialog", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Some lots have already been entered/i })).not.toBeInTheDocument();
+    });
+    // ConfirmDialog must NOT be shown
+    expect(screen.queryByRole("dialog", { name: /Submit in-person votes/i })).not.toBeInTheDocument();
+    // Still on step 2
+    expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+  });
+
+  // --- AVE-RV-09: 'Continue anyway' advances to ConfirmDialog ---
+  it("AVE-RV-09: Clicking 'Continue anyway' in AdminRevoteWarningDialog shows ConfirmDialog", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+  });
+
+  // --- AVE-RV-10: No revote warning when no admin-submitted lots selected ---
+  it("AVE-RV-10: No AdminRevoteWarningDialog shown when no admin-submitted lots are selected", async () => {
+    const user = userEvent.setup();
+    // ADMIN_MEETING_DETAIL has no admin-submitted lots at all
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    // Goes directly to ConfirmDialog — no revote warning
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog", { name: /Some lots have already been entered/i })).not.toBeInTheDocument();
+  });
+
+  // --- AVE-RV-11: skipped_count > 0 shows banner, panel stays open ---
+  it("AVE-RV-11: skipped_count > 0 in submit response shows amber banner and keeps panel open", async () => {
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        () => HttpResponse.json({ submitted_count: 0, skipped_count: 1 })
+      )
+    );
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderWithAdminVotes({ onSuccess });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    // Skip revote warning — click Continue anyway
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/1 lot\(s\) were skipped/i);
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    // onSuccess must NOT have been called yet (panel stays open)
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  // --- AVE-RV-12: skipped_count == 0 calls onSuccess immediately ---
+  it("AVE-RV-12: skipped_count == 0 in submit response calls onSuccess immediately", async () => {
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        () => HttpResponse.json({ submitted_count: 1, skipped_count: 0 })
+      )
+    );
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    // Use ADMIN_MEETING_DETAIL (no admin-submitted lots) so there's no revote warning
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={ADMIN_MEETING_DETAIL}
+            onClose={vi.fn()}
+            onSuccess={onSuccess}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    // No skipped banner shown
+    expect(screen.queryByText(/were skipped/i)).not.toBeInTheDocument();
+  });
+
+  // --- AVE-RV-13: Escape closes AdminRevoteWarningDialog ---
+  it("AVE-RV-13: Escape key closes AdminRevoteWarningDialog without calling onClose", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithAdminVotes({ onClose });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Some lots have already been entered/i })).not.toBeInTheDocument();
+    });
+    // The outer panel must NOT close (onClose not called)
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // --- AVE-RV-14: Multi-choice prior votes pre-fill option buttons in step 2 ---
+  it("AVE-RV-14: Multi-choice prior votes pre-fill option buttons in step 2 for admin-submitted lot", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES}
+            onClose={vi.fn()}
+            onSuccess={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).toBeInTheDocument();
+    });
+    // Alice: was voted For by admin — should be pre-filled
+    expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).toHaveAttribute("aria-pressed", "true");
+    // Bob: was voted Against by admin — should be pre-filled
+    expect(screen.getByRole("button", { name: "Against option Bob lot 1A" })).toHaveAttribute("aria-pressed", "true");
+    // Carol: no prior vote — not pressed
+    expect(screen.getByRole("button", { name: "For option Carol lot 1A" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  // --- AVE-RV-15: Focus trap in AdminRevoteWarningDialog ---
+  it("AVE-RV-15: Tab from last button in AdminRevoteWarningDialog wraps to first", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    const goBackBtn = screen.getByRole("button", { name: "Go back" });
+    const continueBtn = screen.getByRole("button", { name: "Continue anyway" });
+    // Tab from last button (Continue anyway) should wrap to first (Go back)
+    act(() => { continueBtn.focus(); });
+    expect(document.activeElement).toBe(continueBtn);
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: false });
+    expect(document.activeElement).toBe(goBackBtn);
+  });
+
+  // Shift+Tab focus trap (reverse direction)
+  it("AVE-RV-15b: Shift+Tab from first button in AdminRevoteWarningDialog wraps to last", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    const goBackBtn = screen.getByRole("button", { name: "Go back" });
+    const continueBtn = screen.getByRole("button", { name: "Continue anyway" });
+    // Shift+Tab from first button (Go back) should wrap to last (Continue anyway)
+    act(() => { goBackBtn.focus(); });
+    expect(document.activeElement).toBe(goBackBtn);
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(continueBtn);
+  });
+
+  // Initial focus is on "Go back" button when dialog opens
+  it("AVE-RV-15c: AdminRevoteWarningDialog initial focus is on 'Go back' button", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    const goBackBtn = screen.getByRole("button", { name: "Go back" });
+    expect(document.activeElement).toBe(goBackBtn);
+  });
+
+  // Done button calls onSuccess
+  it("'Done' button in skipped-count banner calls onSuccess", async () => {
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        () => HttpResponse.json({ submitted_count: 0, skipped_count: 1 })
+      )
+    );
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderWithAdminVotes({ onSuccess });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSuccess).toHaveBeenCalled();
+  });
+
+  // Multi-step sequence: select both lots, submit, see warning, continue, confirm, see skipped banner
+  it("Multi-step: admin selects lot with prior entry and new lot, submits, sees warning, continues, sees skipped banner", async () => {
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        () => HttpResponse.json({ submitted_count: 1, skipped_count: 1 })
+      )
+    );
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderWithAdminVotes({ onSuccess });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    // Select both lots
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByLabelText("Select lot 2B"));
+    await user.click(screen.getByText("Proceed to vote entry (2 lots)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    // Submit — should trigger warning dialog because lot 1A is admin-submitted
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    // Lot 1A listed in dialog (as a <li> element), "Lots without prior entries..." shown
+    const listItems = screen.getAllByRole("listitem");
+    expect(listItems.some((li) => li.textContent === "Lot 1A")).toBe(true);
+    expect(screen.getByText(/Lots without prior entries will be submitted normally/i)).toBeInTheDocument();
+    // Continue
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/1 lot\(s\) were skipped/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/1 lot\(s\) were submitted successfully/);
+    expect(onSuccess).not.toHaveBeenCalled();
+    // Click Done
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSuccess).toHaveBeenCalled();
+  });
+
+  // Non-admin voter-submitted lot badge (AVE-RV-02 boundary: no badge when submitted_by_admin is false)
+  it("No 'Previously entered by admin' badge when lot has only non-admin voter_list entries", async () => {
+    // Build a meeting where lot 1A appears in yes but with submitted_by_admin: false
+    const meetingWithVoterSubmitted: GeneralMeetingDetail = {
+      ...ADMIN_MEETING_DETAIL,
+      motions: [
+        {
+          ...ADMIN_MEETING_DETAIL.motions[0],
+          voter_lists: {
+            ...ADMIN_MEETING_DETAIL.motions[0].voter_lists,
+            yes: [
+              { voter_email: "owner1@example.com", lot_number: "1A", entitlement: 100, submitted_by_admin: false },
+            ],
+          },
+        },
+      ],
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={meetingWithVoterSubmitted}
+            onClose={vi.fn()}
+            onSuccess={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    // 1A is app-submitted so it's excluded from step 1; 2B has no prior entry
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 2B")).toBeInTheDocument();
+    });
+    // 1A excluded from step 1 list entirely (app-submitted)
+    expect(screen.queryByLabelText("Select lot 1A")).not.toBeInTheDocument();
+    // No 'Previously entered by admin' badge visible
+    expect(screen.queryByText("Previously entered by admin")).not.toBeInTheDocument();
+  });
+
+  // Step 2 does NOT show 'Prev. entry' label for non-admin lots
+  it("Step 2 does not show 'Prev. entry' label for non-admin-submitted lots", async () => {
+    // Use ADMIN_MEETING_DETAIL which has no admin-submitted lots
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Prev. entry")).not.toBeInTheDocument();
+  });
+
+  // Backdrop click on AdminRevoteWarningDialog dismisses it
+  it("Backdrop click on AdminRevoteWarningDialog dismisses it", async () => {
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    // Click the backdrop (the dialog role element itself)
+    const revoteDialog = screen.getByRole("dialog", { name: /Some lots have already been entered/i });
+    fireEvent.click(revoteDialog);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Some lots have already been entered/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // Escape on outer panel is blocked when revote warning is open
+  it("Escape on outer panel does not call onClose when AdminRevoteWarningDialog is open", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderWithAdminVotes({ onClose });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    // Pressing Escape closes the revote warning dialog (not the outer panel)
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Some lots have already been entered/i })).not.toBeInTheDocument();
+    });
+    // The outer panel onClose must NOT have been called
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Submit button is hidden once submitResult is set (panel shows Done instead)
+  it("Submit button is hidden after skipped-count banner appears", async () => {
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        () => HttpResponse.json({ submitted_count: 0, skipped_count: 2 })
+      )
+    );
+    const user = userEvent.setup();
+    renderWithAdminVotes();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Submit votes/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Some lots have already been entered/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    // Submit votes button should no longer be visible (replaced by Done)
+    expect(screen.queryByRole("button", { name: /Submit votes/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 });

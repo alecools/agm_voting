@@ -5,7 +5,7 @@
  * Step 2: Enter votes per motion for each selected lot.
  * On submit: POST /api/admin/general-meetings/{id}/enter-votes
  */
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   listLotOwners,
@@ -150,6 +150,121 @@ function ConfirmDialog({ lotCount, motionCount, onConfirm, onCancel }: ConfirmDi
   );
 }
 
+// Fix 5: AdminRevoteWarningDialog — shown before submit when admin-submitted lots are selected
+interface AdminRevoteWarningDialogProps {
+  adminSubmittedLotNumbers: string[];
+  totalSelectedCount: number;
+  onContinue: () => void;
+  onCancel: () => void;
+}
+
+function AdminRevoteWarningDialog({
+  adminSubmittedLotNumbers,
+  totalSelectedCount,
+  onContinue,
+  onCancel,
+}: AdminRevoteWarningDialogProps) {
+  const goBackButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Initial focus on "Go back" (safer default)
+  useEffect(() => {
+    goBackButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onCancel();
+        return;
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  const nonAdminCount = totalSelectedCount - adminSubmittedLotNumbers.length;
+
+  return (
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="revote-warning-dialog-title"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1300,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div
+        style={{
+          background: "var(--white)",
+          borderRadius: "var(--r-lg)",
+          padding: 32,
+          minWidth: 360,
+          maxWidth: 520,
+          width: "100%",
+          boxShadow: "var(--shadow-lg)",
+        }}
+      >
+        <h2 id="revote-warning-dialog-title" style={{ marginTop: 0, marginBottom: 12 }}>
+          Some lots have already been entered
+        </h2>
+        <p style={{ color: "var(--text-secondary)", marginBottom: 12 }}>
+          The following lot(s) already have admin-entered votes and cannot be overwritten. They will be skipped when you submit — their existing votes will remain unchanged.
+        </p>
+        <ul style={{ marginBottom: 16, paddingLeft: 20 }}>
+          {adminSubmittedLotNumbers.map((lotNum) => (
+            <li key={lotNum} style={{ color: "var(--text-primary)", marginBottom: 4 }}>
+              Lot {lotNum}
+            </li>
+          ))}
+        </ul>
+        {nonAdminCount > 0 && (
+          <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
+            Lots without prior entries will be submitted normally.
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button ref={goBackButtonRef} type="button" className="btn btn--secondary" onClick={onCancel}>
+            Go back
+          </button>
+          <button type="button" className="btn btn--primary" onClick={onContinue}>
+            Continue anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // RR4-11: Memoized per-lot binary vote cell so only the affected lot re-renders
 // when a vote choice changes.
 interface LotBinaryVoteCellProps {
@@ -159,6 +274,7 @@ interface LotBinaryVoteCellProps {
   motionTitle: string;
   currentChoice: VoteChoice | undefined;
   onSetChoice: (lotId: string, motionId: string, choice: VoteChoice) => void;
+  isPriorEntry: boolean;
 }
 
 const LotBinaryVoteCell = memo(function LotBinaryVoteCell({
@@ -168,9 +284,22 @@ const LotBinaryVoteCell = memo(function LotBinaryVoteCell({
   motionTitle,
   currentChoice,
   onSetChoice,
+  isPriorEntry,
 }: LotBinaryVoteCellProps) {
   return (
     <td key={lotId} style={{ textAlign: "center" }}>
+      {isPriorEntry && (
+        <div
+          style={{
+            fontSize: "0.65rem",
+            color: "var(--text-muted)",
+            fontStyle: "italic",
+            marginBottom: 4,
+          }}
+        >
+          Prev. entry
+        </div>
+      )}
       <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
         {(["yes", "no", "abstained"] as VoteChoice[]).map((choice) => (
           <button
@@ -223,7 +352,9 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
   const [selectedLotIds, setSelectedLotIds] = useState<Set<string>>(new Set());
   const [lotVotes, setLotVotes] = useState<Record<string, LotVotes>>({});
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showRevoteWarning, setShowRevoteWarning] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitResult, setSubmitResult] = useState<{ submitted_count: number; skipped_count: number } | null>(null);
 
   const buildingId = meeting.building_id ?? "";
 
@@ -245,6 +376,81 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
       }
     }
   }
+
+  // Fix 5: Determine which lots are admin-submitted
+  const adminSubmittedLotNumbers = useMemo(() => {
+    const result = new Set<string>();
+    for (const motion of meeting.motions) {
+      for (const cat of ["yes", "no", "abstained", "not_eligible"] as const) {
+        for (const v of motion.voter_lists[cat]) {
+          if (v.lot_number && v.submitted_by_admin) {
+            result.add(v.lot_number);
+          }
+        }
+      }
+    }
+    return result;
+  }, [meeting.motions]);
+
+  // Fix 5: Build a map from lot_owner_id -> prior LotVotes for admin-submitted lots
+  const priorVotesByLotId = useMemo(() => {
+    const lotNumberToId = new Map<string, string>();
+    for (const lo of allLotOwners) {
+      lotNumberToId.set(lo.lot_number, lo.id);
+    }
+
+    const result: Record<string, LotVotes> = {};
+
+    for (const motion of meeting.motions) {
+      if (!motion.is_visible) continue;
+
+      if (motion.is_multi_choice) {
+        // Multi-choice: build per-option prior choices
+        const optionCategories: Array<{ key: "options_for" | "options_against" | "options_abstained"; choice: OptionChoice }> = [
+          { key: "options_for", choice: "for" },
+          { key: "options_against", choice: "against" },
+          { key: "options_abstained", choice: "abstained" },
+        ];
+        for (const { key, choice } of optionCategories) {
+          const optionMap = motion.voter_lists[key] ?? {};
+          for (const [optionId, voters] of Object.entries(optionMap)) {
+            for (const v of voters) {
+              if (v.lot_number && v.submitted_by_admin) {
+                const lotId = lotNumberToId.get(v.lot_number);
+                if (lotId) {
+                  if (!result[lotId]) result[lotId] = initialLotVotes();
+                  if (!result[lotId].multiChoiceChoices[motion.id]) {
+                    result[lotId].multiChoiceChoices[motion.id] = {};
+                  }
+                  result[lotId].multiChoiceChoices[motion.id][optionId] = choice;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // Binary motion: check yes/no/abstained/not_eligible categories
+        const binaryCategories: Array<{ cat: "yes" | "no" | "abstained" | "not_eligible"; choice: VoteChoice }> = [
+          { cat: "yes", choice: "yes" },
+          { cat: "no", choice: "no" },
+          { cat: "abstained", choice: "abstained" },
+        ];
+        for (const { cat, choice } of binaryCategories) {
+          for (const v of motion.voter_lists[cat]) {
+            if (v.lot_number && v.submitted_by_admin) {
+              const lotId = lotNumberToId.get(v.lot_number);
+              if (lotId) {
+                if (!result[lotId]) result[lotId] = initialLotVotes();
+                result[lotId].choices[motion.id] = choice;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  }, [meeting.motions, allLotOwners]);
 
   // Visible motions for vote entry grid
   const visibleMotions = meeting.motions.filter((m) => m.is_visible);
@@ -307,9 +513,14 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
   const submitMutation = useMutation({
     mutationFn: (entries: AdminVoteEntryLot[]) =>
       enterInPersonVotes(meeting.id, { entries }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setShowConfirm(false);
-      onSuccess();
+      // Fix 5: if any lots were skipped, stay open and show a banner; otherwise close immediately
+      if (result.skipped_count > 0) {
+        setSubmitResult(result);
+      } else {
+        onSuccess();
+      }
     },
     onError: (err: Error) => {
       setShowConfirm(false);
@@ -350,17 +561,36 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
     submitMutation.mutate(entries);
   }
 
+  // Fix 5: Handle submit button click — check for admin-submitted lots first
+  function handleSubmitClick() {
+    setSubmitError(null);
+    const selectedLotsArr = allLotOwners.filter((lo) => selectedLotIds.has(lo.id));
+    const hasAdminSubmitted = selectedLotsArr.some((lo) =>
+      adminSubmittedLotNumbers.has(lo.lot_number)
+    );
+    if (hasAdminSubmitted) {
+      setShowRevoteWarning(true);
+    } else {
+      setShowConfirm(true);
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && !showConfirm && !submitMutation.isPending) onClose();
+      if (e.key === "Escape" && !showConfirm && !showRevoteWarning && !submitMutation.isPending) onClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose, showConfirm, submitMutation.isPending]);
+  }, [onClose, showConfirm, showRevoteWarning, submitMutation.isPending]);
 
   const selectedLotsArr = allLotOwners.filter(
     (lo) => selectedLotIds.has(lo.id)
   );
+
+  // Fix 5: get the list of admin-submitted lot numbers among the currently selected lots
+  const selectedAdminSubmittedLotNumbers = selectedLotsArr
+    .filter((lo) => adminSubmittedLotNumbers.has(lo.lot_number))
+    .map((lo) => lo.lot_number);
 
   // Step 1: lot selection
   if (step === 1) {
@@ -459,6 +689,20 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                         In arrear
                       </span>
                     )}
+                    {/* Fix 5: badge for admin-submitted lots */}
+                    {adminSubmittedLotNumbers.has(lo.lot_number) && (
+                      <span
+                        style={{
+                          fontSize: "0.7rem",
+                          background: "var(--amber-bg)",
+                          color: "var(--amber)",
+                          borderRadius: "var(--r-sm)",
+                          padding: "1px 6px",
+                        }}
+                      >
+                        Previously entered by admin
+                      </span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -472,7 +716,20 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                 type="button"
                 className="btn btn--primary"
                 disabled={selectedLotIds.size === 0}
-                onClick={() => setStep(2)}
+                onClick={() => {
+                  // Fix 5: seed lotVotes with prior admin choices on step transition
+                  setLotVotes((prev) => {
+                    const next = { ...prev };
+                    for (const lotId of Array.from(selectedLotIds)) {
+                      const prior = priorVotesByLotId[lotId];
+                      if (prior && !next[lotId]) {
+                        next[lotId] = prior;
+                      }
+                    }
+                    return next;
+                  });
+                  setStep(2);
+                }}
               >
                 Proceed to vote entry ({selectedLotIds.size} lot{selectedLotIds.size !== 1 ? "s" : ""})
               </button>
@@ -486,6 +743,17 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
   // Step 2: vote entry grid
   return (
     <>
+      {showRevoteWarning && (
+        <AdminRevoteWarningDialog
+          adminSubmittedLotNumbers={selectedAdminSubmittedLotNumbers}
+          totalSelectedCount={selectedLotIds.size}
+          onContinue={() => {
+            setShowRevoteWarning(false);
+            setShowConfirm(true);
+          }}
+          onCancel={() => setShowRevoteWarning(false)}
+        />
+      )}
       {showConfirm && (
         <ConfirmDialog
           lotCount={selectedLotIds.size}
@@ -558,6 +826,36 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
             </div>
           )}
 
+          {/* Fix 5: skipped_count banner shown when backend skips lots */}
+          {submitResult && submitResult.skipped_count > 0 && (
+            <div
+              role="alert"
+              style={{
+                background: "var(--amber-bg)",
+                color: "var(--amber)",
+                borderRadius: "var(--r-md)",
+                padding: "10px 16px",
+                marginBottom: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <span>
+                {submitResult.skipped_count} lot(s) were skipped (already had entries).{" "}
+                {submitResult.submitted_count} lot(s) were submitted successfully.
+              </span>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={onSuccess}
+              >
+                Done
+              </button>
+            </div>
+          )}
+
           <div style={{ overflowX: "auto", marginBottom: 24 }}>
             <table className="admin-table" style={{ minWidth: 400 }}>
               <thead>
@@ -568,6 +866,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                       lotVotes[lo.id] ?? initialLotVotes(),
                       visibleMotions
                     );
+                    const isAdminSubmitted = adminSubmittedLotNumbers.has(lo.lot_number);
                     return (
                       <th key={lo.id} scope="col" style={{ minWidth: 140, textAlign: "center" }}>
                         <div>Lot {lo.lot_number}</div>
@@ -617,6 +916,22 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                             Already submitted
                           </span>
                         )}
+                        {/* Fix 5: badge for admin-submitted lots in column header */}
+                        {isAdminSubmitted && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontSize: "0.65rem",
+                              background: "var(--amber-bg)",
+                              color: "var(--amber)",
+                              borderRadius: "var(--r-sm)",
+                              padding: "1px 6px",
+                              marginTop: 2,
+                            }}
+                          >
+                            Previously entered by admin
+                          </span>
+                        )}
                       </th>
                     );
                   })}
@@ -638,6 +953,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                     {selectedLotsArr.map((lo) => {
                       const isInArrear = lo.financial_position === "in_arrear";
                       const votes_data = lotVotes[lo.id] ?? initialLotVotes();
+                      const isAdminSubmitted = adminSubmittedLotNumbers.has(lo.lot_number);
 
                       // In-arrear lots: disabled for general/multi_choice, enabled for special
                       const isDisabled =
@@ -669,6 +985,19 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
 
                         return (
                           <td key={lo.id} style={{ verticalAlign: "top", padding: "8px" }}>
+                            {/* Fix 5: "Prev. entry" label for admin-submitted lots */}
+                            {isAdminSubmitted && (
+                              <div
+                                style={{
+                                  fontSize: "0.65rem",
+                                  color: "var(--text-muted)",
+                                  fontStyle: "italic",
+                                  marginBottom: 4,
+                                }}
+                              >
+                                Prev. entry
+                              </div>
+                            )}
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               {motion.options.map((opt) => {
                                 const currentChoice = motionChoices[opt.id] ?? null;
@@ -762,6 +1091,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                           motionTitle={motion.title}
                           currentChoice={currentChoice}
                           onSetChoice={setChoice}
+                          isPriorEntry={isAdminSubmitted}
                         />
                       );
                     })}
@@ -771,16 +1101,18 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
             </table>
           </div>
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={submitMutation.isPending}
-              onClick={() => { setSubmitError(null); setShowConfirm(true); }}
-            >
-              {submitMutation.isPending ? "Submitting..." : "Submit votes"}
-            </button>
-          </div>
+          {!submitResult && (
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={submitMutation.isPending}
+                onClick={handleSubmitClick}
+              >
+                {submitMutation.isPending ? "Submitting..." : "Submit votes"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>
