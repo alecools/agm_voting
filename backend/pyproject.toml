@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "AGM Voting App backend"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.111",
-    "uvicorn[standard]>=0.29",
+    "fastapi>=0.136.0",
+    "uvicorn[standard]>=0.44.0",
     "sqlalchemy>=2.0",
     "asyncpg>=0.29",
     "alembic>=1.13",
     "pydantic-settings>=2.0",
-    "python-multipart>=0.0.9",
+    "python-multipart>=0.0.26",
     "aiosmtplib>=2.0",
     "structlog>=25.5.0",
     "python-json-logger>=4.0.0",
@@ -27,7 +27,8 @@ dependencies = [
     "passlib[bcrypt]>=1.7",
     "bcrypt>=4.0,<6.0",
     "bleach>=6.0",
-    "cryptography>=42.0",
+    "cryptography>=46.0",
+    "pydantic>=2.13.2",
 ]
 
 [project.optional-dependencies]
