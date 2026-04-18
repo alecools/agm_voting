@@ -1,5 +1,4 @@
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { E2E_BUILDING_NAME, E2E_LOT_EMAIL } from "./global-setup";
 import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -14,6 +13,9 @@ import {
   clearBallots,
   submitBallotViaApi,
 } from "./workflows/helpers";
+
+const E2E_BUILDING_NAME = `E2E Test Building-${RUN_SUFFIX}`;
+const E2E_LOT_EMAIL = "e2e-voter@test.com";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
