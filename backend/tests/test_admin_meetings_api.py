@@ -2026,6 +2026,191 @@ class TestGetGeneralMeetingDetail:
         assert yes_voters[0]["voter_email"] == "fallback@vn.com"
         assert yes_voters[0]["voter_name"] == "Bob Jones"
 
+    # --- proxy voter_name ---
+
+    async def test_get_general_meeting_detail_proxy_voter_name_returned(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Proxy voter with given_name + surname in lot_proxies has voter_name returned."""
+        b = Building(name="VN Proxy Name Building", manager_email="vn_proxy_name@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="VP1", unit_entitlement=30)
+        db_session.add(lo)
+        await db_session.flush()
+
+        # Lot owner has a regular email (different from the proxy)
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="owner@vp.com"))
+        await db_session.flush()
+
+        # Proxy record with a name
+        proxy = LotProxy(
+            lot_owner_id=lo.id,
+            proxy_email="alice_proxy@vp.com",
+            given_name="Alice",
+            surname="Brown",
+        )
+        db_session.add(proxy)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="VN Proxy Name Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=agm.id, title="VP Motion", display_order=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=30,
+        ))
+        # For proxy submissions voter_email holds the proxy's email; proxy_email is also set.
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion.id,
+            voter_email="alice_proxy@vp.com", lot_owner_id=lo.id,
+            choice=VoteChoice.yes, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id,
+            voter_email="alice_proxy@vp.com",
+            proxy_email="alice_proxy@vp.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        yes_voters = response.json()["motions"][0]["voter_lists"]["yes"]
+        assert len(yes_voters) == 1
+        assert yes_voters[0]["voter_email"] == "alice_proxy@vp.com"
+        assert yes_voters[0]["voter_name"] == "Alice Brown"
+
+    async def test_get_general_meeting_detail_proxy_voter_no_name_returns_none(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Proxy voter with no name in lot_proxies has voter_name as None."""
+        b = Building(name="VN Proxy NoName Building", manager_email="vn_proxy_noname@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="VP2", unit_entitlement=20)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="owner2@vp.com"))
+        await db_session.flush()
+
+        # Proxy record without a name
+        proxy = LotProxy(
+            lot_owner_id=lo.id,
+            proxy_email="noname_proxy@vp.com",
+            given_name=None,
+            surname=None,
+        )
+        db_session.add(proxy)
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="VN Proxy NoName Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=agm.id, title="VP2 Motion", display_order=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=20,
+        ))
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion.id,
+            voter_email="noname_proxy@vp.com", lot_owner_id=lo.id,
+            choice=VoteChoice.no, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id,
+            voter_email="noname_proxy@vp.com",
+            proxy_email="noname_proxy@vp.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        no_voters = response.json()["motions"][0]["voter_lists"]["no"]
+        assert len(no_voters) == 1
+        assert no_voters[0]["voter_email"] == "noname_proxy@vp.com"
+        assert no_voters[0]["voter_name"] is None
+
+    async def test_get_general_meeting_detail_fallback_proxy_voter_name_returned(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Fallback path: proxy voter name from lot_proxies is included."""
+        b = Building(name="VN Fallback Proxy Building", manager_email="vn_fb_proxy@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="VFP1", unit_entitlement=25)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="fbowner@vp.com"))
+        await db_session.flush()
+
+        proxy = LotProxy(
+            lot_owner_id=lo.id,
+            proxy_email="fbproxy@vp.com",
+            given_name="Carol",
+            surname="White",
+        )
+        db_session.add(proxy)
+        await db_session.flush()
+
+        # No GeneralMeetingLotWeight rows — forces fallback path
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="VN Fallback Proxy Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=agm.id, title="VFP Motion", display_order=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        # Intentionally NO GeneralMeetingLotWeight rows
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion.id,
+            voter_email="fbproxy@vp.com", lot_owner_id=lo.id,
+            choice=VoteChoice.yes, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id,
+            voter_email="fbproxy@vp.com",
+            proxy_email="fbproxy@vp.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        yes_voters = response.json()["motions"][0]["voter_lists"]["yes"]
+        assert len(yes_voters) == 1
+        assert yes_voters[0]["voter_email"] == "fbproxy@vp.com"
+        assert yes_voters[0]["voter_name"] == "Carol White"
+
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/general-meetings/{agm_id}/close

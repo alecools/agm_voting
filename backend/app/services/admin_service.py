@@ -1710,6 +1710,20 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 name_parts = [p for p in [row[2], row[3]] if p]
                 lot_owner_email_to_name[(row[0], row[1])] = " ".join(name_parts).strip() or None
 
+        # Populate proxy names from lot_proxies — proxy voter_email is the proxy's email,
+        # which is not present in lot_owner_emails so must be loaded separately.
+        proxy_rows = await db.execute(
+            select(
+                LotProxy.lot_owner_id,
+                LotProxy.proxy_email,
+                LotProxy.given_name,
+                LotProxy.surname,
+            ).where(LotProxy.lot_owner_id.in_(list(lot_entitlement.keys())))
+        )
+        for row in proxy_rows.all():
+            name_parts = [p for p in [row[2], row[3]] if p]
+            lot_owner_email_to_name[(row[0], row[1])] = " ".join(name_parts).strip() or None
+
     # Track whether the weight snapshot exists; SQL aggregation entitlement sums are only
     # accurate when the snapshot rows exist (they JOIN on GeneralMeetingLotWeight).
     has_weight_snapshot = bool(lot_entitlement)
@@ -1745,6 +1759,19 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 if row[1]:
                     name_parts = [p for p in [row[2], row[3]] if p]
                     lot_owner_email_to_name[(row[0], row[1])] = " ".join(name_parts).strip() or None
+
+            # Populate proxy names from lot_proxies for fallback path.
+            fallback_proxy_rows = await db.execute(
+                select(
+                    LotProxy.lot_owner_id,
+                    LotProxy.proxy_email,
+                    LotProxy.given_name,
+                    LotProxy.surname,
+                ).where(LotProxy.lot_owner_id.in_([lo.id for lo in fallback_owners]))
+            )
+            for row in fallback_proxy_rows.all():
+                name_parts = [p for p in [row[2], row[3]] if p]
+                lot_owner_email_to_name[(row[0], row[1])] = " ".join(name_parts).strip() or None
 
     eligible_lot_owner_ids: set[uuid.UUID] = set(lot_entitlement.keys())
     total_eligible_voters = len(eligible_lot_owner_ids)
