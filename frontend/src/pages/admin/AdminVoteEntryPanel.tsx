@@ -594,9 +594,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
 
   // Step 1: lot selection
   if (step === 1) {
-    const pendingLots = allLotOwners.filter(
-      (lo) => !appSubmittedLotNumbers.has(lo.lot_number)
-    );
+    const allSubmitted = allLotOwners.every((lo) => appSubmittedLotNumbers.has(lo.lot_number));
 
     return (
       <>
@@ -640,12 +638,12 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
               </button>
             </div>
             <p style={{ color: "var(--text-secondary)", marginBottom: 20 }}>
-              Select lot owners whose in-person votes you want to enter. Lots that have already submitted via the app are excluded.
+              Select lot owners whose in-person votes you want to enter. Lots already submitted via the app are shown but cannot be selected.
             </p>
 
             {lotsLoading ? (
               <p className="state-message">Loading lots...</p>
-            ) : pendingLots.length === 0 ? (
+            ) : allSubmitted ? (
               <p className="state-message">All lots have already submitted via the app.</p>
             ) : (
               <div
@@ -657,54 +655,66 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                   marginBottom: 24,
                 }}
               >
-                {pendingLots.map((lo) => (
-                  <label
-                    key={lo.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "10px 16px",
-                      borderBottom: "1px solid var(--border-subtle)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedLotIds.has(lo.id)}
-                      onChange={() => toggleLot(lo.id)}
-                      aria-label={`Select lot ${lo.lot_number}`}
-                    />
-                    <span style={{ fontWeight: 600 }}>Lot {lo.lot_number}</span>
-                    {lo.financial_position === "in_arrear" && (
-                      <span
-                        style={{
-                          fontSize: "0.7rem",
-                          background: "var(--amber-bg)",
-                          color: "var(--amber)",
-                          borderRadius: "var(--r-sm)",
-                          padding: "1px 6px",
-                        }}
-                      >
-                        In arrear
-                      </span>
-                    )}
-                    {/* Fix 5: badge for admin-submitted lots */}
-                    {adminSubmittedLotNumbers.has(lo.lot_number) && (
-                      <span
-                        style={{
-                          fontSize: "0.7rem",
-                          background: "var(--amber-bg)",
-                          color: "var(--amber)",
-                          borderRadius: "var(--r-sm)",
-                          padding: "1px 6px",
-                        }}
-                      >
-                        Previously entered by admin
-                      </span>
-                    )}
-                  </label>
-                ))}
+                {allLotOwners.map((lo) => {
+                  const isAppSubmitted = appSubmittedLotNumbers.has(lo.lot_number);
+                  return (
+                    <li
+                      key={lo.id}
+                      aria-disabled={isAppSubmitted ? "true" : undefined}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "10px 16px",
+                        borderBottom: "1px solid var(--border-subtle)",
+                        listStyle: "none",
+                        opacity: isAppSubmitted ? 0.65 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedLotIds.has(lo.id)}
+                        onChange={() => toggleLot(lo.id)}
+                        disabled={isAppSubmitted}
+                        aria-label={`Select lot ${lo.lot_number}`}
+                      />
+                      <span style={{ fontWeight: 600 }}>Lot {lo.lot_number}</span>
+                      {lo.financial_position === "in_arrear" && (
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            background: "var(--amber-bg)",
+                            color: "var(--amber)",
+                            borderRadius: "var(--r-sm)",
+                            padding: "1px 6px",
+                          }}
+                        >
+                          In arrear
+                        </span>
+                      )}
+                      {/* Badge for app-submitted lots */}
+                      {isAppSubmitted && (
+                        <span className="lot-selection__badge lot-selection__badge--submitted">
+                          Already submitted
+                        </span>
+                      )}
+                      {/* Fix 5: badge for admin-submitted lots */}
+                      {!isAppSubmitted && adminSubmittedLotNumbers.has(lo.lot_number) && (
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            background: "var(--amber-bg)",
+                            color: "var(--amber)",
+                            borderRadius: "var(--r-sm)",
+                            padding: "1px 6px",
+                          }}
+                        >
+                          Previously entered by admin
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </div>
             )}
 
