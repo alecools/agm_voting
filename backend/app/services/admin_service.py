@@ -1828,6 +1828,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             Vote.motion_id,
             Vote.choice,
             Vote.motion_option_id,
+            Vote.voter_email,
         ).where(
             Vote.general_meeting_id == general_meeting_id,
             Vote.status == VoteStatus.submitted,
@@ -1856,8 +1857,12 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     lot_owner_to_submitted_by_admin_username: dict[uuid.UUID, str | None] = {
         sub.lot_owner_id: sub.submitted_by_admin_username for sub in voted_submissions
     }
+    # Per-motion voter email: keyed on (lot_owner_id, motion_id) so that when a lot has
+    # multiple voters (co-owners, proxy re-entry) each motion shows the email of the person
+    # who actually submitted that specific Vote row, not the last BallotSubmission author.
+    vote_voter_email_map: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
 
-    def _lots(lot_owner_ids: set[uuid.UUID], category: str) -> list[dict]:
+    def _lots(lot_owner_ids: set[uuid.UUID], category: str, motion_id: uuid.UUID | None = None) -> list[dict]:
         result_list: list[dict] = []
         for lid in lot_owner_ids:
             info = lot_info.get(lid)
@@ -1871,8 +1876,13 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     submitted_by_admin_val = False
                     submitted_by_admin_username_val = None
                 else:
-                    # For voted categories, use the actual auth email from BallotSubmission
-                    voter_email = lot_owner_to_email.get(lid, "")
+                    # For voted categories, prefer the per-motion voter_email stamped on
+                    # the Vote row (correct even when co-owners submit different motions),
+                    # falling back to BallotSubmission.voter_email for absent/no-Vote cases.
+                    if motion_id is not None:
+                        voter_email = vote_voter_email_map.get((lid, motion_id), lot_owner_to_email.get(lid, ""))
+                    else:
+                        voter_email = lot_owner_to_email.get(lid, "")
                     proxy_email_val = lot_owner_to_proxy_email.get(lid)
                     ballot_hash_val = lot_owner_to_ballot_hash.get(lid)
                     submitted_by_admin_val = lot_owner_to_submitted_by_admin.get(lid, False)
@@ -1904,6 +1914,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             votes_by_motion.setdefault(vp.motion_id, []).append(
                 (vp.lot_owner_id, choice_str, vp.motion_option_id)
             )
+        # Populate per-motion voter email map regardless of submission status so that
+        # any Vote row's own voter_email is captured for the voter_list display.
+        if vp.voter_email:
+            vote_voter_email_map[(vp.lot_owner_id, vp.motion_id)] = vp.voter_email
 
     motion_details = []
     for motion in motions:
@@ -1967,9 +1981,9 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "entitlement_sum": for_es,
                     "outcome": opt.outcome,
                 })
-                option_for_voter_lists[str(opt.id)] = _lots(opt_for_ids, "selected")
-                option_against_voter_lists[str(opt.id)] = _lots(opt_against_ids, "against")
-                option_abstained_voter_lists[str(opt.id)] = _lots(opt_abstained_ids, "abstained")
+                option_for_voter_lists[str(opt.id)] = _lots(opt_for_ids, "selected", motion.id)
+                option_against_voter_lists[str(opt.id)] = _lots(opt_against_ids, "against", motion.id)
+                option_abstained_voter_lists[str(opt.id)] = _lots(opt_abstained_ids, "abstained", motion.id)
 
             motion_details.append({
                 "id": motion.id,
@@ -1997,9 +2011,9 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 "voter_lists": {
                     "yes": [],
                     "no": [],
-                    "abstained": _lots(abstained_ids, "abstained"),
+                    "abstained": _lots(abstained_ids, "abstained", motion.id),
                     "absent": _lots(absent_ids_global, "absent"),
-                    "not_eligible": _lots(not_eligible_ids, "not_eligible"),
+                    "not_eligible": _lots(not_eligible_ids, "not_eligible", motion.id),
                     "options_for": option_for_voter_lists,
                     "options_against": option_against_voter_lists,
                     "options_abstained": option_abstained_voter_lists,
@@ -2084,11 +2098,11 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                         "options": [],
                     },
                     "voter_lists": {
-                        "yes": _lots(yes_ids, "yes"),
-                        "no": _lots(no_ids, "no"),
-                        "abstained": _lots(abstained_ids, "abstained"),
+                        "yes": _lots(yes_ids, "yes", motion.id),
+                        "no": _lots(no_ids, "no", motion.id),
+                        "abstained": _lots(abstained_ids, "abstained", motion.id),
                         "absent": _lots(absent_ids_global, "absent"),
-                        "not_eligible": _lots(not_eligible_ids, "not_eligible"),
+                        "not_eligible": _lots(not_eligible_ids, "not_eligible", motion.id),
                         "options": {},
                     },
                 }

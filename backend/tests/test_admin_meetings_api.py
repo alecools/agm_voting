@@ -2211,6 +2211,146 @@ class TestGetGeneralMeetingDetail:
         assert yes_voters[0]["voter_email"] == "fbproxy@vp.com"
         assert yes_voters[0]["voter_name"] == "Carol White"
 
+    # --- per-motion voter email (co-owner fix) ---
+
+    async def test_per_motion_voter_email_co_owner(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Co-owner scenario: M1 voted by owner A, M2 voted by owner B.
+
+        BallotSubmission.voter_email is owner B (last submitter).
+        Admin results must show owner A's email/name for M1 and owner B's
+        email/name for M2 — not owner B for both.
+        """
+        b = Building(name="Co-Owner VE Building", manager_email="cove@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="COVE1", unit_entitlement=60)
+        db_session.add(lo)
+        await db_session.flush()
+
+        # Two co-owners, each with a name
+        db_session.add(LotOwnerEmail(
+            lot_owner_id=lo.id, email="owner_a@cove.com",
+            given_name="Alice", surname="Alpha",
+        ))
+        db_session.add(LotOwnerEmail(
+            lot_owner_id=lo.id, email="owner_b@cove.com",
+            given_name="Bob", surname="Beta",
+        ))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Co-Owner VE Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion1 = Motion(general_meeting_id=agm.id, title="COVE Motion 1", display_order=1)
+        motion2 = Motion(general_meeting_id=agm.id, title="COVE Motion 2", display_order=2)
+        db_session.add(motion1)
+        db_session.add(motion2)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=60,
+        ))
+        # Motion 1 voted by owner A
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion1.id,
+            voter_email="owner_a@cove.com", lot_owner_id=lo.id,
+            choice=VoteChoice.yes, status=VoteStatus.submitted,
+        ))
+        # Motion 2 voted by owner B
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion2.id,
+            voter_email="owner_b@cove.com", lot_owner_id=lo.id,
+            choice=VoteChoice.no, status=VoteStatus.submitted,
+        ))
+        # BallotSubmission reflects the last submitter (owner B) — this is the bug trigger
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id,
+            voter_email="owner_b@cove.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        motions_data = response.json()["motions"]
+        # Sort by display_order so we can index reliably
+        motions_data.sort(key=lambda m: m["display_order"])
+
+        # Motion 1 — voted Yes by owner A
+        yes_voters_m1 = motions_data[0]["voter_lists"]["yes"]
+        assert len(yes_voters_m1) == 1
+        assert yes_voters_m1[0]["voter_email"] == "owner_a@cove.com", (
+            "M1 voter should be owner A, not the last BallotSubmission author (owner B)"
+        )
+        assert yes_voters_m1[0]["voter_name"] == "Alice Alpha"
+
+        # Motion 2 — voted No by owner B
+        no_voters_m2 = motions_data[1]["voter_lists"]["no"]
+        assert len(no_voters_m2) == 1
+        assert no_voters_m2[0]["voter_email"] == "owner_b@cove.com"
+        assert no_voters_m2[0]["voter_name"] == "Bob Beta"
+
+    async def test_per_motion_voter_email_single_voter_unchanged(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Single-voter lot: voter_email/voter_name unchanged after the per-motion fix."""
+        b = Building(name="Single VE Building", manager_email="sve@test.com")
+        db_session.add(b)
+        await db_session.flush()
+
+        lo = LotOwner(building_id=b.id, lot_number="SVE1", unit_entitlement=40)
+        db_session.add(lo)
+        await db_session.flush()
+
+        db_session.add(LotOwnerEmail(
+            lot_owner_id=lo.id, email="solo@sve.com",
+            given_name="Solo", surname="Voter",
+        ))
+        await db_session.flush()
+
+        agm = GeneralMeeting(
+            building_id=b.id,
+            title="Single VE Meeting",
+            status=GeneralMeetingStatus.open,
+            meeting_at=meeting_dt(),
+            voting_closes_at=closing_dt(),
+        )
+        db_session.add(agm)
+        await db_session.flush()
+
+        motion = Motion(general_meeting_id=agm.id, title="SVE Motion", display_order=1)
+        db_session.add(motion)
+        await db_session.flush()
+
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=40,
+        ))
+        db_session.add(Vote(
+            general_meeting_id=agm.id, motion_id=motion.id,
+            voter_email="solo@sve.com", lot_owner_id=lo.id,
+            choice=VoteChoice.yes, status=VoteStatus.submitted,
+        ))
+        db_session.add(BallotSubmission(
+            general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email="solo@sve.com",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/general-meetings/{agm.id}")
+        assert response.status_code == 200
+        yes_voters = response.json()["motions"][0]["voter_lists"]["yes"]
+        assert len(yes_voters) == 1
+        assert yes_voters[0]["voter_email"] == "solo@sve.com"
+        assert yes_voters[0]["voter_name"] == "Solo Voter"
+
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/general-meetings/{agm_id}/close
