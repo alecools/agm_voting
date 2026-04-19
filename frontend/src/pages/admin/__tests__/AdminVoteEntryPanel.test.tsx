@@ -1633,3 +1633,256 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bug 1: Disabled buttons for already-voted motions
+// ---------------------------------------------------------------------------
+
+describe("AdminVoteEntryPanel — Bug 1: disabled vote buttons for prior-entered motions", () => {
+  it("binary vote buttons are disabled for an already-voted motion (isPriorEntry)", async () => {
+    const user = userEvent.setup();
+    // ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES has lot 1A with admin-submitted yes on the only motion
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES}
+            onClose={vi.fn()}
+            onSuccess={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // Wait for vote buttons to appear
+      expect(screen.getByRole("button", { name: /yes for lot 1A/i })).toBeInTheDocument();
+    });
+    // All three vote buttons for lot 1A should be disabled (prior admin entry)
+    expect(screen.getByRole("button", { name: /yes for lot 1A/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /no for lot 1A/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /abstained for lot 1A/i })).toBeDisabled();
+  });
+
+  it("binary vote buttons remain enabled for a non-prior-entered motion", async () => {
+    const user = userEvent.setup();
+    // Build a meeting with 2 motions; lot 1A has prior admin vote on M1 only (not M2)
+    const meetingWith2Motions: GeneralMeetingDetail = {
+      ...ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES,
+      motions: [
+        {
+          ...ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES.motions[0],
+          id: "two-m1",
+          title: "Motion 1 Prior",
+          voter_lists: {
+            yes: [
+              { voter_email: "owner1@example.com", lot_number: "1A", entitlement: 100, submitted_by_admin: true },
+            ],
+            no: [],
+            abstained: [],
+            absent: [],
+            not_eligible: [],
+            options: {},
+          },
+        },
+        {
+          ...ADMIN_MEETING_DETAIL_WITH_ADMIN_VOTES.motions[0],
+          id: "two-m2",
+          title: "Motion 2 New",
+          display_order: 2,
+          voter_lists: {
+            yes: [],
+            no: [],
+            abstained: [],
+            absent: [],
+            not_eligible: [],
+            options: {},
+          },
+        },
+      ],
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={meetingWith2Motions}
+            onClose={vi.fn()}
+            onSuccess={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      // The motion title is rendered with display_order prefix: "2. Motion 2 New"
+      expect(screen.getByText(/Motion 2 New/)).toBeInTheDocument();
+    });
+    // M2 has no prior vote for lot 1A — buttons should be enabled
+    // The buttons are aria-labelled with the motion title
+    const m2ForBtn = screen.getByRole("button", { name: /yes for lot 1A motion Motion 2 New/i });
+    expect(m2ForBtn).not.toBeDisabled();
+    const m2NoBtn = screen.getByRole("button", { name: /no for lot 1A motion Motion 2 New/i });
+    expect(m2NoBtn).not.toBeDisabled();
+  });
+
+  it("multi-choice option buttons are disabled for an already-voted motion (isMCPriorEntry)", async () => {
+    const user = userEvent.setup();
+    // ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES has lot 1A with admin-submitted For Alice, Against Bob
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminVoteEntryPanel
+            meeting={ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES}
+            onClose={vi.fn()}
+            onSuccess={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).toBeInTheDocument();
+    });
+    // All option buttons for lot 1A should be disabled (prior MC admin entry)
+    expect(screen.getByRole("button", { name: "For option Alice lot 1A" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Against option Alice lot 1A" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Abstain option Alice lot 1A" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "For option Bob lot 1A" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Against option Bob lot 1A" })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 2: handleSubmit only sends explicitly set motions (no auto-abstain)
+// ---------------------------------------------------------------------------
+
+describe("AdminVoteEntryPanel — Bug 2: handleSubmit excludes motions without explicit choices", () => {
+  it("payload omits binary motions the admin did not touch (no auto-abstain)", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
+        }
+      )
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /for lot/i }).length).toBeGreaterThan(0);
+    });
+    // Do NOT click any vote button — submit without touching any motion
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const body = capturedBody as { entries: Array<{ votes: unknown[]; multi_choice_votes: unknown[] }> };
+    // No vote was explicitly set — votes array must be empty (no auto-abstain)
+    expect(body.entries[0].votes).toHaveLength(0);
+    expect(body.entries[0].multi_choice_votes).toHaveLength(0);
+  });
+
+  it("payload includes only the binary motions the admin explicitly set", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
+        }
+      )
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /for lot/i }).length).toBeGreaterThan(0);
+    });
+    // Click For on the only motion
+    await user.click(screen.getAllByRole("button", { name: /yes for lot 1A/i })[0]);
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const body = capturedBody as { entries: Array<{ votes: Array<{ motion_id: string; choice: string }> }> };
+    expect(body.entries[0].votes).toHaveLength(1);
+    expect(body.entries[0].votes[0].choice).toBe("yes");
+  });
+
+  it("multi-choice payload omits MC motions the admin did not interact with", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(
+        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
+        }
+      )
+    );
+    const user = userEvent.setup();
+    // ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY has only one MC motion (no binary motions)
+    renderPanel({ meeting: ADMIN_MEETING_DETAIL_MC_VOTE_ENTRY });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select lot 1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText("Select lot 1A"));
+    await user.click(screen.getByText("Proceed to vote entry (1 lot)"));
+    await waitFor(() => {
+      expect(screen.getByText(/Board Election Entry/)).toBeInTheDocument();
+    });
+    // Do NOT interact with any option button — submit without touching MC motion
+    await user.click(screen.getByRole("button", { name: /Submit votes/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Submit in-person votes/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const body = capturedBody as { entries: Array<{ votes: unknown[]; multi_choice_votes: unknown[] }> };
+    // MC motion was not touched — must not appear in multi_choice_votes
+    expect(body.entries[0].multi_choice_votes).toHaveLength(0);
+  });
+});

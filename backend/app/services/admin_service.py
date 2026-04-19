@@ -3991,19 +3991,11 @@ async def enter_votes_for_meeting(
 
                 option_pairs = mc_lookup.get(motion.id, [])
                 if not option_pairs:
-                    # No options specified → motion-level abstain, but only when this
-                    # lot has no prior submission.  For already-submitted lots, skip
-                    # motions that were not explicitly supplied — do not auto-record.
-                    if lot_owner_id in already_submitted:
-                        continue
-                    votes_to_add.append(Vote(
-                        general_meeting_id=general_meeting_id,
-                        motion_id=motion.id,
-                        voter_email="admin",
-                        lot_owner_id=lot_owner_id,
-                        choice=VoteChoice.abstained,
-                        status=VoteStatus.submitted,
-                    ))
+                    # No options specified for this motion — skip it entirely.
+                    # The frontend only sends motions the admin explicitly interacted with,
+                    # so an absent motion means the admin made no choice and it should
+                    # remain unrecorded for future entry.
+                    continue
                 else:
                     for opt_id, vote_choice in option_pairs:
                         votes_to_add.append(Vote(
@@ -4029,11 +4021,13 @@ async def enter_votes_for_meeting(
                 ))
                 continue
 
-            if motion.id not in inline_lookup and lot_owner_id in already_submitted:
-                # No explicit choice supplied for this motion and the lot already has a
-                # prior submission — skip rather than auto-recording abstained.
+            if motion.id not in inline_lookup:
+                # No explicit choice supplied for this motion — skip it entirely.
+                # The frontend only sends motions the admin explicitly set, so an absent
+                # motion means no choice was made and it should remain unrecorded for
+                # future entry.
                 continue
-            choice = inline_lookup.get(motion.id, VoteChoice.abstained)
+            choice = inline_lookup[motion.id]
             votes_to_add.append(Vote(
                 general_meeting_id=general_meeting_id,
                 motion_id=motion.id,

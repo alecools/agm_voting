@@ -305,6 +305,7 @@ const LotBinaryVoteCell = memo(function LotBinaryVoteCell({
           <button
             key={choice}
             type="button"
+            disabled={isPriorEntry}
             onClick={() => onSetChoice(lotId, motionId, choice)}
             aria-label={`${choice} for lot ${lotNumber} motion ${motionTitle}`}
             aria-pressed={currentChoice === choice}
@@ -314,7 +315,8 @@ const LotBinaryVoteCell = memo(function LotBinaryVoteCell({
               fontWeight: currentChoice === choice ? 700 : 400,
               borderRadius: "var(--r-sm)",
               border: "1px solid",
-              cursor: "pointer",
+              cursor: isPriorEntry ? "not-allowed" : "pointer",
+              opacity: isPriorEntry ? 0.4 : 1,
               background:
                 currentChoice === choice
                   ? choice === "yes"
@@ -540,15 +542,17 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
     const selectedLotsArr = Array.from(selectedLotIds);
     const entries: AdminVoteEntryLot[] = selectedLotsArr.map((lotId) => {
       const votes_data = lotVotes[lotId] ?? initialLotVotes();
+      // Only include binary motions the admin explicitly set a choice for — no auto-abstain fallback.
       const votes: AdminVoteEntryItem[] = visibleMotions
-        .filter((m) => !m.is_multi_choice)
+        .filter((m) => !m.is_multi_choice && votes_data.choices[m.id] !== undefined)
         .map((m) => ({
           motion_id: m.id,
-          choice: votes_data.choices[m.id] ?? "abstained",
+          choice: votes_data.choices[m.id] as VoteChoice,
         }));
-      // US-AVE2-01: build option_choices from non-null per-option selections only
+      // US-AVE2-01: build option_choices from non-null per-option selections only.
+      // Only include multi-choice motions the admin explicitly interacted with — omit untouched motions.
       const multi_choice_votes: AdminMultiChoiceVoteItem[] = visibleMotions
-        .filter((m) => m.is_multi_choice === true)
+        .filter((m) => m.is_multi_choice === true && votes_data.multiChoiceChoices[m.id] !== undefined)
         .map((m) => {
           const motionChoices = votes_data.multiChoiceChoices[m.id] ?? {};
           const option_choices: AdminMultiChoiceOptionChoice[] = Object.entries(motionChoices).map(
@@ -992,6 +996,10 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                         const forCount = Object.values(motionChoices).filter((c) => c === "for").length;
                         // Fix 1: mirror voter-side limitReached guard — block "For" when limit reached
                         const limitReached = motion.option_limit != null && forCount >= motion.option_limit;
+                        // Disable all option buttons when this lot has a prior admin-submitted vote for this specific motion.
+                        // Use priorVotesByLotId directly (not isAdminSubmitted) because MC votes are not in
+                        // voter_lists.yes/no/abstained — they are in options_for/against/abstained.
+                        const isMCPriorEntry = priorVotesByLotId[lo.id]?.multiChoiceChoices[motion.id] !== undefined;
 
                         return (
                           <td key={lo.id} style={{ verticalAlign: "top", padding: "8px" }}>
@@ -1027,6 +1035,8 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                         const isActive = currentChoice === choice;
                                         // Fix 1: disable "For" when limit reached and not already selected For
                                         const isForDisabled = choice === "for" && limitReached && currentChoice !== "for";
+                                        // Disable all buttons when this motion has a prior admin entry for this lot
+                                        const isButtonDisabled = isMCPriorEntry || isForDisabled;
                                         const ariaLabel = isForDisabled
                                           ? `For option ${opt.text} lot ${lo.lot_number} (limit reached)`
                                           : `${choice === "for" ? "For" : choice === "against" ? "Against" : "Abstain"} option ${opt.text} lot ${lo.lot_number}`;
@@ -1034,7 +1044,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                           <button
                                             key={choice}
                                             type="button"
-                                            disabled={isForDisabled}
+                                            disabled={isButtonDisabled}
                                             onClick={() =>
                                               setOptionChoice(lo.id, motion.id, opt.id, choice)
                                             }
@@ -1046,8 +1056,8 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                                               fontWeight: isActive ? 700 : 400,
                                               borderRadius: "var(--r-sm)",
                                               border: "1px solid",
-                                              cursor: isForDisabled ? "not-allowed" : "pointer",
-                                              opacity: isForDisabled ? 0.4 : 1,
+                                              cursor: isButtonDisabled ? "not-allowed" : "pointer",
+                                              opacity: isButtonDisabled ? 0.4 : 1,
                                               background: isActive
                                                 ? choice === "for"
                                                   ? "var(--green)"
@@ -1091,7 +1101,10 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                       }
 
                       // Binary motion — use memoized LotBinaryVoteCell (RR4-11)
+                      // isPriorEntry is per-motion: only disable if this specific motion
+                      // has a prior admin-submitted vote for this lot.
                       const currentChoice = votes_data.choices[motion.id];
+                      const isBinaryPriorEntry = priorVotesByLotId[lo.id]?.choices[motion.id] !== undefined;
                       return (
                         <LotBinaryVoteCell
                           key={lo.id}
@@ -1101,7 +1114,7 @@ export default function AdminVoteEntryPanel({ meeting, onClose, onSuccess }: Adm
                           motionTitle={motion.title}
                           currentChoice={currentChoice}
                           onSetChoice={setChoice}
-                          isPriorEntry={isAdminSubmitted}
+                          isPriorEntry={isBinaryPriorEntry}
                         />
                       );
                     })}

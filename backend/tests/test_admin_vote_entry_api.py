@@ -509,11 +509,13 @@ class TestAdminVoteEntry:
         assert data["submitted_count"] == 0
         assert data["skipped_count"] == 0
 
-    async def test_abstained_recorded_when_no_vote_provided(
+    async def test_no_vote_provided_records_no_vote(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """When no vote is provided for a visible motion, abstained is recorded."""
-        agm, lots, motions = await _setup_meeting_with_lots(db_session, "AbstainDefault")
+        """When no vote is provided for a visible motion, no vote is recorded (no auto-abstain).
+        The frontend only sends motions the admin explicitly set, so an absent motion
+        means no choice was made and it is left unrecorded for future entry."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "NoVoteRecorded")
         payload = {
             "entries": [
                 {
@@ -525,6 +527,10 @@ class TestAdminVoteEntry:
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
         assert resp.status_code == 200
+        # submitted_count is 0 because no votes were actually added
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 1
 
         await db_session.flush()  # ensure session is synced
         vote_result = await db_session.execute(
@@ -533,8 +539,8 @@ class TestAdminVoteEntry:
                 Vote.lot_owner_id == lots[0].id,
             )
         )
-        vote = vote_result.scalar_one()
-        assert vote.choice == VoteChoice.abstained
+        votes = list(vote_result.scalars().all())
+        assert len(votes) == 0
 
     async def test_submitted_by_admin_false_on_voter_submission(
         self, client: AsyncClient, db_session: AsyncSession
@@ -563,17 +569,19 @@ class TestAdminVoteEntry:
         sub = sub_result.scalar_one()
         assert sub.submitted_by_admin is True
 
-    async def test_multi_choice_no_options_abstained(
+    async def test_multi_choice_no_options_records_no_vote(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Multi-choice motion with no options submitted records abstained."""
-        b = make_building("VE MC AbsDefault")
+        """Multi-choice motion with no options submitted records no vote (no auto-abstain).
+        The frontend only sends MC motions the admin explicitly interacted with, so an
+        empty option_ids means no choice was made and it is left unrecorded."""
+        b = make_building("VE MC NoVoteDefault")
         db_session.add(b)
         await db_session.flush()
-        lo = make_lot_owner(b, "VE-MCA1")
+        lo = make_lot_owner(b, "VE-MCN1")
         db_session.add(lo)
         await db_session.flush()
-        agm = make_open_meeting(b, "VE MC Abs AGM")
+        agm = make_open_meeting(b, "VE MC NoVote AGM")
         db_session.add(agm)
         await db_session.flush()
         w = GeneralMeetingLotWeight(
@@ -585,7 +593,7 @@ class TestAdminVoteEntry:
         db_session.add(w)
         m = Motion(
             general_meeting_id=agm.id,
-            title="MC Abs Motion",
+            title="MC NoVote Motion",
             display_order=1,
             is_visible=True,
             is_multi_choice=True,
@@ -612,6 +620,9 @@ class TestAdminVoteEntry:
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 1
 
         await db_session.flush()  # ensure session is synced
         vote_result = await db_session.execute(
@@ -620,8 +631,8 @@ class TestAdminVoteEntry:
                 Vote.lot_owner_id == lo.id,
             )
         )
-        vote = vote_result.scalar_one()
-        assert vote.choice == VoteChoice.abstained
+        votes = list(vote_result.scalars().all())
+        assert len(votes) == 0
 
     async def test_in_arrear_lot_multi_choice_not_eligible(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1112,8 +1123,8 @@ class TestAdminVoteEntry:
         assert lot_a_votes[0].motion_id == m1.id
         assert lot_a_votes[0].choice == VoteChoice.yes
 
-        # lot_b has no prior submission, so M1 (not explicitly supplied) is auto-abstained
-        # and M2 (explicitly supplied) is recorded as yes → 2 votes total.
+        # lot_b has no prior submission. Admin only supplied M2 for lot_b (not M1),
+        # so only M2 is recorded — M1 is not auto-abstained (auto-abstain has been removed).
         lot_b_votes_result = await db_session.execute(
             select(Vote).where(
                 Vote.general_meeting_id == agm.id,
@@ -1121,10 +1132,9 @@ class TestAdminVoteEntry:
             )
         )
         lot_b_votes = list(lot_b_votes_result.scalars().all())
-        assert len(lot_b_votes) == 2
-        vote_b_by_motion = {v.motion_id: v for v in lot_b_votes}
-        assert vote_b_by_motion[m1.id].choice == VoteChoice.abstained  # auto-abstained
-        assert vote_b_by_motion[m2.id].choice == VoteChoice.yes        # admin's explicit vote
+        assert len(lot_b_votes) == 1
+        assert lot_b_votes[0].motion_id == m2.id
+        assert lot_b_votes[0].choice == VoteChoice.yes  # admin's explicit vote
 
     async def test_explicit_choice_still_recorded_for_already_submitted_lot(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1294,20 +1304,20 @@ class TestAdminVoteEntry:
         assert len(sub_votes) == 1
         assert sub_votes[0].motion_id == m1.id
 
-    async def test_mc_no_options_auto_abstained_for_new_lot(
+    async def test_mc_no_options_new_lot_records_no_vote(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Bug fix guard does NOT suppress auto-abstain for lots without a prior submission.
-        When a new lot sends an MC motion entry with no options, it still gets abstained."""
-        b = make_building("VE MC AbsNew")
+        """When a new lot sends an MC motion entry with no options, no vote is recorded.
+        Auto-abstain has been removed — missing motions are skipped for future entry."""
+        b = make_building("VE MC NoVoteNew")
         db_session.add(b)
         await db_session.flush()
 
-        lo = make_lot_owner(b, "VE-MAN1")
+        lo = make_lot_owner(b, "VE-MVN1")
         db_session.add(lo)
         await db_session.flush()
 
-        agm = make_open_meeting(b, "VE MC AbsNew AGM")
+        agm = make_open_meeting(b, "VE MC NoVoteNew AGM")
         db_session.add(agm)
         await db_session.flush()
 
@@ -1320,7 +1330,7 @@ class TestAdminVoteEntry:
 
         m = Motion(
             general_meeting_id=agm.id,
-            title="MC AbsNew M1",
+            title="MC NoVoteNew M1",
             display_order=1,
             is_visible=True,
             is_multi_choice=True,
@@ -1333,7 +1343,7 @@ class TestAdminVoteEntry:
         await db_session.commit()
         await db_session.refresh(agm)
 
-        # No prior submission — empty option_ids should still produce a motion-level abstain
+        # No prior submission — empty option_ids yields no vote (no auto-abstain)
         payload = {
             "entries": [
                 {
@@ -1347,27 +1357,28 @@ class TestAdminVoteEntry:
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 1
 
         await db_session.flush()
-        vote_result = await db_session.execute(
+        votes_result = await db_session.execute(
             select(Vote).where(
                 Vote.general_meeting_id == agm.id,
                 Vote.lot_owner_id == lo.id,
-                Vote.choice == VoteChoice.abstained,
-                Vote.motion_option_id.is_(None),
             )
         )
-        assert vote_result.scalar_one_or_none() is not None
+        assert len(list(votes_result.scalars().all())) == 0
 
-    async def test_standard_motion_no_vote_auto_abstained_for_new_lot(
+    async def test_standard_motion_no_vote_new_lot_records_no_vote(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Bug fix guard does NOT suppress auto-abstain for lots without a prior submission.
-        When a new lot sends no vote for a visible motion, it still gets abstained."""
-        agm, lots, motions = await _setup_meeting_with_lots(db_session, "StdAbsNewLot")
+        """When a new lot sends no vote for a visible motion, no vote is recorded.
+        Auto-abstain has been removed — missing motions are skipped for future entry."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "StdNoVoteNewLot")
         lot = lots[0]
 
-        # No prior submission — empty votes should still produce abstained
+        # No prior submission — empty votes yields no vote recorded (no auto-abstain)
         payload = {
             "entries": [
                 {
@@ -1379,16 +1390,18 @@ class TestAdminVoteEntry:
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 1
 
         await db_session.flush()
-        vote_result = await db_session.execute(
+        votes_result = await db_session.execute(
             select(Vote).where(
                 Vote.general_meeting_id == agm.id,
                 Vote.lot_owner_id == lot.id,
-                Vote.choice == VoteChoice.abstained,
             )
         )
-        assert vote_result.scalar_one_or_none() is not None
+        assert len(list(votes_result.scalars().all())) == 0
 
     async def test_mc_motion_not_auto_abstained_for_already_submitted_lot(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1496,6 +1509,276 @@ class TestAdminVoteEntry:
         assert len(votes) == 1
         assert votes[0].motion_id == m1.id
         assert votes[0].choice == VoteChoice.yes
+
+    # --- Bug fix: partial submission — only explicitly answered motions recorded ---
+
+    async def test_partial_submission_only_explicit_motions_recorded(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Admin submits votes for some motions but not all → only submitted motions
+        recorded; untouched motions are NOT auto-abstained."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "PartialSubmit")
+        lot = lots[0]
+        m1 = motions[0]
+
+        # Add a second visible motion M2
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="PartialSubmit M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        # Admin supplies a choice for M1 only — M2 is omitted
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [{"motion_id": str(m1.id), "choice": "yes"}],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 0
+
+        await db_session.flush()
+        # Only 1 vote recorded (M1); M2 must NOT have been auto-abstained
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot.id,
+            )
+        )
+        all_votes = list(votes_result.scalars().all())
+        assert len(all_votes) == 1
+        assert all_votes[0].motion_id == m1.id
+        assert all_votes[0].choice == VoteChoice.yes
+
+    async def test_all_motions_explicit_records_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Admin submits explicit choices for all motions → all recorded correctly."""
+        agm, lots, motions = await _setup_meeting_with_lots(db_session, "AllExplicit")
+        lot = lots[0]
+        m1 = motions[0]
+
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="AllExplicit M2",
+            display_order=2,
+            is_visible=True,
+        )
+        db_session.add(m2)
+        await db_session.commit()
+        await db_session.refresh(m2)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lot.id),
+                    "votes": [
+                        {"motion_id": str(m1.id), "choice": "yes"},
+                        {"motion_id": str(m2.id), "choice": "no"},
+                    ],
+                    "multi_choice_votes": [],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 0
+
+        await db_session.flush()
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lot.id,
+            )
+        )
+        all_votes = list(votes_result.scalars().all())
+        assert len(all_votes) == 2
+        by_motion = {v.motion_id: v for v in all_votes}
+        assert by_motion[m1.id].choice == VoteChoice.yes
+        assert by_motion[m2.id].choice == VoteChoice.no
+
+    async def test_mc_partial_submission_only_explicit_options_recorded(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Multi-choice: admin provides option_choices for one MC motion but omits another
+        MC motion → only the supplied MC motion is recorded."""
+        b = make_building("VE MC PartialMC")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MPM1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC PartialMC AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        ))
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="MC PartialMC M1",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=2,
+        )
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="MC PartialMC M2",
+            display_order=2,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=1,
+        )
+        db_session.add(m1)
+        db_session.add(m2)
+        await db_session.flush()
+        opt1 = MotionOption(motion_id=m1.id, text="Opt1", display_order=1)
+        opt2 = MotionOption(motion_id=m2.id, text="Opt2", display_order=1)
+        db_session.add(opt1)
+        db_session.add(opt2)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+        await db_session.refresh(opt1)
+        await db_session.refresh(opt2)
+
+        # Admin provides option_choices for M1 but omits M2 entirely
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m1.id),
+                            "option_choices": [
+                                {"option_id": str(opt1.id), "choice": "for"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+        assert data["skipped_count"] == 0
+
+        await db_session.flush()
+        # Only 1 vote for M1 (opt1); M2 must NOT have any vote
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        all_votes = list(votes_result.scalars().all())
+        assert len(all_votes) == 1
+        assert all_votes[0].motion_id == m1.id
+        assert all_votes[0].motion_option_id == opt1.id
+        assert all_votes[0].choice == VoteChoice.selected
+
+    async def test_mc_all_motions_explicit_records_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Multi-choice: admin provides option_choices for all MC motions → all recorded."""
+        b = make_building("VE MC AllMC")
+        db_session.add(b)
+        await db_session.flush()
+        lo = make_lot_owner(b, "VE-MAM1")
+        db_session.add(lo)
+        await db_session.flush()
+        agm = make_open_meeting(b, "VE MC AllMC AGM")
+        db_session.add(agm)
+        await db_session.flush()
+        db_session.add(GeneralMeetingLotWeight(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            unit_entitlement_snapshot=lo.unit_entitlement,
+            financial_position_snapshot=FinancialPositionSnapshot.normal,
+        ))
+        m1 = Motion(
+            general_meeting_id=agm.id,
+            title="MC AllMC M1",
+            display_order=1,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=1,
+        )
+        m2 = Motion(
+            general_meeting_id=agm.id,
+            title="MC AllMC M2",
+            display_order=2,
+            is_visible=True,
+            is_multi_choice=True,
+            option_limit=1,
+        )
+        db_session.add(m1)
+        db_session.add(m2)
+        await db_session.flush()
+        opt1 = MotionOption(motion_id=m1.id, text="OptA", display_order=1)
+        opt2 = MotionOption(motion_id=m2.id, text="OptB", display_order=1)
+        db_session.add(opt1)
+        db_session.add(opt2)
+        await db_session.commit()
+        await db_session.refresh(agm)
+        await db_session.refresh(lo)
+        await db_session.refresh(opt1)
+        await db_session.refresh(opt2)
+
+        payload = {
+            "entries": [
+                {
+                    "lot_owner_id": str(lo.id),
+                    "votes": [],
+                    "multi_choice_votes": [
+                        {
+                            "motion_id": str(m1.id),
+                            "option_choices": [{"option_id": str(opt1.id), "choice": "for"}],
+                        },
+                        {
+                            "motion_id": str(m2.id),
+                            "option_choices": [{"option_id": str(opt2.id), "choice": "against"}],
+                        },
+                    ],
+                }
+            ]
+        }
+        resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 1
+
+        await db_session.flush()
+        votes_result = await db_session.execute(
+            select(Vote).where(
+                Vote.general_meeting_id == agm.id,
+                Vote.lot_owner_id == lo.id,
+            )
+        )
+        all_votes = list(votes_result.scalars().all())
+        assert len(all_votes) == 2
+        by_motion = {v.motion_id: v for v in all_votes}
+        assert by_motion[m1.id].choice == VoteChoice.selected
+        assert by_motion[m2.id].choice == VoteChoice.against
 
 
 # ---------------------------------------------------------------------------
@@ -1787,10 +2070,11 @@ class TestAdminVoteEntrySlice9:
         )
         assert len(list(votes_result.scalars().all())) == 2
 
-    async def test_empty_option_choices_causes_motion_level_abstain(
+    async def test_empty_option_choices_records_no_vote(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Empty option_choices (no options entered) → single motion-level abstain row."""
+        """Empty option_choices (no options entered) → no vote recorded (no auto-abstain).
+        The frontend only sends MC motions the admin explicitly interacted with."""
         agm, lo, m, opts = await _setup_mc_meeting(db_session, "EmptyChoices")
         payload = {
             "entries": [
@@ -1808,17 +2092,18 @@ class TestAdminVoteEntrySlice9:
         }
         resp = await client.post(f"/api/admin/general-meetings/{agm.id}/enter-votes", json=payload)
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted_count"] == 0
+        assert data["skipped_count"] == 1
 
         await db_session.flush()
-        vote_result = await db_session.execute(
+        votes_result = await db_session.execute(
             select(Vote).where(
                 Vote.general_meeting_id == agm.id,
                 Vote.lot_owner_id == lo.id,
-                Vote.choice == VoteChoice.abstained,
-                Vote.motion_option_id.is_(None),
             )
         )
-        assert vote_result.scalar_one_or_none() is not None
+        assert len(list(votes_result.scalars().all())) == 0
 
     async def test_invalid_choice_string_returns_422(
         self, client: AsyncClient, db_session: AsyncSession
