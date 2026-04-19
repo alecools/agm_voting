@@ -57,6 +57,18 @@ describe("SMTP config API", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("testSmtpConfig sends X-Requested-With header (CSRF protection)", async () => {
+    let xRequestedWith: string | null = null;
+    server.use(
+      http.post(`${BASE}/api/admin/config/smtp/test`, ({ request }) => {
+        xRequestedWith = request.headers.get("x-requested-with");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    await testSmtpConfig("csrf-check@example.com");
+    expect(xRequestedWith).toBe("XMLHttpRequest");
+  });
+
   it("getSmtpStatus returns configured status", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config/smtp/status`, () =>

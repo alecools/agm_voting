@@ -12,14 +12,15 @@ export async function apiFetch<T>(
       ? {}
       : { "Content-Type": "application/json" };
 
+  const { headers: _headers, ...restOptions } = options ?? {};
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       "X-Requested-With": "XMLHttpRequest",
       ...contentTypeHeader,
-      ...options?.headers,
+      ...(_headers ?? {}),
     },
     credentials: "include",
-    ...options,
+    ...restOptions,
   });
 
   if (!response.ok) {
@@ -43,14 +44,15 @@ export async function apiFetchVoid(
       ? {}
       : { "Content-Type": "application/json" };
 
+  const { headers: _headers, ...restOptions } = options ?? {};
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       "X-Requested-With": "XMLHttpRequest",
       ...contentTypeHeader,
-      ...options?.headers,
+      ...(_headers ?? {}),
     },
     credentials: "include",
-    ...options,
+    ...restOptions,
   });
 
   if (!response.ok) {

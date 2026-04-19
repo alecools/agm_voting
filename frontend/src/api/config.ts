@@ -75,7 +75,6 @@ export async function updateSmtpConfig(data: SmtpConfigUpdate): Promise<SmtpConf
 export async function testSmtpConfig(toEmail: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>("/api/admin/config/smtp/test", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ to_email: toEmail }),
   });
 }

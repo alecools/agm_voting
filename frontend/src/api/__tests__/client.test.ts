@@ -30,6 +30,23 @@ describe("apiFetch", () => {
     expect(xRequestedWith).toBe("XMLHttpRequest");
   });
 
+  it("preserves X-Requested-With even when caller passes explicit headers", async () => {
+    let xRequestedWith: string | null = null;
+    server.use(
+      http.post(`${BASE}/api/test-csrf-explicit-headers`, ({ request }) => {
+        xRequestedWith = request.headers.get("x-requested-with");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    // Simulate the testSmtpConfig pattern: caller passes headers: { "Content-Type": ... }
+    await apiFetch("/api/test-csrf-explicit-headers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(xRequestedWith).toBe("XMLHttpRequest");
+  });
+
   it("sends FormData without Content-Type header (lets browser set boundary)", async () => {
     let contentType: string | null = null;
     server.use(
@@ -70,6 +87,16 @@ describe("apiFetch", () => {
 describe("apiFetchVoid", () => {
   // --- Happy path ---
 
+  it("resolves when called with no options argument (GET default)", async () => {
+    server.use(
+      http.get(`${BASE}/api/test-void-no-options`, () =>
+        new HttpResponse(null, { status: 204 })
+      )
+    );
+    const result = await apiFetchVoid("/api/test-void-no-options");
+    expect(result).toBeUndefined();
+  });
+
   it("sends X-Requested-With: XMLHttpRequest on every request (CSRF header)", async () => {
     let xRequestedWith: string | null = null;
     server.use(
@@ -100,6 +127,22 @@ describe("apiFetchVoid", () => {
     );
     const result = await apiFetchVoid("/api/test-delete-200", { method: "DELETE" });
     expect(result).toBeUndefined();
+  });
+
+  it("preserves X-Requested-With even when caller passes explicit headers", async () => {
+    let xRequestedWith: string | null = null;
+    server.use(
+      http.post(`${BASE}/api/test-void-csrf-explicit-headers`, ({ request }) => {
+        xRequestedWith = request.headers.get("x-requested-with");
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    await apiFetchVoid("/api/test-void-csrf-explicit-headers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(xRequestedWith).toBe("XMLHttpRequest");
   });
 
   it("sends FormData without overriding Content-Type", async () => {
