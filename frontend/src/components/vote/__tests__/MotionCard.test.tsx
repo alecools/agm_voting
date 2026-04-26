@@ -571,6 +571,75 @@ describe("MotionCard", () => {
     expect(screen.queryByRole("status", { name: "Motion voting is closed" })).not.toBeInTheDocument();
   });
 
+  // --- motion-card--closed CSS class ---
+
+  it("applies motion-card--closed class when votingClosed=true", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={true}
+        highlight={false}
+        votingClosed={true}
+      />
+    );
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).toHaveClass("motion-card--closed");
+  });
+
+  it("does not apply motion-card--closed class when votingClosed=false", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={false}
+        highlight={false}
+        votingClosed={false}
+      />
+    );
+    const card = screen.getByTestId("motion-card-mot-001");
+    expect(card).not.toHaveClass("motion-card--closed");
+  });
+
+  it("disables For/Against/Abstain buttons when votingClosed=true (binary motion)", () => {
+    render(
+      <MotionCard
+        motion={motion}
+        position={1}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={true}
+        highlight={false}
+        votingClosed={true}
+      />
+    );
+    expect(screen.getByRole("button", { name: "For" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Against" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Abstain" })).toBeDisabled();
+  });
+
+  it("disables multi-choice option buttons when votingClosed=true", () => {
+    render(
+      <MotionCard
+        motion={motionMultiChoice}
+        position={5}
+        choice={null}
+        onChoiceChange={() => {}}
+        disabled={true}
+        highlight={false}
+        votingClosed={true}
+        multiChoiceOptionChoices={{}}
+        onMultiChoiceChange={() => {}}
+      />
+    );
+    const buttons = screen.getAllByRole("button");
+    buttons.forEach((btn) => expect(btn).toBeDisabled());
+  });
+
   it("renders multi-choice options even when onMultiChoiceChange is not provided (fallback)", () => {
     // Exercises the `onMultiChoiceChange ?? (() => {})` fallback (line 106)
     render(
