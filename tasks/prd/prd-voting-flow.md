@@ -455,6 +455,26 @@ This document covers the complete voter journey: email OTP authentication, persi
 
 ## Bug Fixes (Voting Flow)
 
+### BUG-CMU-01: Closed-motion voting controls are visually interactive despite being non-functional
+
+**Status:** ✅ Implemented — branch: `fix/closed-motion-ui`, committed 2026-04-26
+
+**Fix:** When a motion's per-motion voting window is closed (`voting_closed_at IS NOT NULL`) and the voter has not already voted on it, the `MotionCard` component must apply a `motion-card--closed` CSS modifier class so the entire card is visually dimmed and non-interactive. The buttons already receive `disabled=true` from `VotingPage`; this fix adds the matching visual treatment at the card level so voters cannot be misled into thinking interaction is possible.
+
+**Acceptance Criteria:**
+
+- [ ] A motion card with `votingClosed=true` renders with `className` including `motion-card--closed`
+- [ ] The `motion-card--closed` CSS class applies `opacity: 0.65` and `pointer-events: none` to the card, visually matching the greyed-out appearance of the `motion-card--read-only` state
+- [ ] Vote buttons (For/Against/Abstain) inside a closed motion card are both HTML-`disabled` and visually greyed-out (opacity 0.38 via existing `.vote-btn:disabled` rule)
+- [ ] Multi-choice option buttons (For/Against/Abstain per option) inside a closed motion card are also `disabled` and visually greyed-out
+- [ ] The "Motion Closed" badge (existing) continues to be rendered inside the card when `votingClosed=true`
+- [ ] A motion card with `votingClosed=false` (default) does NOT receive the `motion-card--closed` class
+- [ ] The `motion-card--closed` modifier does not interfere with `motion-card--read-only` (already-voted state): both classes can coexist on the same card but they apply to different motion states (closed-unvoted vs already-voted)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ### BUG-RV-01: Submit button missing after admin makes additional motions visible post-submission
 
 **Status:** ✅ Implemented

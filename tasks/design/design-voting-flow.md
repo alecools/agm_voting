@@ -1,5 +1,7 @@
 # Design: Voting Flow
 
+**Status:** Implemented
+
 ## Overview
 
 The voter flow is: authenticate (OTP) → lot selection → voting → confirmation. Proxy voters see "via Proxy" badges. Multi-lot voters have a sidebar for selecting which lot to vote for. Already-voted motions render read-only so voters can return after new motions are revealed without losing prior votes. The confirmation page shows all submitted votes. All flow components meet WCAG 2.1 AA accessibility requirements.
@@ -160,3 +162,140 @@ In-arrear lots have a snapshot (`financial_position_snapshot = 'in_arrear'`) on 
 ## Schema Migration Required
 
 No additional migrations beyond those described in other design docs. The voting flow uses existing tables (`votes`, `ballot_submissions`, `session_records`).
+
+
+---
+
+## BUG-CMU-01: Closed-motion card visual fix
+
+### Overview
+
+When a motion's per-motion voting window has closed (`voting_closed_at IS NOT NULL`) and the voter has not yet cast a ballot for it, `VotingPage` correctly passes `disabled={true}` to `MotionCard` via the `isMotionIndividuallyClosed` predicate. The vote buttons therefore carry the HTML `disabled` attribute and receive the `.vote-btn:disabled` opacity treatment (0.38).
+
+However, the card container itself does not receive any visual modifier class — it retains the same white background and border as fully interactive cards. Voters see an interactive-looking card with a small "Motion Closed" badge inside it but no other visual differentiation. This is misleading UX: the card looks like it can be interacted with.
+
+The fix adds a `motion-card--closed` CSS modifier class to `MotionCard` when `votingClosed=true`, giving the card the same muted appearance as the `motion-card--read-only` (already-voted) state.
+
+### API field
+
+The relevant field is `voting_closed_at: string | null` on `MotionOut` (defined in `frontend/src/api/voter.ts`). It is already returned by `GET /api/general-meeting/{id}/motions` and is already used by `VotingPage.isMotionIndividuallyClosed`.
+
+No backend changes are required. No schema migration is required.
+
+### Component changes
+
+#### `MotionCard.tsx` — add `motion-card--closed` modifier class
+
+Current class expression (line 60):
+
+```tsx
+className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}`}
+```
+
+Updated class expression:
+
+```tsx
+className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}${votingClosed ? " motion-card--closed" : ""}`}
+```
+
+No other changes to `MotionCard.tsx` are needed. The `disabled` prop is already correctly threaded through to `VoteButton` and `MultiChoiceOptionList`.
+
+#### `frontend/src/styles/index.css` — add `motion-card--closed` CSS rule
+
+Add immediately after the existing `.motion-card--read-only .vote-btn` block:
+
+```css
+.motion-card--closed {
+  opacity: 0.65;
+  pointer-events: none;
+}
+```
+
+This mirrors the treatment of `.motion-card--read-only` (opacity 0.65, pointer-events: none). Combined with the existing `.vote-btn:disabled` opacity (0.38 multiplied through the card's 0.65), the buttons appear clearly inactive.
+
+### Why not reuse `motion-card--read-only`?
+
+The two states are semantically distinct:
+
+- `motion-card--read-only`: voter has already voted on this motion; prior choice is shown.
+- `motion-card--closed`: voting window closed before the voter could vote; no prior choice.
+
+Keeping them as separate classes preserves the ability to style them differently if the product requires it in the future (e.g. showing a different tint colour for closed vs already-voted cards). The current implementation uses identical styling for both, which is the simplest correct approach.
+
+### Data flow (end-to-end)
+
+1. `GET /api/general-meeting/{id}/motions` returns `voting_closed_at: "2024-06-01T11:00:00Z"` for a motion whose window has closed.
+2. `VotingPage.isMotionIndividuallyClosed(m)` returns `true` when `!!m.voting_closed_at && !isMotionReadOnly(m)`.
+3. `MotionCard` is rendered with `disabled={motionClosed}` and `votingClosed={motionClosed}`.
+4. Inside `MotionCard`:
+   - The card `<div>` receives class `motion-card motion-card--closed`.
+   - `isEffectivelyDisabled = disabled || readOnly` evaluates to `true`.
+   - `VoteButton` receives `disabled={true}` — the HTML button is non-interactive.
+   - `MultiChoiceOptionList` receives `disabled={true}` — all option buttons are non-interactive.
+   - "Motion Closed" badge renders (existing `votingClosed` conditional, unchanged).
+5. CSS: `.motion-card--closed` applies `opacity: 0.65; pointer-events: none` to the whole card.
+
+### Files to change
+
+| File | Change |
+|---|---|
+| `frontend/src/components/vote/MotionCard.tsx` | Add `motion-card--closed` to class expression when `votingClosed=true` |
+| `frontend/src/styles/index.css` | Add `.motion-card--closed { opacity: 0.65; pointer-events: none; }` rule |
+| `frontend/src/components/vote/__tests__/MotionCard.test.tsx` | Add unit tests described below |
+
+### Test cases
+
+#### Unit tests to add in `MotionCard.test.tsx`
+
+1. **Closed modifier class applied** — render `MotionCard` with `votingClosed={true}` and `disabled={true}`; assert `getByTestId("motion-card-{id}")` has class `motion-card--closed`.
+2. **Closed modifier class absent by default** — render `MotionCard` with `votingClosed` omitted; assert card does NOT have class `motion-card--closed`.
+3. **Buttons disabled when votingClosed** — render with `votingClosed={true}` and `disabled={true}`; assert all three vote buttons (For, Against, Abstain) have the HTML `disabled` attribute.
+4. **MC buttons disabled when votingClosed** — render multi-choice `MotionCard` with `votingClosed={true}` and `disabled={true}`; assert all For/Against/Abstain option buttons have the HTML `disabled` attribute.
+5. **Closed class does not add read-only class** — render with `votingClosed={true}`, `readOnly={false}`; assert card does NOT have `motion-card--read-only`.
+
+#### Existing tests that must not regress
+
+- All existing `MotionCard.test.tsx` tests — the change is purely additive.
+- `VotingPage.test.tsx` — "shows 'Voting closed' label for a motion with voting_closed_at set" and "excludes individually-closed unanswered motions from progress bar denominator" must continue to pass.
+
+### Security considerations
+
+No security implications. This is a purely cosmetic frontend change. The vote buttons were already non-functional (HTML `disabled` attribute was already correctly set by `VotingPage`). Only the card-level visual CSS treatment was missing.
+
+---
+
+## E2E Test Scenarios
+
+### Happy path — closed motion alongside open motion
+
+1. Voter authenticates and lands on the voting page.
+2. One motion has `voting_closed_at` set; another is open and unanswered.
+3. Closed motion card: appears visually dimmed, shows "Motion Closed" badge, all vote buttons are non-interactive.
+4. Open motion card: appears normal, buttons are interactive.
+5. Voter answers the open motion and submits.
+6. Submission succeeds; voter is taken to the confirmation page.
+7. The closed motion does not appear in the submitted votes.
+
+### Edge case — motion closed after voter already voted on it
+
+- `isMotionIndividuallyClosed` returns `false` when `isMotionReadOnly` is `true` (all selected lots already voted on it).
+- The card renders with `motion-card--read-only` only and NOT `motion-card--closed`.
+
+### Multi-step sequence — closed motion does not block submission
+
+1. Voter is on the voting page with two motions: Motion 1 (closed, unvoted), Motion 2 (open).
+2. Motion 1 card is dimmed; voter cannot click its buttons (pointer-events: none).
+3. Voter selects a choice on Motion 2 only.
+4. Progress bar shows 1 / 1 (the closed motion is excluded from the denominator).
+5. Voter clicks "Submit ballot" and confirms.
+6. Submission succeeds with only Motion 2 in the payload.
+
+### Existing E2E journeys affected
+
+The Voter persona journey (auth to lot selection to voting to confirmation) is affected when per-motion voting windows are in use. The existing voting-flow E2E suite should include a scenario verifying the "Motion Closed" badge is visible; that scenario now also implicitly covers the dimmed card. No new E2E spec file is required, but the existing per-motion-window scenario should assert that the card has the `motion-card--closed` class or that vote buttons are disabled.
+
+---
+
+## Schema Migration Required
+
+No. This fix makes no database changes.

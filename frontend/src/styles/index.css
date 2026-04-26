@@ -550,6 +550,11 @@ button, input, select, textarea {
   cursor: not-allowed;
 }
 
+.motion-card--closed {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .motion-card__number {
   font-family: 'Overpass Mono', monospace;
   font-size: 0.7rem;
