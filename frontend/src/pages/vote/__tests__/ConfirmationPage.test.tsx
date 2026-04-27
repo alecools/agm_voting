@@ -9,7 +9,7 @@ import { ConfirmationPage } from "../ConfirmationPage";
 import { AGM_ID } from "../../../../tests/msw/handlers";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {

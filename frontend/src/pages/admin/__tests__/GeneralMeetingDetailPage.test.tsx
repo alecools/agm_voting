@@ -211,7 +211,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows EmailStatusBanner with null lastError", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-email-null-error") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL_CLOSED,
@@ -274,7 +274,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("Resend Summary Email button shows loading state while in flight", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", async () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/resend-report", async () => {
         await new Promise(() => {}); // never resolves
       })
     );
@@ -291,7 +291,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("Resend Summary Email shows error on failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/resend-report", () => {
         return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
       })
     );
@@ -308,7 +308,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows generic error when non-404 fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", () => {
         return HttpResponse.json({ detail: "Server error" }, { status: 500 });
       })
     );
@@ -467,7 +467,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows move buttons for open meeting with multiple motions", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-multi") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -497,7 +497,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows move buttons for pending meeting with multiple motions", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-pending-multi") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL_PENDING,
@@ -520,7 +520,7 @@ describe("GeneralMeetingDetailPage", () => {
   it("clicking 'Move to bottom' calls reorder API and updates display", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-reorder-test") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -561,7 +561,7 @@ describe("GeneralMeetingDetailPage", () => {
     // identifier; only display_order should change when the user reorders.
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-mn-stable") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -628,7 +628,7 @@ describe("GeneralMeetingDetailPage", () => {
   it("shows reorder error alert when API returns error", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-reorder-error") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -665,7 +665,7 @@ describe("GeneralMeetingDetailPage", () => {
   it("clicking 'Move to top' in visibility table calls reorder API", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-move-top-test") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -788,7 +788,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows error and disables toggle after 409 'received votes' response", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", () => {
         return HttpResponse.json(
           { detail: "Cannot hide a motion that has received votes" },
           { status: 409 }
@@ -813,7 +813,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows error for generic visibility failure", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", () => {
         return HttpResponse.json({ detail: "Internal server error" }, { status: 500 });
       })
     );
@@ -832,7 +832,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows 'Cannot change visibility on a closed meeting' error message", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", () => {
         return HttpResponse.json(
           { detail: "Cannot change visibility on a closed meeting" },
           { status: 409 }
@@ -854,7 +854,7 @@ describe("GeneralMeetingDetailPage", () => {
 
   it("shows 'No motions.' when meeting has no motions", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-no-motions") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -1002,7 +1002,7 @@ describe("Add Motion form", () => {
   it("submitting add motion with motion_number sends it in the payload", async () => {
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           id: "motion-new",
@@ -1035,7 +1035,7 @@ describe("Add Motion form", () => {
     // send motion_number: null so the backend auto-assigns from display_order.
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/motions", async ({ request }) => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           id: "motion-new",
@@ -1156,7 +1156,7 @@ describe("Add Motion form", () => {
     const user = userEvent.setup();
     // Use a handler that never resolves to keep the mutation pending
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/motions", async () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/motions", async () => {
         await new Promise(() => {}); // never resolves
       })
     );
@@ -1242,7 +1242,7 @@ describe("Edit motion modal", () => {
   it("editing motion number sends updated value to API", async () => {
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId", async ({ request }) => {
         capturedBody = await request.json() as Record<string, unknown>;
         const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
         return HttpResponse.json({
@@ -1281,7 +1281,7 @@ describe("Edit motion modal", () => {
   it("submitting edit sends updated motion_number value", async () => {
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId", async ({ params, request }) => {
         capturedBody = await request.json() as Record<string, unknown>;
         const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
         return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
@@ -1309,7 +1309,7 @@ describe("Edit motion modal", () => {
     // the motion_number update. The backend converts "" to null in the DB.
     let capturedBody: Record<string, unknown> | null = null;
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId", async ({ params, request }) => {
         capturedBody = await request.json() as Record<string, unknown>;
         const motion = ADMIN_MEETING_DETAIL_HIDDEN_MOTION.motions[0];
         return HttpResponse.json({ ...motion, id: params.motionId as string, ...capturedBody });
@@ -1411,7 +1411,7 @@ describe("Edit motion modal", () => {
 
   it("API error is shown inside modal when PATCH fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-hidden-edit-fail") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL_HIDDEN_MOTION,
@@ -1496,7 +1496,7 @@ describe("Edit motion modal", () => {
 
   it("Save Changes button is disabled while mutation is pending", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId", async ({ params }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId", async ({ params }) => {
         if (params.motionId === "m-hidden") {
           await new Promise(() => {}); // never resolves
         }
@@ -1649,7 +1649,7 @@ describe("Delete motion", () => {
 
   it("API error is shown inline when DELETE fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-hidden-delete-fail") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL_HIDDEN_MOTION,
@@ -1691,7 +1691,7 @@ describe("Delete motion", () => {
     // First set up a failing delete, then a succeeding one for the same motion
     let callCount = 0;
     server.use(
-      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+      http.delete("http://localhost/api/admin/motions/:motionId", () => {
         callCount++;
         if (callCount === 1) {
           return HttpResponse.json({ detail: "Server error" }, { status: 500 });
@@ -1725,7 +1725,7 @@ describe("Delete motion", () => {
   it("clicking Cancel in confirmation modal does NOT call the delete mutation", async () => {
     const deleteSpy = vi.fn();
     server.use(
-      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+      http.delete("http://localhost/api/admin/motions/:motionId", () => {
         deleteSpy();
         return new HttpResponse(null, { status: 204 });
       })
@@ -1749,7 +1749,7 @@ describe("Delete motion", () => {
   it("pressing Escape in confirmation modal closes it without calling delete", async () => {
     const deleteSpy = vi.fn();
     server.use(
-      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+      http.delete("http://localhost/api/admin/motions/:motionId", () => {
         deleteSpy();
         return new HttpResponse(null, { status: 204 });
       })
@@ -1771,7 +1771,7 @@ describe("Delete motion", () => {
   it("clicking backdrop in confirmation modal closes it without calling delete", async () => {
     const deleteSpy = vi.fn();
     server.use(
-      http.delete("http://localhost:8000/api/admin/motions/:motionId", () => {
+      http.delete("http://localhost/api/admin/motions/:motionId", () => {
         deleteSpy();
         return new HttpResponse(null, { status: 204 });
       })
@@ -1815,7 +1815,7 @@ describe("Visibility toggle optimistic update", () => {
   it("toggle changes state immediately (optimistic) before server response arrives", async () => {
     // Use a handler that never resolves so the server response never arrives
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async () => {
         await new Promise(() => {}); // never resolves — keeps mutation in-flight
       })
     );
@@ -1842,7 +1842,7 @@ describe("Visibility toggle optimistic update", () => {
 
   it("toggle reverts when server returns an error", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", () => {
         return HttpResponse.json({ detail: "Internal server error" }, { status: 500 });
       })
     );
@@ -1886,7 +1886,7 @@ describe("Reorder buttons in Actions column", () => {
 
   it("reorder and Edit/Delete buttons are in the same table cell", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-reorder-actions-test") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -1926,7 +1926,7 @@ describe("Reorder buttons in Actions column", () => {
 
   it("Move to top button is in the same cell as Edit/Delete", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-reorder-cell-test") {
           return HttpResponse.json({
             ...ADMIN_MEETING_DETAIL,
@@ -1990,7 +1990,7 @@ describe("Bulk motion visibility", () => {
     // agm-mixed has 1 visible + 2 hidden motions
     const patchedIds: string[] = [];
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
         const body = await request.json() as { is_visible: boolean };
         if (body.is_visible) patchedIds.push(params.motionId as string);
         return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
@@ -2014,7 +2014,7 @@ describe("Bulk motion visibility", () => {
   it("Hide All calls toggleMotionVisibility for each visible motion", async () => {
     const patchedIds: string[] = [];
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
         const body = await request.json() as { is_visible: boolean };
         if (!body.is_visible) patchedIds.push(params.motionId as string);
         return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
@@ -2037,7 +2037,7 @@ describe("Bulk motion visibility", () => {
   it("Hide All swallows 409 received-votes errors and still invalidates queries", async () => {
     // m-visible-1 will 409, the operation should still complete without throwing
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async ({ params }) => {
         if (params.motionId === "m-visible-1") {
           return HttpResponse.json({ detail: "Cannot hide a motion that has received votes" }, { status: 409 });
         }
@@ -2107,7 +2107,7 @@ describe("Bulk motion visibility", () => {
   it("isBulkLoading disables both bulk buttons and individual visibility toggles", async () => {
     // Use a handler that never resolves to keep the bulk operation in-flight
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async () => {
         await new Promise(() => {}); // never resolves
       })
     );
@@ -2134,7 +2134,7 @@ describe("Bulk motion visibility", () => {
   it("Show All does nothing and stays enabled when all motions are already visible", async () => {
     const patchSpy = vi.fn();
     server.use(
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", () => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", () => {
         patchSpy();
         return HttpResponse.json({});
       })
@@ -2151,14 +2151,14 @@ describe("Bulk motion visibility", () => {
   it("query is invalidated after Show All completes", async () => {
     let getCallCount = 0;
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-all-hidden") {
           getCallCount++;
           return HttpResponse.json(ADMIN_MEETING_DETAIL_ALL_HIDDEN);
         }
         return HttpResponse.json({ detail: "not found" }, { status: 404 });
       }),
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
         const body = await request.json() as { is_visible: boolean };
         return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_ALL_HIDDEN.motions[0], id: params.motionId as string, is_visible: body.is_visible });
       })
@@ -2178,14 +2178,14 @@ describe("Bulk motion visibility", () => {
   it("query is invalidated after Hide All completes", async () => {
     let getCallCount = 0;
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", ({ params }) => {
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", ({ params }) => {
         if (params.meetingId === "agm-mixed") {
           getCallCount++;
           return HttpResponse.json(ADMIN_MEETING_DETAIL_MIXED_VISIBILITY);
         }
         return HttpResponse.json({ detail: "not found" }, { status: 404 });
       }),
-      http.patch("http://localhost:8000/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
+      http.patch("http://localhost/api/admin/motions/:motionId/visibility", async ({ params, request }) => {
         const body = await request.json() as { is_visible: boolean };
         return HttpResponse.json({ ...ADMIN_MEETING_DETAIL_MIXED_VISIBILITY.motions[0], id: params.motionId as string, is_visible: body.is_visible });
       })
@@ -2406,7 +2406,7 @@ describe("Bulk motion visibility", () => {
     const user = userEvent.setup();
     // Override the hidden motion to have existing options (simulating a multi-choice motion)
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () =>
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", () =>
         HttpResponse.json({
           ...ADMIN_MEETING_DETAIL_HIDDEN_MOTION,
           id: "agm-mc-existing",
@@ -2591,7 +2591,7 @@ describe("Close Motion", () => {
   it("calls closeMotion API when Close Voting is confirmed in dialog", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post(`http://localhost:8000/api/admin/motions/:motionId/close`, ({ params }) => {
+      http.post(`http://localhost/api/admin/motions/:motionId/close`, ({ params }) => {
         const motion = ADMIN_MEETING_DETAIL.motions[0];
         return HttpResponse.json({
           ...motion,
@@ -2634,7 +2634,7 @@ describe("Close Motion", () => {
   it("shows error when closeMotion API fails", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post(`http://localhost:8000/api/admin/motions/:motionId/close`, () => {
+      http.post(`http://localhost/api/admin/motions/:motionId/close`, () => {
         return HttpResponse.json({ detail: "Motion voting is already closed" }, { status: 409 });
       })
     );
@@ -2665,7 +2665,7 @@ describe("Close Motion", () => {
       ],
     };
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/:meetingId", () =>
+      http.get("http://localhost/api/admin/general-meetings/:meetingId", () =>
         HttpResponse.json(meetingWithClosedMotion)
       )
     );

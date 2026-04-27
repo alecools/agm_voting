@@ -87,7 +87,7 @@ describe("AdminLoginPage", () => {
 
   it("shows error message on invalid credentials", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/auth/login", () => {
+      http.post("http://localhost/api/admin/auth/login", () => {
         return HttpResponse.json({ detail: "Invalid credentials" }, { status: 401 });
       })
     );
@@ -107,7 +107,7 @@ describe("AdminLoginPage", () => {
   it("shows Signing in… while loading", async () => {
     let resolve!: (value: Response) => void;
     server.use(
-      http.post("http://localhost:8000/api/admin/auth/login", () => {
+      http.post("http://localhost/api/admin/auth/login", () => {
         return new Promise((res) => { resolve = res as (value: Response) => void; });
       })
     );
@@ -123,7 +123,7 @@ describe("AdminLoginPage", () => {
   it("disables submit button while loading", async () => {
     let resolve!: (value: Response) => void;
     server.use(
-      http.post("http://localhost:8000/api/admin/auth/login", () => {
+      http.post("http://localhost/api/admin/auth/login", () => {
         return new Promise((res) => { resolve = res as (value: Response) => void; });
       })
     );

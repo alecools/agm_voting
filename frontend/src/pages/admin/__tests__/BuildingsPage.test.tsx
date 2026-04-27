@@ -96,7 +96,7 @@ describe("BuildingsPage", () => {
 
   it("shows error after failed CSV upload", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/import", () => {
+      http.post("http://localhost/api/admin/buildings/import", () => {
         return HttpResponse.json({ detail: "Bad CSV" }, { status: 422 });
       })
     );
@@ -240,7 +240,7 @@ describe("BuildingsPage", () => {
 
   it("shows API error inline in modal on failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings", () => {
+      http.post("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Building already exists" }, { status: 409 });
       })
     );
@@ -284,7 +284,7 @@ describe("BuildingsPage", () => {
   it("hides archived buildings by default (server sends is_archived=false)", async () => {
     // Default handler filters by is_archived=false — Active Tower returns, Old Tower is archived and excluded
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -292,7 +292,7 @@ describe("BuildingsPage", () => {
         }
         return HttpResponse.json({ count: 2 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -315,7 +315,7 @@ describe("BuildingsPage", () => {
 
   it("shows archived buildings when toggle is checked (server receives no is_archived filter)", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -324,7 +324,7 @@ describe("BuildingsPage", () => {
         // no is_archived param → all buildings
         return HttpResponse.json({ count: 2 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -368,7 +368,7 @@ describe("BuildingsPage", () => {
       created_at: "2023-01-01T00:00:00Z",
     };
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -376,7 +376,7 @@ describe("BuildingsPage", () => {
         }
         return HttpResponse.json({ count: 22 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
@@ -431,10 +431,10 @@ describe("BuildingsPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -476,10 +476,10 @@ describe("BuildingsPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -593,7 +593,7 @@ describe("BuildingsPage", () => {
 
   it("shows error state when fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Error" }, { status: 500 });
       })
     );
@@ -659,10 +659,10 @@ describe("BuildingsPage", () => {
   it("sort change resets page to 1 (sends request without page param)", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -690,7 +690,7 @@ describe("BuildingsPage", () => {
 
   it("shows error state when sort_by is invalid and server returns 422", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Invalid sort_by value" }, { status: 422 });
       })
     );
@@ -769,14 +769,14 @@ describe("BuildingsPage — name filter (Fix 4)", () => {
   it("listBuildings is called with name param when name_filter is in URL", async () => {
     let capturedName: string | null = null;
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         capturedName = url.searchParams.get("name");
         return HttpResponse.json([
           { id: "b1", name: "Alpha Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
         ]);
       }),
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 1 })
       )
     );

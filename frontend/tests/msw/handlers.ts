@@ -17,7 +17,7 @@ import type {
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
 import type { TenantConfig, SmtpConfig, SmtpStatus } from "../../src/api/config";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 export let configFixture: TenantConfig = {
   app_name: "General Meeting",

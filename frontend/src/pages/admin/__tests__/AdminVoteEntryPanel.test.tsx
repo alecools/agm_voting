@@ -46,7 +46,7 @@ describe("AdminVoteEntryPanel", () => {
 
   it("shows loading state while fetching lots", () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", () => {
         return HttpResponse.json([], { status: 200 });
       })
     );
@@ -58,7 +58,7 @@ describe("AdminVoteEntryPanel", () => {
   it("fetches lot owners with limit=1000 to load all lots regardless of building size", async () => {
     let capturedUrl: string | null = null;
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json(ADMIN_LOT_OWNERS);
       })
@@ -446,7 +446,7 @@ describe("AdminVoteEntryPanel", () => {
   it("shows 409-specific 'already submitted' error message on 409 response (Fix 8)", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ detail: "Already submitted" }, { status: 409 })
       )
     );
@@ -473,7 +473,7 @@ describe("AdminVoteEntryPanel", () => {
   it("shows generic error message on non-409 submission failure (Fix 8 else branch)", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ detail: "Internal server error" }, { status: 500 })
       )
     );
@@ -501,7 +501,7 @@ describe("AdminVoteEntryPanel", () => {
   it("shows error message when submission fails", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ detail: "Meeting is not open" }, { status: 409 })
       )
     );
@@ -540,7 +540,7 @@ describe("AdminVoteEntryPanel", () => {
   it("shows in-arrear badge for in-arrear lots", async () => {
     // Add an in-arrear lot to the fixture
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", () => {
         return HttpResponse.json([
           ...ADMIN_LOT_OWNERS,
           {
@@ -853,7 +853,7 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     let capturedBody: unknown;
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
@@ -892,7 +892,7 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
 
   it("in-arrear lot shows Not eligible for multi-choice motion", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", () => {
         return HttpResponse.json([
           {
             id: "lo-arrear2",
@@ -922,7 +922,7 @@ describe("AdminVoteEntryPanel — multi-choice For/Against/Abstain (US-AVE2-01)"
     let capturedBody: unknown;
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
@@ -1200,7 +1200,7 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
   it("AVE-RV-11: skipped_count > 0 in submit response shows amber banner and keeps panel open", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ submitted_count: 0, skipped_count: 1 })
       )
     );
@@ -1238,7 +1238,7 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
   it("AVE-RV-12: skipped_count == 0 in submit response calls onSuccess immediately", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ submitted_count: 1, skipped_count: 0 })
       )
     );
@@ -1411,7 +1411,7 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
   it("'Done' button in skipped-count banner calls onSuccess", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ submitted_count: 0, skipped_count: 1 })
       )
     );
@@ -1446,7 +1446,7 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
   it("Multi-step: admin selects lot with prior entry and new lot, submits, sees warning, continues, sees skipped banner", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ submitted_count: 1, skipped_count: 1 })
       )
     );
@@ -1602,7 +1602,7 @@ describe("AdminVoteEntryPanel — Fix 5 admin re-vote UX", () => {
   it("Submit button is hidden after skipped-count banner appears", async () => {
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         () => HttpResponse.json({ submitted_count: 0, skipped_count: 2 })
       )
     );
@@ -1782,7 +1782,7 @@ describe("AdminVoteEntryPanel — Bug 2: handleSubmit excludes motions without e
     let capturedBody: unknown;
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
@@ -1818,7 +1818,7 @@ describe("AdminVoteEntryPanel — Bug 2: handleSubmit excludes motions without e
     let capturedBody: unknown;
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });
@@ -1854,7 +1854,7 @@ describe("AdminVoteEntryPanel — Bug 2: handleSubmit excludes motions without e
     let capturedBody: unknown;
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/general-meetings/:meetingId/enter-votes",
+        "http://localhost/api/admin/general-meetings/:meetingId/enter-votes",
         async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ submitted_count: 1, skipped_count: 0 });

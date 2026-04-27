@@ -166,7 +166,7 @@ describe("BuildingSearchCombobox", () => {
     const user = userEvent.setup();
     let capturedUrl = "";
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json([]);
       })
@@ -181,7 +181,7 @@ describe("BuildingSearchCombobox", () => {
   it("sends sort_by=name and sort_dir=asc in initial query", async () => {
     let capturedUrl = "";
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json([]);
       })
@@ -205,7 +205,7 @@ describe("BuildingSearchCombobox", () => {
   it("shows 'No buildings found' when search has no results", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const name = url.searchParams.get("name");
         if (name === "ZZZNOMATCH") return HttpResponse.json([]);

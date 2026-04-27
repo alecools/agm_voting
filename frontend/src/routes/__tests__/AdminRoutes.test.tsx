@@ -76,7 +76,7 @@ describe("AdminRoutes", () => {
 
   it("redirects to /admin/login when not authenticated", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/auth/me", () => {
+      http.get("http://localhost/api/admin/auth/me", () => {
         return HttpResponse.json({ detail: "Not authenticated" }, { status: 401 });
       })
     );

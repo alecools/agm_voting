@@ -28,7 +28,7 @@ function renderApp(initialPath = "/") {
   );
 }
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 describe("Voting Flow Integration", () => {
   beforeEach(() => {
@@ -174,7 +174,7 @@ describe("Voting Flow Integration", () => {
     const { MOTION_ID_1, MOTION_ID_2, AGM_ID: AGM } = await import("../../../../tests/msw/handlers");
 
     server.use(
-      http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
+      http.get(`http://localhost/api/general-meeting/${AGM}/motions`, () =>
         HttpResponse.json([
           // Motion 1 was voted on previously (already_voted=true)
           { id: MOTION_ID_1, title: "Motion 1", description: null, display_order: 1, motion_type: "general", is_visible: true, already_voted: true },
@@ -212,7 +212,7 @@ describe("Voting Flow Integration", () => {
     const { MOTION_ID_1, MOTION_ID_2, AGM_ID: AGM } = await import("../../../../tests/msw/handlers");
 
     server.use(
-      http.get(`http://localhost:8000/api/general-meeting/${AGM}/motions`, () =>
+      http.get(`http://localhost/api/general-meeting/${AGM}/motions`, () =>
         HttpResponse.json([
           { id: MOTION_ID_1, title: "Motion 1", description: null, display_order: 1, motion_type: "general", is_visible: true, already_voted: true },
           { id: MOTION_ID_2, title: "Motion 2", description: null, display_order: 2, motion_type: "special", is_visible: true, already_voted: true },

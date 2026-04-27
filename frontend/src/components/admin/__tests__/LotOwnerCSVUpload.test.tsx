@@ -36,7 +36,7 @@ describe("LotOwnerCSVUpload", () => {
 
   it("shows error message on upload failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import", () => {
         return HttpResponse.json({ detail: "Missing required CSV headers" }, { status: 422 });
       })
     );

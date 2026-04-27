@@ -10,7 +10,7 @@ import { resetConfigFixture } from "../../../../tests/msw/handlers";
 import * as configApi from "../../../api/config";
 import { vi } from "vitest";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 function renderPage() {
   const qc = new QueryClient({
@@ -264,7 +264,7 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     // Delay the upload response so we can observe the Uploading state
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+      http.post("http://localhost/api/admin/config/logo", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
       })
@@ -287,7 +287,7 @@ describe("SettingsPage", () => {
   it("disables file input during upload", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+      http.post("http://localhost/api/admin/config/logo", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
       })
@@ -307,7 +307,7 @@ describe("SettingsPage", () => {
   it("shows upload error when server returns an error", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ detail: "Logo upload failed" }, { status: 502 })
       )
     );
@@ -432,7 +432,7 @@ describe("SettingsPage", () => {
   it("shows Uploading message during favicon upload then hides it on success", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", async () => {
+      http.post("http://localhost/api/admin/config/favicon", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon.png" });
       })
@@ -454,7 +454,7 @@ describe("SettingsPage", () => {
   it("disables favicon file input during upload", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", async () => {
+      http.post("http://localhost/api/admin/config/favicon", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon.png" });
       })
@@ -474,7 +474,7 @@ describe("SettingsPage", () => {
   it("shows upload error when favicon server returns an error", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ detail: "Favicon upload failed" }, { status: 502 })
       )
     );
@@ -604,7 +604,7 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     // First trigger an error
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
       )
     );
@@ -616,7 +616,7 @@ describe("SettingsPage", () => {
 
     // Now succeed on second upload with a different file object (avoids no-change event)
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo-test.png" })
       )
     );
@@ -630,7 +630,7 @@ describe("SettingsPage", () => {
   it("favicon upload success clears favicon error state first", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
       )
     );
@@ -641,7 +641,7 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByText(/HTTP 502/)).toBeInTheDocument());
 
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon-test.png" })
       )
     );

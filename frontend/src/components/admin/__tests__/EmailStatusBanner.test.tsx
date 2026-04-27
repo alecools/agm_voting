@@ -49,7 +49,7 @@ describe("EmailStatusBanner", () => {
 
   it("shows error message when retry fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/resend-report", () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/resend-report", () => {
         return HttpResponse.json({ detail: "Cannot resend" }, { status: 409 });
       })
     );

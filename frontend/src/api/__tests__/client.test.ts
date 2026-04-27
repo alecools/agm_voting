@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/msw/server";
 import { apiFetch, apiFetchVoid } from "../client";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 describe("apiFetch", () => {
   // --- Happy path ---

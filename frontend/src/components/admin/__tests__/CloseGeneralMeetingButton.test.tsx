@@ -85,7 +85,7 @@ describe("CloseGeneralMeetingButton", () => {
 
   it("shows error message when close fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/close", () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/close", () => {
         return HttpResponse.json({ detail: "General Meeting is already closed" }, { status: 409 });
       })
     );
@@ -101,7 +101,7 @@ describe("CloseGeneralMeetingButton", () => {
   it("dialog remains open while mutation is in flight (isPending)", async () => {
     let resolve!: () => void;
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/close", () =>
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/close", () =>
         new Promise<Response>((res) => {
           resolve = () =>
             res(HttpResponse.json({ id: "agm1", status: "closed", closed_at: "2024-06-01T13:00:00Z" }) as Response);

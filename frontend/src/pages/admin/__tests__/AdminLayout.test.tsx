@@ -8,7 +8,7 @@ import { server } from "../../../../tests/msw/server";
 import AdminLayout from "../AdminLayout";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {

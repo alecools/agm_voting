@@ -8,7 +8,7 @@ import RequireAdminAuth from "../RequireAdminAuth";
 
 function renderWithAuth(authenticated: boolean) {
   server.use(
-    http.get("http://localhost:8000/api/admin/auth/me", () => {
+    http.get("http://localhost/api/admin/auth/me", () => {
       if (authenticated) {
         return HttpResponse.json({ authenticated: true });
       }

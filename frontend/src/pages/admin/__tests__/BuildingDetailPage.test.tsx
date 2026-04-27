@@ -130,7 +130,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows error state when lot owners fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", () => {
         return HttpResponse.json({ detail: "Error" }, { status: 500 });
       })
     );
@@ -159,7 +159,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows Building label when building is not found", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
       })
     );
@@ -247,7 +247,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows archive error when API fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/archive", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/archive", () => {
         return HttpResponse.json({ detail: "Already archived" }, { status: 409 });
       })
     );
@@ -285,7 +285,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows error when proxy nominations upload fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-proxies", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-proxies", () => {
         return HttpResponse.json({ detail: "Missing required CSV headers" }, { status: 422 });
       })
     );
@@ -323,7 +323,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows error when financial positions upload fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", () => {
         return HttpResponse.json({ detail: "Invalid value" }, { status: 422 });
       })
     );
@@ -341,7 +341,7 @@ describe("BuildingDetailPage", () => {
 
   it("does not show Archive Building button for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -465,7 +465,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows server error when PATCH fails", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.patch("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({ detail: "Name already taken" }, { status: 409 });
       })
     );
@@ -488,7 +488,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows Delete Building button only for archived buildings", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -515,7 +515,7 @@ describe("BuildingDetailPage", () => {
 
   it("opens delete confirm modal when Delete Building clicked", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -537,7 +537,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows building name in delete modal heading", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -559,7 +559,7 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on Cancel without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -584,7 +584,7 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on Escape without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -611,7 +611,7 @@ describe("BuildingDetailPage", () => {
   it("closes delete modal on backdrop click without deleting", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -639,7 +639,7 @@ describe("BuildingDetailPage", () => {
   it("navigates to buildings list on successful delete", async () => {
     mockNavigate.mockClear();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -648,7 +648,7 @@ describe("BuildingDetailPage", () => {
           created_at: "2024-01-01T00:00:00Z",
         });
       }),
-      http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.delete("http://localhost/api/admin/buildings/:buildingId", () => {
         return new HttpResponse(null, { status: 204 });
       })
     );
@@ -667,7 +667,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows delete error when API returns error", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -676,7 +676,7 @@ describe("BuildingDetailPage", () => {
           created_at: "2024-01-01T00:00:00Z",
         });
       }),
-      http.delete("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.delete("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json(
           { detail: "Only archived buildings can be deleted" },
           { status: 409 }
@@ -809,7 +809,7 @@ describe("BuildingDetailPage", () => {
 
   it("DeleteBuildingConfirmModal focuses first element (Cancel button) when opened", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -830,7 +830,7 @@ describe("BuildingDetailPage", () => {
 
   it("DeleteBuildingConfirmModal wraps Tab from last button back to first", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -856,7 +856,7 @@ describe("BuildingDetailPage", () => {
 
   it("DeleteBuildingConfirmModal wraps Shift+Tab from first button to last", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -882,7 +882,7 @@ describe("BuildingDetailPage", () => {
 
   it("Delete Building button uses btn--danger class", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId", () => {
+      http.get("http://localhost/api/admin/buildings/:buildingId", () => {
         return HttpResponse.json({
           id: "b1",
           name: "Alpha Tower",
@@ -913,7 +913,7 @@ describe("BuildingDetailPage", () => {
 
   it("shows pagination nav when count exceeds PAGE_SIZE", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/count", () =>
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
         HttpResponse.json({ count: 25 })
       )
     );
@@ -926,7 +926,7 @@ describe("BuildingDetailPage", () => {
 
   it("passes lotPage=2 URL param when navigating to page 2", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/count", () =>
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
         HttpResponse.json({ count: 25 })
       )
     );
@@ -945,10 +945,10 @@ describe("BuildingDetailPage", () => {
   it("prefetches next page when there are more items than PAGE_SIZE", async () => {
     let prefetchCalled = false;
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/count", () =>
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
         HttpResponse.json({ count: 25 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
         const url = new URL(request.url);
         const offset = url.searchParams.get("offset");
         if (offset === "20") prefetchCalled = true;
@@ -963,7 +963,7 @@ describe("BuildingDetailPage", () => {
 
   it("reads lotPage from URL search param", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/count", () =>
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
         HttpResponse.json({ count: 25 })
       )
     );
@@ -975,7 +975,7 @@ describe("BuildingDetailPage", () => {
 
   it("navigates back to page 1 removing lotPage param", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/count", () =>
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
         HttpResponse.json({ count: 25 })
       )
     );

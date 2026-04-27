@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../../tests/msw/server";
 import { useAutoSave } from "../useAutoSave";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 describe("useAutoSave", () => {
   beforeEach(() => {

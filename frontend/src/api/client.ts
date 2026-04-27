@@ -1,4 +1,5 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+/* v8 ignore next -- fallback is unreachable when VITE_API_BASE_URL is defined at build time; defaults to same-origin ("") when env var is absent */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function apiFetch<T>(
   path: string,

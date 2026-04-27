@@ -42,7 +42,7 @@ describe("FinancialPositionUpload", () => {
 
   it("shows error message on upload failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", () => {
         return HttpResponse.json({ detail: "Missing required CSV headers" }, { status: 422 });
       })
     );
@@ -87,7 +87,7 @@ describe("FinancialPositionUpload", () => {
 
   it("shows uploading state while pending", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", async () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ updated: 2, skipped: 0 });
       })
@@ -104,7 +104,7 @@ describe("FinancialPositionUpload", () => {
 
   it("shows selected filename while uploading", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", async () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-financial-positions", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ updated: 2, skipped: 0 });
       })

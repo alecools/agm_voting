@@ -231,7 +231,7 @@ describe("CreateGeneralMeetingForm", () => {
 
   it("shows 409 conflict error from server", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings", () => {
+      http.post("http://localhost/api/admin/general-meetings", () => {
         return HttpResponse.json(
           { detail: "An open General Meeting already exists for this building" },
           { status: 409 }

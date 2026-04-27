@@ -10,7 +10,7 @@ import { AGM_ID } from "../../../../tests/msw/handlers";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 import { logout } from "../../../api/voter";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 // Navigation spy placeholder
 const mockNavigate = vi.fn();

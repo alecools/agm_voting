@@ -36,7 +36,7 @@ describe("ProxyNominationsUpload", () => {
 
   it("shows error message on upload failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-proxies", () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-proxies", () => {
         return HttpResponse.json({ detail: "Missing required CSV headers" }, { status: 422 });
       })
     );
@@ -82,7 +82,7 @@ describe("ProxyNominationsUpload", () => {
   it("shows uploading state while pending", async () => {
     // Delay the response so we can catch the pending state
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-proxies", async () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-proxies", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ upserted: 1, removed: 0, skipped: 0 });
       })
@@ -100,7 +100,7 @@ describe("ProxyNominationsUpload", () => {
 
   it("shows selected filename while uploading", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/:buildingId/lot-owners/import-proxies", async () => {
+      http.post("http://localhost/api/admin/buildings/:buildingId/lot-owners/import-proxies", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ upserted: 1, removed: 0, skipped: 0 });
       })

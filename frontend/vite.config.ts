@@ -28,6 +28,7 @@ export default defineConfig({
     },
   },
   test: {
+    env: { VITE_API_BASE_URL: "http://localhost" },
     globals: true,
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],

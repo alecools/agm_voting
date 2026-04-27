@@ -18,7 +18,7 @@ import {
   closeMotion,
 } from "../admin";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 describe("getBuildingsCount", () => {
   // --- Happy path ---

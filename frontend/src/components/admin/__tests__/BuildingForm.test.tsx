@@ -66,7 +66,7 @@ describe("BuildingForm", () => {
 
   it("shows API error on failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings", () => {
+      http.post("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Building already exists" }, { status: 409 });
       })
     );
