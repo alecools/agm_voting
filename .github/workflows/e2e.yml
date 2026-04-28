@@ -364,7 +364,7 @@ jobs:
   # ── 2d. User workflow tests ─────────────────────────────────────────────────
   test-user-workflow:
     name: E2E User Workflow
-    needs: setup
+    needs: [setup, test-public-workflow]
     runs-on: ubuntu-latest
 
     steps:
