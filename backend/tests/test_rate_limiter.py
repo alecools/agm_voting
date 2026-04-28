@@ -10,7 +10,7 @@ Covers:
   - ballot_submit_limiter: 10 req/min per voter_email
   - public_limiter: 60 req/min per IP
   - admin_import_limiter: 20 req/min (RR4-31)
-  - admin_close_limiter: 10 req/min (RR4-31)
+  - admin_close_limiter: 30 req/min (RR4-31)
   - RR4-17: OTP rate limit is DB-backed; remaining limiters are intentionally in-memory
 """
 from __future__ import annotations
@@ -179,8 +179,8 @@ class TestSingletonLimiters:
         assert admin_import_limiter.window_seconds == 60
 
     def test_admin_close_limiter_has_expected_limits(self):
-        """admin_close_limiter is configured for 10 req/60s (RR4-31)."""
-        assert admin_close_limiter.max_requests == 10
+        """admin_close_limiter is configured for 30 req/60s (RR4-31)."""
+        assert admin_close_limiter.max_requests == 30
         assert admin_close_limiter.window_seconds == 60
 
 

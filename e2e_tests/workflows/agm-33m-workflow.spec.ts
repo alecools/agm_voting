@@ -71,6 +71,9 @@ let meetingId = "";
 // display_order 1-15 = CSV motions, the MC motion appended last
 let motionIds: Record<number, string> = {};
 
+// ID of the multi-choice motion created in 33M.2; empty string if that step did not complete
+let mcMotionId = "";
+
 const MEETING_TITLE = `33M AGM Workflow-${RUN_SUFFIX}`;
 const BUILDING_NAME = "The Vale";
 
@@ -297,13 +300,13 @@ test("33M.2: add multi-choice motion with 9 options and 3-vote limit via admin U
   await page.locator("#add-option-limit").fill("3");
 
   // Fill the first 2 options (present by default)
-  await page.getByLabel("Option 1").fill(MC_OPTIONS[0]);
-  await page.getByLabel("Option 2").fill(MC_OPTIONS[1]);
+  await page.getByRole("textbox", { name: "Option 1", exact: true }).fill(MC_OPTIONS[0]);
+  await page.getByRole("textbox", { name: "Option 2", exact: true }).fill(MC_OPTIONS[1]);
 
   // Add 7 more options (total 9)
   for (let i = 2; i < MC_OPTIONS.length; i++) {
     await page.getByRole("button", { name: "+ Add option" }).click();
-    await page.getByLabel(`Option ${i + 1}`).fill(MC_OPTIONS[i]);
+    await page.getByRole("textbox", { name: `Option ${i + 1}`, exact: true }).fill(MC_OPTIONS[i]);
   }
 
   // Save the motion
@@ -323,6 +326,7 @@ test("33M.2: add multi-choice motion with 9 options and 3-vote limit via admin U
     const mcMotion = motions.find((m) => m.title === MC_TITLE);
     expect(mcMotion, `Multi-choice motion "${MC_TITLE}" not found`).toBeDefined();
     motionIds[mcMotion!.display_order] = mcMotion!.id;
+    mcMotionId = mcMotion!.id;
   } finally {
     await api.dispose();
   }
@@ -720,6 +724,7 @@ test("33M.11: voter alecools — remaining 3 lots vote on M6 only (M5 closed)", 
 // ===========================================================================
 test("33M.12: admin makes multi-choice motion visible", async () => {
   test.skip(!meetingId, "Skipping: meeting creation (33M.1) did not complete");
+  test.skip(!mcMotionId, "Skipping: multi-choice motion (33M.2) did not complete");
   test.setTimeout(60000);
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -746,6 +751,7 @@ test("33M.12: admin makes multi-choice motion visible", async () => {
 // ===========================================================================
 test("33M.13: voter alecools votes multi-choice for 3 lots with 3-option limit enforced", async ({ page }) => {
   test.skip(!meetingId, "Skipping: meeting creation (33M.1) did not complete");
+  test.skip(!mcMotionId, "Skipping: multi-choice motion (33M.2) did not complete");
   test.setTimeout(180000);
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -828,6 +834,7 @@ test("33M.14: admin makes motion 7 visible", async () => {
 // ===========================================================================
 test("33M.15: voter alecools votes all 6 lots on M7, MC for remaining 3 lots", async ({ page }) => {
   test.skip(!meetingId, "Skipping: meeting creation (33M.1) did not complete");
+  test.skip(!mcMotionId, "Skipping: multi-choice motion (33M.2) did not complete");
   test.setTimeout(180000);
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";

@@ -7760,17 +7760,17 @@ class TestCloseMotion:
 
 
 class TestAdminCloseMeetingRateLimit:
-    """Verify admin_close_limiter returns 429 on the 11th request (RR4-31)."""
+    """Verify admin_close_limiter returns 429 on the 31st request (RR4-31)."""
 
     async def test_close_meeting_rate_limited_after_max_requests(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """11th call to /general-meetings/{id}/close within the window returns 429."""
+        """31st call to /general-meetings/{id}/close within the window returns 429."""
         from app.rate_limiter import admin_close_limiter
         import time
 
-        # Exhaust the limit (10 req/min)
-        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(10)]
+        # Exhaust the limit (30 req/min)
+        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(30)]
 
         # Create an open meeting to close
         b = Building(name="Rate Limit Close Building", manager_email="rlc@test.com")

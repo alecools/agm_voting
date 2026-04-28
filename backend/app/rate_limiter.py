@@ -101,5 +101,7 @@ public_limiter = RateLimiter(max_requests=60, window_seconds=60)
 # and import-financial-positions endpoints.
 admin_import_limiter = RateLimiter(max_requests=20, window_seconds=60)
 
-# Admin meeting close: 10 requests per minute per admin session (RR4-31).
-admin_close_limiter = RateLimiter(max_requests=10, window_seconds=60)
+# Admin meeting close: 30 requests per minute per admin session (RR4-31).
+# Raised from 10 to 30 so parallel E2E jobs sharing the "admin" key do not
+# saturate the bucket during concurrent beforeAll/afterAll close-meeting calls.
+admin_close_limiter = RateLimiter(max_requests=30, window_seconds=60)
