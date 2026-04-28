@@ -361,10 +361,102 @@ jobs:
           path: frontend/blob-report
           retention-days: 1
 
+  # ── 2d. User workflow tests ─────────────────────────────────────────────────
+  test-user-workflow:
+    name: E2E User Workflow
+    needs: [setup, test-public-workflow]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Start Lambda keepalive
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          # Hit /api/health every 30s in the background.
+          # This keeps at least one Lambda instance alive, preventing
+          # all PgBouncer connections from dropping to zero, which would
+          # trigger instant Neon suspension (suspend_timeout_seconds=0).
+          while sleep 30; do
+            curl -s -o /dev/null \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health" || true
+          done &
+          echo "Keepalive started (PID $!)"
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Link e2e_tests to frontend node_modules
+        run: ln -sf ../frontend/node_modules e2e_tests/node_modules
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - name: Install Playwright browsers
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: Warm up Lambda
+        run: |
+          URL="${{ github.event.deployment_status.environment_url }}"
+          echo "Warming up Lambda at $URL"
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+              "$URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Lambda warm (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS — waiting 10s"
+            sleep 10
+          done
+        env:
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+
+      - name: Download auth state
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-auth-state-${{ github.run_id }}
+          path: e2e_tests
+
+      - name: Run User Workflow E2E tests
+        run: cd frontend && npx playwright test --project=user-workflow
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          CI: 'true'
+          VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          GITHUB_HEAD_REF: ${{ github.event.deployment.ref }}
+
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-blob-user-workflow-${{ github.run_id }}
+          path: frontend/blob-report
+          retention-days: 1
+
   # ── 3. Merge reports ─────────────────────────────────────────────────────────
   merge-reports:
     name: Merge E2E Reports
-    needs: [test-admin, test-public-voter, test-public-workflow]
+    needs: [test-admin, test-public-voter, test-public-workflow, test-user-workflow]
     if: always()
     runs-on: ubuntu-latest
 
