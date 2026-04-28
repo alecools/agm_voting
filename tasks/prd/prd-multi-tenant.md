@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The AGM Voting App currently operates as a single-tenant system: one global admin credential controls all buildings, lot owners, and meetings. This PRD describes the path to a multi-tenant product where each customer (a strata management company) runs on their own isolated deployment — their own Vercel project and their own Neon database project. Data isolation is guaranteed at the infrastructure level rather than within the application. A provisioning CLI script (`scripts/provision_customer.py`) handles customer onboarding. The voter-facing URLs and authentication flows are unchanged.
+The AGM Voting App operates as a single-tenant system: one global admin credential controls all buildings, lot owners, and meetings. This PRD describes the path to a multi-tenant product where each customer (a strata management company) runs on their own isolated deployment — their own Vercel project and their own Neon database project. Data isolation is guaranteed at the infrastructure level rather than within the application. A provisioning CLI script (`scripts/provision_customer.py`) handles customer onboarding. The voter-facing URLs and authentication flows are unchanged.
 
 ---
 
@@ -54,73 +54,6 @@ The app code is identical across all deployments. There is no in-app tenant rout
 ---
 
 ## User Stories
-
-### MT-PO-01: Create a new tenant organisation
-
-**Status:** Out of scope — replaced by provisioning CLI script (`scripts/provision_customer.py`). See the Provisioning Script section below.
-
-**Description:** As a platform operator, I want to create a new tenant organisation so that a strata management company can start using the platform.
-
-**Acceptance Criteria:**
-
-- [ ] Covered by `scripts/provision_customer.py` — see Provisioning Script section
-- [ ] No in-app API endpoint is provided; customer onboarding is a CLI operation
-
----
-
-### MT-PO-02: Suspend / reactivate a tenant
-
-**Status:** Out of scope — replaced by provisioning CLI script. Suspension is handled at the Vercel level (disable the Vercel project) or by revoking Neon Auth user accounts.
-
-**Description:** As a platform operator, I want to suspend or reactivate a tenant organisation so that I can respond to billing issues or policy violations without destroying their data.
-
-**Acceptance Criteria:**
-
-- [ ] No in-app API endpoints; suspension is an infrastructure operation (disable Vercel project or revoke Neon Auth credentials)
-
----
-
-### MT-PO-03: View all tenants and their status
-
-**Status:** Out of scope — no central platform operator API. Tenant list is tracked externally (e.g. the provisioning script output log or a separate ops record).
-
-**Description:** As a platform operator, I want to see a list of all tenant organisations and their current status.
-
-**Acceptance Criteria:**
-
-- [ ] No in-app implementation; operators list Vercel projects or Neon projects via their respective consoles or APIs
-
----
-
-### MT-PO-04: Run platform-wide migrations across all tenant schemas
-
-**Status:** Out of scope — replaced by per-deployment Vercel `buildCommand`. Each deployment runs `alembic upgrade head` against its own Neon project on every push. A platform-wide code update is a push to each customer's GitHub branch or Vercel project via the Vercel API.
-
----
-
-### MT-PO-05: Superadmin dashboard
-
-**Status:** Out of scope — no central superadmin UI. Platform management is CLI-based.
-
----
-
-### MT-PO-06: Superadmin authentication
-
-**Status:** Out of scope — no central superadmin. Each deployment's admin is managed by Neon Auth (see MT-TA-01 through MT-TA-04).
-
----
-
-### MT-PO-07: Tenant onboarding UI
-
-**Status:** Out of scope — replaced by provisioning CLI script (`scripts/provision_customer.py`).
-
----
-
-### MT-PO-08: Tenant management UI
-
-**Status:** Out of scope — no central management UI. Each deployment is managed via Vercel dashboard and Neon Auth per-deployment.
-
----
 
 ### MT-TA-01: Sign up / be invited to an organisation
 
@@ -230,42 +163,6 @@ The app code is identical across all deployments. There is no in-app tenant rout
 - [ ] All existing admin E2E tests pass after the auth layer swap
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
-
----
-
-### MT-VT-01: Voter URLs require no org context
-
-**Status:** Out of scope — no in-app routing needed. In the deployment-per-tenant model, the voter URL `/vote/{meetingId}` is served by a single-tenant deployment. The `meetingId` always resolves within that deployment's own database.
-
----
-
-### MT-VT-02: Voter auth flow unchanged
-
-**Status:** Out of scope — the voter auth contract (`POST /api/auth/verify`) is identical to the pre-multi-tenant implementation; no changes required.
-
----
-
-### MT-DI-01: Tenant A cannot access Tenant B's data
-
-**Status:** Out of scope — handled by infrastructure-level isolation. Each tenant has their own Neon project; there is no shared database. A bug in one deployment cannot read or write another deployment's data.
-
----
-
-### MT-DI-02: Existing single-tenant data migrated to default org
-
-**Status:** Out of scope — not applicable in the deployment-per-tenant model. Each existing deployment already is a single-tenant system; no data migration is required.
-
----
-
-### MT-DI-03: Tenant schema created and migrated on org provisioning
-
-**Status:** Out of scope — handled by infrastructure. The provisioning script creates a Neon project and runs `alembic upgrade head` during setup.
-
----
-
-### MT-DI-04: Tenant schema dropped on org deletion
-
-**Status:** Out of scope — deletion is an infrastructure operation (delete the Neon project). No in-app endpoint is needed.
 
 ---
 

@@ -157,7 +157,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-01: Admin selects lots for in-person vote entry
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin, I want to select which lot owner records I need to enter in-person votes for, so that I only see the relevant rows in the entry grid and avoid a cluttered view with all building lots.
 
@@ -177,7 +177,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-02: Admin enters votes in grid UI
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin, I want a dense grid showing motions as rows and selected lots as columns so I can quickly enter votes for multiple lots across all motions in one view.
 
@@ -200,7 +200,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-03: Admin-submitted ballot is marked distinctly in results
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin reviewing results, I want to see which ballots were entered by an admin on behalf of a voter, so I can distinguish in-person and app votes in the report.
 

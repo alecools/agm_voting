@@ -279,7 +279,7 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 
 ### US-PMW-01: Admin closes a single motion
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As a meeting host, I want to manually close voting on an individual motion while the overall meeting remains open so that I can freeze a motion's result at the right moment without ending the entire ballot.
 
@@ -306,7 +306,7 @@ This document covers the full lifecycle of a General Meeting: creation, pending/
 
 ### US-PMW-02: Voter sees per-motion close status in real time
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As a lot owner on the voting page, I want to see when individual motions have had their voting window closed so that I am not confused by suddenly disabled controls.
 
