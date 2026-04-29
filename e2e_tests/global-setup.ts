@@ -236,6 +236,9 @@ export default async function globalSetup(_config: FullConfig) {
     storageState: path.join(authDir, "admin.json"),
     // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
     timeout: 60000,
+    // CSRF middleware requires X-Requested-With on all state-changing requests.
+    // Playwright APIRequestContext does not set this header automatically.
+    extraHTTPHeaders: { "X-Requested-With": "XMLHttpRequest" },
   });
 
   // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200

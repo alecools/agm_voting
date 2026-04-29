@@ -806,7 +806,7 @@ test("33M.13: voter alecools votes multi-choice for 3 lots with 3-option limit e
 
   // The MC motion is the last card
   const mcCard = motionCards.last();
-  await expect(mcCard.getByText(MC_TITLE)).toBeVisible({ timeout: 10000 });
+  await expect(mcCard.getByRole('heading', { name: MC_TITLE })).toBeVisible({ timeout: 10000 });
 
   // Vote "For" on first 3 options
   const forButtons = mcCard.getByRole("button", { name: "For" });
@@ -1020,7 +1020,7 @@ test("33M.18: dunsgaard logs in, sees lot 7, votes on all interactive motions", 
 
   // For the MC motion (last card if visible), click up to 3 "For" buttons
   const mcCard = motionCards.last();
-  if (await mcCard.getByText(MC_TITLE).isVisible().catch(() => false)) {
+  if (await mcCard.getByRole('heading', { name: MC_TITLE }).isVisible().catch(() => false)) {
     const mcForButtons = mcCard.getByRole("button", { name: "For" });
     if (await mcForButtons.nth(0).isEnabled().catch(() => false)) {
       await mcForButtons.nth(0).click();
