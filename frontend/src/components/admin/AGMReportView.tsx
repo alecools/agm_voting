@@ -230,7 +230,7 @@ function BinaryVoterList({ motion }: { motion: MotionDetail }) {
   const categories = ["yes", "no", "abstained", "absent", "not_eligible"] as const;
   const rows: Array<{ cat: typeof categories[number]; voter: MotionDetail["voter_lists"]["yes"][number] }> = [];
   for (const cat of categories) {
-    for (const v of motion.voter_lists[cat] ?? []) {
+    for (const v of motion.voter_lists[cat]) {
       rows.push({ cat, voter: v });
     }
   }
@@ -314,6 +314,80 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
       return next;
     });
   }
+
+  function handleMotionExportCSV(motion: MotionDetail) {
+    function csvCell(value: string): string {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+
+    function buildEmailCell(v: { voter_email?: string; voter_name?: string | null; proxy_email?: string | null }): string {
+      const displayName = v.voter_name
+        ? `${v.voter_name} <${v.voter_email ?? ""}>`
+        : (v.voter_email || "");
+      return v.proxy_email ? `${displayName} (proxy)` : displayName;
+    }
+
+    function buildSubmittedAt(v: { submitted_at?: string | null }): string {
+      return v.submitted_at ?? "";
+    }
+
+    const motionPrefix = motion.motion_number?.trim() || String(motion.display_order);
+    const titleSlug = motion.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .slice(0, 40);
+    const filename = `${motionPrefix}-${titleSlug}_results.csv`;
+
+    const rows: string[] = [];
+
+    if (motion.is_multi_choice === true) {
+      rows.push("Lot Number,Owner Name,Voter Email,Option,Vote Choice,Entitlement (UOE),Submitted By,Submitted At");
+
+      for (const optTally of motion.tally.options ?? []) {
+        const forVoters = motion.voter_lists.options_for?.[optTally.option_id] ?? motion.voter_lists.options?.[optTally.option_id] ?? [];
+        const againstVoters = motion.voter_lists.options_against?.[optTally.option_id] ?? [];
+        const abstainedVoters = motion.voter_lists.options_abstained?.[optTally.option_id] ?? [];
+
+        for (const v of forVoters) {
+          rows.push(`${csvCell(v.lot_number ?? "")},${csvCell(v.voter_name ?? "")},${csvCell(buildEmailCell(v))},${csvCell(optTally.option_text)},${csvCell("For")},${v.entitlement},${csvCell(v.submitted_by_admin ? "Admin" : "Voter")},${csvCell(buildSubmittedAt(v))}`);
+        }
+        for (const v of againstVoters) {
+          rows.push(`${csvCell(v.lot_number ?? "")},${csvCell(v.voter_name ?? "")},${csvCell(buildEmailCell(v))},${csvCell(optTally.option_text)},${csvCell("Against")},${v.entitlement},${csvCell(v.submitted_by_admin ? "Admin" : "Voter")},${csvCell(buildSubmittedAt(v))}`);
+        }
+        for (const v of abstainedVoters) {
+          rows.push(`${csvCell(v.lot_number ?? "")},${csvCell(v.voter_name ?? "")},${csvCell(buildEmailCell(v))},${csvCell(optTally.option_text)},${csvCell("Abstained")},${v.entitlement},${csvCell(v.submitted_by_admin ? "Admin" : "Voter")},${csvCell(buildSubmittedAt(v))}`);
+        }
+      }
+
+      // Absent and not_eligible rows — Option cell is empty
+      for (const cat of ["absent", "not_eligible"] as const) {
+        const label = CATEGORY_LABELS[cat];
+        for (const v of motion.voter_lists[cat]) {
+          rows.push(`${csvCell(v.lot_number ?? "")},${csvCell(v.voter_name ?? "")},${csvCell(buildEmailCell(v))},${""},${csvCell(label)},${v.entitlement},${csvCell(v.submitted_by_admin ? "Admin" : "Voter")},${csvCell(buildSubmittedAt(v))}`);
+        }
+      }
+    } else {
+      rows.push("Lot Number,Owner Name,Voter Email,Vote Choice,Entitlement (UOE),Submitted By,Submitted At");
+
+      for (const cat of ["yes", "no", "abstained", "absent", "not_eligible"] as const) {
+        const label = CATEGORY_LABELS[cat];
+        for (const v of motion.voter_lists[cat]) {
+          rows.push(`${csvCell(v.lot_number ?? "")},${csvCell(v.voter_name ?? "")},${csvCell(buildEmailCell(v))},${csvCell(label)},${v.entitlement},${csvCell(v.submitted_by_admin ? "Admin" : "Voter")},${csvCell(buildSubmittedAt(v))}`);
+        }
+      }
+    }
+
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function handleExportCSV() {
     // Build "Given Surname <email>" when name is present, plain email otherwise.
     // Appends " (proxy)" suffix when proxy_email is set.
@@ -410,6 +484,29 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
         const noSumBinary = motion.tally.no.entitlement_sum;
 
         const isExpanded = expandedMotionIds.has(motion.id);
+
+        // Determine if there are any voters across all categories for this motion
+        const hasNoVoters = (() => {
+          const vl = motion.voter_lists;
+          const binaryHasVoters =
+            vl.yes.length > 0 ||
+            vl.no.length > 0 ||
+            vl.abstained.length > 0 ||
+            vl.absent.length > 0 ||
+            vl.not_eligible.length > 0;
+          if (motion.is_multi_choice !== true) return !binaryHasVoters;
+          const optionsForLen = Object.values(vl.options_for ?? {}).reduce((s, a) => s + a.length, 0);
+          const optionsAgainstLen = Object.values(vl.options_against ?? {}).reduce((s, a) => s + a.length, 0);
+          const optionsAbstainedLen = Object.values(vl.options_abstained ?? {}).reduce((s, a) => s + a.length, 0);
+          const mcHasVoters =
+            optionsForLen > 0 ||
+            optionsAgainstLen > 0 ||
+            optionsAbstainedLen > 0 ||
+            vl.absent.length > 0 ||
+            vl.not_eligible.length > 0;
+          return !mcHasVoters;
+        })();
+
         return (
           <div key={motion.id} className="admin-card" style={{ marginBottom: 16 }}>
             <div className="admin-card__header">
@@ -452,6 +549,17 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                   {isExpanded ? "▲ Hide voting details" : "▶ Show voting details"}
                 </button>
               )}
+              <button
+                type="button"
+                className="btn btn--admin"
+                onClick={() => handleMotionExportCSV(motion)}
+                disabled={hasNoVoters}
+                aria-disabled={hasNoVoters}
+                aria-label={`Download results CSV for ${motion.title}`}
+                style={motion.is_multi_choice !== true ? undefined : { marginLeft: "auto" }}
+              >
+                ↓ CSV
+              </button>
             </div>
             {motion.description && (
               <p style={{ color: "var(--text-muted)", margin: "0 0 14px", fontSize: "0.875rem", padding: "0 20px" }}>
@@ -476,7 +584,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                         optTally={optTally}
                         motion={motion}
                         totalEntitlement={totalEntitlement}
-                        isWinner={winningOptionIds?.has(optTally.option_id) ?? false}
+                        isWinner={winningOptionIds !== null && winningOptionIds.has(optTally.option_id)}
                       />
                     ))}
                     {(["absent", "not_eligible"] as const).map((cat) => (

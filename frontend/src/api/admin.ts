@@ -79,6 +79,7 @@ export interface VoterEntry {
   entitlement: number;
   proxy_email?: string | null;
   submitted_by_admin?: boolean;
+  submitted_at?: string | null;
 }
 
 export interface TallyCategory {

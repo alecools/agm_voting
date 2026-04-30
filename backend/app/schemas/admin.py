@@ -452,6 +452,7 @@ class VoterEntry(BaseModel):
     ballot_hash: str | None = None  # US-VIL-03: SHA-256 audit hash of submitted ballot
     submitted_by_admin: bool = False
     submitted_by_admin_username: str | None = None
+    submitted_at: datetime | None = None
 
 
 class TallyCategory(BaseModel):

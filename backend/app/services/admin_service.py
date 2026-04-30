@@ -1857,6 +1857,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     lot_owner_to_submitted_by_admin_username: dict[uuid.UUID, str | None] = {
         sub.lot_owner_id: sub.submitted_by_admin_username for sub in voted_submissions
     }
+    # Expose submitted_at timestamp for per-motion CSV download
+    lot_owner_to_submitted_at: dict[uuid.UUID, datetime] = {
+        sub.lot_owner_id: sub.submitted_at for sub in voted_submissions
+    }
     # Per-motion voter email: keyed on (lot_owner_id, motion_id) so that when a lot has
     # multiple voters (co-owners, proxy re-entry) each motion shows the email of the person
     # who actually submitted that specific Vote row, not the last BallotSubmission author.
@@ -1875,6 +1879,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     ballot_hash_val = None  # absent lots have no ballot hash
                     submitted_by_admin_val = False
                     submitted_by_admin_username_val = None
+                    submitted_at_val = absent_sub.submitted_at if absent_sub else None
                 else:
                     # For voted categories, prefer the per-motion voter_email stamped on
                     # the Vote row (correct even when co-owners submit different motions),
@@ -1887,6 +1892,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     ballot_hash_val = lot_owner_to_ballot_hash.get(lid)
                     submitted_by_admin_val = lot_owner_to_submitted_by_admin.get(lid, False)
                     submitted_by_admin_username_val = lot_owner_to_submitted_by_admin_username.get(lid)
+                    submitted_at_val = lot_owner_to_submitted_at.get(lid)
                 voter_name = lot_owner_email_to_name.get((lid, voter_email))
                 result_list.append({
                     "voter_email": voter_email,
@@ -1897,6 +1903,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "ballot_hash": ballot_hash_val,
                     "submitted_by_admin": submitted_by_admin_val,
                     "submitted_by_admin_username": submitted_by_admin_username_val,
+                    "submitted_at": submitted_at_val,
                 })
         return result_list
 
