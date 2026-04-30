@@ -683,7 +683,12 @@ class TestMain:
         _uuid.UUID(response.headers["X-Request-ID"])  # raises ValueError if not UUID
 
     async def test_csrf_middleware_blocks_post_without_header(self):
-        """US-IAS-05: POST without X-Requested-With returns 403 when testing_mode=False."""
+        """US-IAS-05: POST without X-Requested-With returns 403 when testing_mode=False.
+
+        Uses /api/admin/buildings (non-exempt path) to test CSRF enforcement.
+        /api/auth/* paths are intentionally exempt because the Better Auth SDK
+        does not send X-Requested-With.
+        """
         import app.main as main_module
         from app.config import Settings
         from app.main import create_app
@@ -700,7 +705,8 @@ class TestMain:
                 transport=ASGITransport(app=csrf_app), base_url="http://test"
                 # Intentionally no X-Requested-With header
             ) as client:
-                response = await client.post("/api/auth/verify", json={})
+                # /api/admin/buildings is a non-exempt POST endpoint — CSRF must block it
+                response = await client.post("/api/admin/buildings", json={})
             assert response.status_code == 403
             assert "CSRF" in response.json()["detail"]
         finally:

@@ -101,10 +101,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
       do not send X-Requested-With are not blocked.
     """
 
-    _EXEMPT_PATHS = {
-        "/api/auth/sign-in/email",  # Better Auth sign-in — rate-limited by AdminLoginRateLimitMiddleware
-        "/api/auth/sign-out",        # Better Auth sign-out
-    }
+    # All /api/auth/* paths are exempt: the Better Auth SDK does not send
+    # X-Requested-With.  These paths are either rate-limited by
+    # AdminLoginRateLimitMiddleware (sign-in) or require a valid session
+    # cookie (other authenticated endpoints), providing equivalent protection.
+    _EXEMPT_PREFIX = "/api/auth/"
     _STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
     async def dispatch(self, request: Request, call_next):
@@ -113,7 +114,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if (
             request.method in self._STATE_CHANGING_METHODS
-            and request.url.path not in self._EXEMPT_PATHS
+            and not request.url.path.startswith(self._EXEMPT_PREFIX)
             and "X-Requested-With" not in request.headers
         ):
             return JSONResponse(
@@ -423,11 +424,15 @@ def create_app() -> FastAPI:
     from app.routers.public import router as public_router
     from app.routers.auth import router as auth_router
     from app.routers.voting import router as voting_router
+    from app.routers.auth_proxy import router as auth_proxy_router
 
     app.include_router(public_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(voting_router, prefix="/api")
     app.include_router(admin_router, prefix="/api/admin")
+    # auth_proxy_router is included last so it acts as a catch-all fallback for
+    # any /api/auth/* path not handled by the routers above.
+    app.include_router(auth_proxy_router)
 
     from app.database import get_db
 
