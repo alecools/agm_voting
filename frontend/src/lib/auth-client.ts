@@ -3,10 +3,11 @@ import { createAuthClient } from "better-auth/react";
 /**
  * Better Auth client for admin authentication.
  *
- * VITE_NEON_AUTH_BASE_URL is injected by Vite at build time from the env var.
- * In development it defaults to the local backend URL.  In production (Vercel)
- * it is set as a Vercel env var scoped to the deployment.
+ * All requests go through the FastAPI auth proxy at /api/auth so they are
+ * same-origin (no CORS) and the proxy can translate paths that differ between
+ * the Better Auth SDK and Neon Auth's actual endpoints (e.g. forget-password
+ * → request-password-reset).
  */
 export const authClient = createAuthClient({
-  baseURL: import.meta.env.VITE_NEON_AUTH_BASE_URL as string | undefined,
+  baseURL: "/api/auth",
 });

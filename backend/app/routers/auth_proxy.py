@@ -5,6 +5,10 @@ POST /api/auth/forget-password, and POST /api/auth/reset-password directly again
 the FastAPI backend.  Since FastAPI has no handlers for these routes (it only uses
 Neon Auth server-side for session validation in require_admin), this proxy forwards
 them transparently to the configured Neon Auth base URL.
+
+PATH_ALIASES maps the Better Auth SDK path names to the actual Neon Auth endpoint
+paths where they differ.  For example, the SDK sends ``forget-password`` but Neon
+Auth's actual endpoint is ``request-password-reset``.
 """
 from __future__ import annotations
 
@@ -15,6 +19,11 @@ from fastapi.responses import Response
 from app.config import settings
 
 router = APIRouter()
+
+# Map Better Auth SDK path → actual Neon Auth endpoint path.
+PATH_ALIASES: dict[str, str] = {
+    "forget-password": "request-password-reset",
+}
 
 
 @router.api_route(
@@ -27,11 +36,15 @@ async def proxy_auth(path: str, request: Request) -> Response:
     Returns 503 when neon_auth_base_url is not configured.
     Forwards request body, headers (excluding host and content-length),
     query parameters, and HTTP method unchanged.
+
+    Applies PATH_ALIASES so the Better Auth SDK path names that differ from
+    Neon Auth's actual endpoint names are translated before forwarding.
     """
     if not settings.neon_auth_base_url:
         return Response(content="Auth service not configured", status_code=503)
 
-    target_url = f"{settings.neon_auth_base_url}/api/auth/{path}"
+    path = PATH_ALIASES.get(path, path)
+    target_url = f"{settings.neon_auth_base_url}/{path}"
 
     # Forward all headers except host (would mismatch the target) and
     # content-length (httpx recomputes it from the body).

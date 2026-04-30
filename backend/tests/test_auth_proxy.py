@@ -89,7 +89,21 @@ class TestAuthProxyHappyPath:
         assert response.body == b'{"token": "abc123"}'
 
     async def test_proxy_constructs_target_url_correctly(self):
-        """proxy_auth builds target_url as {neon_auth_base_url}/api/auth/{path}."""
+        """proxy_auth builds target_url as {neon_auth_base_url}/{path} (no /api/auth/ prefix)."""
+        upstream = _make_upstream_response()
+        mock_client = _make_httpx_client(upstream)
+        request = _make_request(method="POST")
+
+        with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
+            ms.neon_auth_base_url = "https://auth.example.com"
+            await proxy_auth(path="sign-in/email", request=request)
+
+        call_kwargs = mock_client.request.call_args.kwargs
+        assert call_kwargs["url"] == "https://auth.example.com/sign-in/email"
+
+    async def test_proxy_translates_forget_password_to_request_password_reset(self):
+        """proxy_auth maps forget-password (Better Auth SDK) to request-password-reset (Neon Auth)."""
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
         request = _make_request(method="POST")
@@ -100,7 +114,7 @@ class TestAuthProxyHappyPath:
             await proxy_auth(path="forget-password", request=request)
 
         call_kwargs = mock_client.request.call_args.kwargs
-        assert call_kwargs["url"] == "https://auth.example.com/api/auth/forget-password"
+        assert call_kwargs["url"] == "https://auth.example.com/request-password-reset"
 
     async def test_proxy_forwards_http_method(self):
         """proxy_auth forwards the request method unchanged."""
@@ -289,7 +303,7 @@ class TestAuthProxyEdgeCases:
             await proxy_auth(path="sign-in/email", request=request)
 
         call_url = mock_client.request.call_args.kwargs["url"]
-        assert call_url == "https://auth.example.com/api/auth/sign-in/email"
+        assert call_url == "https://auth.example.com/sign-in/email"
 
     async def test_proxy_handles_empty_query_params(self):
         """proxy_auth passes an empty dict for params when no query string is present."""
