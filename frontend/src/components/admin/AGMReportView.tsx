@@ -558,7 +558,7 @@ export default function AGMReportView({ motions, agmTitle, totalEntitlement = 0 
                 aria-label={`Download results CSV for ${motion.title}`}
                 style={motion.is_multi_choice !== true ? undefined : { marginLeft: "auto" }}
               >
-                ↓ CSV
+                Export
               </button>
             </div>
             {motion.description && (
