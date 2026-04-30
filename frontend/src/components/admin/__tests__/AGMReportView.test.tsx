@@ -1481,7 +1481,7 @@ describe("AGMReportView", () => {
   // Per-motion CSV download button (handleMotionExportCSV)
   // ---------------------------------------------------------------------------
 
-  // Helper: capture the CSV produced by clicking the "↓ CSV" button for a specific motion
+  // Helper: capture the CSV produced by clicking the "Export" button for a specific motion
   async function captureMotionCSV(motionData: MotionDetail[]): Promise<{ csv: string; filename: string }> {
     const { unmount } = render(<AGMReportView motions={motionData} />);
 
@@ -1501,7 +1501,7 @@ describe("AGMReportView", () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 
     const user = userEvent.setup();
-    // Click the first "↓ CSV" button (per-motion)
+    // Click the first "Export" button (per-motion)
     const csvBtns = screen.getAllByRole("button", { name: /Download results CSV for/ });
     await user.click(csvBtns[0]);
 
@@ -1522,13 +1522,13 @@ describe("AGMReportView", () => {
 
   // --- Happy path ---
 
-  it("renders a '↓ CSV' button for each motion", () => {
+  it("renders an 'Export' button for each motion", () => {
     render(<AGMReportView motions={motions} />);
     const csvBtns = screen.getAllByRole("button", { name: /Download results CSV for/ });
     expect(csvBtns).toHaveLength(2);
   });
 
-  it("'↓ CSV' button has correct aria-label including motion title", () => {
+  it("'Export' button has correct aria-label including motion title", () => {
     render(<AGMReportView motions={[motions[0]]} />);
     expect(screen.getByRole("button", { name: "Download results CSV for Motion 1" })).toBeInTheDocument();
   });
@@ -1738,7 +1738,7 @@ describe("AGMReportView", () => {
 
   // --- Disabled state ---
 
-  it("'↓ CSV' button is disabled when all voter lists are empty", () => {
+  it("'Export' button is disabled when all voter lists are empty", () => {
     const emptyMotion: MotionDetail[] = [
       {
         ...motions[0],
@@ -1758,7 +1758,7 @@ describe("AGMReportView", () => {
     expect(btn).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("'↓ CSV' button is enabled when there are voters", () => {
+  it("'Export' button is enabled when there are voters", () => {
     render(<AGMReportView motions={[motions[0]]} />);
     const btn = screen.getByRole("button", { name: "Download results CSV for Motion 1" });
     expect(btn).not.toBeDisabled();
