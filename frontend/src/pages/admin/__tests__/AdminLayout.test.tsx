@@ -10,7 +10,18 @@ import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContex
 
 const BASE = "http://localhost";
 
-const mockNavigate = vi.fn();
+// Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
+const { mockSignOut, mockNavigate } = vi.hoisted(() => ({
+  mockSignOut: vi.fn().mockResolvedValue(undefined),
+  mockNavigate: vi.fn(),
+}));
+
+vi.mock("../../../lib/auth-client", () => ({
+  authClient: {
+    signOut: mockSignOut,
+  },
+}));
+
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {

@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { adminLogin } from "../../api/admin";
+import { authClient } from "../../lib/auth-client";
 import { useBranding } from "../../context/BrandingContext";
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { config } = useBranding();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,11 +16,14 @@ export default function AdminLoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await adminLogin({ username, password });
-      await queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
-      navigate("/admin", { replace: true });
+      const result = await authClient.signIn.email({ email, password });
+      if (result.error) {
+        setError("Invalid email or password.");
+      } else {
+        navigate("/admin", { replace: true });
+      }
     } catch {
-      setError("Invalid username or password.");
+      setError("Invalid email or password.");
     } finally {
       setLoading(false);
     }
@@ -49,16 +50,16 @@ export default function AdminLoginPage() {
           )}
 
           <div className="field">
-            <label htmlFor="username" className="field__label">
-              Username
+            <label htmlFor="email" className="field__label">
+              Email
             </label>
             <input
-              id="username"
-              type="text"
+              id="email"
+              type="email"
               className="field__input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
             />
           </div>

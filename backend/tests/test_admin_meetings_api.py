@@ -6298,7 +6298,7 @@ class TestConcurrentBallotSubmission:
     async def _make_real_app(self, session_factory):
         """Build a FastAPI app instance wired to the given session_factory."""
         from app.main import create_app
-        from app.routers.admin_auth import require_admin
+        from app.dependencies import require_admin, BetterAuthUser
 
         real_app = create_app()
 
@@ -6306,8 +6306,11 @@ class TestConcurrentBallotSubmission:
             async with session_factory() as s:
                 yield s
 
+        async def override_require_admin():
+            return BetterAuthUser(email="test-admin@example.com", user_id="test-user-id")
+
         real_app.dependency_overrides[get_db] = _real_db
-        real_app.dependency_overrides[require_admin] = lambda: None
+        real_app.dependency_overrides[require_admin] = override_require_admin
         return real_app
 
     # --- Happy path ---

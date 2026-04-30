@@ -327,15 +327,6 @@ export interface BuildingArchiveOut {
   is_archived: boolean;
 }
 
-export interface AdminLoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface AdminMeOut {
-  authenticated: boolean;
-}
-
 export interface ListBuildingsParams {
   limit?: number;
   offset?: number;
@@ -387,23 +378,6 @@ export async function updateBuilding(buildingId: string, data: BuildingUpdateReq
     method: "PATCH",
     body: JSON.stringify(data),
   });
-}
-
-export async function adminLogin(data: AdminLoginRequest): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>("/api/admin/auth/login", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function adminLogout(): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>("/api/admin/auth/logout", {
-    method: "POST",
-  });
-}
-
-export async function adminGetMe(): Promise<AdminMeOut> {
-  return apiFetch<AdminMeOut>("/api/admin/auth/me");
 }
 
 export async function importBuildings(file: File): Promise<BuildingImportResult> {

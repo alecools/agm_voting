@@ -1,547 +1,22 @@
-"""Tests for admin authentication endpoints — /api/admin/auth/."""
+"""Tests for Better Auth admin authentication — require_admin dependency,
+AdminLoginRateLimitMiddleware, and get_client_ip helper."""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import bcrypt
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import patch
 
 from app.database import get_db
+from app.dependencies import BetterAuthUser, get_client_ip, require_admin
 from app.models.admin_login_attempt import AdminLoginAttempt
 
-# ---------------------------------------------------------------------------
-# Admin auth endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestAdminAuth:
-    # --- Happy path ---
-
-    async def test_login_valid_credentials_returns_ok(self, db_session: AsyncSession):
-        """Valid username + password → {"ok": true}."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        # Hash "admin" so _verify_admin_password accepts it
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
-
-    async def test_login_invalid_credentials_returns_401(self, db_session: AsyncSession):
-        """Wrong username + wrong password returns 401.
-
-        A bcrypt hash must be patched into admin_password so _verify_admin_password does not
-        raise ValueError (which it would with the default plaintext 'admin' value).
-        Before the timing-safe fix, short-circuit evaluation meant bcrypt never ran when the
-        username was wrong.  Now bcrypt always runs, so a valid hash is required in settings.
-        """
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"correct_pw", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "wrong", "password": "bad"},
-                )
-        assert response.status_code == 401
-
-    async def test_logout_clears_session(self, db_session: AsyncSession):
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            await c.post(
-                "/api/admin/auth/login",
-                json={"username": "admin", "password": "admin"},
-            )
-            response = await c.post("/api/admin/auth/logout")
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
-
-    async def test_me_authenticated_returns_true(self, db_session: AsyncSession):
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-                response = await c.get("/api/admin/auth/me")
-        assert response.status_code == 200
-        assert response.json()["authenticated"] is True
-
-    async def test_me_unauthenticated_returns_401(self, db_session: AsyncSession):
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            response = await c.get("/api/admin/auth/me")
-        assert response.status_code == 401
-
-    def test_verify_admin_password_bcrypt_path_verify_called(self):
-        """_verify_admin_password calls bcrypt.checkpw for $2b$-prefixed hashes."""
-        import bcrypt
-        from app.routers.admin_auth import _verify_admin_password
-
-        # Generate a real bcrypt hash and verify it round-trips correctly.
-        hashed = bcrypt.hashpw(b"mypass", bcrypt.gensalt()).decode()
-        result = _verify_admin_password("mypass", hashed)
-        assert result is True
-
-    def test_verify_admin_password_wrong_password_returns_false(self):
-        """_verify_admin_password returns False for incorrect password."""
-        import bcrypt
-        from app.routers.admin_auth import _verify_admin_password
-
-        hashed = bcrypt.hashpw(b"correct", bcrypt.gensalt()).decode()
-        result = _verify_admin_password("wrong", hashed)
-        assert result is False
-
-    async def test_hash_password_endpoint_returns_bcrypt_hash(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns a bcrypt hash when called by an authenticated admin."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                # Establish an admin session first
-                await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-                response = await c.post(
-                    "/api/admin/auth/hash-password",
-                    json={"password": "mypassword"},
-                )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["hash"].startswith("$2b$")
-
-    async def test_hash_password_endpoint_returns_401_without_auth(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 401 when called without admin session."""
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app_instance), base_url="http://test"
-        ) as c:
-            response = await c.post(
-                "/api/admin/auth/hash-password",
-                json={"password": "mypassword"},
-            )
-        assert response.status_code == 401
-
-    async def test_hash_password_endpoint_returns_404_in_production(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 404 when ENVIRONMENT=production (even with auth)."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "environment",
-            "production",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                # Establish admin session (require_admin runs before the production check)
-                await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-                response = await c.post(
-                    "/api/admin/auth/hash-password",
-                    json={"password": "mypassword"},
-                )
-        assert response.status_code == 404
-
-    async def test_hash_password_endpoint_returns_404_in_demo_environment(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 404 on demo env (MED-6: development-only gate)."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "environment",
-            "demo",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-                response = await c.post(
-                    "/api/admin/auth/hash-password",
-                    json={"password": "mypassword"},
-                )
-        assert response.status_code == 404
-
-    async def test_hash_password_endpoint_returns_404_in_preview_environment(self, db_session: AsyncSession):
-        """POST /api/admin/auth/hash-password returns 404 on preview env (MED-6)."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "environment",
-            "preview",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-                response = await c.post(
-                    "/api/admin/auth/hash-password",
-                    json={"password": "mypassword"},
-                )
-        assert response.status_code == 404
-
-    async def test_login_returns_500_with_generic_detail_when_password_not_bcrypt(self, db_session: AsyncSession):
-        """POST /api/admin/auth/login returns 500 with generic detail when ADMIN_PASSWORD is plaintext (LOW-7).
-
-        The raw ValueError message must never be sent to clients — a generic
-        'Server configuration error' must be returned instead.
-        """
-        from unittest.mock import patch
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        # Patch admin_password to the dev placeholder so _verify_admin_password raises ValueError
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            "admin",
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-        assert response.status_code == 500
-        detail = response.json()["detail"]
-        # Must be generic — raw ValueError message must not be exposed
-        assert detail == "Server configuration error"
-        assert "ADMIN_PASSWORD" not in detail
-        assert "bcrypt" not in detail.lower()
-
-    async def test_login_clears_rate_limit_record_on_success(self, db_session: AsyncSession):
-        """Successful login with an existing rate-limit record deletes that record from the DB.
-
-        This specifically tests the fix for C-2: previously `await db.delete()` raised
-        TypeError because AsyncSession.delete() is synchronous and returns None.
-        """
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        # Clean up any pre-existing 127.0.0.1 record from earlier tests in this session
-        from sqlalchemy import delete as sql_delete_stmt
-        await db_session.execute(sql_delete_stmt(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "127.0.0.1"))
-        await db_session.flush()
-
-        # Pre-insert a rate-limit record for the test client IP (127.0.0.1)
-        now = datetime.now(UTC)
-        attempt = AdminLoginAttempt(
-            ip_address="127.0.0.1",
-            failed_count=2,
-            first_attempt_at=now - timedelta(minutes=5),
-            last_attempt_at=now - timedelta(minutes=1),
-        )
-        db_session.add(attempt)
-        await db_session.flush()
-        attempt_id = attempt.id
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
-
-        # Verify the rate-limit record was deleted from the database
-        result = await db_session.execute(
-            select(AdminLoginAttempt).where(AdminLoginAttempt.id == attempt_id)
-        )
-        assert result.scalar_one_or_none() is None, (
-            "Rate-limit record should have been deleted after successful login"
-        )
-
-    async def test_login_deletes_expired_rate_limit_record_and_succeeds(self, db_session: AsyncSession):
-        """Expired rate-limit record (outside 15-min window) is deleted and login succeeds.
-
-        This specifically tests the fix for C-2 on the window-expiry path (line 76):
-        previously `await db.delete()` raised TypeError at runtime.
-
-        The test client IP is 127.0.0.1, so we insert an expired record for that IP.
-        On login the endpoint detects the record is outside the 15-min window and must
-        delete it before proceeding — exercising the fixed `db.execute(sql_delete(...))` path.
-        """
-        from app.main import create_app
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        # Clean up any pre-existing 127.0.0.1 record from earlier tests in this session
-        from sqlalchemy import delete as sql_delete_stmt
-        await db_session.execute(sql_delete_stmt(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "127.0.0.1"))
-        await db_session.flush()
-
-        # Pre-insert a rate-limit record for 127.0.0.1 (test client IP) that is
-        # older than the 15-minute window so the expiry path is triggered.
-        now = datetime.now(UTC)
-        expired_attempt = AdminLoginAttempt(
-            ip_address="127.0.0.1",
-            failed_count=5,
-            first_attempt_at=now - timedelta(minutes=30),
-            last_attempt_at=now - timedelta(minutes=25),
-        )
-        db_session.add(expired_attempt)
-        await db_session.flush()
-        expired_id = expired_attempt.id
-
-        hashed = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "admin"},
-                )
-
-        # Login should succeed — expired record was cleaned up, not blocked
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
-
-        # The expired rate-limit record should have been deleted
-        result = await db_session.execute(
-            select(AdminLoginAttempt).where(AdminLoginAttempt.id == expired_id)
-        )
-        assert result.scalar_one_or_none() is None, (
-            "Expired rate-limit record should have been deleted on window expiry"
-        )
-
 
 # ---------------------------------------------------------------------------
-# RR3-15: get_client_ip uses X-Forwarded-For header
+# get_client_ip helper
 # ---------------------------------------------------------------------------
 
 
@@ -550,146 +25,207 @@ class TestGetClientIp:
 
     # --- Happy path ---
 
-    def test_get_client_ip_returns_first_ip_from_x_forwarded_for(self):
+    def test_returns_first_ip_from_x_forwarded_for(self):
         """When X-Forwarded-For is present, the first IP is returned."""
-        from unittest.mock import MagicMock
-        from app.routers.admin_auth import get_client_ip
-
         request = MagicMock()
         request.headers = {"X-Forwarded-For": "203.0.113.1, 10.0.0.1, 172.16.0.1"}
         request.client = MagicMock()
         request.client.host = "10.0.0.2"
 
-        result = get_client_ip(request)
-        assert result == "203.0.113.1"
+        assert get_client_ip(request) == "203.0.113.1"
 
-    def test_get_client_ip_strips_whitespace_from_forwarded_ip(self):
+    def test_strips_whitespace_from_forwarded_ip(self):
         """Whitespace around the first IP in X-Forwarded-For is stripped."""
-        from unittest.mock import MagicMock
-        from app.routers.admin_auth import get_client_ip
-
         request = MagicMock()
         request.headers = {"X-Forwarded-For": "  198.51.100.42 , 10.0.0.1"}
         request.client = MagicMock()
         request.client.host = "10.0.0.2"
 
-        result = get_client_ip(request)
-        assert result == "198.51.100.42"
+        assert get_client_ip(request) == "198.51.100.42"
 
-    def test_get_client_ip_single_ip_in_x_forwarded_for(self):
+    def test_single_ip_in_x_forwarded_for(self):
         """A single IP in X-Forwarded-For (no proxy chain) is returned as-is."""
-        from unittest.mock import MagicMock
-        from app.routers.admin_auth import get_client_ip
-
         request = MagicMock()
         request.headers = {"X-Forwarded-For": "198.51.100.5"}
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        result = get_client_ip(request)
-        assert result == "198.51.100.5"
+        assert get_client_ip(request) == "198.51.100.5"
 
     # --- Fallback ---
 
-    def test_get_client_ip_falls_back_to_request_client_host(self):
+    def test_falls_back_to_request_client_host(self):
         """When X-Forwarded-For is absent, request.client.host is returned."""
-        from unittest.mock import MagicMock
-        from app.routers.admin_auth import get_client_ip
-
         request = MagicMock()
-        # Simulate no X-Forwarded-For header
         request.headers = {}
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        result = get_client_ip(request)
-        assert result == "127.0.0.1"
+        assert get_client_ip(request) == "127.0.0.1"
 
-    def test_get_client_ip_returns_unknown_when_no_client_and_no_header(self):
+    def test_returns_unknown_when_no_client_and_no_header(self):
         """Returns 'unknown' when both X-Forwarded-For and request.client are absent."""
-        from unittest.mock import MagicMock
-        from app.routers.admin_auth import get_client_ip
-
         request = MagicMock()
         request.headers = {}
         request.client = None
 
-        result = get_client_ip(request)
-        assert result == "unknown"
-
-    # --- Integration: admin login uses forwarded IP ---
-
-    async def test_admin_login_rate_limit_uses_forwarded_ip(self, db_session):
-        """Admin login rate-limit record stores the forwarded client IP, not the proxy IP (RR3-15)."""
-        import bcrypt
-        from unittest.mock import patch
-        from app.main import create_app
-        from app.database import get_db
-        from sqlalchemy import delete as sql_delete_stmt
-
-        app_instance = create_app()
-
-        async def override_get_db():
-            yield db_session
-
-        app_instance.dependency_overrides[get_db] = override_get_db
-
-        # Clean up any pre-existing records for our test IPs
-        await db_session.execute(sql_delete_stmt(AdminLoginAttempt).where(
-            AdminLoginAttempt.ip_address.in_(["203.0.113.99", "127.0.0.1"])
-        ))
-        await db_session.flush()
-
-        hashed = bcrypt.hashpw(b"correct_pw", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                # Simulate a login from a forwarded IP (Vercel proxy pattern)
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "wrong", "password": "bad"},
-                    headers={"X-Forwarded-For": "203.0.113.99, 10.0.0.1"},
-                )
-        assert response.status_code == 401
-
-        # Rate-limit record must be keyed on the real client IP (203.0.113.99)
-        result = await db_session.execute(
-            select(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "203.0.113.99")
-        )
-        attempt = result.scalar_one_or_none()
-        assert attempt is not None, (
-            "Rate-limit record must be stored under the forwarded IP 203.0.113.99, not the proxy IP"
-        )
-        assert attempt.failed_count == 1
+        assert get_client_ip(request) == "unknown"
 
 
 # ---------------------------------------------------------------------------
-# RR3-13: Rate-limit check and record creation are atomic
+# require_admin dependency
 # ---------------------------------------------------------------------------
 
 
-class TestRateLimitAtomicity:
-    """Tests that verify the SELECT FOR UPDATE + write pattern for rate-limit atomicity (RR3-13)."""
+class TestRequireAdmin:
+    """Tests for the require_admin FastAPI dependency."""
 
     # --- Happy path ---
 
-    async def test_failed_login_creates_attempt_record(self, db_session):
-        """A failed login with no prior attempt record creates a new AdminLoginAttempt."""
-        import bcrypt
-        from unittest.mock import patch
+    async def test_valid_session_returns_better_auth_user(self):
+        """Valid session token → BetterAuthUser with email and user_id."""
+        request = MagicMock()
+        request.cookies = {"better-auth.session_token": "valid-token-abc"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "session": {"id": "sess-1", "token": "valid-token-abc"},
+            "user": {"id": "user-uuid-1", "email": "admin@example.com"},
+        }
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                result = await require_admin(request)
+
+        assert isinstance(result, BetterAuthUser)
+        assert result.email == "admin@example.com"
+        assert result.user_id == "user-uuid-1"
+
+    # --- Auth failures ---
+
+    async def test_missing_cookie_raises_401(self):
+        """No better-auth.session_token cookie → 401."""
+        from fastapi import HTTPException
+
+        request = MagicMock()
+        request.cookies = {}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin(request)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Authentication required"
+
+    async def test_non_200_response_raises_401(self):
+        """Neon Auth returns 401 → our dependency raises 401."""
+        from fastapi import HTTPException
+
+        request = MagicMock()
+        request.cookies = {"better-auth.session_token": "expired-token"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_admin(request)
+
+        assert exc_info.value.status_code == 401
+
+    async def test_null_user_in_response_raises_401(self):
+        """Neon Auth returns 200 but user is null → 401."""
+        from fastapi import HTTPException
+
+        request = MagicMock()
+        request.cookies = {"better-auth.session_token": "some-token"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"session": {}, "user": None}
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_admin(request)
+
+        assert exc_info.value.status_code == 401
+
+    async def test_empty_body_raises_401(self):
+        """Neon Auth returns 200 with empty body → 401."""
+        from fastapi import HTTPException
+
+        request = MagicMock()
+        request.cookies = {"better-auth.session_token": "some-token"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = None
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_admin(request)
+
+        assert exc_info.value.status_code == 401
+
+    async def test_network_error_raises_503(self):
+        """Network error calling Neon Auth → 503."""
+        import httpx
+        from fastapi import HTTPException
+
+        request = MagicMock()
+        request.cookies = {"better-auth.session_token": "some-token"}
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=httpx.RequestError("connection refused"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_admin(request)
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Auth service unavailable"
+
+    # --- Integration: require_admin used by admin endpoints ---
+
+    async def test_admin_endpoint_returns_401_without_session_cookie(self, db_session: AsyncSession):
+        """Admin endpoints return 401 when the session cookie is absent."""
         from app.main import create_app
-        from app.database import get_db
-        from sqlalchemy import delete as sql_delete_stmt
 
         app_instance = create_app()
 
@@ -697,48 +233,21 @@ class TestRateLimitAtomicity:
             yield db_session
 
         app_instance.dependency_overrides[get_db] = override_get_db
+        # No require_admin override — let the real dependency run with no cookie
 
-        # Clean up pre-existing records for this IP
-        await db_session.execute(sql_delete_stmt(AdminLoginAttempt).where(
-            AdminLoginAttempt.ip_address == "127.0.0.1"
-        ))
-        await db_session.flush()
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.get(
+                "/api/admin/buildings",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
 
-        hashed = bcrypt.hashpw(b"correct", bcrypt.gensalt()).decode()
-
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                response = await c.post(
-                    "/api/admin/auth/login",
-                    json={"username": "admin", "password": "wrong"},
-                )
         assert response.status_code == 401
 
-        # Attempt record must exist in the DB
-        result = await db_session.execute(
-            select(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "127.0.0.1")
-        )
-        attempt = result.scalar_one_or_none()
-        assert attempt is not None, "AdminLoginAttempt record must be created after a failed login"
-        assert attempt.failed_count == 1
-
-    async def test_repeated_failed_logins_increment_counter(self, db_session):
-        """Repeated failed logins from the same IP increment the failed_count atomically (RR3-13)."""
-        import bcrypt
-        from unittest.mock import patch
+    async def test_admin_endpoint_returns_401_when_neon_auth_returns_non_200(self, db_session: AsyncSession):
+        """Admin endpoint returns 401 when Neon Auth returns non-200 for the session."""
         from app.main import create_app
-        from app.database import get_db
-        from sqlalchemy import delete as sql_delete_stmt
 
         app_instance = create_app()
 
@@ -747,65 +256,361 @@ class TestRateLimitAtomicity:
 
         app_instance.dependency_overrides[get_db] = override_get_db
 
-        # Clean up pre-existing records
-        await db_session.execute(sql_delete_stmt(AdminLoginAttempt).where(
-            AdminLoginAttempt.ip_address == "127.0.0.1"
-        ))
-        await db_session.flush()
+        mock_response = MagicMock()
+        mock_response.status_code = 401
 
-        hashed = bcrypt.hashpw(b"correct", bcrypt.gensalt()).decode()
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
 
-        with patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_password",
-            hashed,
-        ), patch.object(
-            __import__("app.config", fromlist=["settings"]).settings,
-            "admin_username",
-            "admin",
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app_instance), base_url="http://test"
-            ) as c:
-                for _ in range(3):
-                    await c.post(
-                        "/api/admin/auth/login",
-                        json={"username": "admin", "password": "wrong"},
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                async with AsyncClient(
+                    transport=ASGITransport(app=app_instance), base_url="http://test"
+                ) as c:
+                    response = await c.get(
+                        "/api/admin/buildings",
+                        cookies={"better-auth.session_token": "invalid-token"},
+                        headers={"X-Requested-With": "XMLHttpRequest"},
                     )
 
-        result = await db_session.execute(
-            select(AdminLoginAttempt).where(AdminLoginAttempt.ip_address == "127.0.0.1")
-        )
-        attempt = result.scalar_one_or_none()
-        assert attempt is not None
-        assert attempt.failed_count == 3, (
-            f"Expected failed_count=3 after 3 failed logins, got {attempt.failed_count}"
-        )
+        assert response.status_code == 401
+
+    async def test_admin_endpoint_returns_200_with_valid_session(self, db_session: AsyncSession):
+        """Admin endpoint returns 200 when Neon Auth validates the session."""
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "session": {"id": "sess-1"},
+            "user": {"id": "user-1", "email": "admin@example.com"},
+        }
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                async with AsyncClient(
+                    transport=ASGITransport(app=app_instance), base_url="http://test"
+                ) as c:
+                    response = await c.get(
+                        "/api/admin/buildings",
+                        cookies={"better-auth.session_token": "valid-token"},
+                        headers={"X-Requested-With": "XMLHttpRequest"},
+                    )
+
+        assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
-# RR3-16: Auth timing oracle — verify always does same work regardless of OTP presence
+# AdminLoginRateLimitMiddleware
 # ---------------------------------------------------------------------------
 
 
-class TestAuthTimingOracle:
-    """Tests that POST /api/auth/verify performs the same code path for OTP-found vs not-found (RR3-16)."""
+def _make_mock_db_session(attempt_record=None):
+    """Build a mock AsyncSession that returns attempt_record from execute().scalar_one_or_none()."""
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = attempt_record
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.add = MagicMock()
+    mock_db.flush = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_db.__aexit__ = AsyncMock(return_value=False)
+    return mock_db
+
+
+def _make_session_factory(*sessions):
+    """Return a callable that yields each session in sequence (one per `async with` call)."""
+    from contextlib import asynccontextmanager
+
+    sessions_iter = iter(sessions)
+
+    @asynccontextmanager
+    async def _factory():
+        yield next(sessions_iter)
+
+    return _factory
+
+
+class TestAdminLoginRateLimitMiddleware:
+    """Tests for the rate-limit middleware wrapping POST /api/auth/sign-in/email.
+
+    The middleware imports AsyncSessionLocal inside dispatch() so tests patch
+    app.database.AsyncSessionLocal to inject mock sessions without needing real
+    DB connections.  Each test supplies two mock sessions (pre-check and
+    post-response) via _make_session_factory.
+    """
 
     # --- Happy path ---
 
-    def test_verify_always_calls_hmac_compare_digest(self):
-        """Even when no OTP row exists, hmac.compare_digest is called — same code path (RR3-16).
+    async def test_non_target_path_passes_through(self, db_session: AsyncSession):
+        """Requests to paths other than /api/auth/sign-in/email are not intercepted."""
+        from app.main import create_app
 
-        This test verifies the fix by inspecting the source code of verify_auth to
-        confirm that hmac.compare_digest is called unconditionally before the 401 raise.
-        """
-        import inspect
-        import app.routers.auth as auth_module
-
-        source = inspect.getsource(auth_module.verify_auth)
-        # The dummy hmac.compare_digest call must appear in the "otp is None" branch
-        # before the 401 HTTPException is raised, ensuring timing parity.
-        assert "hmac.compare_digest" in source, (
-            "verify_auth must call hmac.compare_digest to equalise timing for "
-            "OTP-found vs OTP-not-found paths (RR3-16)"
+        app_instance = create_app()
+        app_instance.dependency_overrides[get_db] = lambda: db_session
+        app_instance.dependency_overrides[require_admin] = lambda: BetterAuthUser(
+            email="admin@example.com", user_id="u1"
         )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.get("/api/health/live")
+
+        assert response.status_code == 200
+
+    async def test_failed_sign_in_records_attempt(self):
+        """A non-2xx response from Better Auth causes a failure record to be created."""
+        from starlette.responses import JSONResponse as StarletteJSONResponse
+        from app.main import AdminLoginRateLimitMiddleware
+
+        # Pre-check: no existing record (IP not yet rate-limited)
+        pre_db = _make_mock_db_session(attempt_record=None)
+        # Post-response: still no existing record (first failure)
+        post_db = _make_mock_db_session(attempt_record=None)
+        factory = _make_session_factory(pre_db, post_db)
+
+        added_records: list = []
+        post_db.add = MagicMock(side_effect=lambda r: added_records.append(r))
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        async def fake_call_next(_req):
+            return StarletteJSONResponse({"detail": "bad credentials"}, status_code=401)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        assert response.status_code == 401
+        assert len(added_records) == 1
+        assert added_records[0].ip_address == "127.0.0.1"
+        assert added_records[0].failed_count == 1
+        post_db.commit.assert_called_once()
+
+    async def test_successful_sign_in_clears_attempt_record(self):
+        """A 2xx response from Better Auth clears any existing failure record."""
+        from starlette.responses import JSONResponse as StarletteJSONResponse
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        existing = MagicMock(spec=AdminLoginAttempt)
+        existing.id = "some-uuid"
+        existing.failed_count = 3
+        existing.first_attempt_at = now - timedelta(minutes=5)
+
+        pre_db = _make_mock_db_session(attempt_record=existing)
+        post_db = _make_mock_db_session(attempt_record=existing)
+        factory = _make_session_factory(pre_db, post_db)
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        async def fake_call_next(_req):
+            return StarletteJSONResponse({"ok": True}, status_code=200)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        assert response.status_code == 200
+        # execute was called on post_db with a DELETE statement (clearing the record)
+        assert post_db.execute.call_count >= 1
+        post_db.commit.assert_called_once()
+
+    async def test_rate_limited_after_max_failures(self):
+        """IP with >= MAX_FAILURES failures within window returns 429 before calling handler."""
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        blocked = MagicMock(spec=AdminLoginAttempt)
+        blocked.id = "blocked-uuid"
+        blocked.failed_count = 5  # == _MAX_FAILURES
+        blocked.first_attempt_at = now - timedelta(minutes=5)
+
+        # Only pre-check session needed — 429 is returned before call_next
+        pre_db = _make_mock_db_session(attempt_record=blocked)
+        factory = _make_session_factory(pre_db)
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        call_next_called = []
+
+        async def fake_call_next(_req):
+            call_next_called.append(True)
+            return MagicMock(status_code=200)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        assert response.status_code == 429
+        assert "Too many failed login attempts" in response.body.decode()
+        assert not call_next_called  # handler was never called
+
+    async def test_expired_window_record_is_cleared_and_request_proceeds(self):
+        """An expired rate-limit record is deleted and the request proceeds (not blocked)."""
+        from starlette.responses import JSONResponse as StarletteJSONResponse
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        expired = MagicMock(spec=AdminLoginAttempt)
+        expired.id = "expired-uuid"
+        expired.failed_count = 5
+        # first_attempt_at more than 15 minutes ago — stale window
+        expired.first_attempt_at = now - timedelta(minutes=30)
+
+        # After deletion, second query in post-response sees None
+        pre_db = _make_mock_db_session(attempt_record=expired)
+        post_db = _make_mock_db_session(attempt_record=None)
+        factory = _make_session_factory(pre_db, post_db)
+
+        added_records: list = []
+        post_db.add = MagicMock(side_effect=lambda r: added_records.append(r))
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        async def fake_call_next(_req):
+            return StarletteJSONResponse({"ok": True}, status_code=200)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        # Not blocked — expired record was cleared
+        assert response.status_code == 200
+        # pre_db.execute was called at least twice: SELECT and DELETE
+        assert pre_db.execute.call_count >= 2
+
+    async def test_failed_sign_in_increments_existing_attempt_record(self):
+        """A non-2xx response increments failed_count on an existing attempt record."""
+        from starlette.responses import JSONResponse as StarletteJSONResponse
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        existing = MagicMock(spec=AdminLoginAttempt)
+        existing.id = "existing-uuid"
+        existing.failed_count = 2
+        existing.first_attempt_at = now - timedelta(minutes=3)
+        existing.last_attempt_at = now - timedelta(minutes=1)
+
+        pre_db = _make_mock_db_session(attempt_record=existing)
+        post_db = _make_mock_db_session(attempt_record=existing)
+        factory = _make_session_factory(pre_db, post_db)
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        async def fake_call_next(_req):
+            return StarletteJSONResponse({"detail": "bad"}, status_code=401)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        assert response.status_code == 401
+        # failed_count must have been incremented on the existing record
+        assert existing.failed_count == 3
+        post_db.commit.assert_called_once()
+
+    async def test_rate_limit_uses_forwarded_ip(self):
+        """Rate-limit record uses the X-Forwarded-For IP, not the direct connection IP."""
+        from starlette.responses import JSONResponse as StarletteJSONResponse
+        from app.main import AdminLoginRateLimitMiddleware
+
+        test_ip = "203.0.113.55"
+
+        pre_db = _make_mock_db_session(attempt_record=None)
+        post_db = _make_mock_db_session(attempt_record=None)
+        factory = _make_session_factory(pre_db, post_db)
+
+        added_records: list = []
+        post_db.add = MagicMock(side_effect=lambda r: added_records.append(r))
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {"X-Forwarded-For": f"{test_ip}, 10.0.0.1"}
+        request.client = MagicMock()
+        request.client.host = "10.0.0.2"
+
+        async def fake_call_next(_req):
+            return StarletteJSONResponse({"detail": "bad"}, status_code=401)
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, fake_call_next)
+
+        assert response.status_code == 401
+        assert len(added_records) == 1
+        assert added_records[0].ip_address == test_ip  # keyed on forwarded IP
+
+    async def test_get_method_to_target_path_passes_through(self, db_session: AsyncSession):
+        """GET requests to /api/auth/sign-in/email are not rate-limited (only POST)."""
+        from app.main import create_app
+
+        app_instance = create_app()
+
+        async def override_get_db():
+            yield db_session
+
+        app_instance.dependency_overrides[get_db] = override_get_db
+        app_instance.dependency_overrides[require_admin] = lambda: BetterAuthUser(
+            email="admin@example.com", user_id="u1"
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), base_url="http://test"
+        ) as c:
+            response = await c.get("/api/auth/sign-in/email")
+
+        assert response.status_code != 429

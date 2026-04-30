@@ -68,6 +68,8 @@ export default defineConfig({
         // Tenant branding
         "src/api/config.ts",
         "src/context/BrandingContext.tsx",
+        // Better Auth client
+        "src/lib/auth-client.ts",
       ],
       thresholds: {
         // Per-file thresholds for Phase 4 vote files

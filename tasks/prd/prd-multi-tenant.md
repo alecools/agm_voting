@@ -77,7 +77,7 @@ The app code is identical across all deployments. There is no in-app tenant rout
 
 ### MT-TA-02: Log in with email + password
 
-**Status:** In scope — implemented via Neon Auth (Better Auth) email + password sign-in.
+**Status:** ✅ Implemented — branch: `feat/neon-auth-admin-login`, committed 2026-04-30
 
 **Key change from original design:** The `POST /api/admin/auth/login` endpoint that validates `ADMIN_USERNAME` / `ADMIN_PASSWORD` env vars is removed. The `AdminLoginPage` frontend component swaps to the Better Auth client SDK sign-in. IP-based rate limiting (`admin_login_attempt` table and middleware) is retained as a custom layer on top of Better Auth, since Better Auth does not provide IP-based rate limiting.
 
@@ -151,7 +151,7 @@ The app code is identical across all deployments. There is no in-app tenant rout
 
 ### MT-TA-06: All existing admin features work within org scope
 
-**Status:** In scope — existing features require no URL changes; they are re-authenticated via Neon Auth rather than the legacy session-cookie check.
+**Status:** ✅ Implemented — branch: `feat/neon-auth-admin-login`, committed 2026-04-30
 
 **Description:** As a tenant admin, I want all existing admin features to work exactly as before.
 

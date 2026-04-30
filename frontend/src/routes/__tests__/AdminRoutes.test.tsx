@@ -2,9 +2,18 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
-import { http, HttpResponse } from "msw";
-import { server } from "../../../tests/msw/server";
 import AdminRoutes from "../AdminRoutes";
+
+// Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
+const { mockUseSession } = vi.hoisted(() => ({
+  mockUseSession: vi.fn(),
+}));
+
+vi.mock("../../lib/auth-client", () => ({
+  authClient: {
+    useSession: mockUseSession,
+  },
+}));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
@@ -14,7 +23,17 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderRoutes(initialPath = "/admin") {
+function renderRoutes(initialPath = "/admin", authenticated = true) {
+  // Configure the session state for RequireAdminAuth
+  if (authenticated) {
+    mockUseSession.mockReturnValue({
+      data: { user: { email: "admin@example.com" }, session: {} },
+      isPending: false,
+    });
+  } else {
+    mockUseSession.mockReturnValue({ data: null, isPending: false });
+  }
+
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -33,7 +52,7 @@ describe("AdminRoutes", () => {
   it("renders login page on /admin/login", () => {
     renderRoutes("/admin/login");
     expect(screen.getByRole("heading", { name: "Admin Portal" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
 
@@ -75,14 +94,9 @@ describe("AdminRoutes", () => {
   });
 
   it("redirects to /admin/login when not authenticated", async () => {
-    server.use(
-      http.get("http://localhost/api/admin/auth/me", () => {
-        return HttpResponse.json({ detail: "Not authenticated" }, { status: 401 });
-      })
-    );
-    renderRoutes("/admin/buildings");
+    renderRoutes("/admin/buildings", false);
     await waitFor(() => {
-      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+      expect(screen.getByLabelText("Email")).toBeInTheDocument();
     });
   });
 });

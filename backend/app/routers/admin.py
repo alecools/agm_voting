@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import engine, get_db
 from app.logging_config import get_logger
 from app.models import EmailDelivery, GeneralMeeting, get_effective_status
-from app.routers.admin_auth import require_admin
+from app.dependencies import BetterAuthUser, require_admin
 from app.services.email_service import EmailService
 from app.schemas.admin import (
     AddEmailRequest,
@@ -826,8 +826,8 @@ async def reset_general_meeting_ballots(
 async def enter_votes_for_meeting(
     general_meeting_id: uuid.UUID,
     data: AdminVoteEntryRequest,
-    request: Request,
     db: AsyncSession = Depends(get_db),
+    admin_user: BetterAuthUser = Depends(require_admin),
 ) -> AdminVoteEntryResult:
     """Enter in-person votes on behalf of lot owners (US-AVE-01/02/03).
 
@@ -836,9 +836,8 @@ async def enter_votes_for_meeting(
     Returns 409 if the meeting is not open.
     Returns 422 if unknown lot_owner_ids or invalid votes are provided.
     """
-    admin_username: str | None = request.session.get("admin_username")
     result = await admin_service.enter_votes_for_meeting(
-        general_meeting_id, data, db, admin_username=admin_username
+        general_meeting_id, data, db, admin_username=admin_user.email
     )
     return AdminVoteEntryResult(**result)
 

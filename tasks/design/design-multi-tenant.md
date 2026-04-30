@@ -2,7 +2,7 @@
 
 PRD reference: `tasks/prd/prd-multi-tenant.md`
 
-**Status:** Draft
+**Status:** Implemented (Slice 2: Neon Auth admin login swap)
 
 ---
 

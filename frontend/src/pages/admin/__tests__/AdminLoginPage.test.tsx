@@ -1,15 +1,17 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import { http, HttpResponse } from "msw";
-import { server } from "../../../../tests/msw/server";
 import AdminLoginPage from "../AdminLoginPage";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 import type { TenantConfig } from "../../../api/config";
 
-const mockNavigate = vi.fn();
+// Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
+const { mockNavigate, mockSignInEmail } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+  mockSignInEmail: vi.fn(),
+}));
+
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
@@ -18,27 +20,36 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
+// Mock the Better Auth client so tests don't make real network calls.
+vi.mock("../../../lib/auth-client", () => ({
+  authClient: {
+    signIn: {
+      email: mockSignInEmail,
+    },
+  },
+}));
+
 function renderPage(config: TenantConfig = DEFAULT_CONFIG) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
   return render(
     <BrandingContext.Provider value={{ config, isLoading: false }}>
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <AdminLoginPage />
-        </MemoryRouter>
-      </QueryClientProvider>
+      <MemoryRouter>
+        <AdminLoginPage />
+      </MemoryRouter>
     </BrandingContext.Provider>
   );
 }
 
 describe("AdminLoginPage", () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockSignInEmail.mockClear();
+  });
+
   // --- Happy path ---
 
-  it("renders username and password fields", () => {
+  it("renders email and password fields", () => {
     renderPage();
-    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
 
@@ -47,15 +58,30 @@ describe("AdminLoginPage", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
-  it("navigates to /admin on successful login", async () => {
-    mockNavigate.mockClear();
+  it("navigates to /admin on successful sign-in", async () => {
+    mockSignInEmail.mockResolvedValueOnce({ data: { user: { email: "admin@example.com" } }, error: null });
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("Username"), "admin");
-    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct-password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin", { replace: true });
+    });
+  });
+
+  it("calls signIn.email with the entered email and password", async () => {
+    mockSignInEmail.mockResolvedValueOnce({ data: { user: {} }, error: null });
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "secret123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(mockSignInEmail).toHaveBeenCalledWith({
+        email: "admin@example.com",
+        password: "secret123",
+      });
     });
   });
 
@@ -73,7 +99,6 @@ describe("AdminLoginPage", () => {
     renderPage({ ...DEFAULT_CONFIG, logo_url: "", app_name: "AGM Voting" });
     expect(screen.getByText("AGM Voting")).toBeInTheDocument();
     expect(screen.getByText("AGM Voting")).toHaveClass("admin-login-card__app-name");
-    // No fallback img element with a broken /logo.png src
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
@@ -83,57 +108,69 @@ describe("AdminLoginPage", () => {
     expect(screen.getByText("Corp Vote")).toHaveClass("admin-login-card__app-name");
   });
 
-  // --- Input validation ---
+  // --- Input validation / error states ---
 
-  it("shows error message on invalid credentials", async () => {
-    server.use(
-      http.post("http://localhost/api/admin/auth/login", () => {
-        return HttpResponse.json({ detail: "Invalid credentials" }, { status: 401 });
-      })
-    );
+  it("shows error message when signIn.email returns an error object", async () => {
+    mockSignInEmail.mockResolvedValueOnce({ data: null, error: { message: "Invalid credentials" } });
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("Username"), "wrong");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Invalid email or password.")).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("shows error message when signIn.email throws", async () => {
+    mockSignInEmail.mockRejectedValueOnce(new Error("Network error"));
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
     await user.type(screen.getByLabelText("Password"), "bad");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
-    expect(screen.getByText("Invalid username or password.")).toBeInTheDocument();
+    expect(screen.getByText("Invalid email or password.")).toBeInTheDocument();
   });
 
-  // --- State / precondition errors ---
+  // --- Async UI transitions ---
 
-  it("shows Signing in… while loading", async () => {
-    let resolve!: (value: Response) => void;
-    server.use(
-      http.post("http://localhost/api/admin/auth/login", () => {
-        return new Promise((res) => { resolve = res as (value: Response) => void; });
-      })
+  it("shows Signing in… while the sign-in call is pending", async () => {
+    let resolve!: (value: { data: unknown; error: null }) => void;
+    mockSignInEmail.mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
     );
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("Username"), "admin");
-    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "pass");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
+    // While pending: shows "Signing in…" and navigate has NOT been called
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeInTheDocument();
-    resolve(HttpResponse.json({ ok: true }) as unknown as Response);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // Complete the sign-in
+    resolve({ data: { user: {} }, error: null });
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/admin", { replace: true });
+    });
   });
 
   it("disables submit button while loading", async () => {
-    let resolve!: (value: Response) => void;
-    server.use(
-      http.post("http://localhost/api/admin/auth/login", () => {
-        return new Promise((res) => { resolve = res as (value: Response) => void; });
-      })
+    let resolve!: (value: { data: unknown; error: null }) => void;
+    mockSignInEmail.mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
     );
     const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("Username"), "admin");
-    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "pass");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
-    resolve(HttpResponse.json({ ok: true }) as unknown as Response);
+    resolve({ data: { user: {} }, error: null });
   });
 
   // --- Navigation ---
@@ -144,7 +181,6 @@ describe("AdminLoginPage", () => {
   });
 
   it("navigates to / when Back to home is clicked", async () => {
-    mockNavigate.mockClear();
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: "← Back to home" }));
