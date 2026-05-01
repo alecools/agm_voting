@@ -163,18 +163,33 @@ class TestAuthProxyHappyPath:
         assert call_kwargs["params"]["code"] == "xyz"
         assert call_kwargs["params"]["state"] == "abc"
 
-    async def test_proxy_strips_host_and_content_length_from_headers(self):
-        """proxy_auth strips 'host', 'content-length', 'origin', and 'referer' before forwarding headers."""
+    async def test_proxy_uses_header_allowlist(self):
+        """proxy_auth uses an allowlist — only safe headers are forwarded.
+
+        Vercel-injected headers (x-forwarded-host, x-forwarded-for, x-real-ip,
+        x-vercel-deployment-url, host, origin, referer, content-length, and any
+        unknown custom headers) must NOT be forwarded to prevent Neon Auth from
+        rejecting the request with INVALID_HOSTNAME.
+
+        Allowlisted headers (content-type, cookie) MUST be forwarded.
+        """
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
         request = _make_request(
             method="POST",
             headers=[
+                # Allowlisted — must be forwarded
+                ("content-type", "application/json"),
+                ("cookie", "session=abc123"),
+                # NOT allowlisted — must be blocked
                 ("host", "localhost:8000"),
                 ("content-length", "42"),
                 ("origin", "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app"),
                 ("referer", "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app/admin/login"),
-                ("content-type", "application/json"),
+                ("x-forwarded-host", "internal-vms-git-feat-ocss.vercel.app"),
+                ("x-forwarded-for", "1.2.3.4"),
+                ("x-real-ip", "1.2.3.4"),
+                ("x-vercel-deployment-url", "https://some-deployment.vercel.app"),
                 ("x-custom-header", "value"),
             ],
         )
@@ -186,13 +201,21 @@ class TestAuthProxyHappyPath:
 
         forwarded = mock_client.request.call_args.kwargs["headers"]
         forwarded_lower = {k.lower() for k in forwarded}
+
+        # Allowlisted headers must be present
+        assert forwarded.get("content-type") == "application/json"
+        assert forwarded.get("cookie") == "session=abc123"
+
+        # Vercel-injected and other non-allowlisted headers must be absent
         assert "host" not in forwarded_lower
         assert "content-length" not in forwarded_lower
         assert "origin" not in forwarded_lower
         assert "referer" not in forwarded_lower
-        # Other headers are preserved
-        assert forwarded.get("content-type") == "application/json"
-        assert forwarded.get("x-custom-header") == "value"
+        assert "x-forwarded-host" not in forwarded_lower
+        assert "x-forwarded-for" not in forwarded_lower
+        assert "x-real-ip" not in forwarded_lower
+        assert "x-vercel-deployment-url" not in forwarded_lower
+        assert "x-custom-header" not in forwarded_lower
 
     async def test_proxy_strips_transfer_encoding_from_response_headers(self):
         """proxy_auth strips transfer-encoding from the upstream response headers."""

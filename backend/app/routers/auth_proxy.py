@@ -27,6 +27,21 @@ PATH_ALIASES: dict[str, str] = {
     "forget-password": "request-password-reset",
 }
 
+# Only forward headers that are meaningful to the auth service.
+# Using an allowlist avoids accidentally forwarding Vercel-injected headers
+# (x-forwarded-host, x-forwarded-for, x-vercel-*, etc.) that cause
+# Neon Auth to reject the request with INVALID_HOSTNAME.
+_FORWARD_HEADERS = frozenset({
+    "content-type",
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "cookie",
+    "authorization",
+    "user-agent",
+    "cache-control",
+})
+
 
 @router.api_route(
     "/api/auth/{path:path}",
@@ -48,13 +63,14 @@ async def proxy_auth(path: str, request: Request) -> Response:
     path = PATH_ALIASES.get(path, path)
     target_url = f"{settings.neon_auth_base_url}/{path}"
 
-    # Forward all headers except host (would mismatch the target),
-    # content-length (httpx recomputes it from the body), and origin/referer
-    # (the browser's Vercel preview URL would fail Neon Auth's origin validation).
+    # Only forward headers in the allowlist — this blocks Vercel-injected headers
+    # (x-forwarded-host, x-forwarded-for, x-real-ip, x-vercel-*, host, origin,
+    # referer, content-length, etc.) that cause Neon Auth to reject the request
+    # with INVALID_HOSTNAME.
     headers = {
         k: v
         for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length", "origin", "referer")
+        if k.lower() in _FORWARD_HEADERS
     }
 
     body = await request.body()
