@@ -9,10 +9,18 @@ The Neon Auth management API base URL is:
 
 The NEON_API_KEY is a server-side secret. It is never returned in any API response,
 never logged, and never sent to the frontend.
+
+Branch ID resolution
+--------------------
+NEON_BRANCH_ID may be set as a static env var override (useful for local dev and tests).
+When absent, the branch ID is resolved dynamically by calling the Neon management API
+to list all branches and matching against the PGHOST env var injected by the Neon-Vercel
+integration.  The result is cached for the lifetime of the Lambda instance.
 """
 from __future__ import annotations
 
 import secrets
+from urllib.parse import urlparse
 
 import httpx
 
@@ -29,7 +37,7 @@ logger = get_logger(__name__)
 
 
 class NeonAuthNotConfiguredError(Exception):
-    """Raised when NEON_API_KEY, NEON_PROJECT_ID, or NEON_BRANCH_ID are absent."""
+    """Raised when NEON_API_KEY, NEON_PROJECT_ID, or branch ID cannot be resolved."""
 
 
 class NeonAuthDuplicateUserError(Exception):
@@ -45,20 +53,108 @@ class NeonAuthServiceError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Branch ID resolution
+# ---------------------------------------------------------------------------
+
+# Module-level cache — the branch does not change during a Lambda's lifetime.
+_cached_branch_id: str | None = None
+
+
+def _get_pghost() -> str:
+    """Extract the endpoint hostname from PGHOST or DATABASE_URL.
+
+    Returns the raw PGHOST value if set, otherwise falls back to extracting
+    the hostname from DATABASE_URL.  Returns an empty string if neither
+    yields a usable host.
+    """
+    if settings.pghost:
+        return settings.pghost
+    # Fallback: parse the hostname out of DATABASE_URL.
+    try:
+        parsed = urlparse(settings.database_url)
+        return parsed.hostname or ""
+    except Exception:
+        return ""
+
+
+async def _resolve_branch_id() -> str:
+    """Return the Neon branch ID for the current deployment.
+
+    Resolution order:
+    1. Return ``settings.neon_branch_id`` immediately if it is set (explicit
+       override — used in tests and local dev).
+    2. Return the module-level cache if already resolved this instance.
+    3. Call the Neon branches API, find the branch whose endpoint host matches
+       PGHOST, cache and return its ID.
+
+    Raises NeonAuthNotConfiguredError when:
+    - Neither NEON_BRANCH_ID nor PGHOST is available.
+    - No branch endpoint matches PGHOST.
+    """
+    global _cached_branch_id  # noqa: PLW0603
+
+    # 1. Explicit static override (tests, local dev, demo env).
+    if settings.neon_branch_id:
+        return settings.neon_branch_id
+
+    # 2. Already resolved this instance.
+    if _cached_branch_id is not None:
+        return _cached_branch_id
+
+    # 3. Resolve dynamically via the Neon management API.
+    pghost = _get_pghost()
+    if not pghost:
+        raise NeonAuthNotConfiguredError(
+            "Cannot resolve Neon branch ID: NEON_BRANCH_ID is not set and "
+            "PGHOST is not available."
+        )
+
+    if not settings.neon_api_key or not settings.neon_project_id:
+        raise NeonAuthNotConfiguredError("User management not configured")
+
+    url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/branches"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {settings.neon_api_key}"},
+            timeout=15.0,
+        )
+
+    if resp.status_code != 200:
+        logger.error("neon_list_branches_failed", status=resp.status_code)
+        raise NeonAuthNotConfiguredError(
+            f"Neon branches API returned {resp.status_code}; cannot resolve branch ID"
+        )
+
+    branches = resp.json().get("branches", [])
+    for branch in branches:
+        for endpoint in branch.get("endpoints", []):
+            host = endpoint.get("host", "")
+            if host and pghost.startswith(host.split(".")[0]):
+                _cached_branch_id = branch["id"]
+                return _cached_branch_id
+
+    raise NeonAuthNotConfiguredError(
+        f"No Neon branch endpoint matches PGHOST '{pghost}'"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 
-def _check_configured() -> None:
-    """Raise NeonAuthNotConfiguredError if any required setting is absent."""
-    if not settings.neon_api_key or not settings.neon_project_id or not settings.neon_branch_id:
+def _check_api_configured() -> None:
+    """Raise NeonAuthNotConfiguredError if NEON_API_KEY or NEON_PROJECT_ID are absent."""
+    if not settings.neon_api_key or not settings.neon_project_id:
         raise NeonAuthNotConfiguredError("User management not configured")
 
 
-def _management_base_url() -> str:
+async def _management_base_url() -> str:
+    branch_id = await _resolve_branch_id()
     return (
         f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}"
-        f"/branches/{settings.neon_branch_id}/auth"
+        f"/branches/{branch_id}/auth"
     )
 
 
@@ -77,8 +173,9 @@ async def list_admin_users() -> list[AdminUserOut]:
     Raises NeonAuthNotConfiguredError if neon_api_key/project_id/branch_id are absent.
     Raises NeonAuthServiceError on non-200 response from Neon.
     """
-    _check_configured()
-    url = f"{_management_base_url()}/users"
+    _check_api_configured()
+    base_url = await _management_base_url()
+    url = f"{base_url}/users"
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, headers=_auth_headers(), timeout=15.0)
     if resp.status_code != 200:
@@ -109,13 +206,14 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     Raises NeonAuthDuplicateUserError if the email already exists (Neon returns 409).
     Raises NeonAuthServiceError on other non-2xx responses.
     """
-    _check_configured()
+    _check_api_configured()
 
     # Generate a cryptographically random password — discarded immediately after use.
     # The invitee sets their own password via the password-reset email.
     temp_password = secrets.token_urlsafe(32)  # nosemgrep: no-hardcoded-secrets -- random temporary credential, discarded immediately after API call
 
-    url = f"{_management_base_url()}/users"
+    base_url = await _management_base_url()
+    url = f"{base_url}/users"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             url,
@@ -169,8 +267,9 @@ async def remove_admin_user(user_id: str) -> None:
     Raises NeonAuthUserNotFoundError if the user does not exist (Neon returns 404).
     Raises NeonAuthServiceError on other non-2xx responses.
     """
-    _check_configured()
-    url = f"{_management_base_url()}/users/{user_id}"
+    _check_api_configured()
+    base_url = await _management_base_url()
+    url = f"{base_url}/users/{user_id}"
     async with httpx.AsyncClient() as client:
         resp = await client.delete(url, headers=_auth_headers(), timeout=15.0)
     if resp.status_code == 404:

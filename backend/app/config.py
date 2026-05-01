@@ -71,11 +71,17 @@ class Settings(BaseSettings):
     email_override: str = ""
     environment: str = "development"
     # Neon Auth management API settings for admin user management.
-    # All three default to empty string. When any is empty, user management
-    # endpoints return 503 so local dev still works without Neon credentials.
+    # neon_api_key and neon_project_id are required for all environments.
+    # neon_branch_id is an optional static override; when absent the branch ID
+    # is resolved dynamically at runtime by matching PGHOST against the Neon
+    # branches API (see neon_auth_service._resolve_branch_id).
     neon_api_key: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; real value supplied via NEON_API_KEY env var in all deployed environments
     neon_project_id: str = ""
-    neon_branch_id: str = ""
+    neon_branch_id: str = ""  # static override; leave empty to resolve dynamically via PGHOST
+    # PGHOST is injected by the Neon-Vercel integration into every deployment.
+    # It contains the Neon endpoint hostname (e.g. ep-cool-name-a7abc123.us-east-2.aws.neon.tech)
+    # which uniquely identifies the branch used by this deployment.
+    pghost: str = ""
 
     # Production guard for the ballot-reset endpoint (RR5-01).
     # Must be explicitly set to True via ENABLE_BALLOT_RESET env var to enable the endpoint.
