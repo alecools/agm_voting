@@ -16,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.logging_config import configure_logging, get_logger
-from app.routers.admin import router as admin_router
+from app.routers.admin import router as admin_router, debug_unauthed_router as admin_debug_unauthed_router
 
 configure_logging()
 
@@ -430,6 +430,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(voting_router, prefix="/api")
     app.include_router(admin_router, prefix="/api/admin")
+    app.include_router(admin_debug_unauthed_router, prefix="/api/admin")
     # auth_proxy_router is included last so it acts as a catch-all fallback for
     # any /api/auth/* path not handled by the routers above.
     app.include_router(auth_proxy_router)

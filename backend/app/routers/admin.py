@@ -75,6 +75,10 @@ from app.services.neon_auth_service import (
 from app.rate_limiter import admin_import_limiter, admin_close_limiter, admin_invite_limiter
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
+# Separate router for endpoints that must NOT require admin auth.
+# Currently only the test-only /auth/provision endpoint lives here — it is
+# guarded by _require_debug_access() (TESTING_MODE=true) instead.
+debug_unauthed_router = APIRouter(tags=["admin"])
 logger = get_logger(__name__)
 
 _CSV_CONTENT_TYPES = {
@@ -1227,7 +1231,7 @@ class _ProvisionAdminRequest(BaseModel):
     name: str = "Admin"
 
 
-@router.post("/auth/provision", status_code=204)
+@debug_unauthed_router.post("/auth/provision", status_code=204)
 async def provision_admin_user(body: _ProvisionAdminRequest) -> None:
     """Create an admin user in Neon Auth directly (server-to-server).
 
