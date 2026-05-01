@@ -112,7 +112,10 @@ async def _resolve_branch_id() -> str:
     if not settings.neon_api_key or not settings.neon_project_id:
         raise NeonAuthNotConfiguredError("User management not configured")
 
-    url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/branches"
+    # The /branches API does NOT embed endpoint data in its response — each
+    # branch object has an empty "endpoints" list.  Use the dedicated
+    # /endpoints API which returns all endpoints with their branch_id and host.
+    url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/endpoints"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             url,
@@ -121,18 +124,17 @@ async def _resolve_branch_id() -> str:
         )
 
     if resp.status_code != 200:
-        logger.error("neon_list_branches_failed", status=resp.status_code)
+        logger.error("neon_list_endpoints_failed", status=resp.status_code)
         raise NeonAuthNotConfiguredError(
-            f"Neon branches API returned {resp.status_code}; cannot resolve branch ID"
+            f"Neon endpoints API returned {resp.status_code}; cannot resolve branch ID"
         )
 
-    branches = resp.json().get("branches", [])
-    for branch in branches:
-        for endpoint in branch.get("endpoints", []):
-            host = endpoint.get("host", "")
-            if host and pghost.startswith(host.split(".")[0]):
-                _cached_branch_id = branch["id"]
-                return _cached_branch_id
+    endpoints = resp.json().get("endpoints", [])
+    for endpoint in endpoints:
+        host = endpoint.get("host", "")
+        if host and pghost.startswith(host.split(".")[0]):
+            _cached_branch_id = endpoint["branch_id"]
+            return _cached_branch_id
 
     raise NeonAuthNotConfiguredError(
         f"No Neon branch endpoint matches PGHOST '{pghost}'"

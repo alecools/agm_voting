@@ -145,21 +145,23 @@ async def test_resolve_branch_id_uses_static_override():
 
 @pytest.mark.asyncio
 async def test_resolve_branch_id_from_pghost_happy_path():
-    """_resolve_branch_id resolves branch ID by matching PGHOST against Neon API."""
+    """_resolve_branch_id resolves branch ID by matching PGHOST against Neon endpoints API."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    # The /endpoints API returns a flat list of endpoints; each has branch_id and host.
+    # The /branches API does NOT embed endpoint data — this is the root cause of the
+    # original 503: the code previously called /branches which always returned empty
+    # endpoint lists, so no branch was ever matched.
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-dynamic-id",
-                "name": "preview/my-branch",
-                "endpoints": [
-                    {"host": "ep-cool-name-abc123.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-cool-name-abc123",
+                "branch_id": "br-dynamic-id",
+                "host": "ep-cool-name-abc123.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -175,6 +177,10 @@ async def test_resolve_branch_id_from_pghost_happy_path():
 
     assert result == "br-dynamic-id"
     assert _svc_module._cached_branch_id == "br-dynamic-id"
+    # Verify it called /endpoints, not /branches
+    call_url = mock_client.get.call_args[0][0]
+    assert "/endpoints" in call_url
+    assert "/branches" not in call_url
 
 
 @pytest.mark.asyncio
@@ -182,18 +188,16 @@ async def test_resolve_branch_id_caching():
     """Second call to _resolve_branch_id does not re-call the Neon API."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-cached-id",
-                "name": "preview/my-branch",
-                "endpoints": [
-                    {"host": "ep-cached-host-abc.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-cached-host-abc",
+                "branch_id": "br-cached-id",
+                "host": "ep-cached-host-abc.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -217,13 +221,13 @@ async def test_resolve_branch_id_caching():
 @pytest.mark.asyncio
 async def test_resolve_branch_id_pghost_not_set_raises():
     """_resolve_branch_id raises NeonAuthNotConfiguredError when PGHOST is absent
-    and no Neon branch endpoint matches the localhost DATABASE_URL hostname."""
+    and no Neon endpoint matches the localhost DATABASE_URL hostname."""
     _svc_module._cached_branch_id = None
 
     # When pghost is empty the code falls back to DATABASE_URL hostname
-    # (localhost in dev). The Neon API is called but finds no matching branch.
-    branches_payload = {"branches": []}
-    mock_resp = _mock_response(200, branches_payload)
+    # (localhost in dev). The Neon API is called but finds no matching endpoint.
+    endpoints_payload = {"endpoints": []}
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -242,21 +246,19 @@ async def test_resolve_branch_id_pghost_not_set_raises():
 
 @pytest.mark.asyncio
 async def test_resolve_branch_id_no_matching_branch_raises():
-    """_resolve_branch_id raises NeonAuthNotConfiguredError when no branch matches PGHOST."""
+    """_resolve_branch_id raises NeonAuthNotConfiguredError when no endpoint matches PGHOST."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-other",
-                "name": "main",
-                "endpoints": [
-                    {"host": "ep-other-host-xyz.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-other-host-xyz",
+                "branch_id": "br-other",
+                "host": "ep-other-host-xyz.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -303,7 +305,7 @@ async def test_resolve_branch_id_branches_api_non_200_raises():
     ), patch(
         "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
     ):
-        with pytest.raises(NeonAuthNotConfiguredError, match="branches API returned 500"):
+        with pytest.raises(NeonAuthNotConfiguredError, match="endpoints API returned 500"):
             await _resolve_branch_id()
 
 
