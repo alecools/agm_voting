@@ -57,11 +57,18 @@ async def require_admin(request: Request) -> BetterAuthUser:
     if not session_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    neon_auth_base_url = settings.neon_auth_base_url.strip()
+    allowed_origin = settings.allowed_origin.strip()
+
+    headers: dict[str, str] = {"cookie": f"better-auth.session_token={session_token}"}
+    if allowed_origin:
+        headers["origin"] = allowed_origin
+
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
-                f"{settings.neon_auth_base_url}/api/auth/get-session",
-                headers={"cookie": f"better-auth.session_token={session_token}"},
+                f"{neon_auth_base_url}/get-session",
+                headers=headers,
                 timeout=5.0,
             )
         except httpx.RequestError:
