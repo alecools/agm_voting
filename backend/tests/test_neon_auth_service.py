@@ -414,6 +414,10 @@ async def test_invite_admin_user_happy_path():
     # Random password must not be present in the returned value
     assert not hasattr(result, "password")
 
+    # The create call must send name=local-part-of-email (Neon requires length >= 1).
+    create_call_kwargs = mock_client.post.call_args_list[0].kwargs
+    assert create_call_kwargs["json"]["name"] == "admin"
+
 
 @pytest.mark.asyncio
 async def test_invite_admin_user_create_returns_200():

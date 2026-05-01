@@ -227,13 +227,17 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     # The invitee sets their own password via the password-reset email.
     temp_password = secrets.token_urlsafe(32)  # nosemgrep: no-hardcoded-secrets -- random temporary credential, discarded immediately after API call
 
+    # Neon management API requires name to have length >= 1.
+    # Use the local part of the email address (before @) as a sensible default.
+    name = email.split("@")[0]
+
     base_url = await _management_base_url()
     url = f"{base_url}/users"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             url,
             headers={**_auth_headers(), "Content-Type": "application/json"},
-            json={"email": email, "name": "", "password": temp_password},
+            json={"email": email, "name": name, "password": temp_password},
             timeout=15.0,
         )
 
