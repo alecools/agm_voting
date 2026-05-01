@@ -34,6 +34,8 @@ const E2E_TESTS_DIR = process.env.GITHUB_WORKSPACE
   ? path.join(process.env.GITHUB_WORKSPACE, "e2e_tests")
   : __dirname;
 
+// ADMIN_USERNAME must be a valid email address (Better Auth requires email-based auth).
+// Falls back to a local-dev default. In CI this is set from the ADMIN_USERNAME GitHub secret.
 const ADMIN_EMAIL = process.env.ADMIN_USERNAME ?? "admin@example.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
@@ -156,6 +158,33 @@ export default async function globalSetup(_config: FullConfig) {
   // project tests (smoke, voting-flow) that don't need an admin session but
   // still need to bypass Vercel Deployment Protection on preview URLs.
   await context.storageState({ path: path.join(authDir, "public.json") });
+
+  // ── Provision admin user (idempotent) ──────────────────────────────────────
+  // Each Neon branch gets its own Better Auth instance with an empty user table.
+  // Before the first E2E run on a fresh branch, the admin user does not exist,
+  // so sign-in would fail with INVALID_EMAIL_OR_PASSWORD.
+  //
+  // Register the admin user via POST /api/auth/sign-up/email (proxied through
+  // the deployed app to the correct branch's auth instance).  If the user
+  // already exists, sign-up returns a non-2xx status which we ignore silently.
+  // Either way, the subsequent sign-in uses the same credentials.
+  //
+  // The bypass header is included because Vercel Deployment Protection is active.
+  {
+    const signUpHeaders: HeadersInit = { "Content-Type": "application/json" };
+    if (BYPASS_TOKEN) signUpHeaders["x-vercel-protection-bypass"] = BYPASS_TOKEN;
+    try {
+      await fetch(`${baseURL}/api/auth/sign-up/email`, {
+        method: "POST",
+        headers: signUpHeaders,
+        body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, name: "Admin" }),
+      });
+      // Response status is not checked: 200 = created, 4xx/5xx = already exists or disabled.
+      // Either outcome allows the sign-in below to proceed.
+    } catch {
+      // Network errors during provisioning are non-fatal — sign-in will surface any real failure.
+    }
+  }
 
   await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
