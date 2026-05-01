@@ -48,12 +48,13 @@ async def proxy_auth(path: str, request: Request) -> Response:
     path = PATH_ALIASES.get(path, path)
     target_url = f"{settings.neon_auth_base_url}/{path}"
 
-    # Forward all headers except host (would mismatch the target) and
-    # content-length (httpx recomputes it from the body).
+    # Forward all headers except host (would mismatch the target),
+    # content-length (httpx recomputes it from the body), and origin/referer
+    # (the browser's Vercel preview URL would fail Neon Auth's origin validation).
     headers = {
         k: v
         for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length")
+        if k.lower() not in ("host", "content-length", "origin", "referer")
     }
 
     body = await request.body()

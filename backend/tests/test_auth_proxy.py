@@ -164,7 +164,7 @@ class TestAuthProxyHappyPath:
         assert call_kwargs["params"]["state"] == "abc"
 
     async def test_proxy_strips_host_and_content_length_from_headers(self):
-        """proxy_auth strips 'host' and 'content-length' before forwarding headers."""
+        """proxy_auth strips 'host', 'content-length', 'origin', and 'referer' before forwarding headers."""
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
         request = _make_request(
@@ -172,6 +172,8 @@ class TestAuthProxyHappyPath:
             headers=[
                 ("host", "localhost:8000"),
                 ("content-length", "42"),
+                ("origin", "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app"),
+                ("referer", "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app/admin/login"),
                 ("content-type", "application/json"),
                 ("x-custom-header", "value"),
             ],
@@ -183,8 +185,11 @@ class TestAuthProxyHappyPath:
             await proxy_auth(path="sign-in/email", request=request)
 
         forwarded = mock_client.request.call_args.kwargs["headers"]
-        assert "host" not in {k.lower() for k in forwarded}
-        assert "content-length" not in {k.lower() for k in forwarded}
+        forwarded_lower = {k.lower() for k in forwarded}
+        assert "host" not in forwarded_lower
+        assert "content-length" not in forwarded_lower
+        assert "origin" not in forwarded_lower
+        assert "referer" not in forwarded_lower
         # Other headers are preserved
         assert forwarded.get("content-type") == "application/json"
         assert forwarded.get("x-custom-header") == "value"
