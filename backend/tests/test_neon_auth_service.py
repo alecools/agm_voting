@@ -29,13 +29,10 @@ import app.services.neon_auth_service as _svc_module
 # Helpers
 # ---------------------------------------------------------------------------
 
+# The Neon Auth management API POST /auth/users response only contains {"id": "..."}.
+# email, name, createdAt, etc. are NOT returned by the API.
 _NEON_USER_PAYLOAD = {
     "id": "user-abc",
-    "email": "admin@example.com",
-    "name": "Admin",
-    "emailVerified": True,
-    "createdAt": "2026-01-01T00:00:00.000Z",
-    "updatedAt": "2026-01-01T00:00:00.000Z",
 }
 
 _CONFIGURED_SETTINGS = {
@@ -145,21 +142,23 @@ async def test_resolve_branch_id_uses_static_override():
 
 @pytest.mark.asyncio
 async def test_resolve_branch_id_from_pghost_happy_path():
-    """_resolve_branch_id resolves branch ID by matching PGHOST against Neon API."""
+    """_resolve_branch_id resolves branch ID by matching PGHOST against Neon endpoints API."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    # The /endpoints API returns a flat list of endpoints; each has branch_id and host.
+    # The /branches API does NOT embed endpoint data — this is the root cause of the
+    # original 503: the code previously called /branches which always returned empty
+    # endpoint lists, so no branch was ever matched.
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-dynamic-id",
-                "name": "preview/my-branch",
-                "endpoints": [
-                    {"host": "ep-cool-name-abc123.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-cool-name-abc123",
+                "branch_id": "br-dynamic-id",
+                "host": "ep-cool-name-abc123.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -175,6 +174,10 @@ async def test_resolve_branch_id_from_pghost_happy_path():
 
     assert result == "br-dynamic-id"
     assert _svc_module._cached_branch_id == "br-dynamic-id"
+    # Verify it called /endpoints, not /branches
+    call_url = mock_client.get.call_args[0][0]
+    assert "/endpoints" in call_url
+    assert "/branches" not in call_url
 
 
 @pytest.mark.asyncio
@@ -182,18 +185,16 @@ async def test_resolve_branch_id_caching():
     """Second call to _resolve_branch_id does not re-call the Neon API."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-cached-id",
-                "name": "preview/my-branch",
-                "endpoints": [
-                    {"host": "ep-cached-host-abc.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-cached-host-abc",
+                "branch_id": "br-cached-id",
+                "host": "ep-cached-host-abc.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -217,13 +218,13 @@ async def test_resolve_branch_id_caching():
 @pytest.mark.asyncio
 async def test_resolve_branch_id_pghost_not_set_raises():
     """_resolve_branch_id raises NeonAuthNotConfiguredError when PGHOST is absent
-    and no Neon branch endpoint matches the localhost DATABASE_URL hostname."""
+    and no Neon endpoint matches the localhost DATABASE_URL hostname."""
     _svc_module._cached_branch_id = None
 
     # When pghost is empty the code falls back to DATABASE_URL hostname
-    # (localhost in dev). The Neon API is called but finds no matching branch.
-    branches_payload = {"branches": []}
-    mock_resp = _mock_response(200, branches_payload)
+    # (localhost in dev). The Neon API is called but finds no matching endpoint.
+    endpoints_payload = {"endpoints": []}
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -242,21 +243,19 @@ async def test_resolve_branch_id_pghost_not_set_raises():
 
 @pytest.mark.asyncio
 async def test_resolve_branch_id_no_matching_branch_raises():
-    """_resolve_branch_id raises NeonAuthNotConfiguredError when no branch matches PGHOST."""
+    """_resolve_branch_id raises NeonAuthNotConfiguredError when no endpoint matches PGHOST."""
     _svc_module._cached_branch_id = None
 
-    branches_payload = {
-        "branches": [
+    endpoints_payload = {
+        "endpoints": [
             {
-                "id": "br-other",
-                "name": "main",
-                "endpoints": [
-                    {"host": "ep-other-host-xyz.us-east-2.aws.neon.tech"}
-                ],
+                "id": "ep-other-host-xyz",
+                "branch_id": "br-other",
+                "host": "ep-other-host-xyz.us-east-2.aws.neon.tech",
             }
         ]
     }
-    mock_resp = _mock_response(200, branches_payload)
+    mock_resp = _mock_response(200, endpoints_payload)
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -303,31 +302,47 @@ async def test_resolve_branch_id_branches_api_non_200_raises():
     ), patch(
         "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
     ):
-        with pytest.raises(NeonAuthNotConfiguredError, match="branches API returned 500"):
+        with pytest.raises(NeonAuthNotConfiguredError, match="endpoints API returned 500"):
             await _resolve_branch_id()
 
 
 # ---------------------------------------------------------------------------
-# list_admin_users
+# list_admin_users — queries neon_auth.user via DB (no management API call)
 # ---------------------------------------------------------------------------
+
+
+def _make_row(id: str, email: str, created_at: datetime):
+    """Build a mock mapping row with the columns returned by list_admin_users.
+
+    The implementation uses result.mappings().all(), so each row must support
+    dict-style access with string keys ("id", "email", "createdAt").
+    """
+    return {"id": id, "email": email, "createdAt": created_at}
+
+
+def _make_mock_db(rows):
+    """Return an AsyncMock that mimics an AsyncSession for list_admin_users.
+
+    The implementation calls result.mappings().all(), so we chain the mocks
+    accordingly: execute() → mappings() → all().
+    """
+    mock_mappings = MagicMock()
+    mock_mappings.all.return_value = rows
+    mock_result = MagicMock()
+    mock_result.mappings.return_value = mock_mappings
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    return mock_db
 
 
 @pytest.mark.asyncio
 async def test_list_admin_users_returns_parsed_list():
     """list_admin_users returns a parsed AdminUserOut list on success."""
-    mock_resp = _mock_response(200, {"users": [_NEON_USER_PAYLOAD]})
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [_make_row("user-abc", "admin@example.com", ts)]
+    mock_db = _make_mock_db(rows)
 
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        result = await list_admin_users()
+    result = await list_admin_users(mock_db)
 
     assert len(result) == 1
     assert result[0].id == "user-abc"
@@ -337,80 +352,40 @@ async def test_list_admin_users_returns_parsed_list():
 
 @pytest.mark.asyncio
 async def test_list_admin_users_empty_list():
-    """list_admin_users returns empty list when Neon returns no users."""
-    mock_resp = _mock_response(200, {"users": []})
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
+    """list_admin_users returns empty list when neon_auth.user has no rows."""
+    mock_db = _make_mock_db([])
 
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        result = await list_admin_users()
+    result = await list_admin_users(mock_db)
 
     assert result == []
 
 
 @pytest.mark.asyncio
-async def test_list_admin_users_config_missing():
-    """list_admin_users raises NeonAuthNotConfiguredError when API key is absent."""
-    m = MagicMock()
-    m.neon_api_key = ""
-    m.neon_project_id = "test-project-id"
-    m.neon_branch_id = "test-branch-id"
-    with patch("app.services.neon_auth_service.settings", m):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
+async def test_list_admin_users_multiple_users():
+    """list_admin_users returns all rows in creation order."""
+    ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    rows = [
+        _make_row("user-1", "admin1@example.com", ts1),
+        _make_row("user-2", "admin2@example.com", ts2),
+    ]
+    mock_db = _make_mock_db(rows)
+
+    result = await list_admin_users(mock_db)
+
+    assert len(result) == 2
+    assert result[0].id == "user-1"
+    assert result[1].id == "user-2"
 
 
 @pytest.mark.asyncio
-async def test_list_admin_users_project_id_missing():
-    """list_admin_users raises NeonAuthNotConfiguredError when project_id absent."""
-    m = MagicMock()
-    m.neon_api_key = "key"
-    m.neon_project_id = ""
-    m.neon_branch_id = "branch"
-    with patch("app.services.neon_auth_service.settings", m):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
+async def test_list_admin_users_db_error_raises_service_error():
+    """list_admin_users raises NeonAuthServiceError when the DB query fails."""
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=Exception("connection refused"))
 
-
-@pytest.mark.asyncio
-async def test_list_admin_users_resolve_branch_raises_not_configured():
-    """list_admin_users propagates NeonAuthNotConfiguredError from _resolve_branch_id."""
-    m = MagicMock()
-    m.neon_api_key = "key"
-    m.neon_project_id = "project"
-    m.neon_branch_id = ""
-    with patch("app.services.neon_auth_service.settings", m), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(side_effect=NeonAuthNotConfiguredError("no branch")),
-    ):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
-
-
-@pytest.mark.asyncio
-async def test_list_admin_users_non_200_raises_service_error():
-    """list_admin_users raises NeonAuthServiceError on non-200 from Neon."""
-    mock_resp = _mock_response(500)
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
-
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        with pytest.raises(NeonAuthServiceError):
-            await list_admin_users()
+    with pytest.raises(NeonAuthServiceError, match="Failed to list admin users"):
+        await list_admin_users(mock_db)
 
 
 # ---------------------------------------------------------------------------
@@ -438,9 +413,24 @@ async def test_invite_admin_user_happy_path():
         result = await invite_admin_user("admin@example.com", "https://app.example.com")
 
     assert result.id == "user-abc"
+    # email comes from the input parameter — the API only returns {"id": "..."}
     assert result.email == "admin@example.com"
+    # created_at is set to now() since the API does not return it
+    assert isinstance(result.created_at, datetime)
     # Random password must not be present in the returned value
     assert not hasattr(result, "password")
+
+    # The create call must send name=local-part-of-email (Neon requires length >= 1).
+    create_call_kwargs = mock_client.post.call_args_list[0].kwargs
+    assert create_call_kwargs["json"]["name"] == "admin"
+
+    # The reset call must send Origin header (required by Neon Auth) and must NOT
+    # send redirectTo (Neon Auth rejects any explicit redirectTo that is not in its
+    # registered trusted origins — omitting it lets Neon Auth use the origin instead).
+    reset_call_kwargs = mock_client.post.call_args_list[1].kwargs
+    assert reset_call_kwargs["headers"].get("Origin") == "https://app.example.com"
+    assert "redirectTo" not in reset_call_kwargs.get("json", {})
+    assert reset_call_kwargs["json"]["email"] == "admin@example.com"
 
 
 @pytest.mark.asyncio
@@ -486,6 +476,103 @@ async def test_invite_admin_user_duplicate_raises():
 
 
 @pytest.mark.asyncio
+async def test_invite_admin_user_duplicate_422_raises():
+    """invite_admin_user raises NeonAuthDuplicateUserError when Neon returns 422.
+
+    Some Neon Auth versions return 422 (Unprocessable Entity) instead of 409
+    when the email already exists.  Both must map to NeonAuthDuplicateUserError
+    so the router can return 409 rather than 502.
+    """
+    create_resp = _mock_response(422)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=create_resp)
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthDuplicateUserError):
+            await invite_admin_user("existing@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_duplicate_400_user_already_exists_raises():
+    """invite_admin_user raises NeonAuthDuplicateUserError when Neon returns HTTP 400
+    with error code USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL.
+
+    The current Neon Auth management API returns 400 (not 409/422) for duplicates.
+    """
+    create_resp = _mock_response(
+        400, {"code": "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", "message": "User already exists."}
+    )
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=create_resp)
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthDuplicateUserError):
+            await invite_admin_user("existing@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_400_non_duplicate_code_raises_service_error():
+    """invite_admin_user raises NeonAuthServiceError when Neon returns HTTP 400
+    with an error code that is NOT USER_ALREADY_EXISTS (e.g. malformed payload).
+    """
+    create_resp = _mock_response(400, {"code": "INVALID_REQUEST", "message": "Bad payload"})
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=create_resp)
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_400_json_parse_error_raises_service_error():
+    """invite_admin_user raises NeonAuthServiceError when Neon returns HTTP 400
+    and the response body cannot be parsed as JSON.
+    """
+    create_resp = MagicMock()
+    create_resp.status_code = 400
+    create_resp.json.side_effect = Exception("not valid json")
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=create_resp)
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
 async def test_invite_admin_user_create_non_2xx_raises_service_error():
     """invite_admin_user raises NeonAuthServiceError on non-2xx create response."""
     create_resp = _mock_response(500)
@@ -510,6 +597,61 @@ async def test_invite_admin_user_password_reset_fails():
     """invite_admin_user raises NeonAuthServiceError when password-reset call fails."""
     create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
     reset_resp = _mock_response(500)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp])
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_password_reset_400_missing_origin_raises():
+    """invite_admin_user raises NeonAuthServiceError when reset returns 400 MISSING_ORIGIN.
+
+    Neon Auth returns 400 {"code":"MISSING_ORIGIN"} when Origin is absent and
+    redirectTo is not provided.  This should not silently swallow the error —
+    NeonAuthServiceError is raised so the router returns 502 to signal that the
+    user was created but the invite email could not be sent.
+    """
+    create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
+    reset_resp = _mock_response(400)
+    reset_resp.text = '{"code":"MISSING_ORIGIN","message":"Origin header is required"}'
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp])
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_password_reset_403_invalid_redirect_raises():
+    """invite_admin_user raises NeonAuthServiceError when reset returns 403 INVALID_REDIRECTURL.
+
+    Neon Auth returns 403 {"code":"INVALID_REDIRECTURL"} when the redirectTo URL is
+    not in the registered trusted origins.  The service must not send redirectTo; this
+    test ensures that if it does (regression), the 403 is surfaced rather than swallowed.
+    """
+    create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
+    reset_resp = _mock_response(403)
+    reset_resp.text = '{"code":"INVALID_REDIRECTURL","message":"Invalid redirectURL"}'
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)

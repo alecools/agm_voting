@@ -1,11 +1,20 @@
 """
 Neon Auth management API service for admin user management.
 
-This module is the only place in the codebase that calls the Neon Auth management API.
-It handles listing, creating, and deleting admin users via server-side API key auth.
+This module handles listing, creating, and deleting admin users.
 
-The Neon Auth management API base URL is:
-  https://console.neon.tech/api/v2/projects/{project_id}/branches/{branch_id}/auth
+Listing users
+-------------
+The Neon console management API (`GET /api/v2/projects/{id}/branches/{id}/auth/users`)
+only supports POST (create) — GET returns HTTP 405.  Therefore `list_admin_users`
+queries the `neon_auth.user` table in the Neon database directly via the provided
+SQLAlchemy session.  This table is populated and maintained by the Neon Auth service.
+
+Creating and deleting users
+----------------------------
+These operations still go through the Neon console management API:
+  POST   /api/v2/projects/{id}/branches/{id}/auth/users  — create user
+  DELETE /api/v2/projects/{id}/branches/{id}/auth/users/{id} — delete user
 
 The NEON_API_KEY is a server-side secret. It is never returned in any API response,
 never logged, and never sent to the frontend.
@@ -14,21 +23,39 @@ Branch ID resolution
 --------------------
 NEON_BRANCH_ID may be set as a static env var override (useful for local dev and tests).
 When absent, the branch ID is resolved dynamically by calling the Neon management API
-to list all branches and matching against the PGHOST env var injected by the Neon-Vercel
+to list all endpoints and matching against the PGHOST env var injected by the Neon-Vercel
 integration.  The result is cached for the lifetime of the Lambda instance.
 """
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import Column, MetaData, String, Table, cast, select as sa_select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.logging_config import get_logger
 from app.schemas.admin import AdminUserOut
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# neon_auth.user table definition (SQLAlchemy Core reflection)
+# ---------------------------------------------------------------------------
+# neon_auth."user" is managed by Neon Auth (Better Auth) — it is not part of
+# the application's SQLAlchemy ORM.  We define it as a Core Table so queries
+# are expressed without raw SQL strings.
+_neon_auth_metadata = MetaData(schema="neon_auth")
+_neon_auth_user_table = Table(
+    "user",
+    _neon_auth_metadata,
+    Column("id", String),
+    Column("email", String),
+    Column("createdAt", String),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +139,10 @@ async def _resolve_branch_id() -> str:
     if not settings.neon_api_key or not settings.neon_project_id:
         raise NeonAuthNotConfiguredError("User management not configured")
 
-    url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/branches"
+    # The /branches API does NOT embed endpoint data in its response — each
+    # branch object has an empty "endpoints" list.  Use the dedicated
+    # /endpoints API which returns all endpoints with their branch_id and host.
+    url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/endpoints"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             url,
@@ -121,18 +151,17 @@ async def _resolve_branch_id() -> str:
         )
 
     if resp.status_code != 200:
-        logger.error("neon_list_branches_failed", status=resp.status_code)
+        logger.error("neon_list_endpoints_failed", status=resp.status_code)
         raise NeonAuthNotConfiguredError(
-            f"Neon branches API returned {resp.status_code}; cannot resolve branch ID"
+            f"Neon endpoints API returned {resp.status_code}; cannot resolve branch ID"
         )
 
-    branches = resp.json().get("branches", [])
-    for branch in branches:
-        for endpoint in branch.get("endpoints", []):
-            host = endpoint.get("host", "")
-            if host and pghost.startswith(host.split(".")[0]):
-                _cached_branch_id = branch["id"]
-                return _cached_branch_id
+    endpoints = resp.json().get("endpoints", [])
+    for endpoint in endpoints:
+        host = endpoint.get("host", "")
+        if host and pghost.startswith(host.split(".")[0]):
+            _cached_branch_id = endpoint["branch_id"]
+            return _cached_branch_id
 
     raise NeonAuthNotConfiguredError(
         f"No Neon branch endpoint matches PGHOST '{pghost}'"
@@ -167,31 +196,35 @@ def _auth_headers() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def list_admin_users() -> list[AdminUserOut]:
-    """Fetch all users from the Neon Auth management API.
+async def list_admin_users(db: AsyncSession) -> list[AdminUserOut]:
+    """Return all admin users by querying the neon_auth.user table directly.
 
-    Raises NeonAuthNotConfiguredError if neon_api_key/project_id/branch_id are absent.
-    Raises NeonAuthServiceError on non-200 response from Neon.
+    The Neon console management API does not expose a list-users endpoint
+    (GET /auth/users returns HTTP 405 — only POST is supported).  We query
+    the `neon_auth.user` table, which the Neon Auth service keeps in sync,
+    as the authoritative source of truth for admin accounts.
+
+    Raises NeonAuthServiceError on any database error.
     """
-    _check_api_configured()
-    base_url = await _management_base_url()
-    url = f"{base_url}/users"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_auth_headers(), timeout=15.0)
-    if resp.status_code != 200:
-        logger.error("neon_list_users_failed", status=resp.status_code)
-        raise NeonAuthServiceError(
-            f"Neon Auth returned {resp.status_code} listing users"
-        )
-    data = resp.json()
-    users = data.get("users", [])
+    t = _neon_auth_user_table
+    stmt = sa_select(
+        cast(t.c.id, String).label("id"),
+        t.c.email,
+        t.c["createdAt"],
+    ).order_by(t.c["createdAt"])
+    try:
+        result = await db.execute(stmt)
+        rows = result.mappings().all()
+    except Exception as exc:
+        logger.error("neon_list_users_db_failed", error=str(exc))
+        raise NeonAuthServiceError("Failed to list admin users from database") from exc
     return [
         AdminUserOut(
-            id=u["id"],
-            email=u["email"],
-            created_at=u["createdAt"],
+            id=row["id"],
+            email=row["email"],
+            created_at=row["createdAt"],
         )
-        for u in users
+        for row in rows
     ]
 
 
@@ -212,21 +245,43 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     # The invitee sets their own password via the password-reset email.
     temp_password = secrets.token_urlsafe(32)  # nosemgrep: no-hardcoded-secrets -- random temporary credential, discarded immediately after API call
 
+    # Neon management API requires name to have length >= 1.
+    # Use the local part of the email address (before @) as a sensible default.
+    name = email.split("@")[0]
+
     base_url = await _management_base_url()
     url = f"{base_url}/users"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             url,
             headers={**_auth_headers(), "Content-Type": "application/json"},
-            json={"email": email, "name": "", "password": temp_password},
+            json={"email": email, "name": name, "password": temp_password},
             timeout=15.0,
         )
 
     # Discard temp_password immediately — do not log or store it.
     del temp_password
 
-    if resp.status_code == 409:
+    if resp.status_code in (409, 422):
+        # Neon Auth management API returns 409 for duplicate users in most cases,
+        # but some versions return 422 (Unprocessable Entity) for the same condition.
+        # Both are treated as "user already exists" to prevent a 502 bubble-up.
         raise NeonAuthDuplicateUserError(f"User with email {email} already exists")
+    if resp.status_code == 400:
+        # Current Neon Auth management API versions return HTTP 400 for duplicate
+        # users with error code "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL".  Check the
+        # body so we only treat the known duplicate code as a duplicate — any other
+        # 400 (e.g. malformed payload) is re-raised as a service error.
+        try:
+            error_code = resp.json().get("code", "")
+        except Exception:
+            error_code = ""
+        if "USER_ALREADY_EXISTS" in error_code:
+            raise NeonAuthDuplicateUserError(f"User with email {email} already exists")
+        logger.error("neon_create_user_failed", status=resp.status_code)
+        raise NeonAuthServiceError(
+            f"Neon Auth returned {resp.status_code} creating user"
+        )
     if resp.status_code not in (200, 201):
         logger.error("neon_create_user_failed", status=resp.status_code)
         raise NeonAuthServiceError(
@@ -236,27 +291,40 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     user_data = resp.json()
 
     # Trigger password-reset email so the invitee can set their password.
+    # Neon Auth requires the Origin header (used to validate trusted origins) and
+    # rejects an explicit redirectTo unless it matches a registered trusted origin.
+    # Omit redirectTo and pass Origin instead — Neon Auth will use the origin as the
+    # redirect base, which is already registered as a trusted origin by the
+    # Neon-Vercel integration for each deployed preview URL.
     neon_auth_base_url = settings.neon_auth_base_url.rstrip("/")
     reset_url = f"{neon_auth_base_url}/request-password-reset"
-    redirect_to = f"{redirect_origin}/admin/login"
 
     async with httpx.AsyncClient() as client:
         reset_resp = await client.post(
             reset_url,
-            json={"email": email, "redirectTo": redirect_to},
+            headers={"Content-Type": "application/json", "Origin": redirect_origin},
+            json={"email": email},
             timeout=15.0,
         )
 
     if reset_resp.status_code not in (200, 201):
-        logger.error("neon_password_reset_failed", status=reset_resp.status_code, email=email)
+        logger.error(
+            "neon_password_reset_failed",
+            status=reset_resp.status_code,
+            body=reset_resp.text[:200],
+            email=email,
+        )
         raise NeonAuthServiceError(
             f"Password reset email failed with status {reset_resp.status_code}"
         )
 
+    # The Neon Auth management API POST /auth/users response only contains {"id": "..."}.
+    # The email is already known (it was the input parameter) and createdAt is not
+    # returned by the API, so we use the current UTC time as an approximation.
     return AdminUserOut(
         id=user_data["id"],
-        email=user_data["email"],
-        created_at=user_data["createdAt"],
+        email=email,
+        created_at=datetime.now(timezone.utc),
     )
 
 

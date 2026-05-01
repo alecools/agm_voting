@@ -1,6 +1,9 @@
 import { test, expect } from "../fixtures";
 import { makeAdminApi } from "../workflows/helpers";
 
+// Admin email used during global-setup provisioning — matches the current logged-in user.
+const ADMIN_EMAIL = process.env.ADMIN_USERNAME ?? "admin@example.com";
+
 /**
  * E2E tests for the Admin Settings page (tenant branding, email server, user management).
  *
@@ -329,5 +332,128 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     await page.getByLabel("Logo URL").fill(originalLogoUrl);
     await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ── Admin Settings — User Management tab ──────────────────────────────────────
+
+test.describe("Admin Settings — User Management tab", () => {
+  // Email used for the invite test. A unique suffix per run prevents the
+  // "already exists" branch from being hit if a prior run's afterAll cleanup
+  // was skipped (e.g. due to a test timeout or network failure).
+  const INVITE_EMAIL = `e2e-invite-${Date.now()}@example.com`;
+
+  // Store the invited user's ID so afterAll can remove it if the invite succeeded.
+  let invitedUserId: string | null = null;
+
+  test.afterAll(async () => {
+    // Remove the invited user if the invite test created them, so the suite is
+    // idempotent and subsequent runs don't hit the 409 "already exists" branch on
+    // the first invite attempt (which would make success assertions ambiguous).
+    if (!invitedUserId) return;
+    const { request: playwrightRequest } = await import("@playwright/test");
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+      timeout: 60000,
+    });
+    try {
+      await api.delete(`/api/admin/users/${invitedUserId}`);
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  // --- Happy path ---
+
+  test("User Management tab loads and GET /api/admin/users returns 200", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    const [usersResponse] = await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    expect(usersResponse.status()).toBe(200);
+  });
+
+  test("User Management tab shows current admin user email in the table", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    // The users table must be visible and contain the current admin's email
+    await expect(page.locator(".admin-table")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".admin-table").getByText(ADMIN_EMAIL)).toBeVisible();
+
+    // The current user's row must also show the "(you)" label
+    await expect(page.locator(".admin-table").getByText("(you)")).toBeVisible();
+  });
+
+  // --- Invite form ---
+
+  test("Invite form — success path: invited email appears with success message", async ({ page }) => {
+    test.setTimeout(30000);
+
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    // Open the invite form
+    await page.getByRole("button", { name: "Invite admin" }).click();
+    await expect(page.getByLabel("Email address")).toBeVisible();
+
+    // Fill in the invite email and submit
+    await page.getByLabel("Email address").fill(INVITE_EMAIL);
+
+    const [inviteResponse] = await Promise.all([
+      page.waitForResponse((resp) =>
+        resp.url().includes("/api/admin/users/invite") && resp.request().method() === "POST"
+      ),
+      page.getByRole("button", { name: "Send invite" }).click(),
+    ]);
+
+    // INVITE_EMAIL uses Date.now() so it is always unique per run.
+    // Any non-201 response is a genuine failure — assert 201 directly.
+    expect(inviteResponse.status()).toBe(201);
+
+    // Store ID for afterAll cleanup
+    const body = await inviteResponse.json() as { id: string; email: string };
+    invitedUserId = body.id;
+
+    // Success message appears with the invited email
+    await expect(page.getByRole("status")).toHaveText(`Invite sent to ${INVITE_EMAIL}`, { timeout: 10000 });
+
+    // The invited email is also added to the users table
+    await expect(page.locator(".admin-table").getByText(INVITE_EMAIL)).toBeVisible();
+  });
+
+  // --- Last-admin removal guard ---
+
+  test("Remove button is absent for the current user's own row", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    await expect(page.locator(".admin-table")).toBeVisible({ timeout: 10000 });
+
+    // Find the row that contains the current admin's email (identified by the "(you)" label)
+    const currentUserRow = page.locator(".admin-table tbody tr").filter({ hasText: "(you)" });
+    await expect(currentUserRow).toBeVisible();
+
+    // The Remove button must NOT exist in the current user's row — the UI omits it
+    // (not just disables it) to prevent self-removal
+    await expect(currentUserRow.getByRole("button", { name: "Remove" })).not.toBeVisible();
   });
 });
