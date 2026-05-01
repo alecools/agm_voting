@@ -398,9 +398,10 @@ class TestListLotOwnersBatch:
 # ---------------------------------------------------------------------------
 
 
-def _make_httpx_mock(status_code: int = 200, content: bytes = b"{}") -> MagicMock:
+def _make_httpx_mock(status_code: int = 200, text: str = "{}") -> MagicMock:
     mock_resp = MagicMock()
     mock_resp.status_code = status_code
+    mock_resp.text = text
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_resp)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -467,28 +468,47 @@ class TestProvisionAdminUser:
             _cfg_settings.neon_auth_base_url = original_url
         assert response.status_code == 204
 
-    async def test_idempotent_on_any_4xx(
+    async def test_idempotent_on_unexpected_4xx_and_logs_warning(
         self, client: AsyncClient, enable_testing_mode
     ):
-        """204 is returned for any upstream 4xx (validation error, etc.)."""
+        """204 is returned for unexpected upstream 4xx; a WARNING is logged.
+
+        Previously any 4xx was silently swallowed — including 400 MISSING_ORIGIN
+        which occurred because no Origin header was sent. The endpoint now always
+        forwards the derived origin, but if a non-409 4xx still arrives it must
+        be logged at WARNING (not silently ignored) to aid diagnosis.
+        """
         from app.config import settings as _cfg_settings
-        mock_client = _make_httpx_mock(status_code=422)
+        mock_client = _make_httpx_mock(
+            status_code=400,
+            text='{"code":"MISSING_ORIGIN","message":"Origin header is required"}',
+        )
         original_url = _cfg_settings.neon_auth_base_url
         _cfg_settings.neon_auth_base_url = "https://auth.example.com"
         try:
             with patch("app.routers.admin.httpx.AsyncClient", return_value=mock_client):
-                response = await client.post(
-                    "/api/admin/auth/provision",
-                    json={"email": "admin@test.com", "password": "secret123"},
-                )
+                with patch("app.routers.admin.logger") as mock_logger:
+                    response = await client.post(
+                        "/api/admin/auth/provision",
+                        json={"email": "admin@test.com", "password": "secret123"},
+                    )
+                    mock_logger.warning.assert_called_once()
+                    call_kwargs = mock_logger.warning.call_args
+                    assert call_kwargs.args[0] == "provision_admin_user_unexpected_4xx"
+                    assert call_kwargs.kwargs["status"] == 400
         finally:
             _cfg_settings.neon_auth_base_url = original_url
         assert response.status_code == 204
 
-    async def test_calls_upstream_sign_up_email_endpoint(
+    async def test_calls_upstream_sign_up_email_endpoint_with_origin(
         self, client: AsyncClient, enable_testing_mode
     ):
-        """provision_admin_user calls neon_auth_base_url/sign-up/email."""
+        """provision_admin_user calls neon_auth_base_url/sign-up/email with origin header.
+
+        Neon Auth requires an Origin header on the sign-up call. Without it, the
+        upstream returns 400 MISSING_ORIGIN which was previously silently swallowed,
+        causing the user to never be created and subsequent login to fail with 401.
+        """
         from app.config import settings as _cfg_settings
         mock_client = _make_httpx_mock(status_code=201)
         original_url = _cfg_settings.neon_auth_base_url
@@ -498,6 +518,10 @@ class TestProvisionAdminUser:
                 await client.post(
                     "/api/admin/auth/provision",
                     json={"email": "admin@test.com", "password": "secret123", "name": "Admin"},
+                    headers={
+                        "x-forwarded-proto": "https",
+                        "x-forwarded-host": "preview.example.com",
+                    },
                 )
         finally:
             _cfg_settings.neon_auth_base_url = original_url
@@ -505,6 +529,33 @@ class TestProvisionAdminUser:
         assert call_kwargs.args[0] == "https://auth.example.com/sign-up/email"
         assert call_kwargs.kwargs["json"]["email"] == "admin@test.com"
         assert call_kwargs.kwargs["json"]["name"] == "Admin"
+        # Origin header must be forwarded to satisfy Neon Auth's trusted_origins check
+        forwarded_headers = call_kwargs.kwargs["headers"]
+        assert forwarded_headers.get("origin") == "https://preview.example.com"
+
+    async def test_origin_falls_back_to_allowed_origin_when_forwarded_headers_absent(
+        self, client: AsyncClient, enable_testing_mode
+    ):
+        """When x-forwarded-proto/host are absent (local dev), falls back to settings.allowed_origin."""
+        from app.config import settings as _cfg_settings
+        mock_client = _make_httpx_mock(status_code=201)
+        original_url = _cfg_settings.neon_auth_base_url
+        _cfg_settings.neon_auth_base_url = "https://auth.example.com"
+        try:
+            with patch("app.routers.admin.httpx.AsyncClient", return_value=mock_client):
+                with patch("app.routers.auth_proxy.settings") as mock_proxy_settings:
+                    mock_proxy_settings.allowed_origin = "http://localhost:5173"
+                    await client.post(
+                        "/api/admin/auth/provision",
+                        json={"email": "admin@test.com", "password": "secret123"},
+                        # No x-forwarded-proto/host headers — simulates local dev
+                    )
+        finally:
+            _cfg_settings.neon_auth_base_url = original_url
+        call_kwargs = mock_client.post.call_args
+        forwarded_headers = call_kwargs.kwargs["headers"]
+        # Falls back to allowed_origin (may be empty string in test env, which is fine)
+        assert "origin" in forwarded_headers or forwarded_headers.get("origin") == ""
 
     async def test_strips_trailing_slash_from_base_url(
         self, client: AsyncClient, enable_testing_mode
@@ -524,6 +575,26 @@ class TestProvisionAdminUser:
             _cfg_settings.neon_auth_base_url = original_url
         call_url = mock_client.post.call_args.args[0]
         assert call_url == "https://auth.example.com/sign-up/email"
+
+    async def test_409_does_not_trigger_warning_log(
+        self, client: AsyncClient, enable_testing_mode
+    ):
+        """409 (user already exists) is the expected idempotent case — no warning logged."""
+        from app.config import settings as _cfg_settings
+        mock_client = _make_httpx_mock(status_code=409)
+        original_url = _cfg_settings.neon_auth_base_url
+        _cfg_settings.neon_auth_base_url = "https://auth.example.com"
+        try:
+            with patch("app.routers.admin.httpx.AsyncClient", return_value=mock_client):
+                with patch("app.routers.admin.logger") as mock_logger:
+                    response = await client.post(
+                        "/api/admin/auth/provision",
+                        json={"email": "admin@test.com", "password": "secret123"},
+                    )
+                    mock_logger.warning.assert_not_called()
+        finally:
+            _cfg_settings.neon_auth_base_url = original_url
+        assert response.status_code == 204
 
     # --- State / precondition errors ---
 

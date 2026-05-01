@@ -1232,7 +1232,7 @@ class _ProvisionAdminRequest(BaseModel):
 
 
 @debug_unauthed_router.post("/auth/provision", status_code=204)
-async def provision_admin_user(body: _ProvisionAdminRequest) -> None:
+async def provision_admin_user(request: Request, body: _ProvisionAdminRequest) -> None:
     """Create an admin user in Neon Auth directly (server-to-server).
 
     This endpoint is only available when TESTING_MODE=true.  It is used by the
@@ -1243,6 +1243,10 @@ async def provision_admin_user(body: _ProvisionAdminRequest) -> None:
     resulting account is usable for sign-in/email — unlike the management API
     which creates users whose passwords cannot be used for session-based auth.
 
+    Neon Auth requires an Origin header on the sign-up call; we derive it from
+    the incoming request's x-forwarded-proto/x-forwarded-host headers (set by
+    Vercel on all requests) so the server-to-server call satisfies that check.
+
     Idempotent: if the user already exists the upstream 4xx is silently ignored
     and 204 is still returned so global-setup can call this unconditionally.
     """
@@ -1252,19 +1256,38 @@ async def provision_admin_user(body: _ProvisionAdminRequest) -> None:
     if not _s.neon_auth_base_url:
         raise HTTPException(status_code=503, detail="Auth service not configured")
 
+    # Derive the browser-facing origin (same logic as auth_proxy._derive_origin)
+    # so Neon Auth can validate the request against its trusted_origins list.
+    # Without this header Neon Auth returns 400 MISSING_ORIGIN and the sign-up
+    # silently fails (4xx was previously treated as "already exists").
+    from app.routers.auth_proxy import _derive_origin
+    origin = _derive_origin(request)
+
     url = f"{_s.neon_auth_base_url.rstrip('/')}/sign-up/email"
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if origin:
+        headers["origin"] = origin
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             url,
             json={"email": body.email, "password": body.password, "name": body.name},
+            headers=headers,
             timeout=15.0,
         )
 
-    # 200/201 = created; any 4xx = user already exists or validation error — both
-    # are safe to ignore so the endpoint remains idempotent.
-    # Anything else (5xx, unexpected codes) is a real upstream error.
+    # 200/201 = created; 4xx = user already exists or validation error (idempotent).
+    # Anything else (5xx, unexpected codes) is a real upstream error — raise 502.
     is_success = resp.status_code in (200, 201)
     is_client_error = 400 <= resp.status_code < 500
     if not is_success and not is_client_error:
         logger.error("provision_admin_user_upstream_error", status=resp.status_code)
         raise HTTPException(status_code=502, detail="Upstream auth error")
+    if is_client_error and resp.status_code != 409:
+        # 409 = already exists (expected idempotent case); any other 4xx is unexpected.
+        # Log at WARNING so operator logs surface the issue without failing the endpoint.
+        logger.warning(
+            "provision_admin_user_unexpected_4xx",
+            status=resp.status_code,
+            body=resp.text[:200],
+        )
