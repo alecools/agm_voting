@@ -7,10 +7,11 @@ import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContex
 import type { TenantConfig } from "../../../api/config";
 
 // Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
-const { mockNavigate, mockSignInEmail, mockForgetPassword } = vi.hoisted(() => ({
+const { mockNavigate, mockSignInEmail, mockForgetPassword, mockResetPassword } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockSignInEmail: vi.fn(),
   mockForgetPassword: vi.fn(),
+  mockResetPassword: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -28,13 +29,14 @@ vi.mock("../../../lib/auth-client", () => ({
       email: mockSignInEmail,
     },
     forgetPassword: mockForgetPassword,
+    resetPassword: mockResetPassword,
   },
 }));
 
-function renderPage(config: TenantConfig = DEFAULT_CONFIG) {
+function renderPage(config: TenantConfig = DEFAULT_CONFIG, initialPath = "/admin/login") {
   return render(
     <BrandingContext.Provider value={{ config, isLoading: false }}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <AdminLoginPage />
       </MemoryRouter>
     </BrandingContext.Provider>
@@ -46,6 +48,7 @@ describe("AdminLoginPage", () => {
     mockNavigate.mockClear();
     mockSignInEmail.mockClear();
     mockForgetPassword.mockClear();
+    mockResetPassword.mockClear();
   });
 
   // --- Happy path ---
@@ -366,5 +369,112 @@ describe("AdminLoginPage", () => {
     await user.click(screen.getByRole("button", { name: "← Back to login" }));
     // Login error is cleared
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // --- Set new password view (arrives via reset email link with ?token=) ---
+
+  it("shows the set-password view when URL contains a token query param", () => {
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set new password" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+  });
+
+  it("does not show set-password view when URL has no token", () => {
+    renderPage(DEFAULT_CONFIG, "/admin/login");
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+
+  it("calls authClient.resetPassword with the new password and token from URL", async () => {
+    mockResetPassword.mockResolvedValueOnce({ data: { status: true }, error: null });
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    await waitFor(() => {
+      expect(mockResetPassword).toHaveBeenCalledWith({
+        newPassword: "MyNewPass1!",
+        token: "tok-xyz",
+      });
+    });
+  });
+
+  it("shows success message after password is set", async () => {
+    mockResetPassword.mockResolvedValueOnce({ data: { status: true }, error: null });
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Password updated. You can now sign in with your new password.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set new password" })).not.toBeInTheDocument();
+  });
+
+  it("shows error message when resetPassword returns an error", async () => {
+    mockResetPassword.mockResolvedValueOnce({
+      data: null,
+      error: { message: "Token expired." },
+    });
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Token expired.")).toBeInTheDocument();
+  });
+
+  it("shows fallback error when resetPassword returns error without message", async () => {
+    mockResetPassword.mockResolvedValueOnce({ data: null, error: {} });
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Failed to set new password.")).toBeInTheDocument();
+  });
+
+  it("shows fallback error when resetPassword throws", async () => {
+    mockResetPassword.mockRejectedValueOnce(new Error("Network error"));
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Failed to set new password. Please try again.")).toBeInTheDocument();
+  });
+
+  it("shows Setting password… while the call is pending and disables the button", async () => {
+    let resolve!: (value: { data: unknown; error: null }) => void;
+    mockResetPassword.mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    );
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    expect(screen.getByRole("button", { name: "Setting password…" })).toBeDisabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    resolve({ data: { status: true }, error: null });
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+  });
+
+  it("Back to login from set-password view returns to login form", async () => {
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Back to login" }));
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
 });

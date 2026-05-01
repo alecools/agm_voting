@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { authClient } from "../../lib/auth-client";
 import { useBranding } from "../../context/BrandingContext";
 
-type View = "login" | "reset";
+type View = "login" | "reset" | "set-password";
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { config } = useBranding();
 
   // Login form state
@@ -22,12 +23,29 @@ export default function AdminLoginPage() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState(false);
 
-  const resetEmailRef = useRef<HTMLInputElement>(null);
+  // Set new password state
+  const [newPassword, setNewPassword] = useState("");
+  const [setPasswordLoading, setSetPasswordLoading] = useState(false);
+  const [setPasswordError, setSetPasswordError] = useState<string | null>(null);
+  const [setPasswordSuccess, setSetPasswordSuccess] = useState(false);
 
-  // Move focus to the reset email input when the reset view appears
+  const resetEmailRef = useRef<HTMLInputElement>(null);
+  const newPasswordRef = useRef<HTMLInputElement>(null);
+
+  // If a reset token is present in the URL, switch to set-password view
+  useEffect(() => {
+    const token = searchParams.get("token");
+    if (token) {
+      setView("set-password");
+    }
+  }, [searchParams]);
+
+  // Move focus to the relevant input when the view changes
   useEffect(() => {
     if (view === "reset") {
       resetEmailRef.current?.focus();
+    } else if (view === "set-password") {
+      newPasswordRef.current?.focus();
     }
   }, [view]);
 
@@ -41,6 +59,27 @@ export default function AdminLoginPage() {
   function showLoginView() {
     setLoginError(null);
     setView("login");
+  }
+
+  async function handleSetPasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSetPasswordError(null);
+    setSetPasswordLoading(true);
+    const token = searchParams.get("token") ?? "";
+    try {
+      const result = await authClient.resetPassword({ newPassword, token });
+      if (result.error) {
+        setSetPasswordError(result.error.message ?? "Failed to set new password.");
+      } else {
+        setSetPasswordSuccess(true);
+        // Remove the token from the URL so a refresh doesn't re-trigger this view
+        setSearchParams({});
+      }
+    } catch {
+      setSetPasswordError("Failed to set new password. Please try again.");
+    } finally {
+      setSetPasswordLoading(false);
+    }
   }
 
   async function handleLoginSubmit(e: React.FormEvent) {
@@ -95,7 +134,55 @@ export default function AdminLoginPage() {
           <p className="admin-login-card__subtitle">Sign in to manage buildings and General Meetings</p>
         </div>
 
-        {view === "login" ? (
+        {view === "set-password" ? (
+          <form onSubmit={(e) => { void handleSetPasswordSubmit(e); }} className="admin-login-card__form">
+            {setPasswordSuccess ? (
+              <p className="admin-login-card__success" role="status">
+                Password updated. You can now sign in with your new password.
+              </p>
+            ) : (
+              <>
+                {setPasswordError && (
+                  <p className="admin-login-card__error" role="alert">
+                    {setPasswordError}
+                  </p>
+                )}
+
+                <div className="field">
+                  <label htmlFor="new-password" className="field__label">
+                    New password
+                  </label>
+                  <input
+                    id="new-password"
+                    ref={newPasswordRef}
+                    type="password"
+                    className="field__input"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn--primary btn--full"
+                  disabled={setPasswordLoading}
+                >
+                  {setPasswordLoading ? "Setting password…" : "Set new password"}
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              className="btn btn--ghost admin-login-back-to-login"
+              onClick={showLoginView}
+            >
+              ← Back to login
+            </button>
+          </form>
+        ) : view === "login" ? (
           <form onSubmit={(e) => { void handleLoginSubmit(e); }} className="admin-login-card__form">
             {loginError && (
               <p className="admin-login-card__error" role="alert">
