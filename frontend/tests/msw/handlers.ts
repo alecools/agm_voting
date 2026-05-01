@@ -588,22 +588,6 @@ export const ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES: GeneralMeetingDetail = {
 };
 
 export const adminHandlers = [
-  http.get(`${BASE}/api/admin/auth/me`, () => {
-    return HttpResponse.json({ authenticated: true });
-  }),
-
-  http.post(`${BASE}/api/admin/auth/login`, async ({ request }) => {
-    const body = await request.json() as { username?: string; password?: string };
-    if (body?.username === "admin" && body?.password === "admin") {
-      return HttpResponse.json({ ok: true });
-    }
-    return HttpResponse.json({ detail: "Invalid credentials" }, { status: 401 });
-  }),
-
-  http.post(`${BASE}/api/admin/auth/logout`, () => {
-    return HttpResponse.json({ ok: true });
-  }),
-
   http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
     const url = new URL(request.url);
     const name = url.searchParams.get("name");

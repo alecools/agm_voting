@@ -15,7 +15,7 @@
  *
  *   # Against a deployed URL
  *   PLAYWRIGHT_BASE_URL=https://agm-voting-git-preview-ocss.vercel.app \
- *   ADMIN_USERNAME=admin ADMIN_PASSWORD=yourpassword \
+ *   ADMIN_USERNAME=admin@example.com ADMIN_PASSWORD=yourpassword \
  *   npx playwright test e2e/smoke.spec.ts
  */
 import { test, expect } from "./fixtures";
@@ -106,7 +106,7 @@ test.describe("Admin flow", () => {
 
     await page.goto("/admin/login");
     await expect(page.getByRole("heading", { name: "Admin Portal" })).toBeVisible();
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
 
     const realErrors = consoleErrors.filter(
@@ -122,11 +122,11 @@ test.describe("Admin flow", () => {
   });
 
   test("admin credentials env vars are configured and login succeeds", async ({ page }) => {
-    const username = process.env.ADMIN_USERNAME ?? "admin";
+    const email = process.env.ADMIN_USERNAME ?? "admin@example.com";
     const password = process.env.ADMIN_PASSWORD ?? "admin";
 
     await page.goto("/admin/login");
-    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
 

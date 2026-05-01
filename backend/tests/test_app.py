@@ -30,8 +30,7 @@ class TestConfig:
         assert settings.smtp_from_email == ""
         assert settings.allowed_origin == "http://localhost:5173"
         assert settings.session_secret == "change_me_to_a_random_secret"
-        assert settings.admin_username == "admin"
-        assert settings.admin_password == "admin"
+        assert settings.neon_auth_base_url == ""
 
     def test_settings_database_url_has_asyncpg(self):
         from app.config import settings
@@ -47,12 +46,11 @@ class TestConfig:
         """ENV=production + TESTING_MODE=false + strong secrets is allowed."""
         from app.config import Settings
 
-        # Production requires a strong session_secret (>=32 chars) and bcrypt admin_password
+        # Production requires a strong session_secret (>=32 chars)
         s = Settings(
             environment="production",
             testing_mode=False,
             session_secret="a" * 32,
-            admin_password="$2b$12$examplehashforproductiontestAAAAAAAAAA",
         )
         assert s.environment == "production"
         assert s.testing_mode is False
@@ -685,7 +683,12 @@ class TestMain:
         _uuid.UUID(response.headers["X-Request-ID"])  # raises ValueError if not UUID
 
     async def test_csrf_middleware_blocks_post_without_header(self):
-        """US-IAS-05: POST without X-Requested-With returns 403 when testing_mode=False."""
+        """US-IAS-05: POST without X-Requested-With returns 403 when testing_mode=False.
+
+        Uses /api/admin/buildings (non-exempt path) to test CSRF enforcement.
+        /api/auth/* paths are intentionally exempt because the Better Auth SDK
+        does not send X-Requested-With.
+        """
         import app.main as main_module
         from app.config import Settings
         from app.main import create_app
@@ -702,7 +705,8 @@ class TestMain:
                 transport=ASGITransport(app=csrf_app), base_url="http://test"
                 # Intentionally no X-Requested-With header
             ) as client:
-                response = await client.post("/api/auth/verify", json={})
+                # /api/admin/buildings is a non-exempt POST endpoint — CSRF must block it
+                response = await client.post("/api/admin/buildings", json={})
             assert response.status_code == 403
             assert "CSRF" in response.json()["detail"]
         finally:
@@ -754,16 +758,19 @@ class TestMain:
         assert response.status_code == 200
 
     async def test_csrf_middleware_exempts_admin_login(self):
-        """US-IAS-05: Admin login endpoint is exempt from CSRF check."""
+        """US-IAS-05: Better Auth sign-in endpoint is exempt from CSRF check."""
         from app.main import app
 
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
             # Intentionally no X-Requested-With header
         ) as client:
-            response = await client.post("/api/admin/auth/login", json={"username": "x", "password": "y"})
-        # Should reach the route handler (not blocked by CSRF) — returns 500 due to unhashed password
-        # config, but NOT a 403 CSRF error
+            response = await client.post(
+                "/api/auth/sign-in/email",
+                json={"email": "x@example.com", "password": "y"},
+            )
+        # Should reach the route handler (not blocked by CSRF) — may return 404 since the
+        # Better Auth proxy is not configured in tests, but NOT a 403 CSRF error
         assert response.status_code != 403
 
     def test_csrf_middleware_present(self):
@@ -775,75 +782,7 @@ class TestMain:
 
 
 # ---------------------------------------------------------------------------
-# app.config — RR3-17: admin_password bcrypt format validator
-# ---------------------------------------------------------------------------
-
-
-class TestAdminPasswordValidator:
-    # --- Happy path ---
-
-    def test_bcrypt_hash_starting_with_2b_is_accepted(self):
-        """ADMIN_PASSWORD starting with $2b$ is a valid bcrypt hash and must be accepted."""
-        from pydantic import ValidationError
-        from app.config import Settings
-
-        # A real bcrypt hash starts with $2b$
-        s = Settings(admin_password="$2b$12$abcdefghijklmnopqrstuvuPQRSTUVWXYZ0123456789ABCDEFGHIJKL")
-        assert s.admin_password.startswith("$2b$")
-
-    def test_bcrypt_hash_starting_with_2a_is_accepted(self):
-        """ADMIN_PASSWORD starting with $2a$ (older bcrypt variant) is also accepted."""
-        from app.config import Settings
-
-        s = Settings(admin_password="$2a$12$abcdefghijklmnopqrstuvuPQRSTUVWXYZ0123456789ABCDEFGHIJKL")
-        assert s.admin_password.startswith("$2a$")
-
-    def test_dev_placeholder_admin_is_accepted(self):
-        """The dev-only placeholder 'admin' is accepted (allows local dev and CI to work)."""
-        from app.config import Settings
-
-        s = Settings(admin_password="admin")
-        assert s.admin_password == "admin"
-
-    # --- State / precondition errors ---
-
-    def test_plaintext_password_raises_value_error(self):
-        """A plaintext password that is not a bcrypt hash raises ValueError at startup (RR3-17)."""
-        from pydantic import ValidationError
-        from app.config import Settings
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(admin_password="mysecretpassword")
-        assert "bcrypt hash" in str(exc_info.value).lower() or "$2b$" in str(exc_info.value)
-
-    def test_empty_admin_password_is_accepted(self):
-        """Empty ADMIN_PASSWORD is allowed (e.g. unconfigured env — caught at runtime login)."""
-        from app.config import Settings
-
-        s = Settings(admin_password="")
-        assert s.admin_password == ""
-
-    # --- Boundary values ---
-
-    def test_password_starting_with_wrong_prefix_rejected(self):
-        """A value that looks like a hash but has wrong prefix is rejected."""
-        from pydantic import ValidationError
-        from app.config import Settings
-
-        with pytest.raises(ValidationError):
-            Settings(admin_password="$1$md5hashedvalue")
-
-    def test_random_string_rejected(self):
-        """A random non-bcrypt string other than 'admin' is rejected."""
-        from pydantic import ValidationError
-        from app.config import Settings
-
-        with pytest.raises(ValidationError):
-            Settings(admin_password="changeme")
-
-
-# ---------------------------------------------------------------------------
-# app.config — RR3-35: Reject weak SESSION_SECRET and admin_password outside development
+# app.config — RR3-35: Reject weak SESSION_SECRET outside development
 # ---------------------------------------------------------------------------
 
 
@@ -851,7 +790,6 @@ class TestWeakSecretsValidator:
     """Tests for reject_weak_secrets_outside_development validator (RR3-35)."""
 
     _STRONG_SECRET = "a" * 32
-    _BCRYPT_HASH = "$2b$12$examplehashforproductiontestAAAAAAAAAA"
 
     # --- Happy path (development) ---
 
@@ -862,34 +800,25 @@ class TestWeakSecretsValidator:
         s = Settings(environment="development", session_secret="change_me_to_a_random_secret")
         assert s.session_secret == "change_me_to_a_random_secret"
 
-    def test_development_allows_admin_password(self):
-        """In development, the default 'admin' password is accepted."""
-        from app.config import Settings
-
-        s = Settings(environment="development", admin_password="admin")
-        assert s.admin_password == "admin"
-
     def test_production_with_strong_secrets_starts_ok(self):
-        """Production environment with strong secrets starts without error."""
+        """Production environment with strong session_secret starts without error."""
         from app.config import Settings
 
         s = Settings(
             environment="production",
             testing_mode=False,
             session_secret=self._STRONG_SECRET,
-            admin_password=self._BCRYPT_HASH,
         )
         assert s.environment == "production"
 
     def test_preview_with_strong_secrets_starts_ok(self):
-        """Preview environment with strong secrets starts without error."""
+        """Preview environment with strong session_secret starts without error."""
         from app.config import Settings
 
         s = Settings(
             environment="preview",
             testing_mode=False,
             session_secret=self._STRONG_SECRET,
-            admin_password=self._BCRYPT_HASH,
         )
         assert s.environment == "preview"
 
@@ -905,7 +834,6 @@ class TestWeakSecretsValidator:
                 environment="production",
                 testing_mode=False,
                 session_secret="change_me_to_a_random_secret",
-                admin_password=self._BCRYPT_HASH,
             )
         assert "SESSION_SECRET is too weak" in str(exc_info.value)
 
@@ -919,7 +847,6 @@ class TestWeakSecretsValidator:
                 environment="production",
                 testing_mode=False,
                 session_secret="short",
-                admin_password=self._BCRYPT_HASH,
             )
         assert "SESSION_SECRET is too weak" in str(exc_info.value)
 
@@ -933,23 +860,8 @@ class TestWeakSecretsValidator:
                 environment="preview",
                 testing_mode=False,
                 session_secret="change_me_to_a_random_secret",
-                admin_password=self._BCRYPT_HASH,
             )
         assert "SESSION_SECRET is too weak" in str(exc_info.value)
-
-    def test_production_with_dev_admin_password_raises(self):
-        """Production rejects the 'admin' placeholder password."""
-        from pydantic import ValidationError
-        from app.config import Settings
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                environment="production",
-                testing_mode=False,
-                session_secret=self._STRONG_SECRET,
-                admin_password="admin",
-            )
-        assert "ADMIN_PASSWORD must be a bcrypt hash" in str(exc_info.value)
 
     def test_session_secret_exactly_32_chars_is_accepted(self):
         """A session_secret of exactly 32 characters is accepted in non-development."""
@@ -959,7 +871,6 @@ class TestWeakSecretsValidator:
             environment="production",
             testing_mode=False,
             session_secret="a" * 32,
-            admin_password=self._BCRYPT_HASH,
         )
         assert len(s.session_secret) == 32
 

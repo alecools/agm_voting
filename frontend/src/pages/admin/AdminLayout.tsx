@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { adminLogout } from "../../api/admin";
+import { authClient } from "../../lib/auth-client";
 import { useBranding } from "../../context/BrandingContext";
 import { getSmtpStatus } from "../../api/config";
 
@@ -83,7 +83,7 @@ export default function AdminLayout() {
 
   async function handleLogout() {
     try {
-      await adminLogout();
+      await authClient.signOut();
     } finally {
       queryClient.clear();
       navigate("/admin/login", { replace: true });

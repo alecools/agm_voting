@@ -17,7 +17,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.logging_config import configure_logging, get_logger
 from app.routers.admin import router as admin_router
-from app.routers.admin_auth import router as admin_auth_router
 
 configure_logging()
 
@@ -95,13 +94,18 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     Exceptions:
     - OPTIONS (preflight) — must not be blocked
     - GET/HEAD — safe/idempotent, no state change
-    - /api/admin/auth/login — called with JSON, X-Requested-With always present via fetch;
-      exempt here to avoid blocking admin login from non-browser clients / Playwright tests.
+    - /api/auth/sign-in/email — Better Auth sign-in endpoint; the SDK does not send
+      X-Requested-With and the endpoint is rate-limited by AdminLoginRateLimitMiddleware.
+    - /api/auth/sign-out — Better Auth sign-out endpoint.
     - testing_mode=True — CSRF check is skipped entirely so unit/integration tests that
       do not send X-Requested-With are not blocked.
     """
 
-    _EXEMPT_PATHS = {"/api/admin/auth/login", "/api/admin/auth/logout", "/api/admin/auth/hash-password"}
+    # All /api/auth/* paths are exempt: the Better Auth SDK does not send
+    # X-Requested-With.  These paths are either rate-limited by
+    # AdminLoginRateLimitMiddleware (sign-in) or require a valid session
+    # cookie (other authenticated endpoints), providing equivalent protection.
+    _EXEMPT_PREFIX = "/api/auth/"
     _STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
     async def dispatch(self, request: Request, call_next):
@@ -110,7 +114,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if (
             request.method in self._STATE_CHANGING_METHODS
-            and request.url.path not in self._EXEMPT_PATHS
+            and not request.url.path.startswith(self._EXEMPT_PREFIX)
             and "X-Requested-With" not in request.headers
         ):
             return JSONResponse(
@@ -138,6 +142,106 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             structlog.contextvars.unbind_contextvars("request_id")
         response.headers["X-Request-ID"] = request_id
+        return response
+
+
+class AdminLoginRateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate-limit POST /api/auth/sign-in/email using the AdminLoginAttempt table.
+
+    Wraps the Better Auth sign-in endpoint transparently:
+    - Pre-request: if the IP has >= 5 failures within the 15-minute window → 429
+    - Post-response: if Better Auth returns non-2xx, record a failure; if 2xx, clear failures
+
+    Two separate DB sessions are used — one before call_next (check + possible early return)
+    and one after (record outcome).  A single open transaction across call_next is not
+    possible because Starlette BaseHTTPMiddleware streams the response body lazily.
+
+    Path: POST /api/auth/sign-in/email only. All other requests pass through unchanged.
+    """
+
+    _TARGET_PATH = "/api/auth/sign-in/email"
+    _MAX_FAILURES = 5
+    _WINDOW_SECONDS = 900  # 15 minutes
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method != "POST" or request.url.path != self._TARGET_PATH:
+            return await call_next(request)
+
+        from datetime import UTC, datetime, timedelta
+        from sqlalchemy import delete as sql_delete, select
+        from app.database import AsyncSessionLocal
+        from app.models.admin_login_attempt import AdminLoginAttempt
+        from app.dependencies import get_client_ip
+
+        ip = get_client_ip(request)
+        now = datetime.now(UTC)
+        window_start = now - timedelta(seconds=self._WINDOW_SECONDS)
+
+        # --- Pre-request check: is this IP rate-limited? ---
+        async with AsyncSessionLocal() as db:
+            attempt_result = await db.execute(
+                select(AdminLoginAttempt)
+                .where(AdminLoginAttempt.ip_address == ip)
+                .with_for_update()
+            )
+            attempt_record = attempt_result.scalar_one_or_none()
+
+            # Expire stale window
+            if attempt_record is not None:
+                if attempt_record.first_attempt_at.replace(tzinfo=UTC) < window_start:
+                    await db.execute(
+                        sql_delete(AdminLoginAttempt)
+                        .where(AdminLoginAttempt.id == attempt_record.id)
+                    )
+                    await db.flush()
+                    attempt_record = None
+
+            if (
+                attempt_record is not None
+                and attempt_record.failed_count >= self._MAX_FAILURES
+            ):
+                await db.commit()
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many failed login attempts. Try again in 15 minutes."},
+                )
+
+            await db.commit()  # release FOR UPDATE lock before calling next handler
+
+        # --- Call the Better Auth handler ---
+        response = await call_next(request)
+
+        # --- Post-response: record success or failure ---
+        async with AsyncSessionLocal() as db:
+            attempt_result = await db.execute(
+                select(AdminLoginAttempt)
+                .where(AdminLoginAttempt.ip_address == ip)
+                .with_for_update()
+            )
+            attempt_record = attempt_result.scalar_one_or_none()
+
+            if response.status_code >= 400:
+                # Record failure
+                if attempt_record is None:
+                    db.add(AdminLoginAttempt(
+                        ip_address=ip,
+                        failed_count=1,
+                        first_attempt_at=now,
+                        last_attempt_at=now,
+                    ))
+                else:
+                    attempt_record.failed_count += 1
+                    attempt_record.last_attempt_at = now
+            else:
+                # Successful login — clear failure record
+                if attempt_record is not None:
+                    await db.execute(
+                        sql_delete(AdminLoginAttempt)
+                        .where(AdminLoginAttempt.id == attempt_record.id)
+                    )
+
+            await db.commit()
+
         return response
 
 
@@ -296,6 +400,9 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
     # US-IAS-05: CSRFMiddleware enforces X-Requested-With on state-changing requests.
     app.add_middleware(CSRFMiddleware)
+    # Rate-limit the Better Auth sign-in endpoint (POST /api/auth/sign-in/email).
+    # Registered last so it is innermost — intercepts the request after CSRF passes.
+    app.add_middleware(AdminLoginRateLimitMiddleware)
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -317,12 +424,15 @@ def create_app() -> FastAPI:
     from app.routers.public import router as public_router
     from app.routers.auth import router as auth_router
     from app.routers.voting import router as voting_router
+    from app.routers.auth_proxy import router as auth_proxy_router
 
     app.include_router(public_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(voting_router, prefix="/api")
-    app.include_router(admin_auth_router, prefix="/api/admin")
     app.include_router(admin_router, prefix="/api/admin")
+    # auth_proxy_router is included last so it acts as a catch-all fallback for
+    # any /api/auth/* path not handled by the routers above.
+    app.include_router(auth_proxy_router)
 
     from app.database import get_db
 

@@ -34,7 +34,7 @@ const E2E_TESTS_DIR = process.env.GITHUB_WORKSPACE
   ? path.join(process.env.GITHUB_WORKSPACE, "e2e_tests")
   : __dirname;
 
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
+const ADMIN_EMAIL = process.env.ADMIN_USERNAME ?? "admin@example.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
 // ── Branch-name suffix ─────────────────────────────────────────────────────
@@ -92,89 +92,33 @@ export default async function globalSetup(_config: FullConfig) {
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
   // ── Pre-warm the Lambda before any browser navigation ─────────────────────
-  // POST to the admin login endpoint and retry until it returns HTTP 200.
-  // This guarantees the auth Lambda instance handling the request is warm
-  // before the browser login attempt — avoiding 30-60s cold-start timeouts
-  // on the subsequent page.goto("/admin/login") navigation.
-  //
-  // Retry logic:
-  //   - 5xx response → cold start in progress, wait 10s and retry
-  //   - 4xx response (e.g. 401 wrong credentials) → throw immediately
-  //   - 200 → Lambda warm, proceed
-  //   - Loop runs for up to 3 minutes (18 attempts × 10s)
+  // Poll /api/health until it returns 200, confirming the Lambda is warm.
+  // Retries for up to 3 minutes (18 attempts × 10s) to handle Neon cold starts.
   if (BYPASS_TOKEN) {
-    const loginUrl = `${baseURL}/api/admin/auth/login`;
     const healthUrl = `${baseURL}/api/health`;
-    const maxAttempts = 18; // up to 3 minutes
-
-    // Warm up login endpoint and health endpoint in parallel with a 100ms stagger
-    // to avoid hammering the same Lambda instance simultaneously.
-    const warmupLogin = async (): Promise<void> => {
-      let warmedUp = false;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const maxAttempts = 18;
+    let warmedUp = false;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         let res: Response | undefined;
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          try {
-            res = await fetch(loginUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-vercel-protection-bypass": BYPASS_TOKEN,
-              },
-              body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeoutId);
-          }
-        } catch {
-          // Network error or timeout — treat as cold start, retry
-          if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-          continue;
+          res = await fetch(healthUrl, {
+            headers: { "x-vercel-protection-bypass": BYPASS_TOKEN },
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
         }
-        if (res.ok) {
+        if (res && res.ok) {
           warmedUp = true;
           break;
         }
-        if (res.status >= 400 && res.status < 500) {
-          throw new Error(
-            `Lambda warmup login returned ${res.status} — credentials problem, not a cold start. ` +
-            `Check ADMIN_USERNAME / ADMIN_PASSWORD env vars.`
-          );
-        }
-        // 5xx — Lambda still cold, wait and retry
-        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-      }
-      if (!warmedUp) console.warn(`Lambda warmup (login) did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
-    };
-
-    const warmupHealth = async (): Promise<void> => {
-      // 100ms stagger to avoid hitting the same Lambda instance as login warmup
-      await new Promise((r) => setTimeout(r, 100));
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          let res: Response | undefined;
-          try {
-            res = await fetch(healthUrl, {
-              headers: BYPASS_TOKEN ? { "x-vercel-protection-bypass": BYPASS_TOKEN } : {},
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeoutId);
-          }
-          if (res && res.ok) {
-            break;
-          }
-        } catch {}
-        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-      }
-    };
-
-    await Promise.all([warmupLogin(), warmupHealth()]);
+      } catch {}
+      if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
+    }
+    if (!warmedUp) console.warn(`Lambda warmup did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
   }
 
   const browser = await chromium.launch();
@@ -214,7 +158,7 @@ export default async function globalSetup(_config: FullConfig) {
   await context.storageState({ path: path.join(authDir, "public.json") });
 
   await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
-  await page.getByLabel("Username").fill(ADMIN_USERNAME);
+  await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   try {

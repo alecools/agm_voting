@@ -18,6 +18,9 @@ jobs:
       github.event.deployment.environment != 'Production'
     runs-on: ubuntu-latest
 
+    outputs:
+      branch_url: ${{ steps.branch-url.outputs.branch_url }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +49,29 @@ jobs:
       - name: Install Playwright browsers
         run: cd frontend && npx playwright install --with-deps chromium
 
+      - name: Derive stable branch alias URL
+        id: branch-url
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Vercel sets deployment.ref to the commit SHA, not the branch name.
+          # Use the GitHub API to find which branch this commit is the HEAD of.
+          SHA="${{ github.event.deployment.sha }}"
+          BRANCH=$(gh api "/repos/${{ github.repository }}/commits/${SHA}/branches-where-head" \
+            --jq '.[0].name // empty' 2>/dev/null || echo "")
+          if [ -z "$BRANCH" ]; then
+            # Fallback: if .ref isn't a SHA it may be a branch name
+            REF="${{ github.event.deployment.ref }}"
+            if ! echo "$REF" | grep -qE '^[0-9a-f]{40}$'; then
+              BRANCH="$REF"
+            fi
+          fi
+          SLUG=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-\|-$//g' | cut -c1-63)
+          BRANCH_URL="https://internal-vms-git-${SLUG}-ocss.vercel.app"
+          echo "branch_url=$BRANCH_URL" >> "$GITHUB_OUTPUT"
+          echo "Branch: $BRANCH"
+          echo "Branch alias URL: $BRANCH_URL"
+
       - name: Validate test URL
         run: |
           URL="${{ github.event.deployment_status.environment_url }}"
@@ -53,12 +79,13 @@ jobs:
             echo "ERROR: deployment URL is empty or localhost: '$URL'"
             exit 1
           fi
-          echo "Test URL: $URL"
+          echo "Deployment URL: $URL"
+          echo "Branch alias URL: ${{ steps.branch-url.outputs.branch_url }}"
 
       - name: Seed data and save auth state
         run: cd frontend && npx playwright test --project=setup
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ steps.branch-url.outputs.branch_url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
@@ -162,7 +189,7 @@ jobs:
       - name: Run Admin E2E tests
         run: cd frontend && npx playwright test --project=admin
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.setup.outputs.branch_url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
@@ -254,7 +281,7 @@ jobs:
       - name: Run Public Voter E2E tests
         run: cd frontend && npx playwright test --project=public-voter
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.setup.outputs.branch_url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
@@ -346,7 +373,7 @@ jobs:
       - name: Run Public Workflow E2E tests
         run: cd frontend && npx playwright test --project=public-workflow
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.setup.outputs.branch_url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
@@ -438,7 +465,7 @@ jobs:
       - name: Run User Workflow E2E tests
         run: cd frontend && npx playwright test --project=user-workflow
         env:
-          PLAYWRIGHT_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.setup.outputs.branch_url }}
           CI: 'true'
           VERCEL_BYPASS_TOKEN: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}

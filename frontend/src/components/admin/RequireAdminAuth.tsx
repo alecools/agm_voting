@@ -1,23 +1,18 @@
 import { Navigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { adminGetMe } from "../../api/admin";
+import { authClient } from "../../lib/auth-client";
 
 interface RequireAdminAuthProps {
   children: React.ReactNode;
 }
 
 export default function RequireAdminAuth({ children }: RequireAdminAuthProps) {
-  const { isLoading, isError } = useQuery({
-    queryKey: ["admin", "me"],
-    queryFn: adminGetMe,
-    retry: false,
-  });
+  const { data: session, isPending } = authClient.useSession();
 
-  if (isLoading) {
+  if (isPending) {
     return <p className="state-message">Loading…</p>;
   }
 
-  if (isError) {
+  if (!session) {
     return <Navigate to="/admin/login" replace />;
   }
 

@@ -271,15 +271,18 @@ def app(db_session: AsyncSession):
     Also bypasses admin authentication so tests do not need to log in.
     """
     from app.main import create_app
-    from app.routers.admin_auth import require_admin
+    from app.dependencies import require_admin, BetterAuthUser
 
     application = create_app()
 
     async def override_get_db():
         yield db_session
 
+    async def override_require_admin():
+        return BetterAuthUser(email="test-admin@example.com", user_id="test-user-id")
+
     application.dependency_overrides[get_db] = override_get_db
-    application.dependency_overrides[require_admin] = lambda: None
+    application.dependency_overrides[require_admin] = override_require_admin
     yield application
     application.dependency_overrides.clear()
 
