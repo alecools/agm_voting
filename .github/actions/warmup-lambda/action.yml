@@ -1,0 +1,49 @@
+name: Warm up Lambda
+description: Poll /api/health until the Lambda is warm, then start a keepalive background loop.
+
+inputs:
+  deployment-url:
+    description: The deployment URL to warm up (e.g. https://internal-vms-git-...-ocss.vercel.app)
+    required: true
+  bypass-token:
+    description: Vercel deployment protection bypass token
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Warm up Lambda
+      shell: bash
+      env:
+        URL: ${{ inputs.deployment-url }}
+        VERCEL_BYPASS_TOKEN: ${{ inputs.bypass-token }}
+      run: |
+        echo "Warming up Lambda at $URL"
+        for i in $(seq 1 18); do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+            "$URL/api/health")
+          if [ "$STATUS" = "200" ]; then
+            echo "Lambda warm (attempt $i)"
+            break
+          fi
+          echo "Attempt $i: HTTP $STATUS — waiting 10s"
+          sleep 10
+        done
+
+    - name: Start Lambda keepalive
+      shell: bash
+      env:
+        URL: ${{ inputs.deployment-url }}
+        VERCEL_BYPASS_TOKEN: ${{ inputs.bypass-token }}
+      run: |
+        # Hit /api/health every 30s in the background.
+        # This keeps at least one Lambda instance alive, preventing
+        # all PgBouncer connections from dropping to zero, which would
+        # trigger instant Neon suspension (suspend_timeout_seconds=0).
+        while sleep 30; do
+          curl -s -o /dev/null \
+            -H "x-vercel-protection-bypass: $VERCEL_BYPASS_TOKEN" \
+            "$URL/api/health" || true
+        done &
+        echo "Keepalive started (PID $!)"

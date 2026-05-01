@@ -15,10 +15,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
+  makeAdminApi,
   ADMIN_AUTH_PATH,
   seedBuilding,
   seedLotOwner,
@@ -33,8 +31,6 @@ import {
   getTestOtp,
   submitBallot,
 } from "./helpers";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── WF3: Simple 3-lot voting lifecycle ────────────────────────────────────────
 
@@ -56,13 +52,7 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "wf3-manager@test.com");
 
@@ -108,7 +98,7 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
   test("WF3.2: voter 1 votes For on both motions", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER1_EMAIL, () => getTestOtp(api, VOTER1_EMAIL, meetingId));
@@ -130,7 +120,7 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
   test("WF3.3: voter 2 votes Against on Motion 1, For on Motion 2", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER2_EMAIL, () => getTestOtp(api, VOTER2_EMAIL, meetingId));
@@ -157,13 +147,7 @@ test.describe("WF3: Simple 3-lot voting lifecycle with tally verification", () =
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
 
@@ -250,13 +234,7 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "wf4-manager@test.com");
 
@@ -297,7 +275,7 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
   test("WF4.2: voter sees both lots pre-selected, votes For on both motions", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -330,13 +308,7 @@ test.describe("WF4: Multi-lot voter — both lots submitted in one session", () 
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
     const motionDetails = await getMeetingDetails(api, meetingId);
@@ -393,13 +365,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "wf5-manager@test.com");
 
@@ -439,7 +405,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
   test("WF5.2: session 1 — votes For/Against for WF5-A only, WF5-B excluded", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -478,7 +444,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
   test("WF5.3: session 2 — WF5-A shows Already submitted, votes Abstain/For for WF5-B", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     // Return to home and re-authenticate
     await page.goto("/");
@@ -516,13 +482,7 @@ test.describe("WF5: Multi-lot voter — partial submission across two sessions",
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
     const motionDetails = await getMeetingDetails(api, meetingId);
@@ -569,13 +529,7 @@ test.describe("WF6: Proxy voting with tally verification", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "wf6-manager@test.com");
 
@@ -613,7 +567,7 @@ test.describe("WF6: Proxy voting with tally verification", () => {
   test("WF6.2: proxy voter sees via Proxy badge, votes For on Motion 1", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, PROXY_EMAIL, () => getTestOtp(api, PROXY_EMAIL, meetingId));
@@ -648,7 +602,7 @@ test.describe("WF6: Proxy voting with tally verification", () => {
   test("WF6.3: WF6-Y direct owner votes Against on Motion 1", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT_Y_EMAIL, () => getTestOtp(api, LOT_Y_EMAIL, meetingId));
@@ -672,13 +626,7 @@ test.describe("WF6: Proxy voting with tally verification", () => {
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
     const motionDetails = await getMeetingDetails(api, meetingId);
@@ -718,13 +666,7 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "wf7-manager@test.com");
 
@@ -764,7 +706,7 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
   test("WF7.2: voter sees amber in-arrear banner and In Arrear badge on WF7-B", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -802,7 +744,7 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
   }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -843,13 +785,7 @@ test.describe("WF7: In-arrear mixed lots — not_eligible on General, normal on 
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
     const motionDetails = await getMeetingDetails(api, meetingId);
@@ -926,13 +862,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Building D — used exclusively for Scenario D (hidden motion test)
     buildingIdD = await seedBuilding(api, BUILDING_D, "wf-hidden-mgr-d@test.com");
@@ -1006,13 +936,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING_D);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingIdHidden));
@@ -1035,13 +959,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING_E);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingIdCustomNumber));
@@ -1055,13 +973,7 @@ test.describe("Voter — motion position labels with hidden motions", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     if (meetingIdHidden) {
       // Close before delete since it's open
       await api.post(`/api/admin/general-meetings/${meetingIdHidden}/close`).catch(() => {});

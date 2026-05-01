@@ -21,10 +21,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
+  makeAdminApi,
   ADMIN_AUTH_PATH,
   seedBuilding,
   seedLotOwner,
@@ -34,8 +32,6 @@ import {
   submitBallotViaApi,
   getMeetingDetails,
 } from "./workflows/helpers";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Use the admin session for page navigation (admin portal pages require auth)
 test.use({ storageState: ADMIN_AUTH_PATH });
@@ -62,12 +58,7 @@ test.describe("Gap 1: Admin vote entry for partially-submitted lot", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING, "ave-manager@test.com");
 
@@ -130,12 +121,7 @@ test.describe("Gap 1: Admin vote entry for partially-submitted lot", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     // Close meeting first (required before delete if open)
     await api.post(`/api/admin/general-meetings/${meetingId}/close`).catch(() => {});
     await api.delete(`/api/admin/general-meetings/${meetingId}`).catch(() => {});
@@ -145,12 +131,7 @@ test.describe("Gap 1: Admin vote entry for partially-submitted lot", () => {
   test("Gap 1.1: admin makes M2 visible and the panel shows both lots", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Make M2 visible so admin can enter votes on it
     const showRes = await api.patch(`/api/admin/motions/${motion2Id}/visibility`, {
@@ -177,12 +158,7 @@ test.describe("Gap 1: Admin vote entry for partially-submitted lot", () => {
   test("Gap 1.2: admin enters vote for Lot B, and M1 for Lot A retains original voter email after close", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Enter admin votes for Lot B (both motions) via the API directly
     // This seeds the test state — the UI test in 1.1 already verified the panel.
@@ -283,12 +259,7 @@ test.describe("Gap 2: Voter name in admin results UI", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING, "vn-manager@test.com");
 
@@ -363,12 +334,7 @@ test.describe("Gap 2: Voter name in admin results UI", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}`).catch(() => {});
     await api.dispose();
   });
@@ -421,12 +387,7 @@ test.describe("Gap 3: AdminRevoteWarningDialog end-to-end", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING, "rw-manager@test.com");
 
@@ -487,12 +448,7 @@ test.describe("Gap 3: AdminRevoteWarningDialog end-to-end", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.post(`/api/admin/general-meetings/${meetingId}/close`).catch(() => {});
     await api.delete(`/api/admin/general-meetings/${meetingId}`).catch(() => {});
     await api.dispose();

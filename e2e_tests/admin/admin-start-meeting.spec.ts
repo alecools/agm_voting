@@ -17,11 +17,7 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { makeAdminApi } from "../workflows/helpers";
 
 const BUILDING_NAME_PENDING = `E2E Start Meeting Pending Building-${RUN_SUFFIX}`;
 const BUILDING_NAME_START = `E2E Start Meeting Start Building-${RUN_SUFFIX}`;
@@ -50,20 +46,14 @@ test.describe("Admin Start Meeting button", () => {
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: path.join(__dirname, "../.auth/admin.json"),
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Helper: create or find a building by name, with retry for transient 500s.
     // On 409 (already exists), re-fetch the list to get the existing ID.
     async function getOrCreateBuilding(name: string, managerEmail: string): Promise<string> {
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 500 * attempt));
         }
 
         // Try to find an existing building first
@@ -130,7 +120,7 @@ test.describe("Admin Start Meeting button", () => {
 
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 500 * attempt));
           await closeActiveAgms(buildingId);
         }
 

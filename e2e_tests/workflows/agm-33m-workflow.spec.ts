@@ -23,7 +23,6 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";

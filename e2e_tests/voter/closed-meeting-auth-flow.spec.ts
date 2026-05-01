@@ -17,9 +17,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -40,17 +39,9 @@ let tcg04BuildingId = "";
 let tcg04SubmittedLotOwnerId = "";
 
 test.describe("US-TCG-04: Closed meeting auth flow", () => {
-  test.describe.configure({ mode: "serial" });
-
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     tcg04BuildingId = await seedBuilding(
       api,
@@ -109,13 +100,7 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, tcg04MeetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -126,13 +111,7 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Navigate directly to the closed meeting's auth page (bypasses the
     // building dropdown which only lists buildings with *open* meetings).
@@ -161,13 +140,7 @@ test.describe("US-TCG-04: Closed meeting auth flow", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Navigate directly to the closed meeting's auth page (bypasses the
     // building dropdown which only lists buildings with *open* meetings).

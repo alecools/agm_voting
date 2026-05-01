@@ -1,10 +1,7 @@
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
-  ADMIN_AUTH_PATH,
   getTestOtp,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -17,8 +14,6 @@ import {
 const E2E_BUILDING_NAME = `E2E Test Building-${RUN_SUFFIX}`;
 const E2E_LOT_EMAIL = "e2e-voter@test.com";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 // Voting-flow tests rely on data seeded by global-setup.ts:
 //   - Building "E2E Test Building"
 //   - Lot owner  lot=E2E-1  email=e2e-voter@test.com
@@ -27,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 test.describe("Lot owner voting flow", () => {
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json"), timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     await page.goto("/");
 
@@ -124,8 +119,6 @@ test.describe("Lot owner voting flow", () => {
 //   TCG04-B: Voter who did NOT submit (absent) → sees "You did not submit" message.
 
 test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmation", () => {
-  test.describe.configure({ mode: "serial" });
-
   const TCG04_BUILDING = `TCG04 Building-${RUN_SUFFIX}`;
   const TCG04_VOTER_SUBMITTED_EMAIL = `tcg04-submitted-${RUN_SUFFIX}@test.com`;
   const TCG04_VOTER_ABSENT_EMAIL = `tcg04-absent-${RUN_SUFFIX}@test.com`;
@@ -135,13 +128,7 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, TCG04_BUILDING, `tcg04-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -191,13 +178,7 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, tcg04MeetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -205,13 +186,7 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
   test("TCG04-A: voter who submitted before close is routed to confirmation showing their votes", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Navigate directly to the auth page by meeting ID — the building is not in the
     // home-page dropdown because closed meetings are excluded from that list.
@@ -243,13 +218,7 @@ test.describe("US-TCG-04: closed meeting auth flow — voter routed to confirmat
   test("TCG04-B: absent voter is routed to confirmation showing 'did not submit' message", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Same direct-navigation approach as TCG04-A.
     await page.context().clearCookies({ name: 'agm_session' });

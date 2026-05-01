@@ -19,9 +19,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -50,17 +49,9 @@ async function buildingFilterIsActive(baseURL: string): Promise<boolean> {
 }
 
 test.describe("Building filter — voter home page dropdown (US-BLD-02)", () => {
-  test.describe.configure({ mode: "serial" });
-
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // ── Building A: has an open meeting ──────────────────────────────────
     const buildingAId = await seedBuilding(api, BUILDING_OPEN, "bf01-mgr-a@test.com");

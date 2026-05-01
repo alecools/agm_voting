@@ -14,11 +14,10 @@
  */
 
 import { test, expect } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
 } from "../workflows/helpers";
@@ -36,17 +35,9 @@ const BUILDING_NAME = `AGM Financial Position Test Building-${Date.now()}`;
 let buildingId = "";
 
 test.describe("Admin — TOCS CSV financial position upload", () => {
-  test.describe.configure({ mode: "serial" });
-
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "fin-pos-mgr@test.com");
 

@@ -16,11 +16,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -32,8 +29,6 @@ import {
   getTestOtp,
   submitBallot,
 } from "./helpers";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BUILDING = `WF8 Edge Cases-${RUN_SUFFIX}`;
 const LOT1 = "WF8-1";
@@ -50,13 +45,7 @@ test.describe("WF8: Edge cases", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING, "wf8-manager@test.com");
 
@@ -97,11 +86,11 @@ test.describe("WF8: Edge cases", () => {
     // Clear ballots so we start fresh
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     {
-      const adminApi = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+      const adminApi = await makeAdminApi(baseURL);
       await clearBallots(adminApi, openMeetingId);
       await adminApi.dispose();
     }
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
 
     // First session: authenticate and vote
     await goToAuthPage(page, BUILDING);
@@ -141,7 +130,7 @@ test.describe("WF8: Edge cases", () => {
     // WF8.1 already submitted a ballot for LOT1_EMAIL. Navigate to home and
     // re-auth to trigger the "all submitted" direct-to-confirmation path.
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: ADMIN_AUTH_PATH, timeout: 60000});
+    const api = await makeAdminApi(baseURL);
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT1_EMAIL, () => getTestOtp(api, LOT1_EMAIL, openMeetingId));
     await api.dispose();
@@ -160,13 +149,7 @@ test.describe("WF8: Edge cases", () => {
 
     // Close the meeting via admin API (LOT2_EMAIL has never voted)
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await closeMeeting(api, openMeetingId);
     // Keep api alive for OTP retrieval
     // Navigate to the closed meeting's auth page directly
@@ -200,13 +183,7 @@ test.describe("WF8: Edge cases", () => {
     // least one open AGM). Seed a fresh open meeting so the building reappears
     // in the dropdown before navigating to the home page.
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await createOpenMeeting(api, buildingId, `WF8 Open Meeting WF8.5-${RUN_SUFFIX}`, [
       {
         title: MOTION_TITLE,
@@ -249,13 +226,7 @@ test.describe("WF8: Edge cases", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Seed a dedicated building used only by WF8.6 so it never has an open
     // meeting that would conflict with the pending meeting under test.

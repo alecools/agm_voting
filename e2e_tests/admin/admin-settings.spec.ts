@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { ADMIN_AUTH_PATH } from "../workflows/helpers";
+import { makeAdminApi } from "../workflows/helpers";
 
 /**
  * E2E tests for the Admin Settings page (tenant branding, email server, user management).
@@ -246,15 +246,8 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
   let originalLogoUrl = "";
 
   test.beforeAll(async () => {
-    const { request: playwrightRequest } = await import("@playwright/test");
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const configRes = await api.get("/api/admin/config");
     const config = await configRes.json() as { logo_url?: string };
     originalLogoUrl = config.logo_url ?? "";

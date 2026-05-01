@@ -18,12 +18,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
+import type { APIRequestContext } from "@playwright/test";
 import { getTestOtp, makeAdminApi } from "./workflows/helpers";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Scenario 2: mixed voter (own lot + proxy lot) ─────────────────────────────
 const MIXED_BUILDING_NAME = `E2E Mixed Proxy Test Building-${RUN_SUFFIX}`;
@@ -35,7 +31,7 @@ const MIXED_AGM_TITLE = `E2E Mixed Proxy Test AGM-${RUN_SUFFIX}`;
 
 /** Upload a CSV as multipart/form-data to the import-proxies endpoint. */
 async function uploadProxyCsv(
-  api: Awaited<ReturnType<typeof playwrightRequest.newContext>>,
+  api: APIRequestContext,
   buildingId: string,
   csvContent: string
 ): Promise<void> {
@@ -59,10 +55,6 @@ async function uploadProxyCsv(
 }
 
 test.describe("Proxy voter journey", () => {
-  // Serial mode prevents parallel workers from each running their own beforeAll,
-  // which would cause multiple concurrent Lambda cold starts and timeout races.
-  test.describe.configure({ mode: "serial" });
-
   // Shared IDs populated in beforeAll
   let mixedBuildingId = "";
   let mixedAgmId = "";
@@ -202,13 +194,7 @@ test.describe("Proxy voter journey", () => {
       // Clear any stale ballots from previous runs so auth always lands on lot-selection
       if (mixedAgmId) {
         const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-        const api = await playwrightRequest.newContext({
-          baseURL,
-          ignoreHTTPSErrors: true,
-          storageState: path.join(__dirname, ".auth", "admin.json"),
-          // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-          timeout: 60000,
-        });
+        const api = await makeAdminApi(baseURL);
         await api.delete(`/api/admin/general-meetings/${mixedAgmId}/ballots`);
         await api.dispose();
       }
@@ -229,7 +215,7 @@ test.describe("Proxy voter journey", () => {
       // Auth as mixed-voter (owns MX-A, also proxied for MX-C) — OTP flow
       {
         const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-        const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json"), timeout: 60000});
+        const api = await makeAdminApi(baseURL);
         await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
         await page.getByLabel("Email address").fill(MIXED_LOT_A_OWNER_EMAIL);
         await page.getByRole("button", { name: "Send Verification Code" }).click();

@@ -52,26 +52,10 @@ test.describe("API health", () => {
 });
 
 test.describe("Voter flow", () => {
-  test("home page loads and shows building selector without console errors", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-
+  test("home page loads and shows building selector without console errors", async ({ page, consoleErrors: _ }) => {
     await page.goto("/");
     await expect(page.getByLabel("Select your building")).toBeVisible();
-
-    // Filter out known benign browser noise (e.g. favicon 404s, blob 403s)
-    const realErrors = consoleErrors.filter(
-      (e) =>
-        !e.includes("favicon") &&
-        !e.includes("net::ERR_ABORTED") &&
-        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
-        !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e) &&
-        !(e.includes("404") && e.includes("Failed to load resource"))
-    );
-    expect(realErrors).toHaveLength(0);
+    // consoleErrors fixture auto-asserts no unexpected browser errors at end of test
   });
 
   test("building selector is populated with at least one building", async ({ page }) => {
@@ -98,27 +82,12 @@ test.describe("Security headers", () => {
 });
 
 test.describe("Admin flow", () => {
-  test("admin login page loads without console errors", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-
+  test("admin login page loads without console errors", async ({ page, consoleErrors: _ }) => {
     await page.goto("/admin/login");
     await expect(page.getByRole("heading", { name: "Admin Portal" })).toBeVisible();
     await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
-
-    const realErrors = consoleErrors.filter(
-      (e) =>
-        !e.includes("favicon") &&
-        !e.includes("net::ERR_ABORTED") &&
-        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
-        !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e) &&
-        !(e.includes("404") && e.includes("Failed to load resource"))
-    );
-    expect(realErrors).toHaveLength(0);
+    // consoleErrors fixture auto-asserts no unexpected browser errors at end of test
   });
 
   test("admin credentials env vars are configured and login succeeds", async ({ page }) => {

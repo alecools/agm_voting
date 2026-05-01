@@ -19,9 +19,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -48,13 +47,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
   // ── NMB.setup: seed building, 2 lots, meeting with Motion 1 ────────────────
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, `nmb-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -90,13 +83,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -119,13 +106,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Admin adds and reveals Motion 2
     const addRes = await api.post(`/api/admin/general-meetings/${meetingId}/motions`, {
@@ -190,13 +171,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await page.goto("/");
     await goToAuthPage(page, BUILDING);
@@ -222,13 +197,7 @@ test.describe("US-FIX-NM01-B: lots unlock on every new motion batch", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Admin adds and reveals Motion 3
     const addRes = await api.post(`/api/admin/general-meetings/${meetingId}/motions`, {
