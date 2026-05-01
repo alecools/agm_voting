@@ -191,8 +191,11 @@ async def list_admin_users(db: AsyncSession) -> list[AdminUserOut]:
     Raises NeonAuthServiceError on any database error.
     """
     try:
+        # neon_auth."user" is a schema managed by Neon Auth (Better Auth), not by
+        # SQLAlchemy ORM models — there is no SQLAlchemy model for it, and defining
+        # one would couple the app to Neon Auth's internal schema.
         result = await db.execute(
-            text(
+            text(  # nosemgrep: raw-sql-requires-comment
                 'SELECT id::text, email, "createdAt" FROM neon_auth."user" ORDER BY "createdAt"'
             )
         )
