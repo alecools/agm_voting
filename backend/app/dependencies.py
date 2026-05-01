@@ -47,22 +47,27 @@ async def require_admin(request: Request) -> BetterAuthUser:
     cookie to the Better Auth service and receive the session payload back.
 
     Raises 401 if:
-    - The better-auth.session_token cookie is absent
+    - No session_token cookie is present in the request
     - The Neon Auth service returns a non-200 response
     - The response body has no user object
 
     Raises 503 if the Neon Auth service is unreachable.
     """
-    session_token = request.cookies.get("better-auth.session_token")
-    if not session_token:
+    # Neon Auth may use different cookie name prefixes depending on the environment
+    # (__Secure-neon-auth.session_token on HTTPS, better-auth.session_token on HTTP).
+    # Forward all cookies so Neon Auth can pick whichever one it set.
+    raw_cookie = request.headers.get("cookie", "")
+    has_session = any(
+        "session_token" in part.split("=")[0]
+        for part in raw_cookie.split(";")
+        if "=" in part
+    )
+    if not has_session:
         raise HTTPException(status_code=401, detail="Authentication required")
 
     neon_auth_base_url = settings.neon_auth_base_url.strip()
-    allowed_origin = settings.allowed_origin.strip()
 
-    headers: dict[str, str] = {"cookie": f"better-auth.session_token={session_token}"}
-    if allowed_origin:
-        headers["origin"] = allowed_origin
+    headers: dict[str, str] = {"cookie": raw_cookie}
 
     async with httpx.AsyncClient() as client:
         try:

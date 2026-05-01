@@ -77,6 +77,13 @@ class TestGetClientIp:
 # ---------------------------------------------------------------------------
 
 
+def _make_request_with_cookie(cookie_header: str) -> MagicMock:
+    """Build a mock Request with the given raw cookie header string."""
+    request = MagicMock()
+    request.headers = {"cookie": cookie_header} if cookie_header else {}
+    return request
+
+
 class TestRequireAdmin:
     """Tests for the require_admin FastAPI dependency."""
 
@@ -84,13 +91,12 @@ class TestRequireAdmin:
 
     async def test_valid_session_returns_better_auth_user(self):
         """Valid session token → BetterAuthUser with email and user_id."""
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "valid-token-abc"}
+        request = _make_request_with_cookie("better-auth.session_token=valid-token-abc")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "session": {"id": "sess-1", "token": "valid-token-abc"},
+            "session": {"id": "sess-1"},
             "user": {"id": "user-uuid-1", "email": "admin@example.com"},
         }
 
@@ -103,23 +109,67 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 result = await require_admin(request)
 
         assert isinstance(result, BetterAuthUser)
         assert result.email == "admin@example.com"
         assert result.user_id == "user-uuid-1"
 
-    async def test_calls_get_session_endpoint(self):
-        """require_admin calls {neon_auth_base_url}/get-session (not /api/auth/get-session)."""
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "tok"}
+    async def test_accepts_secure_prefixed_cookie_name(self):
+        """__Secure-neon-auth.session_token (HTTPS cookie) is accepted."""
+        request = _make_request_with_cookie(
+            "__Secure-neon-auth.session_token=tok.sig; other-cookie=x"
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "user": {"id": "u1", "email": "admin@example.com"},
         }
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                result = await require_admin(request)
+
+        assert isinstance(result, BetterAuthUser)
+
+    async def test_forwards_all_cookies_verbatim(self):
+        """All cookies are forwarded verbatim so Neon Auth can pick the right one."""
+        raw = "__Secure-neon-auth.session_token=tok.sig; agm_session=xyz"
+        request = _make_request_with_cookie(raw)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"user": {"id": "u1", "email": "a@b.com"}}
+
+        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with patch("app.dependencies.settings") as mock_settings:
+                mock_settings.neon_auth_base_url = "https://auth.example.com"
+                await require_admin(request)
+
+        forwarded = mock_client.get.call_args[1]["headers"]["cookie"]
+        assert forwarded == raw
+
+    async def test_calls_get_session_endpoint(self):
+        """require_admin calls {neon_auth_base_url}/get-session (not /api/auth/get-session)."""
+        request = _make_request_with_cookie("better-auth.session_token=tok")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"user": {"id": "u1", "email": "admin@example.com"}}
 
         with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -130,75 +180,19 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com/neondb/auth"
-                mock_settings.allowed_origin = ""
                 await require_admin(request)
 
         called_url = mock_client.get.call_args[0][0]
         assert called_url == "https://auth.example.com/neondb/auth/get-session"
         assert "/api/auth/get-session" not in called_url
 
-    async def test_injects_origin_header_when_allowed_origin_set(self):
-        """require_admin includes origin header when allowed_origin is configured."""
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "tok"}
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "user": {"id": "u1", "email": "admin@example.com"},
-        }
-
-        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            with patch("app.dependencies.settings") as mock_settings:
-                mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = "https://preview.example.com"
-                await require_admin(request)
-
-        forwarded_headers = mock_client.get.call_args[1]["headers"]
-        assert forwarded_headers.get("origin") == "https://preview.example.com"
-
-    async def test_no_origin_header_when_allowed_origin_empty(self):
-        """require_admin omits origin header when allowed_origin is empty."""
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "tok"}
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "user": {"id": "u1", "email": "admin@example.com"},
-        }
-
-        with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            with patch("app.dependencies.settings") as mock_settings:
-                mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
-                await require_admin(request)
-
-        forwarded_headers = mock_client.get.call_args[1]["headers"]
-        assert "origin" not in forwarded_headers
-
     async def test_strips_trailing_newline_from_neon_auth_base_url(self):
         """neon_auth_base_url with trailing newline is stripped before constructing URL."""
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "tok"}
+        request = _make_request_with_cookie("better-auth.session_token=tok")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "user": {"id": "u1", "email": "admin@example.com"},
-        }
+        mock_response.json.return_value = {"user": {"id": "u1", "email": "admin@example.com"}}
 
         with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -209,7 +203,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com\n"
-                mock_settings.allowed_origin = ""
                 result = await require_admin(request)
 
         called_url = mock_client.get.call_args[0][0]
@@ -220,11 +213,10 @@ class TestRequireAdmin:
     # --- Auth failures ---
 
     async def test_missing_cookie_raises_401(self):
-        """No better-auth.session_token cookie → 401."""
+        """No session_token cookie → 401."""
         from fastapi import HTTPException
 
-        request = MagicMock()
-        request.cookies = {}
+        request = _make_request_with_cookie("")
 
         with pytest.raises(HTTPException) as exc_info:
             await require_admin(request)
@@ -232,12 +224,22 @@ class TestRequireAdmin:
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Authentication required"
 
+    async def test_unrelated_cookie_only_raises_401(self):
+        """Cookie header with no session_token key → 401."""
+        from fastapi import HTTPException
+
+        request = _make_request_with_cookie("agm_session=abc; other=xyz")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin(request)
+
+        assert exc_info.value.status_code == 401
+
     async def test_non_200_response_raises_401(self):
         """Neon Auth returns 401 → our dependency raises 401."""
         from fastapi import HTTPException
 
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "expired-token"}
+        request = _make_request_with_cookie("better-auth.session_token=expired-token")
 
         mock_response = MagicMock()
         mock_response.status_code = 401
@@ -251,7 +253,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 with pytest.raises(HTTPException) as exc_info:
                     await require_admin(request)
 
@@ -261,8 +262,7 @@ class TestRequireAdmin:
         """Neon Auth returns 200 but user is null → 401."""
         from fastapi import HTTPException
 
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "some-token"}
+        request = _make_request_with_cookie("better-auth.session_token=some-token")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -277,7 +277,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 with pytest.raises(HTTPException) as exc_info:
                     await require_admin(request)
 
@@ -287,8 +286,7 @@ class TestRequireAdmin:
         """Neon Auth returns 200 with empty body → 401."""
         from fastapi import HTTPException
 
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "some-token"}
+        request = _make_request_with_cookie("better-auth.session_token=some-token")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -303,7 +301,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 with pytest.raises(HTTPException) as exc_info:
                     await require_admin(request)
 
@@ -314,8 +311,7 @@ class TestRequireAdmin:
         import httpx
         from fastapi import HTTPException
 
-        request = MagicMock()
-        request.cookies = {"better-auth.session_token": "some-token"}
+        request = _make_request_with_cookie("better-auth.session_token=some-token")
 
         with patch("app.dependencies.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -326,7 +322,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 with pytest.raises(HTTPException) as exc_info:
                     await require_admin(request)
 
