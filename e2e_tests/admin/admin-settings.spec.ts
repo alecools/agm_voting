@@ -345,8 +345,10 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 // ── Admin Settings — User Management tab ──────────────────────────────────────
 
 test.describe("Admin Settings — User Management tab", () => {
-  // Email used for the invite test. Cleaned up in afterAll via the admin API.
-  const INVITE_EMAIL = "e2e-invite-test@example.com";
+  // Email used for the invite test. A unique suffix per run prevents the
+  // "already exists" branch from being hit if a prior run's afterAll cleanup
+  // was skipped (e.g. due to a test timeout or network failure).
+  const INVITE_EMAIL = `e2e-invite-${Date.now()}@example.com`;
 
   // Store the invited user's ID so afterAll can remove it if the invite succeeded.
   let invitedUserId: string | null = null;

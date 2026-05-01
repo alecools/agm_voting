@@ -418,6 +418,14 @@ async def test_invite_admin_user_happy_path():
     create_call_kwargs = mock_client.post.call_args_list[0].kwargs
     assert create_call_kwargs["json"]["name"] == "admin"
 
+    # The reset call must send Origin header (required by Neon Auth) and must NOT
+    # send redirectTo (Neon Auth rejects any explicit redirectTo that is not in its
+    # registered trusted origins — omitting it lets Neon Auth use the origin instead).
+    reset_call_kwargs = mock_client.post.call_args_list[1].kwargs
+    assert reset_call_kwargs["headers"].get("Origin") == "https://app.example.com"
+    assert "redirectTo" not in reset_call_kwargs.get("json", {})
+    assert reset_call_kwargs["json"]["email"] == "admin@example.com"
+
 
 @pytest.mark.asyncio
 async def test_invite_admin_user_create_returns_200():
@@ -511,6 +519,61 @@ async def test_invite_admin_user_password_reset_fails():
     """invite_admin_user raises NeonAuthServiceError when password-reset call fails."""
     create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
     reset_resp = _mock_response(500)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp])
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_password_reset_400_missing_origin_raises():
+    """invite_admin_user raises NeonAuthServiceError when reset returns 400 MISSING_ORIGIN.
+
+    Neon Auth returns 400 {"code":"MISSING_ORIGIN"} when Origin is absent and
+    redirectTo is not provided.  This should not silently swallow the error —
+    NeonAuthServiceError is raised so the router returns 502 to signal that the
+    user was created but the invite email could not be sent.
+    """
+    create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
+    reset_resp = _mock_response(400)
+    reset_resp.text = '{"code":"MISSING_ORIGIN","message":"Origin header is required"}'
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp])
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ):
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_password_reset_403_invalid_redirect_raises():
+    """invite_admin_user raises NeonAuthServiceError when reset returns 403 INVALID_REDIRECTURL.
+
+    Neon Auth returns 403 {"code":"INVALID_REDIRECTURL"} when the redirectTo URL is
+    not in the registered trusted origins.  The service must not send redirectTo; this
+    test ensures that if it does (regression), the 403 is surfaced rather than swallowed.
+    """
+    create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
+    reset_resp = _mock_response(403)
+    reset_resp.text = '{"code":"INVALID_REDIRECTURL","message":"Invalid redirectURL"}'
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
