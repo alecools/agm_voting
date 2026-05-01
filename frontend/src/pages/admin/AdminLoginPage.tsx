@@ -91,6 +91,10 @@ export default function AdminLoginPage() {
       if (result.error) {
         setLoginError("Invalid email or password.");
       } else {
+        // Refetch the session so RequireAdminAuth sees it before we navigate.
+        // Without this, useSession() may still return null on the next render,
+        // causing a redirect back to the login page.
+        await authClient.getSession();
         navigate("/admin", { replace: true });
       }
     } catch {

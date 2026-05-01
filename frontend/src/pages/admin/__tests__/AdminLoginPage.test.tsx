@@ -7,9 +7,10 @@ import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContex
 import type { TenantConfig } from "../../../api/config";
 
 // Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
-const { mockNavigate, mockSignInEmail, mockForgetPassword, mockResetPassword } = vi.hoisted(() => ({
+const { mockNavigate, mockSignInEmail, mockGetSession, mockForgetPassword, mockResetPassword } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockSignInEmail: vi.fn(),
+  mockGetSession: vi.fn(),
   mockForgetPassword: vi.fn(),
   mockResetPassword: vi.fn(),
 }));
@@ -28,6 +29,7 @@ vi.mock("../../../lib/auth-client", () => ({
     signIn: {
       email: mockSignInEmail,
     },
+    getSession: mockGetSession,
     forgetPassword: mockForgetPassword,
     resetPassword: mockResetPassword,
   },
@@ -47,6 +49,7 @@ describe("AdminLoginPage", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockSignInEmail.mockClear();
+    mockGetSession.mockResolvedValue({ data: { session: {}, user: {} }, error: null });
     mockForgetPassword.mockClear();
     mockResetPassword.mockClear();
   });
@@ -74,6 +77,23 @@ describe("AdminLoginPage", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin", { replace: true });
     });
+  });
+
+  it("calls getSession before navigating to ensure session is populated", async () => {
+    mockSignInEmail.mockResolvedValueOnce({ data: { user: { email: "admin@example.com" } }, error: null });
+    const callOrder: string[] = [];
+    mockGetSession.mockImplementationOnce(async () => {
+      callOrder.push("getSession");
+      return { data: { session: {}, user: {} }, error: null };
+    });
+    mockNavigate.mockImplementationOnce(() => { callOrder.push("navigate"); });
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
+    expect(callOrder).toEqual(["getSession", "navigate"]);
   });
 
   it("calls signIn.email with the entered email and password", async () => {
