@@ -249,6 +249,27 @@ class TestAuthProxyHappyPath:
         # The injected value must be the configured allowed_origin, not the browser's
         assert forwarded.get("origin") == "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app"
 
+    async def test_proxy_strips_trailing_newline_from_allowed_origin(self):
+        """proxy_auth strips trailing whitespace/newlines from allowed_origin.
+
+        When ALLOWED_ORIGIN is set via ``echo "..." | vercel env add``, the value
+        includes a trailing newline.  h11 rejects that as an illegal header value.
+        The proxy must strip() the value before using it as a request header.
+        """
+        upstream = _make_upstream_response()
+        mock_client = _make_httpx_client(upstream)
+        request = _make_request(method="GET", headers=[])
+
+        with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
+            ms.neon_auth_base_url = "https://auth.example.com"
+            # Simulate env var with trailing newline (set via echo pipe)
+            ms.allowed_origin = "https://preview.example.com\n"
+            await proxy_auth(path="get-session", request=request)
+
+        forwarded = mock_client.request.call_args.kwargs["headers"]
+        assert forwarded.get("origin") == "https://preview.example.com"
+
     async def test_proxy_does_not_inject_origin_when_allowed_origin_is_empty(self):
         """proxy_auth does not add an Origin header when allowed_origin is empty."""
         upstream = _make_upstream_response()

@@ -76,18 +76,22 @@ async def proxy_auth(path: str, request: Request) -> Response:
     # Neon Auth requires a trusted Origin header. Inject the deployment's own
     # allowed_origin so Neon Auth sees a consistent, trusted value regardless of
     # which Vercel preview URL the browser request came from.
-    if settings.allowed_origin:
-        headers["origin"] = settings.allowed_origin
+    # Strip whitespace/newlines defensively — env vars set via `echo "..." | vercel env add`
+    # can include a trailing newline, which h11 rejects as an illegal header value.
+    allowed_origin = settings.allowed_origin.strip()
+
+    if allowed_origin:
+        headers["origin"] = allowed_origin
 
     body = await request.body()
 
     # For password-reset requests, inject redirectTo so the reset email link
     # points back to the correct deployment's admin login page.  This avoids
     # the need to configure per-branch trusted origins in Neon Auth.
-    if path == "request-password-reset" and settings.allowed_origin:
+    if path == "request-password-reset" and allowed_origin:
         try:
             payload = json.loads(body)
-            payload["redirectTo"] = f"{settings.allowed_origin}/admin/login"
+            payload["redirectTo"] = f"{allowed_origin}/admin/login"
             body = json.dumps(payload).encode()
             headers["content-type"] = "application/json"
             headers.pop("content-length", None)  # httpx sets this automatically
