@@ -375,7 +375,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 async with AsyncClient(
                     transport=ASGITransport(app=app_instance), base_url="http://test"
                 ) as c:
@@ -414,7 +413,6 @@ class TestRequireAdmin:
 
             with patch("app.dependencies.settings") as mock_settings:
                 mock_settings.neon_auth_base_url = "https://auth.example.com"
-                mock_settings.allowed_origin = ""
                 async with AsyncClient(
                     transport=ASGITransport(app=app_instance), base_url="http://test"
                 ) as c:

@@ -43,6 +43,20 @@ _FORWARD_HEADERS = frozenset({
 })
 
 
+def _derive_origin(request: Request) -> str:
+    """Return the origin of the incoming request for use in redirectTo URLs.
+
+    On Vercel, x-forwarded-proto and x-forwarded-host carry the browser-facing
+    scheme and hostname.  Falls back to settings.allowed_origin for local dev
+    where those headers are absent.
+    """
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    if proto and host:
+        return f"{proto}://{host}"
+    return settings.allowed_origin.strip()
+
+
 @router.api_route(
     "/api/auth/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -73,30 +87,21 @@ async def proxy_auth(path: str, request: Request) -> Response:
         if k.lower() in _FORWARD_HEADERS
     }
 
-    # Neon Auth requires a trusted Origin header. Inject the deployment's own
-    # allowed_origin so Neon Auth sees a consistent, trusted value regardless of
-    # which Vercel preview URL the browser request came from.
-    # Strip whitespace/newlines defensively — env vars set via `echo "..." | vercel env add`
-    # can include a trailing newline, which h11 rejects as an illegal header value.
-    allowed_origin = settings.allowed_origin.strip()
-
-    if allowed_origin:
-        headers["origin"] = allowed_origin
-
     body = await request.body()
 
     # For password-reset requests, inject redirectTo so the reset email link
-    # points back to the correct deployment's admin login page.  This avoids
-    # the need to configure per-branch trusted origins in Neon Auth.
-    if path == "request-password-reset" and allowed_origin:
-        try:
-            payload = json.loads(body)
-            payload["redirectTo"] = f"{allowed_origin}/admin/login"
-            body = json.dumps(payload).encode()
-            headers["content-type"] = "application/json"
-            headers.pop("content-length", None)  # httpx sets this automatically
-        except (json.JSONDecodeError, Exception):
-            pass  # forward as-is if body is not valid JSON
+    # points back to the correct deployment's admin login page.
+    if path == "request-password-reset":
+        origin = _derive_origin(request)
+        if origin:
+            try:
+                payload = json.loads(body)
+                payload["redirectTo"] = f"{origin}/admin/login"
+                body = json.dumps(payload).encode()
+                headers["content-type"] = "application/json"
+                headers.pop("content-length", None)  # httpx sets this automatically
+            except (json.JSONDecodeError, Exception):
+                pass  # forward as-is if body is not valid JSON
 
     async with httpx.AsyncClient() as client:
         resp = await client.request(

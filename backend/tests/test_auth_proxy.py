@@ -36,7 +36,8 @@ def _make_request(
     """Build a minimal mock Starlette Request for direct function calls."""
     mock_request = MagicMock()
     mock_request.method = method
-    mock_request.headers.items.return_value = headers or []
+    # Use a plain dict so both .items() and .get() work correctly
+    mock_request.headers = dict(headers or [])
     mock_request.body = AsyncMock(return_value=body)
     mock_request.query_params = query_params or {}
     return mock_request
@@ -172,9 +173,8 @@ class TestAuthProxyHappyPath:
         rejecting the request with INVALID_HOSTNAME.
 
         Allowlisted headers (content-type, cookie) MUST be forwarded.
-
-        When allowed_origin is empty the browser's origin is stripped and no
-        origin header reaches the upstream service.
+        The proxy never injects an Origin header — Neon Auth validates based on
+        the signed cookie, not the origin.
         """
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
@@ -200,7 +200,6 @@ class TestAuthProxyHappyPath:
         with patch("app.routers.auth_proxy.settings") as ms, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = ""  # empty — no origin injection
             await proxy_auth(path="sign-in/email", request=request)
 
         forwarded = mock_client.request.call_args.kwargs["headers"]
@@ -221,57 +220,13 @@ class TestAuthProxyHappyPath:
         assert "x-vercel-deployment-url" not in forwarded_lower
         assert "x-custom-header" not in forwarded_lower
 
-    async def test_proxy_injects_allowed_origin_header_when_set(self):
-        """proxy_auth injects allowed_origin as the Origin header when configured.
+    async def test_proxy_never_injects_origin_header(self):
+        """proxy_auth never injects an Origin header regardless of settings.
 
-        The browser's original origin is blocked by the allowlist; the proxy
-        substitutes settings.allowed_origin so Neon Auth sees a consistent,
-        trusted value regardless of which Vercel preview URL the browser used.
+        Neon Auth validates sessions via the signed session cookie, not via Origin.
+        Injecting the origin was removed to simplify configuration and eliminate
+        the ALLOWED_ORIGIN env var requirement.
         """
-        upstream = _make_upstream_response()
-        mock_client = _make_httpx_client(upstream)
-        request = _make_request(
-            method="POST",
-            headers=[
-                # Browser sends its own origin — must be replaced, not forwarded
-                ("origin", "https://some-random-preview.vercel.app"),
-                ("content-type", "application/json"),
-            ],
-        )
-
-        with patch("app.routers.auth_proxy.settings") as ms, \
-             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
-            ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app"
-            await proxy_auth(path="sign-in/email", request=request)
-
-        forwarded = mock_client.request.call_args.kwargs["headers"]
-        # The injected value must be the configured allowed_origin, not the browser's
-        assert forwarded.get("origin") == "https://internal-vms-git-feat-neon-auth-admin-login-ocss.vercel.app"
-
-    async def test_proxy_strips_trailing_newline_from_allowed_origin(self):
-        """proxy_auth strips trailing whitespace/newlines from allowed_origin.
-
-        When ALLOWED_ORIGIN is set via ``echo "..." | vercel env add``, the value
-        includes a trailing newline.  h11 rejects that as an illegal header value.
-        The proxy must strip() the value before using it as a request header.
-        """
-        upstream = _make_upstream_response()
-        mock_client = _make_httpx_client(upstream)
-        request = _make_request(method="GET", headers=[])
-
-        with patch("app.routers.auth_proxy.settings") as ms, \
-             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
-            ms.neon_auth_base_url = "https://auth.example.com"
-            # Simulate env var with trailing newline (set via echo pipe)
-            ms.allowed_origin = "https://preview.example.com\n"
-            await proxy_auth(path="get-session", request=request)
-
-        forwarded = mock_client.request.call_args.kwargs["headers"]
-        assert forwarded.get("origin") == "https://preview.example.com"
-
-    async def test_proxy_does_not_inject_origin_when_allowed_origin_is_empty(self):
-        """proxy_auth does not add an Origin header when allowed_origin is empty."""
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
         request = _make_request(method="POST", headers=[("content-type", "application/json")])
@@ -279,7 +234,7 @@ class TestAuthProxyHappyPath:
         with patch("app.routers.auth_proxy.settings") as ms, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = ""
+            ms.allowed_origin = "https://preview.example.com"
             await proxy_auth(path="sign-in/email", request=request)
 
         forwarded = mock_client.request.call_args.kwargs["headers"]
@@ -359,12 +314,39 @@ class TestAuthProxyHappyPath:
 
 
 class TestAuthProxyRedirectToInjection:
-    async def test_injects_redirect_to_when_allowed_origin_is_set(self):
-        """proxy_auth injects redirectTo into the forwarded body for request-password-reset."""
+    async def test_injects_redirect_to_from_forwarded_headers(self):
+        """proxy_auth injects redirectTo derived from x-forwarded-proto/host for request-password-reset."""
         import json as _json
 
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
+        request = _make_request(
+            method="POST",
+            body=b'{"email":"admin@example.com"}',
+            headers=[
+                ("content-type", "application/json"),
+                ("x-forwarded-proto", "https"),
+                ("x-forwarded-host", "internal-vms-git-feat-ocss.vercel.app"),
+            ],
+        )
+
+        with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
+            ms.neon_auth_base_url = "https://auth.example.com"
+            ms.allowed_origin = ""
+            await proxy_auth(path="forget-password", request=request)
+
+        forwarded_body = _json.loads(mock_client.request.call_args.kwargs["content"])
+        assert forwarded_body["redirectTo"] == "https://internal-vms-git-feat-ocss.vercel.app/admin/login"
+        assert forwarded_body["email"] == "admin@example.com"
+
+    async def test_injects_redirect_to_from_allowed_origin_fallback(self):
+        """proxy_auth falls back to settings.allowed_origin when forwarded headers are absent."""
+        import json as _json
+
+        upstream = _make_upstream_response()
+        mock_client = _make_httpx_client(upstream)
+        # No x-forwarded-proto/host — simulates local dev
         request = _make_request(
             method="POST",
             body=b'{"email":"admin@example.com"}',
@@ -374,15 +356,14 @@ class TestAuthProxyRedirectToInjection:
         with patch("app.routers.auth_proxy.settings") as ms, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = "https://preview.example.com"
+            ms.allowed_origin = "http://localhost:5173"
             await proxy_auth(path="forget-password", request=request)
 
         forwarded_body = _json.loads(mock_client.request.call_args.kwargs["content"])
-        assert forwarded_body["redirectTo"] == "https://preview.example.com/admin/login"
-        assert forwarded_body["email"] == "admin@example.com"
+        assert forwarded_body["redirectTo"] == "http://localhost:5173/admin/login"
 
-    async def test_does_not_inject_redirect_to_when_allowed_origin_is_empty(self):
-        """proxy_auth forwards body unchanged when allowed_origin is empty."""
+    async def test_does_not_inject_redirect_to_when_no_origin_available(self):
+        """proxy_auth forwards body unchanged when neither forwarded headers nor allowed_origin are set."""
         import json as _json
 
         original_body = b'{"email":"admin@example.com"}'
@@ -400,17 +381,49 @@ class TestAuthProxyRedirectToInjection:
         parsed = _json.loads(forwarded_body)
         assert "redirectTo" not in parsed
 
+    async def test_forwarded_proto_with_multiple_values_uses_first(self):
+        """proxy_auth uses the first value when x-forwarded-proto has multiple comma-separated values."""
+        import json as _json
+
+        upstream = _make_upstream_response()
+        mock_client = _make_httpx_client(upstream)
+        request = _make_request(
+            method="POST",
+            body=b'{"email":"admin@example.com"}',
+            headers=[
+                ("content-type", "application/json"),
+                ("x-forwarded-proto", "https, http"),
+                ("x-forwarded-host", "preview.example.com"),
+            ],
+        )
+
+        with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
+            ms.neon_auth_base_url = "https://auth.example.com"
+            ms.allowed_origin = ""
+            await proxy_auth(path="forget-password", request=request)
+
+        forwarded_body = _json.loads(mock_client.request.call_args.kwargs["content"])
+        assert forwarded_body["redirectTo"] == "https://preview.example.com/admin/login"
+
     async def test_forwards_body_unchanged_when_body_is_not_valid_json(self):
         """proxy_auth forwards the body unchanged if it is not valid JSON (no crash)."""
         non_json_body = b"not-valid-json"
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
-        request = _make_request(method="POST", body=non_json_body)
+        request = _make_request(
+            method="POST",
+            body=non_json_body,
+            headers=[
+                ("x-forwarded-proto", "https"),
+                ("x-forwarded-host", "preview.example.com"),
+            ],
+        )
 
         with patch("app.routers.auth_proxy.settings") as ms, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = "https://preview.example.com"
+            ms.allowed_origin = ""
             # Must not raise; body should be forwarded as-is
             response = await proxy_auth(path="forget-password", request=request)
 
@@ -425,12 +438,19 @@ class TestAuthProxyRedirectToInjection:
         original_body = b'{"email":"admin@example.com","password":"secret"}'
         upstream = _make_upstream_response()
         mock_client = _make_httpx_client(upstream)
-        request = _make_request(method="POST", body=original_body)
+        request = _make_request(
+            method="POST",
+            body=original_body,
+            headers=[
+                ("x-forwarded-proto", "https"),
+                ("x-forwarded-host", "preview.example.com"),
+            ],
+        )
 
         with patch("app.routers.auth_proxy.settings") as ms, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
-            ms.allowed_origin = "https://preview.example.com"
+            ms.allowed_origin = ""
             await proxy_auth(path="sign-in/email", request=request)
 
         forwarded_body = mock_client.request.call_args.kwargs["content"]
