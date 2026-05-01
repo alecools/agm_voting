@@ -310,26 +310,36 @@ async def test_resolve_branch_id_branches_api_non_200_raises():
 
 
 # ---------------------------------------------------------------------------
-# list_admin_users
+# list_admin_users — queries neon_auth.user via DB (no management API call)
 # ---------------------------------------------------------------------------
+
+
+def _make_row(id: str, email: str, created_at: datetime):
+    """Build a mock SQLAlchemy row with the columns returned by list_admin_users."""
+    row = MagicMock()
+    row.id = id
+    row.email = email
+    row.createdAt = created_at
+    return row
+
+
+def _make_mock_db(rows):
+    """Return an AsyncMock that mimics an AsyncSession for list_admin_users."""
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = rows
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    return mock_db
 
 
 @pytest.mark.asyncio
 async def test_list_admin_users_returns_parsed_list():
     """list_admin_users returns a parsed AdminUserOut list on success."""
-    mock_resp = _mock_response(200, {"users": [_NEON_USER_PAYLOAD]})
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [_make_row("user-abc", "admin@example.com", ts)]
+    mock_db = _make_mock_db(rows)
 
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        result = await list_admin_users()
+    result = await list_admin_users(mock_db)
 
     assert len(result) == 1
     assert result[0].id == "user-abc"
@@ -339,80 +349,40 @@ async def test_list_admin_users_returns_parsed_list():
 
 @pytest.mark.asyncio
 async def test_list_admin_users_empty_list():
-    """list_admin_users returns empty list when Neon returns no users."""
-    mock_resp = _mock_response(200, {"users": []})
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
+    """list_admin_users returns empty list when neon_auth.user has no rows."""
+    mock_db = _make_mock_db([])
 
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        result = await list_admin_users()
+    result = await list_admin_users(mock_db)
 
     assert result == []
 
 
 @pytest.mark.asyncio
-async def test_list_admin_users_config_missing():
-    """list_admin_users raises NeonAuthNotConfiguredError when API key is absent."""
-    m = MagicMock()
-    m.neon_api_key = ""
-    m.neon_project_id = "test-project-id"
-    m.neon_branch_id = "test-branch-id"
-    with patch("app.services.neon_auth_service.settings", m):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
+async def test_list_admin_users_multiple_users():
+    """list_admin_users returns all rows in creation order."""
+    ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    rows = [
+        _make_row("user-1", "admin1@example.com", ts1),
+        _make_row("user-2", "admin2@example.com", ts2),
+    ]
+    mock_db = _make_mock_db(rows)
+
+    result = await list_admin_users(mock_db)
+
+    assert len(result) == 2
+    assert result[0].id == "user-1"
+    assert result[1].id == "user-2"
 
 
 @pytest.mark.asyncio
-async def test_list_admin_users_project_id_missing():
-    """list_admin_users raises NeonAuthNotConfiguredError when project_id absent."""
-    m = MagicMock()
-    m.neon_api_key = "key"
-    m.neon_project_id = ""
-    m.neon_branch_id = "branch"
-    with patch("app.services.neon_auth_service.settings", m):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
+async def test_list_admin_users_db_error_raises_service_error():
+    """list_admin_users raises NeonAuthServiceError when the DB query fails."""
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=Exception("connection refused"))
 
-
-@pytest.mark.asyncio
-async def test_list_admin_users_resolve_branch_raises_not_configured():
-    """list_admin_users propagates NeonAuthNotConfiguredError from _resolve_branch_id."""
-    m = MagicMock()
-    m.neon_api_key = "key"
-    m.neon_project_id = "project"
-    m.neon_branch_id = ""
-    with patch("app.services.neon_auth_service.settings", m), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(side_effect=NeonAuthNotConfiguredError("no branch")),
-    ):
-        with pytest.raises(NeonAuthNotConfiguredError):
-            await list_admin_users()
-
-
-@pytest.mark.asyncio
-async def test_list_admin_users_non_200_raises_service_error():
-    """list_admin_users raises NeonAuthServiceError on non-200 from Neon."""
-    mock_resp = _mock_response(500)
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_resp)
-
-    with _patch_settings(), patch(
-        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
-    ), patch(
-        "app.services.neon_auth_service._resolve_branch_id",
-        AsyncMock(return_value="test-branch-id"),
-    ):
-        with pytest.raises(NeonAuthServiceError):
-            await list_admin_users()
+    with pytest.raises(NeonAuthServiceError, match="Failed to list admin users"):
+        await list_admin_users(mock_db)
 
 
 # ---------------------------------------------------------------------------

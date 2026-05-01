@@ -1,11 +1,20 @@
 """
 Neon Auth management API service for admin user management.
 
-This module is the only place in the codebase that calls the Neon Auth management API.
-It handles listing, creating, and deleting admin users via server-side API key auth.
+This module handles listing, creating, and deleting admin users.
 
-The Neon Auth management API base URL is:
-  https://console.neon.tech/api/v2/projects/{project_id}/branches/{branch_id}/auth
+Listing users
+-------------
+The Neon console management API (`GET /api/v2/projects/{id}/branches/{id}/auth/users`)
+only supports POST (create) — GET returns HTTP 405.  Therefore `list_admin_users`
+queries the `neon_auth.user` table in the Neon database directly via the provided
+SQLAlchemy session.  This table is populated and maintained by the Neon Auth service.
+
+Creating and deleting users
+----------------------------
+These operations still go through the Neon console management API:
+  POST   /api/v2/projects/{id}/branches/{id}/auth/users  — create user
+  DELETE /api/v2/projects/{id}/branches/{id}/auth/users/{id} — delete user
 
 The NEON_API_KEY is a server-side secret. It is never returned in any API response,
 never logged, and never sent to the frontend.
@@ -14,7 +23,7 @@ Branch ID resolution
 --------------------
 NEON_BRANCH_ID may be set as a static env var override (useful for local dev and tests).
 When absent, the branch ID is resolved dynamically by calling the Neon management API
-to list all branches and matching against the PGHOST env var injected by the Neon-Vercel
+to list all endpoints and matching against the PGHOST env var injected by the Neon-Vercel
 integration.  The result is cached for the lifetime of the Lambda instance.
 """
 from __future__ import annotations
@@ -23,6 +32,8 @@ import secrets
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.logging_config import get_logger
@@ -169,31 +180,33 @@ def _auth_headers() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def list_admin_users() -> list[AdminUserOut]:
-    """Fetch all users from the Neon Auth management API.
+async def list_admin_users(db: AsyncSession) -> list[AdminUserOut]:
+    """Return all admin users by querying the neon_auth.user table directly.
 
-    Raises NeonAuthNotConfiguredError if neon_api_key/project_id/branch_id are absent.
-    Raises NeonAuthServiceError on non-200 response from Neon.
+    The Neon console management API does not expose a list-users endpoint
+    (GET /auth/users returns HTTP 405 — only POST is supported).  We query
+    the `neon_auth.user` table, which the Neon Auth service keeps in sync,
+    as the authoritative source of truth for admin accounts.
+
+    Raises NeonAuthServiceError on any database error.
     """
-    _check_api_configured()
-    base_url = await _management_base_url()
-    url = f"{base_url}/users"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_auth_headers(), timeout=15.0)
-    if resp.status_code != 200:
-        logger.error("neon_list_users_failed", status=resp.status_code)
-        raise NeonAuthServiceError(
-            f"Neon Auth returned {resp.status_code} listing users"
+    try:
+        result = await db.execute(
+            text(
+                'SELECT id::text, email, "createdAt" FROM neon_auth."user" ORDER BY "createdAt"'
+            )
         )
-    data = resp.json()
-    users = data.get("users", [])
+        rows = result.fetchall()
+    except Exception as exc:
+        logger.error("neon_list_users_db_failed", error=str(exc))
+        raise NeonAuthServiceError("Failed to list admin users from database") from exc
     return [
         AdminUserOut(
-            id=u["id"],
-            email=u["email"],
-            created_at=u["createdAt"],
+            id=row.id,
+            email=row.email,
+            created_at=row.createdAt,
         )
-        for u in users
+        for row in rows
     ]
 
 

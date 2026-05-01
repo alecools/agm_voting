@@ -182,15 +182,14 @@ def _detect_file_format(file: UploadFile) -> str:
 @router.get("/users", response_model=AdminUserListOut)
 async def list_admin_users(
     current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> AdminUserListOut:
-    """List all admin users via the Neon Auth management API.
+    """List all admin users by querying the neon_auth.user table.
 
-    Returns 503 if Neon Auth management is not configured (NEON_API_KEY absent).
+    Returns 502 on database error.
     """
     try:
-        users = await neon_auth_service.list_admin_users()
-    except NeonAuthNotConfiguredError:
-        raise HTTPException(status_code=503, detail="User management not configured")
+        users = await neon_auth_service.list_admin_users(db)
     except NeonAuthServiceError as exc:
         logger.error("list_admin_users_error", error=str(exc))
         raise HTTPException(status_code=502, detail="User management service error")
@@ -229,6 +228,7 @@ async def invite_admin_user(
 async def remove_admin_user(
     user_id: str,
     current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove an admin user.
 
@@ -241,9 +241,7 @@ async def remove_admin_user(
         raise HTTPException(status_code=403, detail="Cannot remove yourself.")
 
     try:
-        users = await neon_auth_service.list_admin_users()
-    except NeonAuthNotConfiguredError:
-        raise HTTPException(status_code=503, detail="User management not configured")
+        users = await neon_auth_service.list_admin_users(db)
     except NeonAuthServiceError as exc:
         logger.error("remove_admin_user_list_error", error=str(exc))
         raise HTTPException(status_code=502, detail="User management service error")

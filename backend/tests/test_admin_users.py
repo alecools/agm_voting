@@ -98,19 +98,6 @@ async def test_list_users_returns_empty_list(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_list_users_not_configured(client: AsyncClient):
-    """GET /api/admin/users returns 503 when Neon Auth is not configured."""
-    with patch(
-        "app.routers.admin.neon_auth_service.list_admin_users",
-        new_callable=AsyncMock,
-        side_effect=NeonAuthNotConfiguredError("not configured"),
-    ):
-        resp = await client.get("/api/admin/users")
-    assert resp.status_code == 503
-    assert resp.json()["detail"] == "User management not configured"
-
-
-@pytest.mark.asyncio
 async def test_list_users_service_error(client: AsyncClient):
     """GET /api/admin/users returns 502 when Neon returns non-200."""
     with patch(
@@ -282,19 +269,6 @@ async def test_remove_user_not_found(client: AsyncClient):
     ):
         resp = await client.delete("/api/admin/users/nonexistent-id")
     assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_remove_user_not_configured(client: AsyncClient):
-    """DELETE /api/admin/users/{id} returns 503 when Neon Auth is not configured."""
-    with patch(
-        "app.routers.admin.neon_auth_service.list_admin_users",
-        new_callable=AsyncMock,
-        side_effect=NeonAuthNotConfiguredError("not configured"),
-    ):
-        resp = await client.delete("/api/admin/users/user-1")
-    assert resp.status_code == 503
-    assert resp.json()["detail"] == "User management not configured"
 
 
 @pytest.mark.asyncio
