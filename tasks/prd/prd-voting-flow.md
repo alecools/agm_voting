@@ -693,6 +693,67 @@ This document covers the complete voter journey: email OTP authentication, persi
 
 ---
 
+---
+
+### US-SMS-01: SMS OTP as an alternative to email verification
+
+**Status:** 🔲 Not implemented — planned
+
+**Description:** As a lot owner, I want to receive my one-time verification code via SMS instead of email, so I can authenticate quickly from my phone without checking email.
+
+**Background:** Unlike email (SMTP), there is no standard protocol for SMS delivery — each provider has its own REST API. To support customer-specific providers without building and maintaining individual integrations, the platform uses a **webhook-out model**: the admin configures a webhook URL, and the app POSTs the message details to that URL. The customer connects that webhook to their provider of choice (Twilio, MessageMedia, AWS SNS, etc.). A built-in Twilio driver may be added later as a convenience, but the webhook model is the baseline.
+
+**SMS config (admin Settings page):**
+- `sms_enabled: bool` — master on/off switch for SMS transport
+- `sms_provider: enum('webhook')` — currently only webhook; extensible for future drivers
+- `sms_webhook_url: str` — the customer-configured endpoint that receives SMS requests
+- `sms_webhook_secret: str` (optional, encrypted at rest) — HMAC-SHA256 signing key; if set, each webhook request includes `X-Signature: hmac-sha256=<hex>` so the receiving server can verify authenticity
+
+**Webhook payload (POST to sms_webhook_url):**
+```json
+{
+  "to": "+61412345678",
+  "message": "Your AGM Voting code is 123456. Expires in 5 minutes."
+}
+```
+
+**Lot owner data model change:**
+- `lot_owners` gains an optional `phone_number: str | null` column (E.164 format, e.g. `+61412345678`)
+- Lot owner import (CSV/Excel) accepts an optional `Phone` column mapping to `phone_number`; existing imports without the column continue to work unchanged
+- Admin can also set/edit phone numbers manually per lot owner in the lot owner detail view
+
+**Authentication flow change:**
+- If a lot owner has both email and phone number configured, the auth entry form shows a channel selector: **"Send code via email"** (default) or **"Send code via SMS"**
+- If a lot owner has only email (no phone), the channel selector is not shown — email is used silently as today
+- If a lot owner has only phone (no email), SMS is used silently
+- `POST /api/auth/request-otp` gains an optional `channel: "email" | "sms"` field (default: `"email"`)
+- Backend validates: if `channel = "sms"` but `phone_number` is null, returns 400 `"No phone number on record for this lot owner"`
+- Backend validates: if `channel = "sms"` but SMS is not configured (`sms_enabled = false` or `sms_webhook_url` is empty), returns 503 `"SMS delivery is not configured"`
+- OTP generation, expiry (5 min), rate limiting (60s), and verification remain unchanged — only the delivery transport changes
+
+**Acceptance Criteria:**
+
+- [ ] `lot_owners` table has `phone_number varchar(20) NULL` column
+- [ ] Lot owner CSV/Excel import accepts optional `Phone` column; missing column is silently ignored
+- [ ] Admin lot owner detail view shows and allows editing the phone number field
+- [ ] Admin Settings page has an "SMS" section: enable/disable toggle, webhook URL field, optional webhook secret field (write-only, encrypted at rest like SMTP password)
+- [ ] `POST /api/auth/request-otp` accepts `channel: "email" | "sms"` (default `"email"`); when `channel = "sms"`, POSTs `{"to": phone_number, "message": "Your AGM Voting code is {code}. Expires in 5 minutes."}` to `sms_webhook_url` with optional HMAC-SHA256 signature header
+- [ ] Webhook call has a 10-second timeout; on non-2xx response or timeout, returns 502 and logs the error
+- [ ] Auth form shows channel selector only when the lot owner has a phone number on record; detection happens after email is entered (i.e. server includes `has_phone: bool` in the OTP request response or the form queries a lightweight endpoint)
+- [ ] Rate limiting applies per `(phone_number, meeting_id)` pair for SMS channel, same 60s window as email
+- [ ] OTP verification (`POST /api/auth/verify`) is unchanged — code entry and validation work identically regardless of delivery channel
+- [ ] Admin "Send test SMS" button on the SMS settings section (calls a test endpoint that fires the webhook with a dummy message to a configurable test number)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+**Non-goals for this story:**
+- No built-in Twilio/Vonage driver (webhook-out only at launch)
+- No SMS for admin notifications or meeting close reports (voter OTP only)
+- No automatic phone number lookup or carrier validation
+- No per-building SMS configuration (one global config per tenant)
+
+---
+
 ## Non-Goals
 
 - No per-lot different vote choices within the same submission — all lots selected in one submission receive the same votes
