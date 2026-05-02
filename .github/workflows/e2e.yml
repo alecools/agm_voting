@@ -371,8 +371,8 @@ jobs:
   # ── 3. Merge reports ─────────────────────────────────────────────────────────
   merge-reports:
     name: Merge E2E Reports
-    needs: [test-admin, test-public-voter, test-public-workflow, test-user-workflow]
-    if: always()
+    needs: [setup, test-admin, test-public-voter, test-public-workflow, test-user-workflow]
+    if: always() && needs.setup.result != 'skipped'
     runs-on: ubuntu-latest
 
     steps:

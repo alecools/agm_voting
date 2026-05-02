@@ -237,7 +237,7 @@ test.describe("Admin Start Meeting button", () => {
     await page.getByRole("button", { name: "Start Meeting" }).click();
 
     // Dialog must appear with the correct title and body text
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", { name: "Start Meeting" });
     await expect(dialog).toBeVisible({ timeout: 5000 });
     await expect(dialog.getByRole("heading", { name: "Start Meeting" })).toBeVisible();
     await expect(dialog).toContainText("open voting immediately");
@@ -245,8 +245,9 @@ test.describe("Admin Start Meeting button", () => {
     // Confirm the action
     await dialog.getByRole("button", { name: "Confirm Start" }).click();
 
-    // Dialog should close and the status badge should now read "Open"
-    await expect(dialog).not.toBeVisible({ timeout: 10000 });
+    // Dialog should close and the status badge should now read "Open".
+    // 30s timeout: Lambda cold-start can delay the API response by 10-20s.
+    await expect(dialog).not.toBeVisible({ timeout: 30000 });
     await expect(page.getByText("Open", { exact: true })).toBeVisible({ timeout: 15000 });
 
     // "Start Meeting" button must no longer be visible
