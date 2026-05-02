@@ -726,13 +726,6 @@ export default function SettingsPage() {
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   type="button"
-                  className="btn btn--secondary"
-                  onClick={handleChangePasswordOpen}
-                >
-                  Change Password
-                </button>
-                <button
-                  type="button"
                   className="btn btn--primary"
                   onClick={handleInviteModalOpen}
                 >
@@ -793,7 +786,15 @@ export default function SettingsPage() {
                             {new Date(user.created_at).toLocaleDateString("en-AU")}
                           </td>
                           <td>
-                            {user.id !== currentUserId && (
+                            {user.id === currentUserId ? (
+                              <button
+                                type="button"
+                                className="btn btn--admin"
+                                onClick={handleChangePasswordOpen}
+                              >
+                                Change Password
+                              </button>
+                            ) : (
                               <button
                                 type="button"
                                 className="btn btn--danger"
