@@ -1547,12 +1547,31 @@ describe("SettingsPage", () => {
     return user;
   }
 
-  it("shows Change Password button on User Management tab", async () => {
+  it("shows Change Password button in the current user's row (not in the header)", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
     await user.click(screen.getByRole("tab", { name: "User Management" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Change Password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    // The button exists exactly once
+    const btn = screen.getByRole("button", { name: "Change Password" });
+    expect(btn).toBeInTheDocument();
+    // It is inside the current user's row, not in the card header
+    const currentUserRow = btn.closest("tr");
+    expect(currentUserRow).not.toBeNull();
+    expect(currentUserRow).toHaveTextContent(ADMIN_USER_CURRENT.email);
+  });
+
+  it("other users' rows do not have a Change Password button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_OTHER.email)).toBeInTheDocument());
+    // Find the other user's row and confirm no Change Password button inside it
+    const otherUserCells = screen.getByText(ADMIN_USER_OTHER.email).closest("tr");
+    expect(otherUserCells).not.toBeNull();
+    expect(within(otherUserCells!).queryByRole("button", { name: "Change Password" })).not.toBeInTheDocument();
   });
 
   it("clicking Change Password opens the modal with required fields", async () => {
