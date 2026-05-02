@@ -600,8 +600,8 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
-        import app.routers.admin as admin_module
-        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        from app.rate_limiter import smtp_test_rate_limiter
+        smtp_test_rate_limiter.reset("smtp_test")
         with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
              patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock()
@@ -615,8 +615,8 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
-        import app.routers.admin as admin_module
-        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        from app.rate_limiter import smtp_test_rate_limiter
+        smtp_test_rate_limiter.reset("smtp_test")
         with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
              patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock(side_effect=Exception("Connection refused"))
@@ -630,8 +630,8 @@ class TestSmtpTest:
 
     async def test_returns_409_when_not_configured(self, app, db_session: AsyncSession):
         await _clear_smtp_config(db_session)
-        import app.routers.admin as admin_module
-        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        from app.rate_limiter import smtp_test_rate_limiter
+        smtp_test_rate_limiter.reset("smtp_test")
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
         assert resp.status_code == 409
@@ -642,11 +642,11 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
-        import app.routers.admin as admin_module
+        from app.rate_limiter import smtp_test_rate_limiter
         # Pre-fill the RateLimiter with 5 requests to simulate hitting the limit
-        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        smtp_test_rate_limiter.reset("smtp_test")
         for _ in range(5):
-            admin_module._smtp_test_rate_limiter.check("smtp_test")
+            smtp_test_rate_limiter.check("smtp_test")
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/admin/config/smtp/test", json={"to_email": "test@example.com"})
@@ -658,9 +658,9 @@ class TestSmtpTest:
         enc = encrypt_smtp_password("pass", key)
         await _seed_smtp_config(db_session, smtp_password_enc=enc)
 
-        import app.routers.admin as admin_module
+        from app.rate_limiter import smtp_test_rate_limiter
         # Reset to a clean state — simulate window having passed
-        admin_module._smtp_test_rate_limiter.reset("smtp_test")
+        smtp_test_rate_limiter.reset("smtp_test")
         with patch("app.routers.admin.aiosmtplib") as mock_smtp, \
              patch("app.routers.admin.smtp_config_service.get_decrypted_password", return_value="pass"):
             mock_smtp.send = AsyncMock()

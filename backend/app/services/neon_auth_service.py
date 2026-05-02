@@ -25,9 +25,16 @@ NEON_BRANCH_ID may be set as a static env var override (useful for local dev and
 When absent, the branch ID is resolved dynamically by calling the Neon management API
 to list all endpoints and matching against the PGHOST env var injected by the Neon-Vercel
 integration.  The result is cached for the lifetime of the Lambda instance.
+
+Retry logic
+-----------
+All Neon management API calls are wrapped in ``_neon_api_with_retry``, which retries
+once on an HTTP 5xx response after a 1-second delay.  This handles transient Neon
+serverless cold-start 503s without adding meaningful latency on success.
 """
 from __future__ import annotations
 
+import asyncio
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -144,7 +151,9 @@ async def _resolve_branch_id() -> str:
     # /endpoints API which returns all endpoints with their branch_id and host.
     url = f"https://console.neon.tech/api/v2/projects/{settings.neon_project_id}/endpoints"
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
+        resp = await _neon_api_with_retry(
+            client,
+            "GET",
             url,
             headers={"Authorization": f"Bearer {settings.neon_api_key}"},
             timeout=15.0,
@@ -189,6 +198,33 @@ async def _management_base_url() -> str:
 
 def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {settings.neon_api_key}"}
+
+
+_NEON_RETRY_DELAY = 1.0  # seconds to wait before the single retry on 5xx
+
+
+async def _neon_api_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    **kwargs,
+) -> httpx.Response:
+    """Call the Neon management API and retry once on HTTP 5xx.
+
+    Uses the method-specific AsyncClient helpers (``client.get``, ``client.post``,
+    ``client.delete``) so existing mock setups that stub those methods continue to
+    work without modification.
+
+    On a transient 503 (Neon serverless cold start) this adds at most
+    ``_NEON_RETRY_DELAY`` + 15s overhead before the caller sees the failure.
+    On success the retry path is never taken.
+    """
+    caller = getattr(client, method.lower())
+    resp = await caller(url, **kwargs)
+    if resp.status_code >= 500:
+        await asyncio.sleep(_NEON_RETRY_DELAY)
+        resp = await caller(url, **kwargs)
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +288,9 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     base_url = await _management_base_url()
     url = f"{base_url}/users"
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
+        resp = await _neon_api_with_retry(
+            client,
+            "POST",
             url,
             headers={**_auth_headers(), "Content-Type": "application/json"},
             json={"email": email, "name": name, "password": temp_password},
@@ -301,7 +339,9 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
     redirect_to = f"{redirect_origin}/admin/login"
 
     async with httpx.AsyncClient() as client:
-        reset_resp = await client.post(
+        reset_resp = await _neon_api_with_retry(
+            client,
+            "POST",
             reset_url,
             headers={"Content-Type": "application/json", "Origin": redirect_origin},
             json={"email": email, "redirectTo": redirect_to},
@@ -315,6 +355,16 @@ async def invite_admin_user(email: str, redirect_origin: str) -> AdminUserOut:
             body=reset_resp.text[:200],
             email=email,
         )
+        # Clean up the orphaned account so a re-invite is possible.
+        # Wrap in try/except so a delete failure does not mask the original error.
+        try:
+            await remove_admin_user(user_data["id"])
+        except Exception as cleanup_exc:
+            logger.warning(
+                "neon_orphan_cleanup_failed",
+                user_id=user_data["id"],
+                error=str(cleanup_exc),
+            )
         raise NeonAuthServiceError(
             f"Password reset email failed with status {reset_resp.status_code}"
         )
@@ -340,7 +390,9 @@ async def remove_admin_user(user_id: str) -> None:
     base_url = await _management_base_url()
     url = f"{base_url}/users/{user_id}"
     async with httpx.AsyncClient() as client:
-        resp = await client.delete(url, headers=_auth_headers(), timeout=15.0)
+        resp = await _neon_api_with_retry(
+            client, "DELETE", url, headers=_auth_headers(), timeout=15.0
+        )
     if resp.status_code == 404:
         raise NeonAuthUserNotFoundError(f"User {user_id} not found")
     if resp.status_code not in (200, 204):

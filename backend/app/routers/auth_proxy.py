@@ -20,6 +20,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from app.config import settings
+from app.utils import derive_origin
 
 # Neon Auth is serverless; cold starts can cause transient non-200s on get-session.
 # Retry this path to avoid redirecting the user to the login page mid-session.
@@ -54,20 +55,6 @@ _FORWARD_HEADERS = frozenset({
     "user-agent",
     "cache-control",
 })
-
-
-def _derive_origin(request: Request) -> str:
-    """Return the browser-facing origin of the incoming request.
-
-    On Vercel, x-forwarded-proto and x-forwarded-host carry the browser-facing
-    scheme and hostname.  Falls back to settings.allowed_origin for local dev
-    where those headers are absent.
-    """
-    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
-    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-    if proto and host:
-        return f"{proto}://{host}"
-    return settings.allowed_origin.strip()
 
 
 @router.api_route(
@@ -107,7 +94,7 @@ async def proxy_auth(path: str, request: Request) -> Response:
     # trusted_origins. The browser sends the Vercel deployment URL as Origin but
     # Vercel strips/rewrites it before reaching the Lambda — deriving it from
     # x-forwarded-proto/x-forwarded-host gives the real value.
-    origin = _derive_origin(request)
+    origin = derive_origin(request)
     if origin:
         headers["origin"] = origin
 

@@ -594,14 +594,24 @@ async def test_invite_admin_user_create_non_2xx_raises_service_error():
 
 @pytest.mark.asyncio
 async def test_invite_admin_user_password_reset_fails():
-    """invite_admin_user raises NeonAuthServiceError when password-reset call fails."""
+    """invite_admin_user raises NeonAuthServiceError when password-reset call fails.
+
+    When the reset call fails, the service attempts to delete the just-created
+    user to avoid leaving an orphaned account (SECURITY-4).
+
+    _neon_api_with_retry retries once on 5xx, so we provide two 500 responses
+    for the reset POST (first attempt + one retry), then a 204 for the cleanup delete.
+    """
     create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
-    reset_resp = _mock_response(500)
+    reset_resp_1 = _mock_response(500)
+    reset_resp_2 = _mock_response(500)  # retry response
+    delete_resp = _mock_response(204)
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp])
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp_1, reset_resp_2])
+    mock_client.delete = AsyncMock(return_value=delete_resp)
 
     with _patch_settings(), patch(
         "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
@@ -611,6 +621,48 @@ async def test_invite_admin_user_password_reset_fails():
     ):
         with pytest.raises(NeonAuthServiceError):
             await invite_admin_user("test@example.com", "https://app.example.com")
+
+    # Verify the orphan cleanup delete was attempted with the created user's ID
+    assert mock_client.delete.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_invite_admin_user_password_reset_fails_cleanup_failure_logs_warning():
+    """invite_admin_user logs a warning if the orphan cleanup delete also fails.
+
+    The cleanup failure must not mask the original NeonAuthServiceError.
+    The cleanup calls _neon_api_with_retry which retries once on 5xx, so we
+    provide two 500 responses (first attempt + one retry).
+    """
+    create_resp = _mock_response(201, _NEON_USER_PAYLOAD)
+    # Two 500 responses for the reset POST: first attempt + one retry.
+    reset_resp_1 = _mock_response(500)
+    reset_resp_2 = _mock_response(500)
+    # Two 500 responses for the cleanup delete: first attempt + one retry.
+    # Both fail → NeonAuthServiceError raised inside remove_admin_user,
+    # which is caught by the outer try/except and logged as a warning.
+    delete_resp_1 = _mock_response(500)
+    delete_resp_2 = _mock_response(500)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=[create_resp, reset_resp_1, reset_resp_2])
+    mock_client.delete = AsyncMock(side_effect=[delete_resp_1, delete_resp_2])
+
+    with _patch_settings(), patch(
+        "app.services.neon_auth_service.httpx.AsyncClient", return_value=mock_client
+    ), patch(
+        "app.services.neon_auth_service._resolve_branch_id",
+        AsyncMock(return_value="test-branch-id"),
+    ), patch("app.services.neon_auth_service.logger") as mock_logger:
+        with pytest.raises(NeonAuthServiceError):
+            await invite_admin_user("test@example.com", "https://app.example.com")
+
+    # A warning must be logged if cleanup itself fails
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    assert call_args.args[0] == "neon_orphan_cleanup_failed"
 
 
 @pytest.mark.asyncio
