@@ -366,6 +366,18 @@ BRANCH_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID
   -H "Authorization: Bearer $NEON_API_KEY" > /dev/null
 ```
 
+After deleting the Neon branch, also run the UAT test data cleanup — see **Cleanup — UAT test data** below.
+
+### Cleanup — UAT test data (required after every merge to `demo`)
+
+After removing the worktree and branches, always clean test data from the UAT database:
+
+1. **Retrieve `DATABASE_URL_UNPOOLED` for the UAT environment** (custom env ID `env_FULKSWxHCulQ5CTDb0kyzZUfvfUE`, project `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0`) via the Vercel API using the `vercel-bypass-token` from Keychain.
+
+2. **Run the authoritative cleanup SQL** (from the "Test Data Conventions" section above) against that database.
+
+3. **Delete any Neon Auth test users** (emails matching `e2e-*`) by calling `GET /api/admin/users` then `DELETE /api/admin/users/{id}` on `https://vms-uat.ocss.tech` with admin credentials from Keychain.
+
 ---
 
 ## Agent Configuration
