@@ -35,7 +35,7 @@ PRDs and design docs are organised by feature area. **Always update an existing 
 | `prd-voting-flow.md` | OTP auth, voting, proxy UX, multi-lot voting, re-voting, eligibility |
 | `prd-admin-panel.md` | Admin login, in-person vote entry, results, QR code, email actions |
 | `prd-platform.md` | Tenant branding, SMTP, email delivery, session security |
-| `prd-multi-tenant.md` | Future roadmap — multi-tenant SaaS (not yet implemented) |
+| `prd-multi-tenant.md` | Multi-tenancy via deployment-per-tenant model — each customer gets their own Vercel project + Neon DB; provisioned via `scripts/provision_customer.py` |
 | `prd-review-recommendations.md` | Engineering review reference — do not modify |
 
 **Design docs** (`tasks/design/`):

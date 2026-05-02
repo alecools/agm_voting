@@ -83,6 +83,7 @@ The Vite build must pre-generate `.br` files for all JS/CSS assets using `vite-p
 | `prd-voting-flow.md` | Voter authentication (OTP), lot selection, ballot submission, confirmation, proxy voting UX, multi-lot voting, re-voting, eligibility rules |
 | `prd-admin-panel.md` | Admin login, admin in-person vote entry, admin meeting detail/results, pagination/navigation, QR share link, co-owner ballot visibility |
 | `prd-platform.md` | Tenant branding, SMTP configuration, email delivery, session security |
+| `prd-multi-tenant.md` | Multi-tenancy via deployment-per-tenant model — each customer gets their own Vercel project + Neon DB; provisioned via `scripts/provision_customer.py` |
 
 ---
 
