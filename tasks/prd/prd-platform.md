@@ -269,6 +269,13 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
 
+**Implementation notes (security and reliability — branch: `fix/review-backend`):**
+
+- Rate limit is now keyed on `current_user.user_id` (not the string "admin") so each admin's invite quota is tracked independently (SRE-1).
+- A success audit log (`admin_user_invited`) is emitted after each successful invite with `performed_by` and `target_email` fields (BACKEND-1/LEGAL-1).
+- If the password-reset email call fails after the Neon Auth user is created, the orphaned account is automatically deleted before raising the error to prevent invite re-attempts from hitting a 409 (SECURITY-4).
+- All Neon management API calls retry once on HTTP 5xx with a 1-second delay (SRE-2).
+
 ---
 
 ### US-USR-03: Admin removes an admin user
@@ -287,6 +294,12 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 - [ ] If the user does not exist, the endpoint returns 404
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes
+
+**Implementation notes (security and reliability — branch: `fix/review-backend`):**
+
+- A success audit log (`admin_user_removed`) is emitted after each successful removal with `performed_by` and `target_user_id` fields (BACKEND-1/LEGAL-1).
+- After the delete completes, the endpoint re-queries the user list and logs a `CRITICAL` event if zero admins remain. This narrows the TOCTOU gap in the last-admin guard (SECURITY-3). A true atomic fix requires Neon Auth to enforce this constraint server-side.
+- All Neon management API calls retry once on HTTP 5xx with a 1-second delay (SRE-2).
 
 ---
 

@@ -226,8 +226,8 @@ async def test_invite_user_rate_limited(client: AsyncClient):
             json={"email": "test@example.com"},
         )
     assert resp.status_code == 429
-    # Reset for subsequent tests
-    admin_invite_limiter.reset("admin")
+    # Reset for subsequent tests (key is current_user.user_id set in conftest)
+    admin_invite_limiter.reset("test-user-id")
 
 
 # ---------------------------------------------------------------------------
@@ -301,3 +301,48 @@ async def test_remove_user_delete_not_configured_after_list(client: AsyncClient)
     ):
         resp = await client.delete("/api/admin/users/user-2")
     assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_remove_user_post_delete_zero_admins_logs_critical(client: AsyncClient):
+    """DELETE /api/admin/users/{id} logs CRITICAL when post-delete re-query finds zero admins.
+
+    This covers the TOCTOU guard — after a successful delete the endpoint
+    re-queries and logs critical if no admins remain (should never happen
+    in practice, but gives visibility if the pre-check race fires).
+    """
+    # Pre-delete list has 2 users → guard passes.
+    # Post-delete list returns empty → CRITICAL log fires.
+    with _patch_list([_USER_1, _USER_2]), _patch_remove(), \
+         patch(
+             "app.routers.admin.neon_auth_service.list_admin_users",
+             new_callable=AsyncMock,
+             side_effect=[
+                 [_USER_1, _USER_2],  # pre-delete count check
+                 [],                  # post-delete re-query → zero remaining
+             ],
+         ), \
+         patch("app.routers.admin.logger") as mock_logger:
+        resp = await client.delete("/api/admin/users/user-2")
+    assert resp.status_code == 204
+    mock_logger.critical.assert_called_once()
+    call_args = mock_logger.critical.call_args
+    assert call_args.args[0] == "admin_user_removal_left_zero_admins"
+
+
+@pytest.mark.asyncio
+async def test_remove_user_post_delete_requery_service_error_ignored(client: AsyncClient):
+    """DELETE /api/admin/users/{id} returns 204 even when the post-delete re-query fails.
+
+    The post-delete verification failure must not mask the successful delete.
+    """
+    with patch(
+        "app.routers.admin.neon_auth_service.list_admin_users",
+        new_callable=AsyncMock,
+        side_effect=[
+            [_USER_1, _USER_2],                  # pre-delete count check
+            NeonAuthServiceError("db error"),    # post-delete re-query fails
+        ],
+    ), _patch_remove():
+        resp = await client.delete("/api/admin/users/user-2")
+    assert resp.status_code == 204

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import engine, get_db
+from app.utils import derive_origin
 from app.logging_config import get_logger
 from app.models import EmailDelivery, GeneralMeeting, get_effective_status
 from app.dependencies import BetterAuthUser, require_admin
@@ -72,7 +73,14 @@ from app.services.neon_auth_service import (
     NeonAuthServiceError,
     NeonAuthUserNotFoundError,
 )
-from app.rate_limiter import admin_import_limiter, admin_close_limiter, admin_invite_limiter
+from app.rate_limiter import (
+    admin_import_limiter,
+    admin_close_limiter,
+    admin_invite_limiter,
+    get_client_ip,
+    provision_limiter,
+    smtp_test_rate_limiter,
+)
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 # Separate router for endpoints that must NOT require admin auth.
@@ -209,10 +217,9 @@ async def invite_admin_user(
     Returns 422 if the email is not a valid email address (Pydantic validation).
     Returns 503 if Neon Auth management is not configured.
     """
-    admin_invite_limiter.check("admin")
+    admin_invite_limiter.check(current_user.user_id)
 
-    from app.routers.auth_proxy import _derive_origin  # noqa: PLC0415
-    redirect_origin = _derive_origin(request)
+    redirect_origin = derive_origin(request)
 
     try:
         user = await neon_auth_service.invite_admin_user(str(data.email), redirect_origin)
@@ -223,6 +230,7 @@ async def invite_admin_user(
     except NeonAuthServiceError as exc:
         logger.error("invite_admin_user_error", error=str(exc))
         raise HTTPException(status_code=502, detail="User management service error")
+    logger.info("admin_user_invited", performed_by=current_user.user_id, target_email=str(data.email))
     return user
 
 
@@ -238,6 +246,13 @@ async def remove_admin_user(
     Returns 409 if this is the last admin user.
     Returns 404 if the user does not exist.
     Returns 503 if Neon Auth management is not configured.
+
+    Note: there is a TOCTOU gap between the pre-delete count check and the
+    actual delete — two concurrent requests could each see 2 users, both pass
+    the guard, and one of them ends up deleting the last admin.  A true atomic
+    fix requires Neon Auth to enforce a minimum-admin-count constraint
+    server-side (or a distributed lock).  The post-delete re-query below
+    narrows the window and gives us visibility if it ever occurs.
     """
     if user_id == current_user.user_id:
         raise HTTPException(status_code=403, detail="Cannot remove yourself.")
@@ -260,6 +275,22 @@ async def remove_admin_user(
     except NeonAuthServiceError as exc:
         logger.error("remove_admin_user_error", error=str(exc), user_id=user_id)
         raise HTTPException(status_code=502, detail="User management service error")
+
+    logger.info("admin_user_removed", performed_by=current_user.user_id, target_user_id=user_id)
+
+    # Post-delete guard: re-query to verify at least one admin still exists.
+    # The pre-check above has a TOCTOU gap under concurrent requests; this
+    # re-query narrows the window and gives critical visibility if it fires.
+    try:
+        remaining = await neon_auth_service.list_admin_users(db)
+        if len(remaining) == 0:
+            logger.critical(
+                "admin_user_removal_left_zero_admins",
+                removed_user_id=user_id,
+                performed_by=current_user.user_id,
+            )
+    except NeonAuthServiceError:
+        pass  # post-delete verification failure must not mask the successful delete
 
 
 # ---------------------------------------------------------------------------
@@ -911,9 +942,7 @@ async def reset_general_meeting_ballots(
     Requires ENABLE_BALLOT_RESET=true env var (RR5-01). Returns 403 when unset
     to prevent accidental production use.
     """
-    from app.config import settings as _settings  # noqa: PLC0415
-
-    if not _settings.enable_ballot_reset:
+    if not settings.enable_ballot_reset:
         raise HTTPException(
             status_code=403,
             detail="Ballot reset is disabled. Set ENABLE_BALLOT_RESET=true to enable.",
@@ -1030,19 +1059,11 @@ async def update_admin_config(
 # SMTP configuration
 # ---------------------------------------------------------------------------
 
-# RR5-06: Use the project-standard RateLimiter singleton instead of a bare list.
-# Keyed on a fixed string "smtp_test" so the limit is server-wide (not per-IP),
-# matching the original intent of protecting the SMTP server from excessive load.
-# 5 requests per 60-second sliding window.
-from app.rate_limiter import RateLimiter as _RateLimiter
-
-_smtp_test_rate_limiter = _RateLimiter(max_requests=5, window_seconds=60)
-
 
 def _check_smtp_test_rate_limit() -> None:
     """Raise 429 if more than 5 calls to /config/smtp/test occurred in the last 60s."""
     try:
-        _smtp_test_rate_limiter.check("smtp_test")
+        smtp_test_rate_limiter.check("smtp_test")
     except HTTPException as exc:
         raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 test emails per minute") from exc
 
@@ -1141,8 +1162,7 @@ def _require_debug_access() -> None:
     testing_mode is always False, so this guard prevents them from being reachable
     in production even if the admin session is compromised.
     """
-    from app.config import settings as _settings
-    if not _settings.testing_mode:
+    if not settings.testing_mode:
         raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -1251,19 +1271,17 @@ async def provision_admin_user(request: Request, body: _ProvisionAdminRequest) -
     and 204 is still returned so global-setup can call this unconditionally.
     """
     _require_debug_access()
+    provision_limiter.check(get_client_ip(request))
 
-    from app.config import settings as _s
-    if not _s.neon_auth_base_url:
+    if not settings.neon_auth_base_url:
         raise HTTPException(status_code=503, detail="Auth service not configured")
 
-    # Derive the browser-facing origin (same logic as auth_proxy._derive_origin)
-    # so Neon Auth can validate the request against its trusted_origins list.
-    # Without this header Neon Auth returns 400 MISSING_ORIGIN and the sign-up
-    # silently fails (4xx was previously treated as "already exists").
-    from app.routers.auth_proxy import _derive_origin
-    origin = _derive_origin(request)
+    # Derive the browser-facing origin so Neon Auth can validate the request
+    # against its trusted_origins list.  Without this header Neon Auth returns
+    # 400 MISSING_ORIGIN and the sign-up silently fails.
+    origin = derive_origin(request)
 
-    url = f"{_s.neon_auth_base_url.rstrip('/')}/sign-up/email"
+    url = f"{settings.neon_auth_base_url.rstrip('/')}/sign-up/email"
     headers: dict[str, str] = {"content-type": "application/json"}
     if origin:
         headers["origin"] = origin

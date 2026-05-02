@@ -264,9 +264,11 @@ class TestAuthProxyHappyPath:
         request = _make_request(method="POST", headers=[("content-type", "application/json")])
 
         with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.utils.settings") as ms_utils, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
             ms.allowed_origin = ""
+            ms_utils.allowed_origin = ""
             await proxy_auth(path="sign-in/email", request=request)
 
         forwarded = mock_client.request.call_args.kwargs["headers"]
@@ -404,9 +406,11 @@ class TestAuthProxyRedirectToInjection:
         request = _make_request(method="POST", body=original_body)
 
         with patch("app.routers.auth_proxy.settings") as ms, \
+             patch("app.utils.settings") as ms_utils, \
              patch("app.routers.auth_proxy.httpx.AsyncClient", return_value=mock_client):
             ms.neon_auth_base_url = "https://auth.example.com"
             ms.allowed_origin = ""
+            ms_utils.allowed_origin = ""
             await proxy_auth(path="forget-password", request=request)
 
         forwarded_body = mock_client.request.call_args.kwargs["content"]
