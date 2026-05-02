@@ -2183,6 +2183,35 @@ button, input, select, textarea {
   margin-bottom: 8px;
 }
 
+/* === PASSWORD REQUIREMENTS CHECKLIST === */
+.password-requirements {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.password-requirements__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.password-requirements__item--met {
+  color: var(--green);
+}
+
+.password-requirements__icon {
+  font-size: 0.75rem;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 /* === LOT SELECTION PANEL (VotingPage) === */
 .lot-selection {
   margin-bottom: 32px;

@@ -22,6 +22,7 @@ vi.mock("../../../lib/auth-client", () => ({
     getSession: vi.fn().mockResolvedValue({
       data: { user: { id: "current-admin-id" } },
     }),
+    changePassword: vi.fn().mockResolvedValue({ error: null }),
   },
 }));
 
@@ -1531,5 +1532,197 @@ describe("SettingsPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByText("User removed.")).toBeInTheDocument());
     expect(screen.queryByText("sequence@example.com")).not.toBeInTheDocument();
+  });
+
+  // --- Change Password ---
+
+  async function openChangePasswordModal() {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change Password" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Change Password" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument());
+    return user;
+  }
+
+  it("shows Change Password button on User Management tab", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change Password" })).toBeInTheDocument());
+  });
+
+  it("clicking Change Password opens the modal with required fields", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByLabelText("Current password")).toBeInTheDocument();
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirm new password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("modal has role=dialog, aria-modal, and aria-labelledby pointing to heading", async () => {
+    await openChangePasswordModal();
+    const dialog = screen.getByRole("dialog", { name: "Change Password" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby", "change-password-modal-title");
+    expect(screen.getByText("Change Password", { selector: "#change-password-modal-title" })).toBeInTheDocument();
+  });
+
+  it("shows password requirements checklist in the Change Password modal", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByRole("list", { name: "Password requirements" })).toBeInTheDocument();
+  });
+
+  it("Update Password button is disabled when fields are empty", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("Update Password button is disabled when new password does not meet requirements", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "short");
+    await user.type(screen.getByLabelText("Confirm new password"), "short");
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("Update Password button is disabled when passwords do not match", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass2!");
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("shows confirm mismatch error when confirm differs from new password", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "Different1!");
+    expect(screen.getByText("Passwords do not match.")).toBeInTheDocument();
+  });
+
+  it("does not show confirm mismatch error when confirm field is empty", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    // confirm field left empty
+    expect(screen.queryByText("Passwords do not match.")).not.toBeInTheDocument();
+  });
+
+  it("Update Password button is enabled when all fields are valid and passwords match", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    expect(screen.getByRole("button", { name: "Update Password" })).not.toBeDisabled();
+  });
+
+  it("successful password change closes modal and shows success message", async () => {
+    vi.mocked(authClient.changePassword).mockResolvedValueOnce({ error: null } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+    expect(screen.getByText("Password updated successfully.")).toBeInTheDocument();
+  });
+
+  it("modal has NOT closed while change-password call is pending, and HAS closed after it completes", async () => {
+    let resolve!: (value: { error: null }) => void;
+    vi.mocked(authClient.changePassword).mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    ) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    // While pending: modal still open, success NOT yet shown
+    expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument();
+    expect(screen.queryByText("Password updated successfully.")).not.toBeInTheDocument();
+    // Complete the call
+    resolve({ error: null });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+    expect(screen.getByText("Password updated successfully.")).toBeInTheDocument();
+  });
+
+  it("wrong current password shows inline error inside modal", async () => {
+    vi.mocked(authClient.changePassword).mockResolvedValueOnce({
+      error: { message: "Invalid current password." },
+    } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "WrongPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Invalid current password.")).toBeInTheDocument();
+    // Modal stays open
+    expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument();
+  });
+
+  it("changePassword error without message shows fallback error", async () => {
+    vi.mocked(authClient.changePassword).mockResolvedValueOnce({
+      error: {},
+    } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Failed to change password.")).toBeInTheDocument();
+  });
+
+  it("changePassword throws shows fallback error", async () => {
+    vi.mocked(authClient.changePassword).mockRejectedValueOnce(new Error("Network error")) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Failed to change password. Please try again.")).toBeInTheDocument();
+  });
+
+  it("Cancel button closes the Change Password modal", async () => {
+    const user = await openChangePasswordModal();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("Escape key closes the Change Password modal", async () => {
+    await openChangePasswordModal();
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.keyDown(overlay, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("backdrop click closes the Change Password modal", async () => {
+    await openChangePasswordModal();
+    // Click the overlay that wraps the dialog — use the last dialog-overlay in the DOM
+    const overlays = document.querySelectorAll(".dialog-overlay");
+    const overlay = overlays[overlays.length - 1] as HTMLElement;
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("Update Password button shows Updating… while in flight", async () => {
+    let resolve!: (value: { error: null }) => void;
+    vi.mocked(authClient.changePassword).mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    ) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    expect(screen.getByRole("button", { name: "Updating…" })).toBeDisabled();
+    resolve({ error: null });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
   });
 });
