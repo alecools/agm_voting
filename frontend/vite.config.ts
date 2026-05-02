@@ -70,6 +70,10 @@ export default defineConfig({
         "src/context/BrandingContext.tsx",
         // Better Auth client
         "src/lib/auth-client.ts",
+        // Shared components (not admin- or vote-specific)
+        "src/components/PasswordRequirements.tsx",
+        // User management API
+        "src/api/users.ts",
       ],
       thresholds: {
         // Per-file thresholds for Phase 4 vote files
@@ -95,6 +99,9 @@ export default defineConfig({
         // Wave 5 code quality (US-CQM-03)
         "src/components/vote/LotSelectionSection.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/components/vote/SubmitSection.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Password UX improvements
+        "src/components/PasswordRequirements.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/api/users.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },

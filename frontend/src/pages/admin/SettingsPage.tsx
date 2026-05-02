@@ -5,6 +5,7 @@ import type { TenantConfig } from "../../api/config";
 import { listAdminUsers, inviteAdminUser, removeAdminUser } from "../../api/users";
 import type { AdminUser } from "../../api/users";
 import { authClient } from "../../lib/auth-client";
+import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } from "../../components/PasswordRequirements";
 
 type SettingsTab = "ui-theme" | "email-server" | "user-management";
 
@@ -59,6 +60,15 @@ export default function SettingsPage() {
   const [isRemoving, setIsRemoving] = useState(false);
   const [removeSuccess, setRemoveSuccess] = useState("");
   const [removeError, setRemoveError] = useState("");
+
+  // Change password state
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [changePwdCurrent, setChangePwdCurrent] = useState("");
+  const [changePwdNew, setChangePwdNew] = useState("");
+  const [changePwdConfirm, setChangePwdConfirm] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [changePwdError, setChangePwdError] = useState("");
+  const [changePwdSuccess, setChangePwdSuccess] = useState("");
 
   useEffect(() => {
     Promise.all([getAdminConfig(), getSmtpConfig()])
@@ -280,6 +290,48 @@ export default function SettingsPage() {
       }
     } finally {
       setIsRemoving(false);
+    }
+  }
+
+  function handleChangePasswordOpen() {
+    setChangePwdCurrent("");
+    setChangePwdNew("");
+    setChangePwdConfirm("");
+    setChangePwdError("");
+    setChangePwdSuccess("");
+    setShowChangePasswordModal(true);
+  }
+
+  function handleChangePasswordClose() {
+    setShowChangePasswordModal(false);
+    setChangePwdCurrent("");
+    setChangePwdNew("");
+    setChangePwdConfirm("");
+    setChangePwdError("");
+  }
+
+  async function handleChangePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setChangePwdError("");
+    setIsChangingPassword(true);
+    try {
+      const result = await (authClient as unknown as {
+        changePassword: (opts: { currentPassword: string; newPassword: string; revokeOtherSessions: boolean }) => Promise<{ error?: { message?: string } | null }>;
+      }).changePassword({
+        currentPassword: changePwdCurrent,
+        newPassword: changePwdNew,
+        revokeOtherSessions: false,
+      });
+      if (result.error) {
+        setChangePwdError(result.error.message ?? "Failed to change password.");
+      } else {
+        setChangePwdSuccess("Password updated successfully.");
+        setShowChangePasswordModal(false);
+      }
+    } catch {
+      setChangePwdError("Failed to change password. Please try again.");
+    } finally {
+      setIsChangingPassword(false);
     }
   }
 
@@ -671,13 +723,22 @@ export default function SettingsPage() {
           <div className="admin-card">
             <div className="admin-card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <p className="admin-card__title">Admin Users</p>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={handleInviteModalOpen}
-              >
-                Invite Admin
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleChangePasswordOpen}
+                >
+                  Change Password
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={handleInviteModalOpen}
+                >
+                  Invite Admin
+                </button>
+              </div>
             </div>
             <div className="admin-card__body">
 
@@ -687,6 +748,10 @@ export default function SettingsPage() {
 
               {removeSuccess && (
                 <p role="status" style={{ color: "var(--green)", marginBottom: 12 }}>{removeSuccess}</p>
+              )}
+
+              {changePwdSuccess && (
+                <p role="status" style={{ color: "var(--green)", marginBottom: 12 }}>{changePwdSuccess}</p>
               )}
 
               {removeError && (
@@ -844,6 +909,93 @@ export default function SettingsPage() {
                   disabled={isInviting}
                 >
                   {isInviting ? "Sending…" : "Send Invite"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password modal */}
+      {showChangePasswordModal && (
+        <div
+          className="dialog-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-password-modal-title"
+          onKeyDown={(e) => { if (e.key === "Escape") handleChangePasswordClose(); }}
+          onClick={(e) => { if (e.target === e.currentTarget) handleChangePasswordClose(); }}
+        >
+          <div className="dialog">
+            <h2 id="change-password-modal-title" className="dialog__title">Change Password</h2>
+            <form onSubmit={(e) => { void handleChangePasswordSubmit(e); }}>
+              <div className="dialog__body">
+                {changePwdError && (
+                  <p className="field__error" role="alert" style={{ marginBottom: 12 }}>{changePwdError}</p>
+                )}
+                <div className="field">
+                  <label className="field__label" htmlFor="change-pwd-current">Current password</label>
+                  <input
+                    id="change-pwd-current"
+                    className="field__input"
+                    type="password"
+                    value={changePwdCurrent}
+                    onChange={(e) => setChangePwdCurrent(e.target.value)}
+                    autoComplete="current-password"
+                    autoFocus
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="field__label" htmlFor="change-pwd-new">New password</label>
+                  <input
+                    id="change-pwd-new"
+                    className="field__input"
+                    type="password"
+                    value={changePwdNew}
+                    onChange={(e) => setChangePwdNew(e.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+                <PasswordRequirements reqs={checkPasswordRequirements(changePwdNew)} />
+                <div className="field">
+                  <label className="field__label" htmlFor="change-pwd-confirm">Confirm new password</label>
+                  <input
+                    id="change-pwd-confirm"
+                    className="field__input"
+                    type="password"
+                    value={changePwdConfirm}
+                    onChange={(e) => setChangePwdConfirm(e.target.value)}
+                    autoComplete="new-password"
+                    aria-invalid={changePwdConfirm.length > 0 && changePwdConfirm !== changePwdNew}
+                    required
+                  />
+                  {changePwdConfirm.length > 0 && changePwdConfirm !== changePwdNew && (
+                    <span className="field__error">Passwords do not match.</span>
+                  )}
+                </div>
+              </div>
+              <div className="dialog__actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={handleChangePasswordClose}
+                  disabled={isChangingPassword}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={
+                    isChangingPassword ||
+                    !allRequirementsMet(checkPasswordRequirements(changePwdNew)) ||
+                    changePwdConfirm !== changePwdNew ||
+                    !changePwdCurrent
+                  }
+                >
+                  {isChangingPassword ? "Updating…" : "Update Password"}
                 </button>
               </div>
             </form>

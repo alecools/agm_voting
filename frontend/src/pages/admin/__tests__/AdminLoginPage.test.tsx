@@ -497,4 +497,63 @@ describe("AdminLoginPage", () => {
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
+
+  // --- Password requirements checklist (set-password view) ---
+
+  it("shows password requirements checklist on set-password view", () => {
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    expect(screen.getByRole("list", { name: "Password requirements" })).toBeInTheDocument();
+    expect(screen.getByText("At least 8 characters")).toBeInTheDocument();
+    expect(screen.getByText("At least one uppercase letter (A–Z)")).toBeInTheDocument();
+    expect(screen.getByText("At least one lowercase letter (a–z)")).toBeInTheDocument();
+    expect(screen.getByText("At least one number (0–9)")).toBeInTheDocument();
+  });
+
+  it("Set new password button is disabled when password is empty", () => {
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    expect(screen.getByRole("button", { name: "Set new password" })).toBeDisabled();
+  });
+
+  it("Set new password button is disabled when password meets some but not all requirements", async () => {
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    // Only lowercase and digit — missing uppercase and length
+    await user.type(screen.getByLabelText("New password"), "abc1");
+    expect(screen.getByRole("button", { name: "Set new password" })).toBeDisabled();
+  });
+
+  it("Set new password button is enabled when all requirements are met", async () => {
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    await user.type(screen.getByLabelText("New password"), "MyPass1!");
+    expect(screen.getByRole("button", { name: "Set new password" })).not.toBeDisabled();
+  });
+
+  it("requirements update in real time as the user types", async () => {
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=abc123");
+    const input = screen.getByLabelText("New password");
+    // Initially all unmet — all ✗
+    const icons = () => document.querySelectorAll(".password-requirements__icon");
+    expect(Array.from(icons()).every((el) => el.textContent === "✗")).toBe(true);
+    // Type a password meeting all requirements
+    await user.type(input, "MyPass12");
+    // All requirements met — all ✓
+    expect(Array.from(icons()).every((el) => el.textContent === "✓")).toBe(true);
+  });
+
+  it("Set new password button is disabled with loading regardless of valid password", async () => {
+    let resolve!: (value: { data: unknown; error: null }) => void;
+    mockResetPassword.mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    );
+    const user = userEvent.setup();
+    renderPage(DEFAULT_CONFIG, "/admin/login?token=tok-xyz");
+    await user.type(screen.getByLabelText("New password"), "MyNewPass1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+    // While pending: shows loading text and button is disabled
+    expect(screen.getByRole("button", { name: "Setting password…" })).toBeDisabled();
+    resolve({ data: { status: true }, error: null });
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+  });
 });

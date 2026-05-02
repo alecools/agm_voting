@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { authClient } from "../../lib/auth-client";
 import { useBranding } from "../../context/BrandingContext";
+import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } from "../../components/PasswordRequirements";
 
 type View = "login" | "reset" | "set-password";
 
@@ -168,10 +169,12 @@ export default function AdminLoginPage() {
                   />
                 </div>
 
+                <PasswordRequirements reqs={checkPasswordRequirements(newPassword)} />
+
                 <button
                   type="submit"
                   className="btn btn--primary btn--full"
-                  disabled={setPasswordLoading}
+                  disabled={setPasswordLoading || !allRequirementsMet(checkPasswordRequirements(newPassword))}
                 >
                   {setPasswordLoading ? "Setting password…" : "Set new password"}
                 </button>
