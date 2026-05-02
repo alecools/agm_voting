@@ -400,16 +400,18 @@ test.describe("Admin Settings — User Management tab", () => {
 
     // Open the invite form
     await page.getByRole("button", { name: "Invite Admin" }).click();
-    await expect(page.getByLabel("Email address")).toBeVisible();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite Admin User" });
+    await expect(inviteDialog).toBeVisible();
+    await expect(inviteDialog.getByLabel("Email address")).toBeVisible();
 
     // Fill in the invite email and submit
-    await page.getByLabel("Email address").fill(INVITE_EMAIL);
+    await inviteDialog.getByLabel("Email address").fill(INVITE_EMAIL);
 
     const [inviteResponse] = await Promise.all([
       page.waitForResponse((resp) =>
         resp.url().includes("/api/admin/users/invite") && resp.request().method() === "POST"
       ),
-      page.getByRole("button", { name: "Send invite" }).click(),
+      inviteDialog.getByRole("button", { name: "Send Invite" }).click(),
     ]);
 
     // INVITE_EMAIL uses Date.now() so it is always unique per run.
