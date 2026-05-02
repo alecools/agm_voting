@@ -295,15 +295,17 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 
 | Environment | Trigger | URL pattern |
 |---|---|---|
-| **UAT** | Push to `master` only | `vms-uat.ocss.tech` |
-| **Demo** | Push to `demo` branch | `vms-demo.ocss.tech` |
+| **UAT** | Push to `demo` only | `vms-uat.ocss.tech` |
+| **Demo** | Push to `master` branch | `vms-demo.ocss.tech` |
 | **Preview** | Push to any other branch | `internal-vms-git-<branch>-ocss.vercel.app` |
 
 - **Never** run `vercel deploy --prod` or target production from the CLI
 - The `demo` branch deploys to the **UAT** Vercel environment (for stakeholder review)
 - Feature and fix branches deploy to the **Preview** Vercel environment
-- **Neon DB mapping:** Demo env → `main` Neon branch (`br-super-frog-a7aumm3h`); Preview env (feature branches) → the **Neon-Vercel integration** automatically creates a `preview/<branch-name>` Neon branch (from `main`) for each preview deployment and injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` into the build and Lambda environment. No manual env var setup is needed for preview branches.
-- The demo env `DATABASE_URL` is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
+- **Neon DB mapping:**
+  - **UAT env** (`demo` git branch → `vms-uat.ocss.tech`) → Neon branch `uat/demo` (`br-steep-grass-a7hh2is4`), endpoint `ep-divine-band-a7hlpqwg`, custom Vercel env ID `env_qdVkvAJBl7WFGBw1U6rpkRh0ZuGn`
+  - **Demo/production env** (`master` git branch → `vms-demo.ocss.tech`) → Neon branch `main` (`br-super-frog-a7aumm3h`), custom Vercel env ID `env_FULKSWxHCulQ5CTDb0kyzZUfvfUE`
+  - **Preview env** (feature branches) → the **Neon-Vercel integration** automatically creates a `preview/<branch-name>` Neon branch (from `main`) for each preview deployment and injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` into the build and Lambda environment. No manual env var setup is needed for preview branches.
 - Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SMTP_ENCRYPTION_KEY`
 - SMTP settings (host, port, username, password, from_email) are now configured via the admin Settings page and stored encrypted in the database — no longer needed as env vars
 
@@ -370,13 +372,55 @@ After deleting the Neon branch, also run the UAT test data cleanup — see **Cle
 
 ### Cleanup — UAT test data (required after every merge to `demo`)
 
-After removing the worktree and branches, always clean test data from the UAT database:
+After removing the worktree and branches, always clean test data from the UAT database.
 
-1. **Retrieve `DATABASE_URL_UNPOOLED` for the UAT environment** (custom env ID `env_FULKSWxHCulQ5CTDb0kyzZUfvfUE`, project `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0`) via the Vercel API using the `vercel-bypass-token` from Keychain.
+The UAT database is the Neon branch `uat/demo` (`br-steep-grass-a7hh2is4`), endpoint `ep-divine-band-a7hlpqwg`. Retrieve its password via the Neon API:
 
-2. **Run the authoritative cleanup SQL** (from the "Test Data Conventions" section above) against that database.
+```bash
+NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
+UAT_PASSWORD=$(curl -s "https://console.neon.tech/api/v2/projects/curly-lab-57416583/branches/br-steep-grass-a7hh2is4/roles/neondb_owner/reveal_password" \
+  -H "Authorization: Bearer $NEON_API_KEY" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+UAT_DB="postgresql://neondb_owner:${UAT_PASSWORD}@ep-divine-band-a7hlpqwg.ap-southeast-2.aws.neon.tech/neondb?sslmode=require"
+```
 
-3. **Delete any Neon Auth test users** (emails matching `e2e-*`) by calling `GET /api/admin/users` then `DELETE /api/admin/users/{id}` on `https://vms-uat.ocss.tech` with admin credentials from Keychain.
+Then run the authoritative cleanup SQL against that database (from the "Test Data Conventions" section above):
+
+```bash
+python3 -c "
+import asyncio, asyncpg
+
+async def cleanup():
+    conn = await asyncpg.connect('$UAT_DB')
+    await conn.execute('''
+        DELETE FROM email_deliveries
+        WHERE status = 'pending'
+          AND general_meeting_id IN (
+            SELECT id FROM general_meetings
+            WHERE building_id IN (
+              SELECT id FROM buildings
+              WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+                AND name NOT LIKE ''SBT%''
+            )
+          );
+        DELETE FROM general_meetings
+        WHERE building_id IN (
+          SELECT id FROM buildings
+          WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+            AND name NOT LIKE ''SBT%''
+        );
+        DELETE FROM buildings
+        WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+          AND name NOT LIKE ''SBT%'';
+    ''')
+    remaining = await conn.fetchval('SELECT COUNT(*) FROM buildings')
+    print(f'Cleanup done. Remaining buildings: {remaining}')
+    await conn.close()
+
+asyncio.run(cleanup())
+"
+```
+
+Finally, **delete any Neon Auth test users** (emails matching `e2e-*`) by calling `GET /api/admin/users` then `DELETE /api/admin/users/{id}` on `https://vms-uat.ocss.tech` with admin credentials from Keychain.
 
 ---
 
