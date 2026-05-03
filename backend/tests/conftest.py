@@ -175,21 +175,27 @@ def reset_rate_limiters():
     from app.rate_limiter import (
         admin_close_limiter,
         admin_import_limiter,
+        admin_invite_limiter,
         ballot_submit_limiter,
+        provision_limiter,
         public_limiter,
+        smtp_test_rate_limiter,
     )
-    from app.routers.admin import _smtp_test_rate_limiter
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
     admin_import_limiter._timestamps.clear()
     admin_close_limiter._timestamps.clear()
-    _smtp_test_rate_limiter.reset("smtp_test")
+    admin_invite_limiter._timestamps.clear()
+    smtp_test_rate_limiter.reset("smtp_test")
+    provision_limiter._timestamps.clear()
     yield
     ballot_submit_limiter._timestamps.clear()
     public_limiter._timestamps.clear()
     admin_import_limiter._timestamps.clear()
     admin_close_limiter._timestamps.clear()
-    _smtp_test_rate_limiter.reset("smtp_test")
+    admin_invite_limiter._timestamps.clear()
+    smtp_test_rate_limiter.reset("smtp_test")
+    provision_limiter._timestamps.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -271,15 +277,18 @@ def app(db_session: AsyncSession):
     Also bypasses admin authentication so tests do not need to log in.
     """
     from app.main import create_app
-    from app.routers.admin_auth import require_admin
+    from app.dependencies import require_admin, BetterAuthUser
 
     application = create_app()
 
     async def override_get_db():
         yield db_session
 
+    async def override_require_admin():
+        return BetterAuthUser(email="test-admin@example.com", user_id="test-user-id")
+
     application.dependency_overrides[get_db] = override_get_db
-    application.dependency_overrides[require_admin] = lambda: None
+    application.dependency_overrides[require_admin] = override_require_admin
     yield application
     application.dependency_overrides.clear()
 

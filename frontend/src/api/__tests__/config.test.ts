@@ -8,7 +8,7 @@ import {
   getSmtpStatus,
 } from "../config";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 describe("SMTP config API", () => {
   it("getSmtpConfig fetches and returns smtp config", async () => {

@@ -157,7 +157,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-01: Admin selects lots for in-person vote entry
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin, I want to select which lot owner records I need to enter in-person votes for, so that I only see the relevant rows in the entry grid and avoid a cluttered view with all building lots.
 
@@ -177,7 +177,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-02: Admin enters votes in grid UI
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin, I want a dense grid showing motions as rows and selected lots as columns so I can quickly enter votes for multiple lots across all motions in one view.
 
@@ -200,7 +200,7 @@ This document covers admin portal authentication, the admin in-person vote entry
 
 ### US-AVE-03: Admin-submitted ballot is marked distinctly in results
 
-**Status:** Pending
+**Status:** Done
 
 **Description:** As an admin reviewing results, I want to see which ballots were entered by an admin on behalf of a voter, so I can distinguish in-person and app votes in the report.
 
@@ -630,6 +630,32 @@ This document covers admin portal authentication, the admin in-person vote entry
 - [ ] Admin-submitted ballots show "Admin" in the Submitted By column; voter-submitted ballots show "Voter"
 - [ ] If no voters exist across all categories, a "No voter records." message is shown instead of an empty table
 - [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-DL-01: Per-motion vote results download
+
+**Status:** ✅ Implemented
+
+**Implementation note:** Client-side CSV generation from already-fetched data in `frontend/src/components/admin/AGMReportView.tsx`. No backend endpoint required.
+
+**Description:** As a meeting admin reviewing results, I want to download the vote data for a single motion as a CSV file so I can inspect or archive individual motion outcomes without exporting the full meeting report.
+
+**Acceptance Criteria:**
+
+- [x] Each motion card in the Results Report section has a "Download CSV" button in its header row
+- [x] The button is disabled (and marked `aria-disabled="true"`) when the motion has zero voter records across all categories (no For, Against, Abstained, Absent, or Not eligible rows)
+- [x] Clicking an enabled button triggers a browser download with no page navigation or loading state (client-side generation from already-fetched data)
+- [x] The downloaded filename follows the pattern `<motion_number>-<motion_title_slug>_results.csv` (e.g. `1-elect-chairperson_results.csv`); if `motion_number` is absent, `display_order` is used instead
+- [x] For binary motions, the CSV contains one row per voter with columns: `Lot Number`, `Owner Name`, `Voter Email`, `Vote Choice`, `Entitlement (UOE)`, `Submitted By`, `Submitted At`
+- [x] For multi-choice motions, the CSV contains one row per voter per option-vote with columns: `Lot Number`, `Owner Name`, `Voter Email`, `Option`, `Vote Choice`, `Entitlement (UOE)`, `Submitted By`, `Submitted At`
+- [x] `Owner Name` is the display name from `voter_name` if available, empty string otherwise
+- [x] `Vote Choice` values are human-readable: `For`, `Against`, `Abstained`, `Absent`, `Not eligible`
+- [x] `Submitted By` is `Admin` when `submitted_by_admin = true`, `Voter` otherwise
+- [x] `Submitted At` is the ballot submission timestamp in ISO 8601 format (UTC)
+- [x] The button uses `.btn.btn--admin` style with a download icon (`↓`) prefix
+- [x] All tests pass at 100% coverage
+- [x] Typecheck/lint passes
 
 ---
 

@@ -7,13 +7,32 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.models.motion import MotionType
 from app.schemas.shared import MotionOptionOut
 
 # Re-export so existing callers that import MotionOptionOut from admin keep working.
 __all__ = ["MotionOptionOut"]
+
+
+# ---------------------------------------------------------------------------
+# Admin user management schemas
+# ---------------------------------------------------------------------------
+
+
+class AdminUserOut(BaseModel):
+    id: str
+    email: str
+    created_at: datetime
+
+
+class AdminUserListOut(BaseModel):
+    users: list[AdminUserOut]
+
+
+class AdminUserInviteRequest(BaseModel):
+    email: EmailStr
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +45,7 @@ class BuildingOut(BaseModel):
     name: str
     manager_email: str
     is_archived: bool
+    unarchive_count: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -452,6 +472,7 @@ class VoterEntry(BaseModel):
     ballot_hash: str | None = None  # US-VIL-03: SHA-256 audit hash of submitted ballot
     submitted_by_admin: bool = False
     submitted_by_admin_username: str | None = None
+    submitted_at: datetime | None = None
 
 
 class TallyCategory(BaseModel):
@@ -573,6 +594,33 @@ class ResendReportOut(BaseModel):
 
 class GeneralMeetingBallotResetOut(BaseModel):
     deleted: int
+
+
+# ---------------------------------------------------------------------------
+# Subscription schemas
+# ---------------------------------------------------------------------------
+
+
+class SubscriptionResponse(BaseModel):
+    tier_name: str | None
+    building_limit: int | None
+    active_building_count: int
+
+
+class SubscriptionUpdate(BaseModel):
+    tier_name: str | None = Field(default=None, max_length=255)
+    building_limit: int | None = None
+
+    @field_validator("building_limit")
+    @classmethod
+    def building_limit_positive(cls, v: int | None) -> int | None:
+        if v is not None and v < 1:
+            raise ValueError("building_limit must be >= 1")
+        return v
+
+
+class SubscriptionChangeRequest(BaseModel):
+    requested_tier: str = Field(..., max_length=255)
 
 
 # ---------------------------------------------------------------------------

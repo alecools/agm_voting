@@ -16,8 +16,10 @@ import type {
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
 import type { TenantConfig, SmtpConfig, SmtpStatus } from "../../src/api/config";
+import type { AdminUser, AdminUserListResponse } from "../../src/api/users";
+import type { SubscriptionResponse } from "../../src/api/subscription";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 export let configFixture: TenantConfig = {
   app_name: "General Meeting",
@@ -63,12 +65,59 @@ export function resetConfigFixture() {
   resetSmtpStatusFixture();
 }
 
+// ---------------------------------------------------------------------------
+// Admin user management fixtures
+// ---------------------------------------------------------------------------
+
+export const CURRENT_USER_ID = "current-admin-id";
+
+export const ADMIN_USER_CURRENT: AdminUser = {
+  id: CURRENT_USER_ID,
+  email: "current-admin@example.com",
+  created_at: "2026-01-01T00:00:00.000Z",
+};
+
+export const ADMIN_USER_OTHER: AdminUser = {
+  id: "other-admin-id",
+  email: "other-admin@example.com",
+  created_at: "2026-02-01T00:00:00.000Z",
+};
+
+export let adminUsersFixture: AdminUserListResponse = {
+  users: [ADMIN_USER_CURRENT, ADMIN_USER_OTHER],
+};
+
+export function resetAdminUsersFixture() {
+  adminUsersFixture = {
+    users: [ADMIN_USER_CURRENT, ADMIN_USER_OTHER],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Subscription fixtures
+// ---------------------------------------------------------------------------
+
+export let subscriptionFixture: SubscriptionResponse = {
+  tier_name: "Starter",
+  building_limit: 10,
+  active_building_count: 3,
+};
+
+export function resetSubscriptionFixture() {
+  subscriptionFixture = {
+    tier_name: "Starter",
+    building_limit: 10,
+    active_building_count: 3,
+  };
+}
+
 export const ADMIN_BUILDINGS: Building[] = [
   {
     id: "b1",
     name: "Alpha Tower",
     manager_email: "alpha@example.com",
     is_archived: false,
+    unarchive_count: 0,
     created_at: "2024-01-01T00:00:00Z",
   },
   {
@@ -76,6 +125,7 @@ export const ADMIN_BUILDINGS: Building[] = [
     name: "Beta Court",
     manager_email: "beta@example.com",
     is_archived: false,
+    unarchive_count: 0,
     created_at: "2024-02-01T00:00:00Z",
   },
   {
@@ -83,6 +133,7 @@ export const ADMIN_BUILDINGS: Building[] = [
     name: "Gamma House",
     manager_email: "gamma@example.com",
     is_archived: true,
+    unarchive_count: 1,
     created_at: "2022-01-01T00:00:00Z",
   },
 ];
@@ -588,22 +639,6 @@ export const ADMIN_MEETING_DETAIL_MC_WITH_ADMIN_VOTES: GeneralMeetingDetail = {
 };
 
 export const adminHandlers = [
-  http.get(`${BASE}/api/admin/auth/me`, () => {
-    return HttpResponse.json({ authenticated: true });
-  }),
-
-  http.post(`${BASE}/api/admin/auth/login`, async ({ request }) => {
-    const body = await request.json() as { username?: string; password?: string };
-    if (body?.username === "admin" && body?.password === "admin") {
-      return HttpResponse.json({ ok: true });
-    }
-    return HttpResponse.json({ detail: "Invalid credentials" }, { status: 401 });
-  }),
-
-  http.post(`${BASE}/api/admin/auth/logout`, () => {
-    return HttpResponse.json({ ok: true });
-  }),
-
   http.get(`${BASE}/api/admin/buildings/count`, ({ request }) => {
     const url = new URL(request.url);
     const name = url.searchParams.get("name");
@@ -651,6 +686,7 @@ export const adminHandlers = [
       name: body?.name ?? "New Building",
       manager_email: body?.manager_email ?? "mgr@example.com",
       is_archived: false,
+      unarchive_count: 0,
       created_at: "2024-03-01T00:00:00Z",
     };
     return HttpResponse.json(newBuilding, { status: 201 });
@@ -1505,5 +1541,74 @@ export const handlers = [
       return HttpResponse.json(agmAuthSummaryFixture);
     }
     return HttpResponse.json(agmSummaryFixture);
+  }),
+
+  // ---------------------------------------------------------------------------
+  // Admin user management
+  // ---------------------------------------------------------------------------
+
+  http.get(`${BASE}/api/admin/users`, () =>
+    HttpResponse.json(adminUsersFixture)
+  ),
+
+  http.post(`${BASE}/api/admin/users/invite`, async ({ request }) => {
+    const body = await request.json() as { email: string };
+    if (body.email === "duplicate@example.com") {
+      return HttpResponse.json(
+        { detail: "A user with that email already exists." },
+        { status: 409 }
+      );
+    }
+    const newUser: AdminUser = {
+      id: "new-user-id",
+      email: body.email,
+      created_at: new Date().toISOString(),
+    };
+    return HttpResponse.json(newUser, { status: 201 });
+  }),
+
+  http.delete(`${BASE}/api/admin/users/:userId`, ({ params }) => {
+    const userId = params.userId as string;
+    if (userId === "last-admin-id") {
+      return HttpResponse.json(
+        { detail: "Cannot remove the last admin user." },
+        { status: 409 }
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ---------------------------------------------------------------------------
+  // Subscription endpoints
+  // ---------------------------------------------------------------------------
+
+  http.get(`${BASE}/api/admin/subscription`, () =>
+    HttpResponse.json(subscriptionFixture)
+  ),
+
+  http.post(`${BASE}/api/admin/subscription`, async ({ request }) => {
+    const body = await request.json() as { tier_name: string | null; building_limit: number | null };
+    subscriptionFixture = {
+      tier_name: body.tier_name,
+      building_limit: body.building_limit,
+      active_building_count: subscriptionFixture.active_building_count,
+    };
+    return HttpResponse.json(subscriptionFixture);
+  }),
+
+  http.post(`${BASE}/api/admin/subscription/request-change`, () => {
+    return HttpResponse.json({ message: "Request sent." });
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/:buildingId/unarchive`, ({ params }) => {
+    const buildingId = params.buildingId as string;
+    if (buildingId === "not-found-id") {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    const building = ADMIN_BUILDINGS.find((b) => b.id === buildingId);
+    if (!building) {
+      return HttpResponse.json({ id: buildingId, name: "Unknown", is_archived: false });
+    }
+    return HttpResponse.json({ id: building.id, name: building.name, is_archived: false });
   }),
 ];

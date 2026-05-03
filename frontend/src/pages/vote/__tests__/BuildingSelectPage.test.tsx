@@ -17,7 +17,7 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 function renderPage(path = "/", locationState?: { pendingMessage?: string }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

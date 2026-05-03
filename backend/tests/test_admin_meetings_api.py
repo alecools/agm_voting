@@ -6298,7 +6298,7 @@ class TestConcurrentBallotSubmission:
     async def _make_real_app(self, session_factory):
         """Build a FastAPI app instance wired to the given session_factory."""
         from app.main import create_app
-        from app.routers.admin_auth import require_admin
+        from app.dependencies import require_admin, BetterAuthUser
 
         real_app = create_app()
 
@@ -6306,8 +6306,11 @@ class TestConcurrentBallotSubmission:
             async with session_factory() as s:
                 yield s
 
+        async def override_require_admin():
+            return BetterAuthUser(email="test-admin@example.com", user_id="test-user-id")
+
         real_app.dependency_overrides[get_db] = _real_db
-        real_app.dependency_overrides[require_admin] = lambda: None
+        real_app.dependency_overrides[require_admin] = override_require_admin
         return real_app
 
     # --- Happy path ---
@@ -7760,17 +7763,17 @@ class TestCloseMotion:
 
 
 class TestAdminCloseMeetingRateLimit:
-    """Verify admin_close_limiter returns 429 on the 11th request (RR4-31)."""
+    """Verify admin_close_limiter returns 429 on the 31st request (RR4-31)."""
 
     async def test_close_meeting_rate_limited_after_max_requests(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """11th call to /general-meetings/{id}/close within the window returns 429."""
+        """31st call to /general-meetings/{id}/close within the window returns 429."""
         from app.rate_limiter import admin_close_limiter
         import time
 
-        # Exhaust the limit (10 req/min)
-        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(10)]
+        # Exhaust the limit (30 req/min)
+        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(30)]
 
         # Create an open meeting to close
         b = Building(name="Rate Limit Close Building", manager_email="rlc@test.com")

@@ -39,6 +39,7 @@ from app.models import (
     VoteStatus,
     get_effective_status,
 )
+from app.models.tenant_settings import TenantSettings
 from app.schemas.admin import (
     AdminVoteEntryRequest,
     BuildingUpdate,
@@ -274,7 +275,160 @@ async def import_buildings_from_excel(
     return {"created": created, "updated": updated}
 
 
+# ---------------------------------------------------------------------------
+# Subscription / tenant settings
+# ---------------------------------------------------------------------------
+
+
+async def _count_active_buildings(db: AsyncSession) -> int:
+    """Return the count of non-archived buildings."""
+    result = await db.execute(
+        select(func.count()).select_from(Building).where(Building.is_archived == False)  # noqa: E712
+    )
+    return result.scalar_one()
+
+
+async def get_subscription(db: AsyncSession):
+    """Return the current subscription settings plus active building count.
+
+    Returns defaults (None plan, None limit) when no settings row exists yet.
+    """
+    from app.schemas.admin import SubscriptionResponse
+
+    result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = result.scalar_one_or_none()
+
+    active_count = await _count_active_buildings(db)
+
+    if settings is None:
+        return SubscriptionResponse(
+            tier_name=None,
+            building_limit=None,
+            active_building_count=active_count,
+        )
+    return SubscriptionResponse(
+        tier_name=settings.tier_name,
+        building_limit=settings.building_limit,
+        active_building_count=active_count,
+    )
+
+
+async def upsert_subscription(
+    db: AsyncSession,
+    tier_name: str | None,
+    building_limit: int | None,
+):
+    """Upsert the single tenant_settings row (id=1)."""
+    from app.schemas.admin import SubscriptionResponse
+
+    result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = result.scalar_one_or_none()
+
+    if settings is None:
+        settings = TenantSettings(id=1, tier_name=tier_name, building_limit=building_limit)
+        db.add(settings)
+    else:
+        settings.tier_name = tier_name
+        settings.building_limit = building_limit
+
+    await db.commit()
+    await db.refresh(settings)
+
+    active_count = await _count_active_buildings(db)
+    return SubscriptionResponse(
+        tier_name=settings.tier_name,
+        building_limit=settings.building_limit,
+        active_building_count=active_count,
+    )
+
+
+async def send_subscription_change_request(
+    db: AsyncSession,
+    *,
+    origin: str,
+    current_tier: str | None,
+    requested_tier: str,
+    requester_email: str,
+) -> None:
+    """Send a tier-change request email to support@ocss.tech.
+
+    Raises SmtpNotConfiguredError if SMTP is not configured.
+    """
+    from app.services.email_service import SmtpNotConfiguredError
+    from app.services.smtp_config_service import get_smtp_config, get_decrypted_password
+    import aiosmtplib
+    from email.mime.text import MIMEText
+
+    smtp_config = await get_smtp_config(db)
+    if (
+        not smtp_config.smtp_host
+        or not smtp_config.smtp_username
+        or not smtp_config.smtp_from_email
+        or smtp_config.smtp_password_enc is None
+    ):
+        raise SmtpNotConfiguredError("SMTP not configured")
+
+    smtp_password = get_decrypted_password(smtp_config)
+
+    tier_display = current_tier or "No plan set"
+    body = (
+        f"A tier change has been requested.\n\n"
+        f"Deployment: {origin}\n"
+        f"Current tier: {tier_display}\n"
+        f"Requested tier: {requested_tier}\n"
+        f"Requested by: {requester_email}\n"
+    )
+
+    msg = MIMEText(body, "plain")
+    msg["Subject"] = f"Tier change request — {origin}"
+    msg["From"] = smtp_config.smtp_from_email
+    msg["To"] = "support@ocss.tech"
+
+    await aiosmtplib.send(
+        msg,
+        hostname=smtp_config.smtp_host,
+        port=smtp_config.smtp_port,
+        username=smtp_config.smtp_username,
+        password=smtp_password,
+        start_tls=True,
+    )
+
+
+async def unarchive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
+    """Set is_archived=False on the given building. Raises 404 if not found."""
+    result = await db.execute(select(Building).where(Building.id == building_id))
+    building = result.scalar_one_or_none()
+    if building is None:
+        raise HTTPException(status_code=404, detail="Building not found")
+    building.is_archived = False
+    building.unarchive_count += 1
+    await db.commit()
+    await db.refresh(building)
+    return building
+
+
+# ---------------------------------------------------------------------------
+# Buildings (CRUD)
+# ---------------------------------------------------------------------------
+
+
 async def create_building(name: str, manager_email: str, db: AsyncSession) -> Building:
+    # Enforce subscription building limit (if set).
+    sub_result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = sub_result.scalar_one_or_none()
+    if settings is not None and settings.building_limit is not None:
+        active_count = await _count_active_buildings(db)
+        if active_count >= settings.building_limit:
+            tier = settings.tier_name or "current"
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Building limit reached. You have {active_count} of "
+                    f"{settings.building_limit} active buildings on the {tier} plan. "
+                    "Contact support to upgrade."
+                ),
+            )
+
     result = await db.execute(
         select(Building).where(func.lower(Building.name) == func.lower(name))
     )
@@ -1857,6 +2011,10 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     lot_owner_to_submitted_by_admin_username: dict[uuid.UUID, str | None] = {
         sub.lot_owner_id: sub.submitted_by_admin_username for sub in voted_submissions
     }
+    # Expose submitted_at timestamp for per-motion CSV download
+    lot_owner_to_submitted_at: dict[uuid.UUID, datetime] = {
+        sub.lot_owner_id: sub.submitted_at for sub in voted_submissions
+    }
     # Per-motion voter email: keyed on (lot_owner_id, motion_id) so that when a lot has
     # multiple voters (co-owners, proxy re-entry) each motion shows the email of the person
     # who actually submitted that specific Vote row, not the last BallotSubmission author.
@@ -1875,6 +2033,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     ballot_hash_val = None  # absent lots have no ballot hash
                     submitted_by_admin_val = False
                     submitted_by_admin_username_val = None
+                    submitted_at_val = absent_sub.submitted_at if absent_sub else None
                 else:
                     # For voted categories, prefer the per-motion voter_email stamped on
                     # the Vote row (correct even when co-owners submit different motions),
@@ -1887,6 +2046,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     ballot_hash_val = lot_owner_to_ballot_hash.get(lid)
                     submitted_by_admin_val = lot_owner_to_submitted_by_admin.get(lid, False)
                     submitted_by_admin_username_val = lot_owner_to_submitted_by_admin_username.get(lid)
+                    submitted_at_val = lot_owner_to_submitted_at.get(lid)
                 voter_name = lot_owner_email_to_name.get((lid, voter_email))
                 result_list.append({
                     "voter_email": voter_email,
@@ -1897,6 +2057,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                     "ballot_hash": ballot_hash_val,
                     "submitted_by_admin": submitted_by_admin_val,
                     "submitted_by_admin_username": submitted_by_admin_username_val,
+                    "submitted_at": submitted_at_val,
                 })
         return result_list
 

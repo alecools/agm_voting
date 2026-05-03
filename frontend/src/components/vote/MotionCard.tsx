@@ -57,7 +57,7 @@ export function MotionCard({
   return (
     <div
       data-testid={`motion-card-${motion.id}`}
-      className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}`}
+      className={`motion-card${highlight ? " motion-card--highlight" : ""}${readOnly ? " motion-card--read-only" : ""}${votingClosed ? " motion-card--closed" : ""}`}
     >
       <div className="motion-card__top-row">
         <p className="motion-card__number">{`Motion ${motion.motion_number?.trim() || position}`}</p>

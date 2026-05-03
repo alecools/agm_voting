@@ -7,7 +7,7 @@ import { server } from "../../../tests/msw/server";
 import GeneralMeetingSummaryPage from "../GeneralMeetingSummaryPage";
 import { SUMMARY_AGM_ID, agmSummaryFixture } from "../../../tests/msw/handlers";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 function renderPage(meetingId = SUMMARY_AGM_ID) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

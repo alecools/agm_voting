@@ -20,9 +20,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -41,21 +40,13 @@ import {
 // ---------------------------------------------------------------------------
 
 test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via cookie", () => {
-  test.describe.configure({ mode: "serial" });
-
   const BUILDING = `SESS01 Building-${RUN_SUFFIX}`;
   const LOT_EMAIL = `sess01-voter-${RUN_SUFFIX}@test.com`;
   let meetingId = "";
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const buildingId = await seedBuilding(api, BUILDING, `sess01-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
       lotNumber: "SESS01-1",
@@ -71,13 +62,7 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, meetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -85,13 +70,7 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
   test("SESS-E2E-03: first visit — no cookie means OTP form shown; subsequent navigation skips OTP (cookie set)", async ({ page }) => {
     test.setTimeout(60000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Ensure no session cookie exists so restore fails and OTP form is shown.
     await page.context().clearCookies({ name: 'agm_session' });
@@ -126,13 +105,7 @@ test.describe("SESS-E2E-01/03: first visit shows OTP; return visit skips OTP via
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Authenticate to establish a real session cookie for this meeting
     await goToAuthPage(page, BUILDING);
@@ -168,13 +141,7 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const buildingId = await seedBuilding(api, BUILDING, `sess04-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
       lotNumber: "SESS04-1",
@@ -189,13 +156,7 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, meetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -227,8 +188,6 @@ test.describe("SESS-E2E-04: no session cookie → OTP form shown", () => {
 // correct lot owner / meeting combination).
 
 test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unrelated voter B", () => {
-  test.describe.configure({ mode: "serial" });
-
   const BUILDING_A = `SESS05A Building-${RUN_SUFFIX}`;
   const BUILDING_B = `SESS05B Building-${RUN_SUFFIX}`;
   const LOT_EMAIL_A = `sess05a-voter-${RUN_SUFFIX}@test.com`;
@@ -238,13 +197,7 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const buildingIdA = await seedBuilding(api, BUILDING_A, `sess05a-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingIdA, {
       lotNumber: "SESS05A-1",
@@ -269,13 +222,7 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, meetingIdA);
     await deleteMeeting(api, meetingIdB);
     await api.dispose();
@@ -285,13 +232,7 @@ test.describe("SESS-E2E-05: session cookie for voter A does not skip OTP for unr
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Step 1: Authenticate as Voter A for meeting A — sets the session cookie
     await goToAuthPage(page, BUILDING_A);
@@ -326,13 +267,7 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const buildingId = await seedBuilding(api, BUILDING, `sess06-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
       lotNumber: "SESS06-1",
@@ -347,13 +282,7 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     // Meeting is already closed by the test — deleteMeeting handles that
     await deleteMeeting(api, meetingId);
     await api.dispose();
@@ -362,13 +291,7 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
   test("SESS-E2E-06: voter authenticates while meeting is open — lands on voting", async ({ page }) => {
     test.setTimeout(60000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
@@ -382,13 +305,7 @@ test.describe("SESS-E2E-06: after meeting closes, navigating to auth URL shows O
 
     // Close the meeting via admin API
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await closeMeeting(api, meetingId);
     await api.dispose();
 
@@ -415,13 +332,7 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const buildingId = await seedBuilding(api, BUILDING, `sess08-mgr-${RUN_SUFFIX}@test.com`);
     await seedLotOwner(api, buildingId, {
       lotNumber: "SESS08-1",
@@ -437,13 +348,7 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, meetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -451,13 +356,7 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
   test("SESS-E2E-08: voter authenticates and submits ballot — lands on confirmation", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
@@ -476,13 +375,7 @@ test.describe("SESS-E2E-08: return visit after ballot submitted routes to confir
   test("SESS-E2E-08: return visit skips OTP and lands on confirmation (already submitted)", async ({ page }) => {
     test.setTimeout(60000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Authenticate again (from a fresh browser context) — this sets a new session cookie.
     // Because the ballot is already submitted, auth redirects straight to confirmation.

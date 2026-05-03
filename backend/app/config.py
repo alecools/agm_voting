@@ -1,5 +1,6 @@
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
                 "Replace 'sslmode=require' with 'ssl=require'."
             )
         return v
+
     test_database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test"
     )
@@ -60,11 +62,27 @@ class Settings(BaseSettings):
     smtp_encryption_key: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; real value supplied via SMTP_ENCRYPTION_KEY env var
     allowed_origin: str = "http://localhost:5173"
     session_secret: str = "change_me_to_a_random_secret"  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; overridden by SESSION_SECRET env var; placeholder value intentionally signals misconfiguration
-    admin_username: str = "admin"
-    admin_password: str = "admin"  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; overridden by ADMIN_PASSWORD env var in all deployed environments
+    # Base URL of the Neon Auth / Better Auth instance.
+    # Used by require_admin to call GET {neon_auth_base_url}/api/auth/get-session
+    # for HTTP session introspection.  Empty string in development (Better Auth
+    # is not required for local dev without a Neon project).
+    neon_auth_base_url: str = ""
     testing_mode: bool = False
     email_override: str = ""
     environment: str = "development"
+    # Neon Auth management API settings for admin user management.
+    # neon_api_key and neon_project_id are required for all environments.
+    # neon_branch_id is an optional static override; when absent the branch ID
+    # is resolved dynamically at runtime by matching PGHOST against the Neon
+    # branches API (see neon_auth_service._resolve_branch_id).
+    neon_api_key: str = ""  # nosemgrep: no-hardcoded-secrets -- Pydantic Settings field default; real value supplied via NEON_API_KEY env var in all deployed environments
+    neon_project_id: str = ""
+    neon_branch_id: str = ""  # static override; leave empty to resolve dynamically via PGHOST
+    # PGHOST is injected by the Neon-Vercel integration into every deployment.
+    # It contains the Neon endpoint hostname (e.g. ep-cool-name-a7abc123.us-east-2.aws.neon.tech)
+    # which uniquely identifies the branch used by this deployment.
+    pghost: str = ""
+
     # Production guard for the ballot-reset endpoint (RR5-01).
     # Must be explicitly set to True via ENABLE_BALLOT_RESET env var to enable the endpoint.
     # Defaults to False so the endpoint is blocked in all deployed environments unless opted in.
@@ -86,29 +104,6 @@ class Settings(BaseSettings):
     db_pool_size: int = 20
     db_max_overflow: int = 10
     db_pool_timeout: int = 10
-
-    @field_validator("admin_password")
-    @classmethod
-    def admin_password_must_be_bcrypt(cls, v: str) -> str:
-        """Reject non-bcrypt admin passwords at startup (RR3-17).
-
-        ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$) or
-        the literal dev-only placeholder "admin" (the default for local
-        development and CI). Any other non-empty value that is NOT a bcrypt
-        hash is rejected immediately at startup to prevent plaintext passwords
-        from being deployed to production.
-
-        Operators must run POST /api/admin/auth/hash-password to generate a
-        bcrypt hash before setting ADMIN_PASSWORD in a deployed environment.
-        """
-        _BCRYPT_PREFIXES = ("$2b$", "$2a$")
-        _DEV_PLACEHOLDER = "admin"  # allowed default for local dev / CI only
-        if v and v != _DEV_PLACEHOLDER and not any(v.startswith(p) for p in _BCRYPT_PREFIXES):
-            raise ValueError(
-                "ADMIN_PASSWORD must be a bcrypt hash (starting with $2b$ or $2a$). "
-                "Run POST /api/admin/auth/hash-password to generate one."
-            )
-        return v
 
     @model_validator(mode="after")
     def testing_mode_forbidden_in_production(self) -> "Settings":
@@ -133,7 +128,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_weak_secrets_outside_development(self) -> "Settings":
-        """Reject known-weak SESSION_SECRET and admin_password outside development (RR3-35).
+        """Reject known-weak SESSION_SECRET outside development (RR3-35).
 
         In production or preview environments, weak defaults are rejected at
         startup to prevent misconfigured deployments from accepting real traffic.
@@ -141,10 +136,6 @@ class Settings(BaseSettings):
         Weak SESSION_SECRET values:
         - The shipped placeholder "change_me_to_a_random_secret"
         - Any value shorter than 32 characters
-
-        Weak admin_password values:
-        - The dev-only placeholder "admin"
-        - Any non-bcrypt value (complementing the field_validator above)
         """
         # Only enforce in production and preview — development and testing environments
         # use weak defaults intentionally for developer ergonomics and CI.
@@ -158,18 +149,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SESSION_SECRET is too weak for a non-development environment. "
                 "Use a random string of at least 32 characters."
-            )
-
-        # Reject plaintext admin password outside development
-        _DEV_ADMIN_PASSWORD = "admin"
-        _BCRYPT_PREFIXES = ("$2b$", "$2a$")
-        if self.admin_password == _DEV_ADMIN_PASSWORD or (  # nosemgrep: no-plaintext-password-compare
-            self.admin_password
-            and not any(self.admin_password.startswith(p) for p in _BCRYPT_PREFIXES)
-        ):
-            raise ValueError(
-                "ADMIN_PASSWORD must be a bcrypt hash in non-development environments. "
-                "Run POST /api/admin/auth/hash-password to generate one."
             )
 
         return self

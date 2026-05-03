@@ -68,7 +68,7 @@ export default defineConfig({
     {
       name: "public-workflow",
       testMatch: [
-        /e2e_tests\/workflows\/.*\.spec\.ts/,
+        /e2e_tests\/workflows\/(?!agm-33m-workflow).*\.spec\.ts/,
         /e2e_tests\/multi-lot-voting\.spec\.ts/,
         /e2e_tests\/proxy-voting\.spec\.ts/,
         /e2e_tests\/public-summary\.spec\.ts/,
@@ -77,6 +77,20 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         storageState: "../e2e_tests/.auth/public.json",
+      },
+    },
+
+    // ── User workflow: long-running real-data workflow tests ──────────────────
+    // Tests that exercise the full AGM lifecycle against real seeded buildings.
+    // Run as a separate job to avoid blocking the faster workflow suite.
+    {
+      name: "user-workflow",
+      retries: 0, // module-level shared state cannot be recovered in a fresh retry worker
+      testMatch: [/e2e_tests\/workflows\/agm-33m-workflow\.spec\.ts/],
+      dependencies: process.env.CI ? [] : ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "../e2e_tests/.auth/admin.json",
       },
     },
   ],

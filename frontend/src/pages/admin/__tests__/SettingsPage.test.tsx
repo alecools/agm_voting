@@ -1,16 +1,31 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import SettingsPage from "../SettingsPage";
-import { resetConfigFixture } from "../../../../tests/msw/handlers";
+import { resetConfigFixture, resetAdminUsersFixture, resetSubscriptionFixture, CURRENT_USER_ID, ADMIN_USER_CURRENT, ADMIN_USER_OTHER } from "../../../../tests/msw/handlers";
 import * as configApi from "../../../api/config";
+import * as usersApi from "../../../api/users";
+import * as subscriptionApi from "../../../api/subscription";
 import { vi } from "vitest";
+import { authClient, changePassword as changePasswordFn } from "../../../lib/auth-client";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
+
+// Mock auth-client so getSession and changePassword return predictable values.
+// NOTE: vi.mock is hoisted before imports, so we cannot use imported constants here.
+// The literal "current-admin-id" must match CURRENT_USER_ID exported from handlers.ts.
+vi.mock("../../../lib/auth-client", () => ({
+  authClient: {
+    getSession: vi.fn().mockResolvedValue({
+      data: { user: { id: "current-admin-id" } },
+    }),
+  },
+  changePassword: vi.fn().mockResolvedValue({ error: null }),
+}));
 
 function renderPage() {
   const qc = new QueryClient({
@@ -28,6 +43,8 @@ function renderPage() {
 describe("SettingsPage", () => {
   beforeEach(() => {
     resetConfigFixture();
+    resetAdminUsersFixture();
+    resetSubscriptionFixture();
   });
 
   // --- Happy path ---
@@ -37,7 +54,22 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Loading settings…")).toBeInTheDocument();
   });
 
-  it("renders form fields after config loads", async () => {
+  it("renders tab navigation after config loads", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "UI & Theme" })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument();
+  });
+
+  it("UI & Theme tab is active by default", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "UI & Theme" })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "UI & Theme" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Email Server" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "User Management" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("renders form fields after config loads on UI & Theme tab", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("App name")).toBeInTheDocument());
     expect(screen.getByLabelText("Logo URL")).toBeInTheDocument();
@@ -62,7 +94,7 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument());
   });
 
-  it("shows Save button after loading", async () => {
+  it("shows Save button after loading on UI & Theme tab", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByTestId("branding-save-btn")).toBeInTheDocument());
   });
@@ -264,7 +296,7 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     // Delay the upload response so we can observe the Uploading state
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+      http.post("http://localhost/api/admin/config/logo", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
       })
@@ -287,7 +319,7 @@ describe("SettingsPage", () => {
   it("disables file input during upload", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", async () => {
+      http.post("http://localhost/api/admin/config/logo", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo.png" });
       })
@@ -307,7 +339,7 @@ describe("SettingsPage", () => {
   it("shows upload error when server returns an error", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ detail: "Logo upload failed" }, { status: 502 })
       )
     );
@@ -432,7 +464,7 @@ describe("SettingsPage", () => {
   it("shows Uploading message during favicon upload then hides it on success", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", async () => {
+      http.post("http://localhost/api/admin/config/favicon", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon.png" });
       })
@@ -454,7 +486,7 @@ describe("SettingsPage", () => {
   it("disables favicon file input during upload", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", async () => {
+      http.post("http://localhost/api/admin/config/favicon", async () => {
         await new Promise((r) => setTimeout(r, 50));
         return HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon.png" });
       })
@@ -474,7 +506,7 @@ describe("SettingsPage", () => {
   it("shows upload error when favicon server returns an error", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ detail: "Favicon upload failed" }, { status: 502 })
       )
     );
@@ -604,7 +636,7 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     // First trigger an error
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
       )
     );
@@ -616,7 +648,7 @@ describe("SettingsPage", () => {
 
     // Now succeed on second upload with a different file object (avoids no-change event)
     server.use(
-      http.post("http://localhost:8000/api/admin/config/logo", () =>
+      http.post("http://localhost/api/admin/config/logo", () =>
         HttpResponse.json({ url: "https://public.blob.vercel-storage.com/logo-test.png" })
       )
     );
@@ -630,7 +662,7 @@ describe("SettingsPage", () => {
   it("favicon upload success clears favicon error state first", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ detail: "Upload failed" }, { status: 502 })
       )
     );
@@ -641,7 +673,7 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByText(/HTTP 502/)).toBeInTheDocument());
 
     server.use(
-      http.post("http://localhost:8000/api/admin/config/favicon", () =>
+      http.post("http://localhost/api/admin/config/favicon", () =>
         HttpResponse.json({ url: "https://public.blob.vercel-storage.com/favicon-test.png" })
       )
     );
@@ -651,11 +683,70 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(/HTTP 502/)).not.toBeInTheDocument();
   });
 
+  // --- Tab switching ---
+
+  it("clicking Email Server tab shows SMTP form", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
+    await waitFor(() => expect(screen.getByText("Mail Server")).toBeInTheDocument());
+    expect(screen.getByLabelText("Host")).toBeInTheDocument();
+  });
+
+  it("clicking User Management tab shows users section", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText("Admin Users")).toBeInTheDocument());
+  });
+
+  it("Email Server tab becomes active after click", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
+    expect(screen.getByRole("tab", { name: "Email Server" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "UI & Theme" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("User Management tab becomes active after click", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    expect(screen.getByRole("tab", { name: "User Management" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("branding form is hidden when Email Server tab is active", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
+    // The tab panel stays in the DOM (hidden attr) — assert not visible, not absent
+    expect(screen.getByLabelText("App name")).not.toBeVisible();
+  });
+
+  it("clicking UI & Theme tab from Email Server tab restores branding form", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
+    // The tab panel stays in the DOM (hidden attr) — assert not visible while inactive
+    expect(screen.getByLabelText("App name")).not.toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "UI & Theme" }));
+    await waitFor(() => expect(screen.getByLabelText("App name")).toBeVisible());
+    expect(screen.getByRole("tab", { name: "UI & Theme" })).toHaveAttribute("aria-selected", "true");
+  });
+
   // --- Mail Server (SMTP) section ---
 
   it("updates SMTP port field on user input", async () => {
     const user = userEvent.setup();
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Port")).toBeInTheDocument());
     const portInput = screen.getByLabelText("Port");
     await user.clear(portInput);
@@ -663,8 +754,11 @@ describe("SettingsPage", () => {
     expect(portInput).toHaveValue(465);
   });
 
-  it("renders Mail Server section after loading", async () => {
+  it("renders Mail Server section after switching to Email Server tab", async () => {
+    const user = userEvent.setup();
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByText("Mail Server")).toBeInTheDocument());
     expect(screen.getByLabelText("Host")).toBeInTheDocument();
     expect(screen.getByLabelText("Port")).toBeInTheDocument();
@@ -674,6 +768,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows unconfigured notice when SMTP is not set up", async () => {
+    const user = userEvent.setup();
     server.use(
       http.get(`${BASE}/api/admin/config/smtp`, () =>
         HttpResponse.json({
@@ -686,12 +781,15 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() =>
       expect(screen.getByText(/Mail server is not configured/)).toBeInTheDocument()
     );
   });
 
   it("does not show unconfigured notice when SMTP is configured", async () => {
+    const user = userEvent.setup();
     server.use(
       http.get(`${BASE}/api/admin/config/smtp`, () =>
         HttpResponse.json({
@@ -704,6 +802,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByText("Mail Server")).toBeInTheDocument());
     expect(screen.queryByText(/Mail server is not configured/)).not.toBeInTheDocument();
   });
@@ -731,6 +831,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Host")).toBeInTheDocument());
 
     await user.clear(screen.getByLabelText("Host"));
@@ -741,9 +843,7 @@ describe("SettingsPage", () => {
     await user.type(screen.getByLabelText("From email address"), "from@example.com");
     await user.type(screen.getByLabelText("Password"), "secret");
 
-    const saveBtns = screen.getAllByRole("button", { name: "Save" });
-    // SMTP save button is the second Save button
-    await user.click(saveBtns[1]);
+    await user.click(screen.getByTestId("smtp-save-btn"));
 
     await waitFor(() => expect(screen.getByText("SMTP settings saved.")).toBeInTheDocument());
   });
@@ -765,13 +865,15 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue("smtp.example.com"));
-    const saveBtns = screen.getAllByRole("button", { name: "Save" });
-    await user.click(saveBtns[1]);
+    await user.click(screen.getByTestId("smtp-save-btn"));
     await waitFor(() => expect(screen.getByText(/HTTP 422|Validation error/)).toBeInTheDocument());
   });
 
   it("shows fallback error when SMTP save throws non-Error", async () => {
+    const user = userEvent.setup();
     server.use(
       http.get(`${BASE}/api/admin/config/smtp`, () =>
         HttpResponse.json({
@@ -785,9 +887,10 @@ describe("SettingsPage", () => {
     );
     vi.spyOn(configApi, "updateSmtpConfig").mockRejectedValueOnce("smtp string error");
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue("smtp.example.com"));
-    const saveBtns = screen.getAllByRole("button", { name: "Save" });
-    await userEvent.setup().click(saveBtns[1]);
+    await user.click(screen.getByTestId("smtp-save-btn"));
     await waitFor(() => expect(screen.getByText("Failed to save SMTP settings.")).toBeInTheDocument());
   });
 
@@ -805,6 +908,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -830,6 +935,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -852,6 +959,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -876,6 +985,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -900,6 +1011,8 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -924,6 +1037,8 @@ describe("SettingsPage", () => {
     vi.spyOn(configApi, "testSmtpConfig").mockRejectedValueOnce("smtp plain error");
     const user = userEvent.setup();
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -956,11 +1071,12 @@ describe("SettingsPage", () => {
       })
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue("smtp.example.com"));
-    const saveBtns = screen.getAllByRole("button", { name: "Save" });
-    await user.click(saveBtns[1]);
+    await user.click(screen.getByTestId("smtp-save-btn"));
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Save" }).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByTestId("smtp-save-btn")).not.toBeDisabled());
   });
 
   it("Send test email shows Sending state while in-flight", async () => {
@@ -981,6 +1097,8 @@ describe("SettingsPage", () => {
     );
     const user = userEvent.setup();
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send test email" })).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "Send test email" }));
     await waitFor(() => expect(screen.getByLabelText("Recipient email")).toBeInTheDocument());
@@ -1005,13 +1123,972 @@ describe("SettingsPage", () => {
       )
     );
     renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email Server" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Email Server" }));
     await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue("smtp.example.com"));
-    const saveBtns = screen.getAllByRole("button", { name: "Save" });
-    await user.click(saveBtns[1]);
+    await user.click(screen.getByTestId("smtp-save-btn"));
     await waitFor(() => expect(screen.getByText("SMTP settings saved.")).toBeInTheDocument());
     act(() => vi.advanceTimersByTime(3100));
     await waitFor(() => expect(screen.queryByText("SMTP settings saved.")).not.toBeInTheDocument());
     vi.useRealTimers();
   });
 
+  // --- User Management tab ---
+
+  it("switching away and back to User Management tab does not re-fetch users", async () => {
+    // Exercises the hasFetchedUsers.current guard: the second tab activation must
+    // NOT trigger a second GET /api/admin/users request.
+    const user = userEvent.setup();
+    let fetchCount = 0;
+    server.use(
+      http.get(`${BASE}/api/admin/users`, () => {
+        fetchCount++;
+        return HttpResponse.json({ users: [ADMIN_USER_CURRENT] });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+
+    // First activation — triggers fetch
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    expect(fetchCount).toBe(1);
+
+    // Switch away, then back — must NOT trigger a second fetch
+    await user.click(screen.getByRole("tab", { name: "UI & Theme" }));
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    // Give any potential async work a moment to complete
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeVisible());
+    expect(fetchCount).toBe(1);
+  });
+
+  it("shows loading state while fetching users", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/users`, async () => {
+        await new Promise((r) => setTimeout(r, 100));
+        return HttpResponse.json({ users: [] });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    expect(screen.getByText("Loading users…")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Loading users…")).not.toBeInTheDocument());
+  });
+
+  it("renders user table with email and created date after loading", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    expect(screen.getByText(ADMIN_USER_OTHER.email)).toBeInTheDocument();
+    // Check created date is formatted
+    const expectedDate = new Date(ADMIN_USER_CURRENT.created_at).toLocaleDateString("en-AU");
+    expect(screen.getByText(expectedDate)).toBeInTheDocument();
+  });
+
+  it("shows (you) marker on current user row", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    expect(screen.getByText("(you)")).toBeInTheDocument();
+  });
+
+  it("hides Remove button for current user row", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    // Only one Remove button (for the other user), not two
+    const removeBtns = screen.getAllByRole("button", { name: "Remove" });
+    expect(removeBtns).toHaveLength(1);
+  });
+
+  it("shows Remove button for other user rows", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_OTHER.email)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  it("shows empty state when no users returned", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/users`, () => HttpResponse.json({ users: [] }))
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText("No admin users found.")).toBeInTheDocument());
+  });
+
+  it("shows error state when users fetch fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/users`, () =>
+        HttpResponse.json({ detail: "Not configured" }, { status: 503 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText("Failed to load users.")).toBeInTheDocument());
+  });
+
+  it("shows Invite Admin button on User Management tab", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+  });
+
+  it("clicking Invite Admin opens the invite modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    // Modal is not visible before clicking
+    expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    // Modal is now visible
+    const modal = screen.getByRole("dialog", { name: "Invite Admin User" });
+    expect(modal).toBeInTheDocument();
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send Invite" })).toBeInTheDocument();
+  });
+
+  it("Cancel button closes the invite modal without calling API", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(usersApi, "inviteAdminUser");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Invite Admin User" })).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("Escape key closes the invite modal without calling API", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(usersApi, "inviteAdminUser");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Invite Admin User" })).toBeInTheDocument());
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.keyDown(overlay, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument());
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("backdrop click closes the invite modal without calling API", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(usersApi, "inviteAdminUser");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Invite Admin User" })).toBeInTheDocument());
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument());
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("invite flow: UI has NOT transitioned while async invite is pending, and HAS transitioned after it completes", async () => {
+    // Assert that modal stays open (email field visible) during the request and closes only after success.
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/users/invite`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ id: "new-id", email: "pending@example.com", created_at: new Date().toISOString() }, { status: 201 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "pending@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    // While in-flight: modal still open, success NOT yet shown
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.queryByText(/Invite sent to/)).not.toBeInTheDocument();
+    // After completion: modal closes and success message appears
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument());
+    expect(screen.getByText(/Invite sent to pending@example.com/)).toBeInTheDocument();
+  });
+
+  it("invite flow: submitting valid email shows success and new user in table", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "newuser@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    await waitFor(() => expect(screen.getByText(/Invite sent to newuser@example.com/)).toBeInTheDocument());
+    // New user should appear in table
+    expect(screen.getByText("newuser@example.com")).toBeInTheDocument();
+    // Modal is closed after success
+    expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument();
+  });
+
+  it("invite flow: 409 duplicate shows inline error in modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "duplicate@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    await waitFor(() =>
+      expect(screen.getByText("A user with that email already exists.")).toBeInTheDocument()
+    );
+    // Modal stays open to allow correction
+    expect(screen.getByRole("dialog", { name: "Invite Admin User" })).toBeInTheDocument();
+  });
+
+  it("invite flow: Send Invite button is disabled while in flight", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/users/invite`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ id: "new-id", email: "slow@example.com", created_at: new Date().toISOString() }, { status: 201 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "slow@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByText(/Invite sent to slow@example.com/)).toBeInTheDocument());
+  });
+
+  it("invite flow: fallback error for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(usersApi, "inviteAdminUser").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "test@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    await waitFor(() => expect(screen.getByText("Failed to send invite.")).toBeInTheDocument());
+  });
+
+  it("remove flow: clicking Remove shows confirmation dialog", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    expect(dialog).toBeInTheDocument();
+    // The dialog body mentions the email in a <strong> tag
+    expect(dialog.querySelector("strong")?.textContent).toBe(ADMIN_USER_OTHER.email);
+  });
+
+  it("remove flow: Cancel in confirmation closes dialog", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    // Cancel is inside the dialog
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Remove user?" })).not.toBeInTheDocument();
+  });
+
+  it("remove flow: Escape key closes confirmation dialog without removing user", async () => {
+    const spy = vi.spyOn(usersApi, "removeAdminUser");
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Remove user?" })).toBeInTheDocument());
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    // Non-Escape keydown must NOT close the dialog (covers the false branch)
+    fireEvent.keyDown(overlay, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: "Remove user?" })).toBeInTheDocument();
+    // Escape keydown closes the dialog
+    fireEvent.keyDown(overlay, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remove user?" })).not.toBeInTheDocument());
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("remove flow: overlay click closes confirmation dialog without removing user", async () => {
+    const spy = vi.spyOn(usersApi, "removeAdminUser");
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Remove user?" })).toBeInTheDocument());
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remove user?" })).not.toBeInTheDocument());
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("remove flow: confirming removes user row and shows success", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    // Confirm removal using the dialog's danger button
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByText("User removed.")).toBeInTheDocument());
+    expect(screen.queryByText(ADMIN_USER_OTHER.email)).not.toBeInTheDocument();
+  });
+
+  it("remove flow: 409 last admin shows inline error", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.delete(`${BASE}/api/admin/users/:userId`, () =>
+        HttpResponse.json({ detail: "Cannot remove the last admin user." }, { status: 409 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(screen.getByText("Cannot remove the last admin user.")).toBeInTheDocument()
+    );
+  });
+
+  it("remove flow: 403 self-removal shows inline error", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.delete(`${BASE}/api/admin/users/:userId`, () =>
+        HttpResponse.json({ detail: "Cannot remove yourself." }, { status: 403 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(screen.getByText("Cannot remove yourself.")).toBeInTheDocument()
+    );
+  });
+
+  it("remove flow: UI has NOT transitioned while async removal is pending, and HAS transitioned after it completes", async () => {
+    // This test asserts the async UI transition: while removal is in-flight the
+    // Remove button is disabled and the success message has NOT appeared; after
+    // the request completes the user row is gone and the success message shows.
+    const user = userEvent.setup();
+    server.use(
+      http.delete(`${BASE}/api/admin/users/:userId`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    // Immediately after confirm: dialog is gone, but success message has NOT appeared yet
+    expect(screen.queryByRole("dialog", { name: "Remove user?" })).not.toBeInTheDocument();
+    expect(screen.queryByText("User removed.")).not.toBeInTheDocument();
+    // After the request completes, success message appears and user row is gone
+    await waitFor(() => expect(screen.getByText("User removed.")).toBeInTheDocument());
+    expect(screen.queryByText(ADMIN_USER_OTHER.email)).not.toBeInTheDocument();
+  });
+
+  it("remove flow: fallback error for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(usersApi, "removeAdminUser").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByText("Failed to remove user.")).toBeInTheDocument());
+  });
+
+  it("shows all users as non-current when session returns null user", async () => {
+    // Exercises the `?? null` branch on line 99 — session has no user id
+    vi.mocked(authClient.getSession).mockResolvedValueOnce(null as never);
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    // With no current user id, no "(you)" marker should be shown
+    expect(screen.queryByText("(you)")).not.toBeInTheDocument();
+    // Both users should show Remove buttons
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
+  });
+
+  it("multi-step: invite then remove full sequence", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    // Navigate to User Management
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Invite Admin" })).toBeInTheDocument());
+
+    // Step 1: Invite a user via modal
+    await user.click(screen.getByRole("button", { name: "Invite Admin" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Invite Admin User" })).toBeInTheDocument());
+    await user.type(screen.getByLabelText("Email address"), "sequence@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    await waitFor(() => expect(screen.getByText(/Invite sent to sequence@example.com/)).toBeInTheDocument());
+    expect(screen.getByText("sequence@example.com")).toBeInTheDocument();
+    // Modal should be closed after successful invite
+    expect(screen.queryByRole("dialog", { name: "Invite Admin User" })).not.toBeInTheDocument();
+
+    // Step 2: Remove the newly invited user
+    // The new user row has a Remove button (it's not the current user)
+    // Find Remove button for the newly added user row by querying all Remove buttons
+    const removeBtns = screen.getAllByRole("button", { name: "Remove" });
+    // Click the last Remove button which belongs to the newly added user
+    await user.click(removeBtns[removeBtns.length - 1]);
+    const dialog = screen.getByRole("dialog", { name: "Remove user?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByText("User removed.")).toBeInTheDocument());
+    expect(screen.queryByText("sequence@example.com")).not.toBeInTheDocument();
+  });
+
+  // --- Change Password ---
+
+  async function openChangePasswordModal() {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change Password" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Change Password" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument());
+    return user;
+  }
+
+  it("shows Change Password button in the current user's row (not in the header)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_CURRENT.email)).toBeInTheDocument());
+    // The button exists exactly once
+    const btn = screen.getByRole("button", { name: "Change Password" });
+    expect(btn).toBeInTheDocument();
+    // It is inside the current user's row, not in the card header
+    const currentUserRow = btn.closest("tr");
+    expect(currentUserRow).not.toBeNull();
+    expect(currentUserRow).toHaveTextContent(ADMIN_USER_CURRENT.email);
+  });
+
+  it("other users' rows do not have a Change Password button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "User Management" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "User Management" }));
+    await waitFor(() => expect(screen.getByText(ADMIN_USER_OTHER.email)).toBeInTheDocument());
+    // Find the other user's row and confirm no Change Password button inside it
+    const otherUserCells = screen.getByText(ADMIN_USER_OTHER.email).closest("tr");
+    expect(otherUserCells).not.toBeNull();
+    expect(within(otherUserCells!).queryByRole("button", { name: "Change Password" })).not.toBeInTheDocument();
+  });
+
+  it("clicking Change Password opens the modal with required fields", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByLabelText("Current password")).toBeInTheDocument();
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirm new password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("modal has role=dialog, aria-modal, and aria-labelledby pointing to heading", async () => {
+    await openChangePasswordModal();
+    const dialog = screen.getByRole("dialog", { name: "Change Password" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby", "change-password-modal-title");
+    expect(screen.getByText("Change Password", { selector: "#change-password-modal-title" })).toBeInTheDocument();
+  });
+
+  it("shows password requirements checklist in the Change Password modal", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByRole("list", { name: "Password requirements" })).toBeInTheDocument();
+  });
+
+  it("Update Password button is disabled when fields are empty", async () => {
+    await openChangePasswordModal();
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("Update Password button is disabled when new password does not meet requirements", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "short");
+    await user.type(screen.getByLabelText("Confirm new password"), "short");
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("Update Password button is disabled when passwords do not match", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass2!");
+    expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
+  });
+
+  it("shows confirm mismatch error when confirm differs from new password", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "Different1!");
+    expect(screen.getByText("Passwords do not match.")).toBeInTheDocument();
+  });
+
+  it("does not show confirm mismatch error when confirm field is empty", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    // confirm field left empty
+    expect(screen.queryByText("Passwords do not match.")).not.toBeInTheDocument();
+  });
+
+  it("Update Password button is enabled when all fields are valid and passwords match", async () => {
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    expect(screen.getByRole("button", { name: "Update Password" })).not.toBeDisabled();
+  });
+
+  it("successful password change closes modal and shows success message", async () => {
+    vi.mocked(changePasswordFn).mockResolvedValueOnce({ error: null } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+    expect(screen.getByText("Password updated successfully.")).toBeInTheDocument();
+  });
+
+  it("modal has NOT closed while change-password call is pending, and HAS closed after it completes", async () => {
+    let resolve!: (value: { error: null }) => void;
+    vi.mocked(changePasswordFn).mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    ) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    // While pending: modal still open, success NOT yet shown
+    expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument();
+    expect(screen.queryByText("Password updated successfully.")).not.toBeInTheDocument();
+    // Complete the call
+    resolve({ error: null });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+    expect(screen.getByText("Password updated successfully.")).toBeInTheDocument();
+  });
+
+  it("wrong current password shows inline error inside modal", async () => {
+    vi.mocked(changePasswordFn).mockResolvedValueOnce({
+      error: { message: "Invalid current password." },
+    } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "WrongPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Invalid current password.")).toBeInTheDocument();
+    // Modal stays open
+    expect(screen.getByRole("dialog", { name: "Change Password" })).toBeInTheDocument();
+  });
+
+  it("changePassword error without message shows fallback error", async () => {
+    vi.mocked(changePasswordFn).mockResolvedValueOnce({
+      error: {},
+    } as never);
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Failed to change password.")).toBeInTheDocument();
+  });
+
+  it("changePassword throws shows fallback error", async () => {
+    vi.mocked(changePasswordFn).mockRejectedValueOnce(new Error("Network error")) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("Failed to change password. Please try again.")).toBeInTheDocument();
+  });
+
+  it("Cancel button closes the Change Password modal", async () => {
+    const user = await openChangePasswordModal();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("Escape key closes the Change Password modal", async () => {
+    await openChangePasswordModal();
+    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
+    fireEvent.keyDown(overlay, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("backdrop click closes the Change Password modal", async () => {
+    await openChangePasswordModal();
+    // Click the overlay that wraps the dialog — use the last dialog-overlay in the DOM
+    const overlays = document.querySelectorAll(".dialog-overlay");
+    const overlay = overlays[overlays.length - 1] as HTMLElement;
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  it("Update Password button shows Updating… while in flight", async () => {
+    let resolve!: (value: { error: null }) => void;
+    vi.mocked(changePasswordFn).mockImplementationOnce(
+      () => new Promise((res) => { resolve = res; })
+    ) as never;
+    const user = await openChangePasswordModal();
+    await user.type(screen.getByLabelText("Current password"), "OldPass1!");
+    await user.type(screen.getByLabelText("New password"), "NewPass1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "NewPass1!");
+    await user.click(screen.getByRole("button", { name: "Update Password" }));
+    expect(screen.getByRole("button", { name: "Updating…" })).toBeDisabled();
+    resolve({ error: null });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  // --- Subscription tab ---
+
+  it("renders Subscription tab button", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+  });
+
+  it("clicking Subscription tab activates it", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    expect(screen.getByRole("tab", { name: "Subscription" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "UI & Theme" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("shows loading state while fetching subscription", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, async () => {
+        await new Promise((r) => setTimeout(r, 100));
+        return HttpResponse.json({ tier_name: "Starter", building_limit: 10, active_building_count: 3 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    // The subscription tab panel should show loading
+    expect(screen.getByText("Loading subscription…")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Loading subscription…")).not.toBeInTheDocument());
+  });
+
+  it("displays subscription data after loading", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: "Pro", building_limit: 20, active_building_count: 5 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Pro")).toBeInTheDocument());
+    expect(screen.getByText(/5 \/ 20 buildings/)).toBeInTheDocument();
+  });
+
+  it("shows 'No plan set' when tier_name is null", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: null, building_limit: null, active_building_count: 2 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("No plan set")).toBeInTheDocument());
+  });
+
+  it("shows 'Unlimited' when building_limit is null", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: "Enterprise", building_limit: null, active_building_count: 10 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText(/Unlimited/)).toBeInTheDocument());
+  });
+
+  it("shows error when subscription fetch fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ detail: "Forbidden" }, { status: 403 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
+  });
+
+  it("shows tier change request section after subscription loads", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument();
+  });
+
+  it("switching away and back to Subscription tab does not re-fetch subscription", async () => {
+    // Exercises the hasFetchedSubscription.current guard: second activation must not re-fetch.
+    const user = userEvent.setup();
+    let fetchCount = 0;
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () => {
+        fetchCount++;
+        return HttpResponse.json({ tier_name: "Starter", building_limit: 10, active_building_count: 3 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+
+    // First activation — triggers fetch; tier display is a <dd> element
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    // Verify tier is shown in the definition list (not in the select options)
+    await waitFor(() => {
+      const dds = screen.getAllByRole("definition");
+      expect(dds[0]).toHaveTextContent("Starter");
+    });
+    expect(fetchCount).toBe(1);
+
+    // Switch away then back — must NOT trigger a second fetch
+    await user.click(screen.getByRole("tab", { name: "UI & Theme" }));
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => {
+      const dds = screen.getAllByRole("definition");
+      expect(dds[0]).toHaveTextContent("Starter");
+    });
+    expect(fetchCount).toBe(1);
+  });
+
+  it("subscription fetch error uses fallback for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(subscriptionApi, "getSubscription").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
+  });
+
+  // --- Tier change request ---
+
+  it("tier change request section renders select and Send request button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument();
+  });
+
+  it("Send request button is disabled when no tier is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+  });
+
+  it("Send request button is enabled when a tier is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Growth");
+    expect(screen.getByRole("button", { name: "Send request" })).not.toBeDisabled();
+  });
+
+  it("tier change request: shows success message and resets select on success", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Enterprise");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument()
+    );
+    // Select is reset to placeholder after success
+    expect(screen.getByRole("combobox", { name: "Requested tier" })).toHaveValue("");
+  });
+
+  it("tier change request: UI has NOT transitioned while request is pending, HAS transitioned after it completes", async () => {
+    // Async transition test: verifies fire-and-forget would fail this test
+    const user = userEvent.setup();
+    let resolveRequest!: () => void;
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, () =>
+        new Promise<Response>((resolve) => {
+          resolveRequest = () => resolve(HttpResponse.json({ message: "Request sent." }) as unknown as Response);
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Starter");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    // While pending — success message must NOT be visible yet
+    expect(screen.queryByText("Request sent. We'll be in touch.")).not.toBeInTheDocument();
+
+    // Complete the request
+    resolveRequest();
+    await waitFor(() =>
+      expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument()
+    );
+  });
+
+  it("tier change request: shows error message on API failure", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, () =>
+        HttpResponse.json({ detail: "SMTP not configured" }, { status: 503 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Growth");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+  });
+
+  it("tier change request: shows fallback error for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(subscriptionApi, "requestSubscriptionChange").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Free");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(screen.getByText("Failed to send request.")).toBeInTheDocument());
+  });
+
+  it("tier change request: Send request button is disabled while submitting", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ message: "Request sent." });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Expansion");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    // After completion the select is reset to empty so the button remains disabled;
+    // verify the async work completed by checking the success message appears.
+    await waitFor(() => expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument());
+  });
+
+  // --- Tier picker option labels ---
+
+  it("tier change select shows building limit labels in options", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    const select = screen.getByRole("combobox", { name: "Requested tier" }) as HTMLSelectElement;
+    const optionTexts = Array.from(select.options).map((o) => o.text);
+    expect(optionTexts).toContain("Free (1 building)");
+    expect(optionTexts).toContain("Starter (up to 10 buildings)");
+    expect(optionTexts).toContain("Growth (up to 25 buildings)");
+    expect(optionTexts).toContain("Expansion (up to 50 buildings)");
+    expect(optionTexts).toContain("Enterprise (unlimited)");
+  });
+
+  // --- Mobile horizontal scroll (Change 2) ---
+
+  it("settings tab list has overflowX auto for mobile scroll", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tablist")).toBeInTheDocument());
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toHaveStyle({ overflowX: "auto" });
+  });
 });

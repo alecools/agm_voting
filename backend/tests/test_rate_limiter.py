@@ -10,7 +10,7 @@ Covers:
   - ballot_submit_limiter: 10 req/min per voter_email
   - public_limiter: 60 req/min per IP
   - admin_import_limiter: 20 req/min (RR4-31)
-  - admin_close_limiter: 10 req/min (RR4-31)
+  - admin_close_limiter: 30 req/min (RR4-31)
   - RR4-17: OTP rate limit is DB-backed; remaining limiters are intentionally in-memory
 """
 from __future__ import annotations
@@ -25,9 +25,12 @@ from app.rate_limiter import (
     RateLimiter,
     admin_close_limiter,
     admin_import_limiter,
+    admin_invite_limiter,
     ballot_submit_limiter,
     get_client_ip,
+    provision_limiter,
     public_limiter,
+    smtp_test_rate_limiter,
 )
 
 
@@ -179,9 +182,24 @@ class TestSingletonLimiters:
         assert admin_import_limiter.window_seconds == 60
 
     def test_admin_close_limiter_has_expected_limits(self):
-        """admin_close_limiter is configured for 10 req/60s (RR4-31)."""
-        assert admin_close_limiter.max_requests == 10
+        """admin_close_limiter is configured for 30 req/60s (RR4-31)."""
+        assert admin_close_limiter.max_requests == 30
         assert admin_close_limiter.window_seconds == 60
+
+    def test_admin_invite_limiter_has_expected_limits(self):
+        """admin_invite_limiter is configured for 10 req/600s."""
+        assert admin_invite_limiter.max_requests == 10
+        assert admin_invite_limiter.window_seconds == 600
+
+    def test_smtp_test_rate_limiter_has_expected_limits(self):
+        """smtp_test_rate_limiter is configured for 5 req/60s (RR5-06)."""
+        assert smtp_test_rate_limiter.max_requests == 5
+        assert smtp_test_rate_limiter.window_seconds == 60
+
+    def test_provision_limiter_has_expected_limits(self):
+        """provision_limiter is configured for 5 req/60s."""
+        assert provision_limiter.max_requests == 5
+        assert provision_limiter.window_seconds == 60
 
 
 # ---------------------------------------------------------------------------

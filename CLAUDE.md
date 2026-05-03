@@ -35,7 +35,7 @@ PRDs and design docs are organised by feature area. **Always update an existing 
 | `prd-voting-flow.md` | OTP auth, voting, proxy UX, multi-lot voting, re-voting, eligibility |
 | `prd-admin-panel.md` | Admin login, in-person vote entry, results, QR code, email actions |
 | `prd-platform.md` | Tenant branding, SMTP, email delivery, session security |
-| `prd-multi-tenant.md` | Future roadmap — multi-tenant SaaS (not yet implemented) |
+| `prd-multi-tenant.md` | Multi-tenancy via deployment-per-tenant model — each customer gets their own Vercel project + Neon DB; provisioned via `scripts/provision_customer.py` |
 | `prd-review-recommendations.md` | Engineering review reference — do not modify |
 
 **Design docs** (`tasks/design/`):
@@ -52,6 +52,7 @@ PRDs and design docs are organised by feature area. **Always update an existing 
 | `design-email-smtp.md` | Email delivery, SMTP configuration, meeting close email |
 | `design-branding-ui.md` | Multi-tenancy, branding, logo/favicon, layout, drag-and-drop |
 | `design-infrastructure.md` | Deployment, DB pool, query perf, bundle optimisation, testing strategy |
+| `design-multi-tenant.md` | Multi-tenant architecture — deployment-per-tenant model, provisioning script, Neon Auth admin auth migration |
 | `design-system.md` | Frontend design system — read before writing any UI (do not modify) |
 
 ---
@@ -194,6 +195,17 @@ cd backend && uv run bandit -r app/ -c pyproject.toml -ll
 cd frontend && npm run lint:security
 ```
 
+**When any file under `e2e_tests/` is added or modified:** run the affected spec locally against the dev server before pushing. This catches locator errors, missing dialog handlers, and interaction bugs in seconds rather than burning a full deploy cycle.
+
+```bash
+# Start backend + frontend dev servers first (see Commands section), then:
+PLAYWRIGHT_BASE_URL=http://localhost:5173 cd frontend && npx playwright test --project=user-workflow e2e_tests/workflows/agm-33m-workflow.spec.ts
+# Or for a specific test:
+PLAYWRIGHT_BASE_URL=http://localhost:5173 cd frontend && npx playwright test --project=user-workflow --grep "33M.7"
+```
+
+Local E2E against `localhost` cannot catch Neon cold-start 500s or CI-specific scroll/viewport issues, but it catches all application-logic and locator bugs before they reach CI.
+
 ### Branch CI / E2E / Post-merge CI / Preview E2E — monitoring (all automated)
 
 Poll with `gh run list --branch <branch> --workflow <workflow> --limit 1 --json status,conclusion`.
@@ -208,21 +220,39 @@ On E2E failure: `gh run download <run-id>` to retrieve the Playwright HTML repor
 
 E2E tests seed data using these naming patterns — the cleanup agent deletes them after runs:
 - **Test meetings**: titles matching `WF*`, `E2E*`, `Test*`, `Delete Test*`
-- **Test buildings**: names matching `E2E*`, `WF*`, `Test*`
+- **Test buildings**: names matching `E2E*`, `WF*`, `Test*`, `AGM*`, `BB01*`, `BF01*`, `CRL01*`, `LS *`, `MC01*`, `NMB*`, `RV01*`, `SESS*`, `TCG*`, `*-local`, `*-demo`
 - **Pending email deliveries**: `email_deliveries` rows with `status='pending'` linked to test meetings must also be deleted. These records are re-queued on every Lambda cold start via `requeue_pending_on_startup()` — leaving them behind causes real email retry attempts for test meetings in subsequent deployments, which can trigger false E2E failures and pollute logs.
 
-After every E2E run (or at least every merge cleanup), delete pending email records for test meetings:
+**Authoritative cleanup approach** — delete everything that is NOT a known real building, rather than trying to match all test patterns:
 
 ```sql
+-- 1. Pending email deliveries for test buildings' meetings
 DELETE FROM email_deliveries
 WHERE status = 'pending'
   AND general_meeting_id IN (
     SELECT id FROM general_meetings
-    WHERE title SIMILAR TO '(WF|E2E|Test|Delete Test)%'
+    WHERE building_id IN (
+      SELECT id FROM buildings
+      WHERE name NOT IN ('The Vale', 'Sandridge Bay Towers', 'Sandy Bridge Tower')
+        AND name NOT LIKE 'SBT%'
+    )
   );
+
+-- 2. Meetings for test buildings
+DELETE FROM general_meetings
+WHERE building_id IN (
+  SELECT id FROM buildings
+  WHERE name NOT IN ('The Vale', 'Sandridge Bay Towers', 'Sandy Bridge Tower')
+    AND name NOT LIKE 'SBT%'
+);
+
+-- 3. Test buildings
+DELETE FROM buildings
+WHERE name NOT IN ('The Vale', 'Sandridge Bay Towers', 'Sandy Bridge Tower')
+  AND name NOT LIKE 'SBT%';
 ```
 
-Do NOT delete/archive real production data. Known real buildings: "The Vale", "SBT", "Sandridge Bay Towers".
+Do NOT delete/archive real production data. Known real buildings (never delete): **"The Vale"**, **"Sandridge Bay Towers"**, **"Sandy Bridge Tower"**, and any building whose name starts with **"SBT"**.
 
 ---
 
@@ -265,16 +295,18 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 
 | Environment | Trigger | URL pattern |
 |---|---|---|
-| **Production** | Push to `master` only | `agm-voting.vercel.app` |
-| **Demo** | Push to `demo` branch | `vms-demo.ocss.tech` |
-| **Preview** | Push to any other branch | `votingms-git-<branch>-ocss.vercel.app` |
+| **UAT** | Push to `demo` only | `vms-uat.ocss.tech` |
+| **Demo** | Push to `master` branch | `vms-demo.ocss.tech` |
+| **Preview** | Push to any other branch | `internal-vms-git-<branch>-ocss.vercel.app` |
 
 - **Never** run `vercel deploy --prod` or target production from the CLI
-- The `demo` branch deploys to the **Demo** Vercel environment (for stakeholder review)
+- The `demo` branch deploys to the **UAT** Vercel environment (for stakeholder review)
 - Feature and fix branches deploy to the **Preview** Vercel environment
-- **Neon DB mapping:** Demo env → `demo` Neon branch (`br-restless-truth-a7rjsd35`); Preview env (feature branches) → the **Neon-Vercel integration** automatically creates a `preview/<branch-name>` Neon branch (from `main`) for each preview deployment and injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` into the build and Lambda environment. No manual env var setup is needed for preview branches.
-- The demo env `DATABASE_URL` is set at the custom environment level (`customEnvironmentIds: [env_FULKSWxHCulQ5CTDb0kyzZUfvfUE]`), not branch-scoped
-- Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SMTP_ENCRYPTION_KEY`, `ALLOWED_ORIGIN`
+- **Neon DB mapping:**
+  - **UAT env** (`demo` git branch → `vms-uat.ocss.tech`) → Neon branch `uat/demo` (`br-steep-grass-a7hh2is4`), endpoint `ep-divine-band-a7hlpqwg`, custom Vercel env ID `env_qdVkvAJBl7WFGBw1U6rpkRh0ZuGn`
+  - **Demo/production env** (`master` git branch → `vms-demo.ocss.tech`) → Neon branch `main` (`br-super-frog-a7aumm3h`), custom Vercel env ID `env_FULKSWxHCulQ5CTDb0kyzZUfvfUE`
+  - **Preview env** (feature branches) → the **Neon-Vercel integration** automatically creates a `preview/<branch-name>` Neon branch (from `main`) for each preview deployment and injects `DATABASE_URL` and `DATABASE_URL_UNPOOLED` into the build and Lambda environment. No manual env var setup is needed for preview branches.
+- Required env vars: `DATABASE_URL`, `VITE_API_BASE_URL` (empty string on Vercel), `SMTP_ENCRYPTION_KEY`
 - SMTP settings (host, port, username, password, from_email) are now configured via the admin Settings page and stored encrypted in the database — no longer needed as env vars
 
 > **CRITICAL:** `vercel env pull` may return a DIFFERENT Neon DB URL than what the deployed Lambda actually uses. To run a manual migration, retrieve `DATABASE_URL_UNPOOLED` directly from the Lambda (via a temporary debug endpoint), then run:
@@ -289,8 +321,8 @@ Multiple fund sections: worst-case across all sections (arrears in any -> `in_ar
 
 | Constant | Value |
 |---|---|
-| Neon project ID | `divine-dust-41291876` |
-| Vercel project ID | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
+| Neon project ID | `curly-lab-57416583` |
+| Vercel project ID | `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0` |
 | Local test DB URL | `postgresql+asyncpg://postgres:postgres@localhost:5433/agm_test` |
 | Main repo path | `/Users/stevensun/personal/agm_survey` |
 | Worktree path pattern | `/Users/stevensun/personal/agm_survey/.worktree/<branch>` |
@@ -324,7 +356,7 @@ The integration creates a `preview/<branch-name>` Neon branch for **every** push
 
 ```bash
 NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
-NEON_PROJECT_ID="divine-dust-41291876"
+NEON_PROJECT_ID="curly-lab-57416583"
 BRANCH="<branch-name>"
 
 BRANCH_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches" \
@@ -335,6 +367,60 @@ BRANCH_ID=$(curl -s "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID
   "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${BRANCH_ID}" \
   -H "Authorization: Bearer $NEON_API_KEY" > /dev/null
 ```
+
+After deleting the Neon branch, also run the UAT test data cleanup — see **Cleanup — UAT test data** below.
+
+### Cleanup — UAT test data (required after every merge to `demo`)
+
+After removing the worktree and branches, always clean test data from the UAT database.
+
+The UAT database is the Neon branch `uat/demo` (`br-steep-grass-a7hh2is4`), endpoint `ep-divine-band-a7hlpqwg`. Retrieve its password via the Neon API:
+
+```bash
+NEON_API_KEY=$(security find-generic-password -s "agm-survey" -a "neon-api-key" -w)
+UAT_PASSWORD=$(curl -s "https://console.neon.tech/api/v2/projects/curly-lab-57416583/branches/br-steep-grass-a7hh2is4/roles/neondb_owner/reveal_password" \
+  -H "Authorization: Bearer $NEON_API_KEY" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+UAT_DB="postgresql://neondb_owner:${UAT_PASSWORD}@ep-divine-band-a7hlpqwg.ap-southeast-2.aws.neon.tech/neondb?sslmode=require"
+```
+
+Then run the authoritative cleanup SQL against that database (from the "Test Data Conventions" section above):
+
+```bash
+python3 -c "
+import asyncio, asyncpg
+
+async def cleanup():
+    conn = await asyncpg.connect('$UAT_DB')
+    await conn.execute('''
+        DELETE FROM email_deliveries
+        WHERE status = 'pending'
+          AND general_meeting_id IN (
+            SELECT id FROM general_meetings
+            WHERE building_id IN (
+              SELECT id FROM buildings
+              WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+                AND name NOT LIKE ''SBT%''
+            )
+          );
+        DELETE FROM general_meetings
+        WHERE building_id IN (
+          SELECT id FROM buildings
+          WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+            AND name NOT LIKE ''SBT%''
+        );
+        DELETE FROM buildings
+        WHERE name NOT IN (''The Vale'', ''Sandridge Bay Towers'', ''Sandy Bridge Tower'')
+          AND name NOT LIKE ''SBT%'';
+    ''')
+    remaining = await conn.fetchval('SELECT COUNT(*) FROM buildings')
+    print(f'Cleanup done. Remaining buildings: {remaining}')
+    await conn.close()
+
+asyncio.run(cleanup())
+"
+```
+
+Finally, **delete any Neon Auth test users** (emails matching `e2e-*`) by calling `GET /api/admin/users` then `DELETE /api/admin/users/{id}` on `https://vms-uat.ocss.tech` with admin credentials from Keychain.
 
 ---
 
@@ -353,11 +439,11 @@ These fields are read by the generic agent definitions. Values here override use
 | `test_frontend` | `cd frontend && npm run test:coverage` |
 | `e2e_command` | `cd frontend && npx playwright test` |
 | `worktree_root` | `/Users/stevensun/personal/agm_survey/.worktree` |
-| `preview_url_pattern` | `https://votingms-git-<branch>-ocss.vercel.app` |
+| `preview_url_pattern` | `https://internal-vms-git-<branch>-ocss.vercel.app` |
 | `schema_migration_tool` | `alembic` |
 | `container_tool` | `podman` |
-| `neon_project_id` | `divine-dust-41291876` |
-| `vercel_project_id` | `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L` |
+| `neon_project_id` | `curly-lab-57416583` |
+| `vercel_project_id` | `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0` |
 | `real_data_patterns` | `"The Vale", "SBT", "Sandridge Bay Towers"` |
 | `test_data_patterns` | `WF*, E2E*, Test*, Delete Test*` |
 | `prd_dir` | `tasks/prd` |

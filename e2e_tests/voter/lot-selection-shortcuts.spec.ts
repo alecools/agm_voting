@@ -20,9 +20,9 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   uploadProxyCsv,
@@ -43,18 +43,10 @@ const PROXY_OWNER_EMAIL = `ls-proxy-owner-${RUN_SUFFIX}@test.com`;
 let meetingId = "";
 
 test.describe("Lot-selection shortcut buttons", () => {
-  test.describe.configure({ mode: "serial" });
-
   // ── Seed ────────────────────────────────────────────────────────────────────
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, `ls-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -98,7 +90,7 @@ test.describe("Lot-selection shortcut buttons", () => {
   // Returns the page already on /voting.
   async function loginAndWaitForVotingPage(
     page: Parameters<Parameters<typeof test>[1]>[0],
-    api: Awaited<ReturnType<typeof playwrightRequest.newContext>>
+    api: APIRequestContext
   ) {
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -112,13 +104,7 @@ test.describe("Lot-selection shortcut buttons", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await loginAndWaitForVotingPage(page, api);
     await api.dispose();
@@ -151,13 +137,7 @@ test.describe("Lot-selection shortcut buttons", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await loginAndWaitForVotingPage(page, api);
     await api.dispose();
@@ -190,13 +170,7 @@ test.describe("Lot-selection shortcut buttons", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await loginAndWaitForVotingPage(page, api);
     await api.dispose();
@@ -228,13 +202,7 @@ test.describe("Lot-selection shortcut buttons", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await loginAndWaitForVotingPage(page, api);
     await api.dispose();

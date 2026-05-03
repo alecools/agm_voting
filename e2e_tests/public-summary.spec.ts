@@ -11,10 +11,7 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { makeAdminApi } from "./workflows/helpers";
 
 const BUILDING_NAME = `E2E Summary Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER = "SUM-1";
@@ -27,20 +24,10 @@ const SPECIAL_MOTION_TITLE = "Special Motion — Bylaw Amendment";
 let seededAgmId = "";
 
 test.describe("Public AGM summary page", () => {
-  // Serial mode prevents parallel workers from each running their own beforeAll,
-  // which would cause multiple concurrent Lambda cold starts and timeout races.
-  test.describe.configure({ mode: "serial" });
-
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: path.join(__dirname, ".auth", "admin.json"),
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Create or find the building
     const buildingsRes = await api.get(`/api/admin/buildings?name=${encodeURIComponent(BUILDING_NAME)}`);
@@ -169,13 +156,7 @@ test.describe("Public AGM summary page", () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
     // Close the AGM via admin API
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: path.join(__dirname, ".auth", "admin.json"),
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.post(`/api/admin/general-meetings/${seededAgmId}/close`);
     await api.dispose();
 

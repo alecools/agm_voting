@@ -117,7 +117,7 @@ describe("GeneralMeetingListPage", () => {
 
   it("shows error state when fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings", () => {
+      http.get("http://localhost/api/admin/general-meetings", () => {
         return HttpResponse.json({ detail: "Error" }, { status: 500 });
       })
     );
@@ -395,7 +395,7 @@ describe("GeneralMeetingListPage", () => {
     const user = userEvent.setup();
     let capturedUrl = "";
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         capturedUrl = request.url;
         const url = new URL(request.url);
         const name = url.searchParams.get("name");
@@ -609,10 +609,10 @@ describe("GeneralMeetingListPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+      http.get("http://localhost/api/admin/general-meetings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -657,10 +657,10 @@ describe("GeneralMeetingListPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+      http.get("http://localhost/api/admin/general-meetings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -686,10 +686,10 @@ describe("GeneralMeetingListPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+      http.get("http://localhost/api/admin/general-meetings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -725,10 +725,10 @@ describe("GeneralMeetingListPage", () => {
     }));
 
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", () => {
+      http.get("http://localhost/api/admin/general-meetings/count", () => {
         return HttpResponse.json({ count: 21 });
       }),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -824,10 +824,10 @@ describe("GeneralMeetingListPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", () =>
+      http.get("http://localhost/api/admin/general-meetings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -848,7 +848,7 @@ describe("GeneralMeetingListPage", () => {
 
   it("shows error when server returns 422 for invalid sort param", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings", () => {
+      http.get("http://localhost/api/admin/general-meetings", () => {
         return HttpResponse.json({ detail: "Invalid sort_by value" }, { status: 422 });
       })
     );
@@ -895,7 +895,7 @@ describe("GeneralMeetingListPage", () => {
     };
 
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         const limitParam = url.searchParams.get("limit");
@@ -912,14 +912,14 @@ describe("GeneralMeetingListPage", () => {
         const limit = limitParam !== null ? parseInt(limitParam, 10) : filtered.length;
         return HttpResponse.json(filtered.slice(0, limit));
       }),
-      http.get("http://localhost:8000/api/admin/general-meetings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings/count", ({ request }) => {
         const url = new URL(request.url);
         const bid = url.searchParams.get("building_id");
         if (bid === "b1") return HttpResponse.json({ count: 21 });
         if (bid === "b2") return HttpResponse.json({ count: 1 });
         return HttpResponse.json({ count: 22 });
       }),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const bid = url.searchParams.get("building_id");
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
@@ -977,14 +977,14 @@ describe("GeneralMeetingListPage", () => {
     };
 
     server.use(
-      http.get("http://localhost:8000/api/admin/general-meetings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings/count", ({ request }) => {
         const url = new URL(request.url);
         const status = url.searchParams.get("status");
         if (status === "open") return HttpResponse.json({ count: 21 });
         if (status === "closed") return HttpResponse.json({ count: 1 });
         return HttpResponse.json({ count: 22 });
       }),
-      http.get("http://localhost:8000/api/admin/general-meetings", ({ request }) => {
+      http.get("http://localhost/api/admin/general-meetings", ({ request }) => {
         const url = new URL(request.url);
         const status = url.searchParams.get("status");
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);

@@ -1,9 +1,6 @@
 import { test, expect } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -15,11 +12,7 @@ import {
   getTestOtp,
 } from "../workflows/helpers";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 test.describe("Admin General Meetings", () => {
-  test.describe.configure({ mode: "serial" });
-
   test("open General Meeting shows Close Voting button", async ({ page, request }) => {
     const meetingsRes = await request.get("/api/admin/general-meetings?limit=1000");
     if (!meetingsRes.ok()) { test.skip(); return; }
@@ -121,13 +114,7 @@ test.describe("Admin General Meetings — motion type badges", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "badge-mgr@test.com");
     await seedLotOwner(api, buildingId, {
@@ -173,13 +160,7 @@ test.describe("Admin General Meetings — motion type badges", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
   });
@@ -193,13 +174,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     buildingId = await seedBuilding(api, BUILDING_NAME, "delete-mgr@test.com");
     await seedLotOwner(api, buildingId, {
       lotNumber: "DEL-1",
@@ -214,13 +189,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const openMeetingId = await createOpenMeeting(api, buildingId, `Delete Test Open AGM-${Date.now()}`, [
       {
         title: "Open Meeting Motion",
@@ -242,13 +211,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     // Any pending meeting seeded through this building will have lot weights (from the
     // lot owner seeded in beforeAll) and motions (required by the API), so the backend
     // always returns 409 on delete for pending meetings.
@@ -290,13 +253,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     await expect(page).not.toHaveURL(/\/admin\/general-meetings$/, { timeout: 3000 });
 
     // Cleanup — close the meeting first (lifts the pending guard), then delete
-    const cleanupApi = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const cleanupApi = await makeAdminApi(baseURL);
     await cleanupApi.post(`/api/admin/general-meetings/${pendingMeetingId}/close`);
     await cleanupApi.delete(`/api/admin/general-meetings/${pendingMeetingId}`);
     await cleanupApi.dispose();
@@ -306,13 +263,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const closedMeetingId = await createOpenMeeting(
       api,
       buildingId,
@@ -336,13 +287,7 @@ test.describe("Admin General Meetings — delete meeting button", () => {
     await expect(page.getByRole("button", { name: "Delete Meeting" })).toBeVisible({ timeout: 10000 });
 
     // Cleanup — delete the meeting
-    const cleanupApi = await playwrightRequest.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173",
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const cleanupApi = await makeAdminApi(process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173");
     await cleanupApi.delete(`/api/admin/general-meetings/${closedMeetingId}`);
     await cleanupApi.dispose();
   });
@@ -357,13 +302,7 @@ test.describe("Admin General Meetings — absent count", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "absent-mgr@test.com");
     // Seed two lot owners — neither will vote, so after close one appears absent
@@ -414,13 +353,7 @@ test.describe("Admin General Meetings — absent count", () => {
 
     // Close the meeting via API
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await closeMeeting(api, meetingId);
     await api.dispose();
 
@@ -441,13 +374,7 @@ test.describe("Admin General Meetings — absent count", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
   });
@@ -464,13 +391,7 @@ test.describe("Admin General Meetings — motion number workflows", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     buildingId = await seedBuilding(api, BUILDING_NAME, "mn-mgr@test.com");
     await seedLotOwner(api, buildingId, {
@@ -589,13 +510,7 @@ test.describe("Admin General Meetings — motion number workflows", () => {
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
   });
@@ -614,13 +529,7 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const bId = await seedBuilding(api, BUILDING_NAME, "tcg01-mgr@test.com");
     await seedLotOwner(api, bId, {
@@ -650,13 +559,7 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}`);
     await api.dispose();
   });
@@ -664,13 +567,7 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
   test("TCG01.1: voter sees 2 motions before admin hides one", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING_NAME);
     await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
@@ -710,13 +607,7 @@ test.describe("US-TCG-01: admin hides motion — voter no longer sees it on voti
   test("TCG01.3: voter sees only 1 motion card after admin hid motion 2", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING_NAME);
     await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));

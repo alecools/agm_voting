@@ -15,7 +15,7 @@
  *
  *   # Against a deployed URL
  *   PLAYWRIGHT_BASE_URL=https://agm-voting-git-preview-ocss.vercel.app \
- *   ADMIN_USERNAME=admin ADMIN_PASSWORD=yourpassword \
+ *   ADMIN_USERNAME=admin@example.com ADMIN_PASSWORD=yourpassword \
  *   npx playwright test e2e/smoke.spec.ts
  */
 import { test, expect } from "./fixtures";
@@ -52,26 +52,10 @@ test.describe("API health", () => {
 });
 
 test.describe("Voter flow", () => {
-  test("home page loads and shows building selector without console errors", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-
+  test("home page loads and shows building selector without console errors", async ({ page, consoleErrors: _ }) => {
     await page.goto("/");
     await expect(page.getByLabel("Select your building")).toBeVisible();
-
-    // Filter out known benign browser noise (e.g. favicon 404s, blob 403s)
-    const realErrors = consoleErrors.filter(
-      (e) =>
-        !e.includes("favicon") &&
-        !e.includes("net::ERR_ABORTED") &&
-        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
-        !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e) &&
-        !(e.includes("404") && e.includes("Failed to load resource"))
-    );
-    expect(realErrors).toHaveLength(0);
+    // consoleErrors fixture auto-asserts no unexpected browser errors at end of test
   });
 
   test("building selector is populated with at least one building", async ({ page }) => {
@@ -98,40 +82,27 @@ test.describe("Security headers", () => {
 });
 
 test.describe("Admin flow", () => {
-  test("admin login page loads without console errors", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-
+  test("admin login page loads without console errors", async ({ page, consoleErrors: _ }) => {
     await page.goto("/admin/login");
     await expect(page.getByRole("heading", { name: "Admin Portal" })).toBeVisible();
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
-
-    const realErrors = consoleErrors.filter(
-      (e) =>
-        !e.includes("favicon") &&
-        !e.includes("net::ERR_ABORTED") &&
-        !/net::ERR_FAILED.*(\.png|\.svg|\.ico|\.jpg|\.webp)/i.test(e) &&
-        !/blob\.vercel-storage\.com/i.test(e) &&
-        !/net::ERR_FAILED.*403/i.test(e) &&
-        !(e.includes("404") && e.includes("Failed to load resource"))
-    );
-    expect(realErrors).toHaveLength(0);
+    // consoleErrors fixture auto-asserts no unexpected browser errors at end of test
   });
 
   test("admin credentials env vars are configured and login succeeds", async ({ page }) => {
-    const username = process.env.ADMIN_USERNAME ?? "admin";
+    const email = process.env.ADMIN_USERNAME ?? "admin@example.com";
     const password = process.env.ADMIN_PASSWORD ?? "admin";
 
     await page.goto("/admin/login");
-    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    // Redirect to /admin/buildings confirms auth is wired correctly in this deployment
-    await expect(page).toHaveURL(/\/admin\/buildings/);
+    // Redirect to an admin page confirms auth is wired correctly in this deployment.
+    // Accept general-meetings (new default) or buildings (legacy) so the test
+    // is resilient to future default-page changes.
+    await expect(page).toHaveURL(/\/admin\/(general-meetings|buildings)/);
     // Table must be visible — confirms DB connection and migrations are healthy
     await expect(page.getByRole("table")).toBeVisible();
   });

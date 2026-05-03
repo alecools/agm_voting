@@ -8,9 +8,21 @@ import { server } from "../../../../tests/msw/server";
 import AdminLayout from "../AdminLayout";
 import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContext";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
-const mockNavigate = vi.fn();
+// Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
+const { mockSignOut, mockNavigate } = vi.hoisted(() => ({
+  mockSignOut: vi.fn().mockResolvedValue(undefined),
+  mockNavigate: vi.fn(),
+}));
+
+vi.mock("../../../lib/auth-client", () => ({
+  authClient: {
+    signOut: mockSignOut,
+    useSession: vi.fn().mockReturnValue({ data: null, isPending: false }),
+  },
+}));
+
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {

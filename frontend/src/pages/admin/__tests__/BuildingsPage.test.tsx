@@ -96,7 +96,7 @@ describe("BuildingsPage", () => {
 
   it("shows error after failed CSV upload", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings/import", () => {
+      http.post("http://localhost/api/admin/buildings/import", () => {
         return HttpResponse.json({ detail: "Bad CSV" }, { status: 422 });
       })
     );
@@ -240,7 +240,7 @@ describe("BuildingsPage", () => {
 
   it("shows API error inline in modal on failure", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/buildings", () => {
+      http.post("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Building already exists" }, { status: 409 });
       })
     );
@@ -284,7 +284,7 @@ describe("BuildingsPage", () => {
   it("hides archived buildings by default (server sends is_archived=false)", async () => {
     // Default handler filters by is_archived=false — Active Tower returns, Old Tower is archived and excluded
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -292,7 +292,7 @@ describe("BuildingsPage", () => {
         }
         return HttpResponse.json({ count: 2 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -315,7 +315,7 @@ describe("BuildingsPage", () => {
 
   it("shows archived buildings when toggle is checked (server receives no is_archived filter)", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -324,7 +324,7 @@ describe("BuildingsPage", () => {
         // no is_archived param → all buildings
         return HttpResponse.json({ count: 2 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -368,7 +368,7 @@ describe("BuildingsPage", () => {
       created_at: "2023-01-01T00:00:00Z",
     };
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings/count", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         if (isArchivedParam === "false") {
@@ -376,7 +376,7 @@ describe("BuildingsPage", () => {
         }
         return HttpResponse.json({ count: 22 });
       }),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const isArchivedParam = url.searchParams.get("is_archived");
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
@@ -431,10 +431,10 @@ describe("BuildingsPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -476,10 +476,10 @@ describe("BuildingsPage", () => {
       created_at: "2024-01-01T00:00:00Z",
     }));
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -593,7 +593,7 @@ describe("BuildingsPage", () => {
 
   it("shows error state when fetch fails", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Error" }, { status: 500 });
       })
     );
@@ -659,10 +659,10 @@ describe("BuildingsPage", () => {
   it("sort change resets page to 1 (sends request without page param)", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 21 })
       ),
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
         const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
@@ -690,7 +690,7 @@ describe("BuildingsPage", () => {
 
   it("shows error state when sort_by is invalid and server returns 422", async () => {
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", () => {
+      http.get("http://localhost/api/admin/buildings", () => {
         return HttpResponse.json({ detail: "Invalid sort_by value" }, { status: 422 });
       })
     );
@@ -769,14 +769,14 @@ describe("BuildingsPage — name filter (Fix 4)", () => {
   it("listBuildings is called with name param when name_filter is in URL", async () => {
     let capturedName: string | null = null;
     server.use(
-      http.get("http://localhost:8000/api/admin/buildings", ({ request }) => {
+      http.get("http://localhost/api/admin/buildings", ({ request }) => {
         const url = new URL(request.url);
         capturedName = url.searchParams.get("name");
         return HttpResponse.json([
           { id: "b1", name: "Alpha Tower", manager_email: "a@test.com", is_archived: false, created_at: "2024-01-01T00:00:00Z" },
         ]);
       }),
-      http.get("http://localhost:8000/api/admin/buildings/count", () =>
+      http.get("http://localhost/api/admin/buildings/count", () =>
         HttpResponse.json({ count: 1 })
       )
     );
@@ -831,4 +831,82 @@ describe("BuildingsPage — name filter (Fix 4)", () => {
     });
     vi.useRealTimers();
   }, 10000);
+
+  // --- Building limit enforcement (lines 133-148 in BuildingsPage.tsx) ---
+
+  it("shows parsed detail message when server returns 422 Building limit reached", async () => {
+    // The onError callback parses JSON from the error message when "Building limit reached" is present.
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        return HttpResponse.json(
+          { detail: "Building limit reached. You have 10 of 10 active buildings on the Starter plan. Contact support to upgrade." },
+          { status: 422 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    await waitFor(() => {
+      expect(screen.getByText(/Building limit reached/)).toBeInTheDocument();
+    });
+    // The parsed detail message is shown (not just "HTTP 422: ...")
+    expect(screen.getByText(/Contact support to upgrade/)).toBeInTheDocument();
+    // Modal stays open on error
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+  });
+
+  it("falls through to raw error message when Building limit reached body has no JSON object", async () => {
+    // Exercises the jsonStart === -1 branch (line 137): error message contains
+    // "Building limit reached" but has no "{" — falls through to setFormError(raw).
+    const { createBuilding } = await import("../../../api/admin");
+    vi.spyOn(createBuilding as never, "call" as never);
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        // Return a plain-text body — apiFetch will throw "HTTP 422: Building limit reached"
+        // with no JSON object embedded, so jsonStart === -1 and we fall through.
+        return new HttpResponse("Building limit reached plain text", {
+          status: 422,
+          headers: { "Content-Type": "text/plain" },
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    // The raw error message is shown (contains "Building limit reached")
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/Building limit reached/);
+  });
+
+  it("falls through to raw error message when JSON has no detail field", async () => {
+    // Exercises the !parsed.detail branch (line 139): JSON is valid but has no "detail" key.
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        // Body is JSON with "Building limit reached" in the message but no "detail" key.
+        return HttpResponse.json({ message: "Building limit reached" }, { status: 422 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    // The raw error is shown since parsed.detail is falsy
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
 });

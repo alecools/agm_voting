@@ -15,9 +15,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -44,13 +43,7 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, "rv01-mgr@test.com");
 
@@ -85,13 +78,7 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, LOT_EMAIL, () => getTestOtp(api, LOT_EMAIL, meetingId));
@@ -113,13 +100,7 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Add a 3rd motion (new motions are created with is_visible=False)
     const addRes = await api.post(`/api/admin/general-meetings/${meetingId}/motions`, {
@@ -149,13 +130,7 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Navigate to home first to clear any in-memory session state
     await page.goto("/");
@@ -181,13 +156,7 @@ test.describe("BUG-RV-01: submit button visible after admin reveals new motion",
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await page.goto("/");
     await goToAuthPage(page, BUILDING);
@@ -231,13 +200,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, WF9_BUILDING, `wf9-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -263,13 +226,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, WF9_BUILDING);
     await authenticateVoter(page, WF9_EMAIL, () => getTestOtp(api, WF9_EMAIL, wf9MeetingId));
@@ -294,13 +251,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const addRes = await api.post(`/api/admin/general-meetings/${wf9MeetingId}/motions`, {
       data: {
@@ -326,13 +277,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await page.goto("/");
     await goToAuthPage(page, WF9_BUILDING);
@@ -386,13 +331,7 @@ test.describe("WF9: Revote — motion locking (BUG-RV-03)", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await page.goto("/");
     await goToAuthPage(page, WF9_BUILDING);
@@ -426,13 +365,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, WF10_BUILDING, `wf10-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -463,13 +396,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, WF10_BUILDING);
     await authenticateVoter(page, WF10_EMAIL, () => getTestOtp(api, WF10_EMAIL, wf10MeetingId));
@@ -505,13 +432,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     test.setTimeout(60000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Idempotent: check whether Motion 2 already exists on this meeting (e.g. from
     // a previous retry that partially succeeded). If it already exists, just ensure
@@ -551,13 +472,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     test.setTimeout(120000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // ── Reset to the exact prerequisite state: LotA voted M1, LotB has not voted ──
     // This makes WF10.1 idempotent across retries. If a previous attempt of WF10.1
@@ -687,13 +602,7 @@ test.describe("WF10: Mixed selection warning dialog (BUG-RV-05)", () => {
     test.setTimeout(180000);
 
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // ── Seed independent data for WF10.2 ──────────────────────────────────
     const wf102Email = `wf10b-voter-${RUN_SUFFIX}@test.com`;

@@ -23,9 +23,8 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "../fixtures";
-import { request as playwrightRequest } from "@playwright/test";
 import {
-  ADMIN_AUTH_PATH,
+  makeAdminApi,
   seedBuilding,
   seedLotOwner,
   createOpenMeeting,
@@ -50,13 +49,7 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     const buildingId = await seedBuilding(api, BUILDING, `tcg06-mgr-${RUN_SUFFIX}@test.com`);
 
@@ -87,13 +80,7 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
 
   test.afterAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await deleteMeeting(api, meetingId);
     await api.dispose();
   }, { timeout: 30000 });
@@ -103,13 +90,7 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
   test("TCG06.1: voter votes on both motions and submits ballot", async ({ page }) => {
     test.setTimeout(120000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await goToAuthPage(page, BUILDING);
     await authenticateVoter(page, VOTER_EMAIL, () => getTestOtp(api, VOTER_EMAIL, meetingId));
@@ -135,13 +116,7 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
   test("TCG06.2: admin closes the meeting", async () => {
     test.setTimeout(30000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     await closeMeeting(api, meetingId);
     await api.dispose();
@@ -152,13 +127,7 @@ test.describe("US-TCG-06: confirmation receipt shows all voted motions after mee
   test("TCG06.3: voter confirmation receipt shows both voted motions after close", async ({ page }) => {
     test.setTimeout(90000);
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
 
     // Navigate directly to auth for the closed meeting (not via home-page dropdown).
     // Clear only the session cookie -- clearing all would remove the Vercel bypass cookie.

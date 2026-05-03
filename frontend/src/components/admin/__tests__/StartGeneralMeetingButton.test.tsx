@@ -54,7 +54,7 @@ describe("StartGeneralMeetingButton", () => {
   it("shows loading state while in flight", async () => {
     let resolve!: () => void;
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/start", () =>
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/start", () =>
         new Promise<Response>((res) => {
           resolve = () =>
             res(HttpResponse.json({ id: "agm-pending", status: "open", meeting_at: "2026-01-01T00:00:00Z" }) as Response);
@@ -73,7 +73,7 @@ describe("StartGeneralMeetingButton", () => {
 
   it("shows error message when start fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/start", () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/start", () => {
         return HttpResponse.json({ detail: "General Meeting is not in pending status" }, { status: 409 });
       })
     );
@@ -119,7 +119,7 @@ describe("StartGeneralMeetingButton", () => {
 
   it("Cancel button clears error state when reopened", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/general-meetings/:meetingId/start", () => {
+      http.post("http://localhost/api/admin/general-meetings/:meetingId/start", () => {
         return HttpResponse.json({ detail: "Error" }, { status: 409 });
       })
     );

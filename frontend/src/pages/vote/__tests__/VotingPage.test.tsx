@@ -9,7 +9,7 @@ import { VotingPage } from "../VotingPage";
 import { AGM_ID, MOTION_ID_1, MOTION_ID_2, MOTION_ID_MC, mcMotionFixtureVoter } from "../../../../tests/msw/handlers";
 import * as voterApi from "../../../api/voter";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -495,7 +495,7 @@ describe("VotingPage", () => {
   it("sign out navigates to '/' even when logout() API call rejects", async () => {
     // Simulate a network failure on the logout endpoint
     server.use(
-      http.post(`http://localhost:8000/api/auth/logout`, () =>
+      http.post(`http://localhost/api/auth/logout`, () =>
         HttpResponse.json({ detail: "Server error" }, { status: 500 })
       )
     );
@@ -3360,7 +3360,7 @@ describe("VotingPage — RR4-13 multiChoiceSelections sessionStorage persistence
     sessionStorage.clear();
     mockNavigate.mockClear();
     server.use(
-      http.post(`http://localhost:8000/api/auth/session`, () =>
+      http.post(`http://localhost/api/auth/session`, () =>
         HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
       )
     );

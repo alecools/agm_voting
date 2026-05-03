@@ -339,7 +339,7 @@ describe("LotOwnerForm - Edit modal", () => {
 
   it("shows server error message on edit mutation failure", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/lot-owners/:lotOwnerId", () => {
+      http.patch("http://localhost/api/admin/lot-owners/:lotOwnerId", () => {
         return HttpResponse.json({ detail: "Server error" }, { status: 500 });
       })
     );
@@ -509,7 +509,7 @@ describe("LotOwnerForm - Edit modal email management", () => {
 
   it("shows server error when add email API fails", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails", () => {
+      http.post("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails", () => {
         return HttpResponse.json({ detail: "Conflict" }, { status: 409 });
       })
     );
@@ -525,7 +525,7 @@ describe("LotOwnerForm - Edit modal email management", () => {
   it("normalises email to lowercase before calling add email API", async () => {
     let capturedEmail: string | undefined;
     server.use(
-      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails", async ({ request }) => {
+      http.post("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails", async ({ request }) => {
         const body = await request.json() as { email?: string };
         capturedEmail = body?.email;
         const updated = {
@@ -576,7 +576,7 @@ describe("LotOwnerForm - Edit modal email management", () => {
 
   it("shows server error when remove email API fails", async () => {
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -606,7 +606,7 @@ describe("addOwnerEmailToLotOwner API function", () => {
 
   it("handles server error when adding owner email", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails", () => {
+      http.post("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails", () => {
         return HttpResponse.json({ detail: "Conflict" }, { status: 409 });
       })
     );
@@ -624,7 +624,7 @@ describe("updateOwnerEmail API function", () => {
 
   it("handles server error when updating owner email", async () => {
     server.use(
-      http.patch("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
+      http.patch("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -640,7 +640,7 @@ describe("removeOwnerEmailById API function", () => {
 
   it("handles server error when removing owner email", async () => {
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -659,7 +659,7 @@ describe("addEmailToLotOwner API function", () => {
 
   it("handles server error when adding email", async () => {
     server.use(
-      http.post("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails", () => {
+      http.post("http://localhost/api/admin/lot-owners/:lotOwnerId/emails", () => {
         return HttpResponse.json({ detail: "Conflict" }, { status: 409 });
       })
     );
@@ -675,7 +675,7 @@ describe("removeEmailFromLotOwner API function", () => {
 
   it("handles server error when removing email", async () => {
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/emails/:email", () => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/emails/:email", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -789,7 +789,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
   it("sets proxy with given name and surname — calls setLotOwnerProxy with correct name arguments", async () => {
     let capturedBody: unknown;
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
         capturedBody = await request.json();
         const body = capturedBody as { proxy_email?: string; given_name?: string | null; surname?: string | null };
         const updated: LotOwner = {
@@ -818,7 +818,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
   it("sets proxy with blank name fields — calls setLotOwnerProxy with givenName: null, surname: null", async () => {
     let capturedBody: unknown;
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
         capturedBody = await request.json();
         const body = capturedBody as { proxy_email?: string; given_name?: string | null; surname?: string | null };
         const updated: LotOwner = {
@@ -876,7 +876,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
 
   it("shows error message when set proxy API fails", async () => {
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", () => {
         return HttpResponse.json({ detail: "Server error" }, { status: 500 });
       })
     );
@@ -891,7 +891,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
 
   it("shows error message when remove proxy API fails", async () => {
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -914,7 +914,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     };
     // Override the MSW handler so it returns proxy_given_name and proxy_surname
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
         const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
         const updated: LotOwner = {
           ...lotWithNamedEmail,
@@ -949,7 +949,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     };
     // Override PUT proxy handler to echo back the names
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
         const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
         const updated: LotOwner = {
           ...lotWithNamedEmail,
@@ -963,7 +963,7 @@ describe("LotOwnerForm - Edit modal proxy management", () => {
     );
     // Override DELETE proxy handler to succeed
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", ({ params }) => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", ({ params }) => {
         const updated: LotOwner = {
           ...lotWithNamedEmail,
           id: params.lotOwnerId as string,
@@ -1064,7 +1064,7 @@ describe("setLotOwnerProxy API function", () => {
 
   it("sets proxy with names and response includes proxy_given_name and proxy_surname", async () => {
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", async ({ request, params }) => {
         const body = await request.json() as { proxy_email?: string; given_name?: string | null; surname?: string | null };
         const updated: LotOwner = {
           ...lotOwnerWithoutProxy,
@@ -1091,7 +1091,7 @@ describe("setLotOwnerProxy API function", () => {
 
   it("handles server error when setting proxy", async () => {
     server.use(
-      http.put("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+      http.put("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", () => {
         return HttpResponse.json({ detail: "Not found" }, { status: 404 });
       })
     );
@@ -1109,7 +1109,7 @@ describe("removeLotOwnerProxy API function", () => {
 
   it("handles 404 when no proxy to remove", async () => {
     server.use(
-      http.delete("http://localhost:8000/api/admin/lot-owners/:lotOwnerId/proxy", () => {
+      http.delete("http://localhost/api/admin/lot-owners/:lotOwnerId/proxy", () => {
         return HttpResponse.json({ detail: "No proxy nomination found for this lot owner" }, { status: 404 });
       })
     );
@@ -1262,7 +1262,7 @@ describe("LotOwnerForm - EditModal owner_emails management", () => {
     const user = userEvent.setup();
     server.use(
       http.patch(
-        "http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
+        "http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
         async ({ request }) => {
           const body = await request.json() as { given_name?: string | null };
           const updated: LotOwner = {
@@ -1312,7 +1312,7 @@ describe("LotOwnerForm - EditModal owner_emails management", () => {
   it("shows server error when updateOwnerEmail fails", async () => {
     server.use(
       http.patch(
-        "http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
+        "http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
         () => HttpResponse.json({ detail: "Conflict" }, { status: 409 })
       )
     );
@@ -1376,7 +1376,7 @@ describe("LotOwnerForm - EditModal owner_emails management", () => {
     // Step 1: Add a new owner
     server.use(
       http.post(
-        "http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails",
+        "http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails",
         async ({ request }) => {
           const body = await request.json() as { email?: string; given_name?: string | null; surname?: string | null };
           const updated: LotOwner = {
@@ -1402,7 +1402,7 @@ describe("LotOwnerForm - EditModal owner_emails management", () => {
     // Step 2: Click Edit on the newly added entry and change name
     server.use(
       http.patch(
-        "http://localhost:8000/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
+        "http://localhost/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId",
         async () => {
           const updated: LotOwner = {
             ...existingLotOwner,

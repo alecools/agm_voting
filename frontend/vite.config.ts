@@ -8,6 +8,14 @@ export default defineConfig({
     compression({ algorithm: "brotliCompress", ext: ".br" }),
     compression({ algorithm: "gzip", ext: ".gz" }),
   ],
+  server: {
+    proxy: {
+      "/api": {
+        target: process.env.VITE_BACKEND_URL ?? "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     rollupOptions: {
       output: {
@@ -28,6 +36,7 @@ export default defineConfig({
     },
   },
   test: {
+    env: { VITE_API_BASE_URL: "http://localhost" },
     globals: true,
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],
@@ -59,6 +68,15 @@ export default defineConfig({
         // Tenant branding
         "src/api/config.ts",
         "src/context/BrandingContext.tsx",
+        // Better Auth client
+        "src/lib/auth-client.ts",
+        // Shared components (not admin- or vote-specific)
+        "src/components/PasswordRequirements.tsx",
+        // User management API
+        "src/api/users.ts",
+        // Subscription and Control Room feature
+        "src/api/subscription.ts",
+        "src/pages/admin/ControlRoomPage.tsx",
       ],
       thresholds: {
         // Per-file thresholds for Phase 4 vote files
@@ -84,6 +102,12 @@ export default defineConfig({
         // Wave 5 code quality (US-CQM-03)
         "src/components/vote/LotSelectionSection.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/components/vote/SubmitSection.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Password UX improvements
+        "src/components/PasswordRequirements.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/api/users.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Subscription and Control Room feature
+        "src/api/subscription.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/pages/admin/ControlRoomPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },

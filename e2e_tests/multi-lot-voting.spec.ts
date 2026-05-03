@@ -19,12 +19,7 @@
  */
 
 import { test, expect, RUN_SUFFIX } from "./fixtures";
-import { request as playwrightRequest } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
 import { getTestOtp, makeAdminApi } from "./workflows/helpers";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BUILDING_NAME = `E2E Multi-Lot Test Building-${RUN_SUFFIX}`;
 const LOT_NUMBER_1 = "ML-1";
@@ -38,10 +33,6 @@ const AGM_TITLE = `E2E Multi-Lot Test AGM-${RUN_SUFFIX}`;
 let meetingId = "";
 
 test.describe("Multi-lot voter journey", () => {
-  // Serial mode prevents parallel workers from each running their own beforeAll,
-  // which would cause multiple concurrent Lambda cold starts and timeout races.
-  test.describe.configure({ mode: "serial" });
-
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
@@ -179,7 +170,7 @@ test.describe("Multi-lot voter journey", () => {
   // ── Helper: authenticate with the shared email via OTP flow ─────────────────
   async function authenticate(page: import("@playwright/test").Page) {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true, storageState: path.join(__dirname, ".auth", "admin.json"), timeout: 60000});
+    const api = await makeAdminApi(baseURL);
     await page.getByLabel("Email address").fill(LOT_EMAIL);
     await page.getByRole("button", { name: "Send Verification Code" }).click();
     await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
@@ -200,13 +191,7 @@ test.describe("Multi-lot voter journey", () => {
 
     // Ensure both lots have submitted ballots
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: path.join(__dirname, ".auth", "admin.json"),
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     await api.delete(`/api/admin/general-meetings/${meetingId}/ballots`);
     await api.dispose();
 

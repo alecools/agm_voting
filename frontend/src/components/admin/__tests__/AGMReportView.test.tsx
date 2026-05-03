@@ -1476,4 +1476,1248 @@ describe("AGMReportView", () => {
     const csv = await captureCSVFromExport(singleMotion);
     expect(csv).toContain("Carol White <carol@example.com> (proxy)");
   });
+
+  // ---------------------------------------------------------------------------
+  // Per-motion CSV download button (handleMotionExportCSV)
+  // ---------------------------------------------------------------------------
+
+  // Helper: capture the CSV produced by clicking the "Export" button for a specific motion
+  async function captureMotionCSV(motionData: MotionDetail[]): Promise<{ csv: string; filename: string }> {
+    const { unmount } = render(<AGMReportView motions={motionData} />);
+
+    let capturedBlob: Blob | null = null;
+    let capturedFilename = "";
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      capturedBlob = blob;
+      return "blob:mock-motion-url";
+    });
+    URL.revokeObjectURL = vi.fn();
+
+    const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) capturedFilename = node.download;
+      return node;
+    });
+    const removeChildSpy = vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    const user = userEvent.setup();
+    // Click the first "Export" button (per-motion)
+    const csvBtns = screen.getAllByRole("button", { name: /Download results CSV for/ });
+    await user.click(csvBtns[0]);
+
+    appendChildSpy.mockRestore();
+    removeChildSpy.mockRestore();
+    clickSpy.mockRestore();
+    unmount();
+
+    if (!capturedBlob) throw new Error("Blob not captured");
+    const csv = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsText(capturedBlob as Blob);
+    });
+    return { csv, filename: capturedFilename };
+  }
+
+  // --- Happy path ---
+
+  it("renders an 'Export' button for each motion", () => {
+    render(<AGMReportView motions={motions} />);
+    const csvBtns = screen.getAllByRole("button", { name: /Download results CSV for/ });
+    expect(csvBtns).toHaveLength(2);
+  });
+
+  it("'Export' button has correct aria-label including motion title", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    expect(screen.getByRole("button", { name: "Download results CSV for Motion 1" })).toBeInTheDocument();
+  });
+
+  it("per-motion CSV header for binary motion has 7 columns", async () => {
+    const { csv } = await captureMotionCSV([motions[0]]);
+    const header = csv.split("\n")[0];
+    expect(header).toBe("Lot Number,Owner Name,Voter Email,Vote Choice,Entitlement (UOE),Submitted By,Submitted At");
+  });
+
+  it("per-motion CSV data row for binary motion contains correct values", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "test@example.com", voter_name: "Test User", lot_number: "L1", entitlement: 100, submitted_at: "2024-01-01T10:00:00Z" }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    const rows = csv.split("\n").filter((r) => r.trim());
+    expect(rows).toHaveLength(2); // header + 1 data row
+    expect(rows[1]).toContain('"L1"');
+    expect(rows[1]).toContain('"Test User <test@example.com>"');
+    expect(rows[1]).toContain('"For"');
+    expect(rows[1]).toContain("100");
+    expect(rows[1]).toContain('"Voter"');
+    expect(rows[1]).toContain('"2024-01-01T10:00:00Z"');
+  });
+
+  it("per-motion CSV includes correct Vote Choice labels for all binary categories", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "y@example.com", lot_number: "L1", entitlement: 100 }],
+          no: [{ voter_email: "n@example.com", lot_number: "L2", entitlement: 100 }],
+          abstained: [{ voter_email: "a@example.com", lot_number: "L3", entitlement: 100 }],
+          absent: [{ voter_email: "abs@example.com", lot_number: "L4", entitlement: 100 }],
+          not_eligible: [{ voter_email: "ne@example.com", lot_number: "L5", entitlement: 100 }],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    expect(csv).toContain('"For"');
+    expect(csv).toContain('"Against"');
+    expect(csv).toContain('"Abstained"');
+    expect(csv).toContain('"Absent"');
+    expect(csv).toContain('"Not eligible"');
+  });
+
+  it("per-motion CSV filename uses motion_number prefix when present", async () => {
+    const motionWithNumber: MotionDetail[] = [
+      { ...motions[0], motion_number: "1A" },
+    ];
+    const { filename } = await captureMotionCSV(motionWithNumber);
+    expect(filename).toMatch(/^1A-/);
+    expect(filename).toContain("_results.csv");
+  });
+
+  it("per-motion CSV filename uses display_order when motion_number is null", async () => {
+    const motionNoNumber: MotionDetail[] = [
+      { ...motions[0], motion_number: null, display_order: 3 },
+    ];
+    const { filename } = await captureMotionCSV(motionNoNumber);
+    expect(filename).toMatch(/^3-/);
+    expect(filename).toContain("_results.csv");
+  });
+
+  it("per-motion CSV filename uses title slug truncated to 40 chars", async () => {
+    const longTitle = "A Very Long Motion Title That Exceeds Forty Characters Definitely";
+    const motionLongTitle: MotionDetail[] = [
+      { ...motions[0], motion_number: "2", title: longTitle },
+    ];
+    const { filename } = await captureMotionCSV(motionLongTitle);
+    // Slug portion should not exceed 40 chars (between the "-" and "_results.csv")
+    const slugPart = filename.replace(/^2-/, "").replace(/_results\.csv$/, "");
+    expect(slugPart.length).toBeLessThanOrEqual(40);
+  });
+
+  // --- Submitted At ---
+
+  it("per-motion CSV: submitted_at is included as ISO string when present", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "v@example.com", lot_number: "L1", entitlement: 100, submitted_at: "2024-06-15T09:30:00Z" }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    expect(csv).toContain('"2024-06-15T09:30:00Z"');
+  });
+
+  it("per-motion CSV: submitted_at is empty string when null, no crash", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "v@example.com", lot_number: "L1", entitlement: 100, submitted_at: null }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // Last column should be empty quoted string
+    const dataRow = csv.split("\n")[1];
+    expect(dataRow).toContain('""');
+    // No crash
+    expect(csv).toBeTruthy();
+  });
+
+  it("per-motion CSV: submitted_at is empty string when undefined, no crash", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "v@example.com", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // submitted_at absent → empty string at end of row
+    const dataRow = csv.split("\n")[1];
+    expect(dataRow.endsWith('""')).toBe(true);
+  });
+
+  // --- Proxy and Admin ---
+
+  it("per-motion CSV: proxy voter email includes ' (proxy)' suffix", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    expect(csv).toContain("proxy@example.com (proxy)");
+  });
+
+  it("per-motion CSV: admin-submitted ballot shows 'Admin' in Submitted By column", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("per-motion CSV: Owner Name is empty string when voter_name is null", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "v@example.com", voter_name: null, lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // Owner Name column (2nd) should be empty quoted string
+    const dataRow = csv.split("\n")[1];
+    // Row starts with lot number, then empty owner name
+    expect(dataRow).toContain('"L1",""');
+  });
+
+  // --- Disabled state ---
+
+  it("'Export' button is disabled when all voter lists are empty", () => {
+    const emptyMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+          options: {},
+        },
+      },
+    ];
+    render(<AGMReportView motions={emptyMotion} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Motion 1" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("'Export' button is enabled when there are voters", () => {
+    render(<AGMReportView motions={[motions[0]]} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Motion 1" });
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveAttribute("aria-disabled", "false");
+  });
+
+  // --- Multi-choice motion ---
+
+  it("per-motion CSV header for multi-choice motion has 8 columns (includes Option)", async () => {
+    const { csv } = await captureMotionCSV([mcMotionFixture]);
+    const header = csv.split("\n")[0];
+    expect(header).toBe("Lot Number,Owner Name,Voter Email,Option,Vote Choice,Entitlement (UOE),Submitted By,Submitted At");
+  });
+
+  it("per-motion CSV for multi-choice motion includes option text and For/Against/Abstained choices", async () => {
+    const { csv } = await captureMotionCSV([mcMotionFixture]);
+    expect(csv).toContain('"Alice"');
+    expect(csv).toContain('"For"');
+    expect(csv).toContain('"Against"');
+    expect(csv).toContain('"Abstained"');
+  });
+
+  it("per-motion CSV for multi-choice motion absent row has empty Option cell", async () => {
+    const mcWithAbsent: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [{ voter_email: "abs@example.com", lot_number: "L11", entitlement: 75 }],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {},
+          options: { "opt-a": [], "opt-b": [] },
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcWithAbsent);
+    // Absent row: Option column is empty (unquoted empty string between commas)
+    expect(csv).toContain('"Absent"');
+    const rows = csv.split("\n").filter((r) => r.includes('"Absent"'));
+    // The Option column (4th) is empty (no quotes around it)
+    expect(rows[0]).toMatch(/,"",/);
+  });
+
+  it("per-motion CSV for multi-choice motion not_eligible row has empty Option cell", async () => {
+    const mcWithNE: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [{ voter_email: "ne@example.com", lot_number: "L12", entitlement: 50 }],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {},
+          options: { "opt-a": [], "opt-b": [] },
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcWithNE);
+    expect(csv).toContain('"Not eligible"');
+    const rows = csv.split("\n").filter((r) => r.includes('"Not eligible"'));
+    expect(rows[0]).toMatch(/,"",/);
+  });
+
+  it("per-motion CSV for multi-choice motion proxy voter shows (proxy) suffix", async () => {
+    const mcWithProxy: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          options_for: {
+            "opt-a": [{ voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" }],
+            "opt-b": [],
+          },
+          options_against: {},
+          options_abstained: {},
+          options: {
+            "opt-a": [{ voter_email: "proxy@example.com", lot_number: "L1", entitlement: 100, proxy_email: "proxy@example.com" }],
+            "opt-b": [],
+          },
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcWithProxy);
+    expect(csv).toContain("proxy@example.com (proxy)");
+  });
+
+  it("per-motion CSV for multi-choice motion admin ballot shows 'Admin' in Submitted By", async () => {
+    const mcWithAdmin: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          options_for: {
+            "opt-a": [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+            "opt-b": [],
+          },
+          options_against: {},
+          options_abstained: {},
+          options: {
+            "opt-a": [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+            "opt-b": [],
+          },
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcWithAdmin);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("'↓ CSV' button is disabled when multi-choice motion has no voters", () => {
+    const emptyMC: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {},
+          options: { "opt-a": [], "opt-b": [] },
+        },
+      },
+    ];
+    render(<AGMReportView motions={emptyMC} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).toBeDisabled();
+  });
+
+  it("'↓ CSV' button is enabled when multi-choice motion has options_for voters", () => {
+    render(<AGMReportView motions={[mcMotionFixture]} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("multi-choice motion '↓ CSV' button uses marginLeft:auto style", () => {
+    const { container } = render(<AGMReportView motions={[mcMotionFixture]} />);
+    const btn = container.querySelector('button[aria-label="Download results CSV for Board Election"]');
+    expect(btn).not.toBeNull();
+    // Multi-choice motion CSV button uses marginLeft:auto since it's standalone (no expand button)
+    expect(btn?.getAttribute("style")).toContain("margin-left");
+  });
+
+  it("binary motion '↓ CSV' button has no extra inline margin style (expand button takes margin-left:auto)", () => {
+    const { container } = render(<AGMReportView motions={[motions[0]]} />);
+    const btn = container.querySelector('button[aria-label="Download results CSV for Motion 1"]');
+    expect(btn).not.toBeNull();
+    // Binary motion has expand button with marginLeft:auto; CSV button has no inline style
+    expect(btn?.getAttribute("style")).toBeFalsy();
+  });
+
+  it("per-motion CSV for multi-choice: options_against voters appear with 'Against' choice", async () => {
+    const { csv } = await captureMotionCSV([mcMotionFixture]);
+    // mcMotionFixture has opt-a against voter
+    expect(csv).toContain('"Against"');
+    expect(csv).toContain("voter3@example.com");
+  });
+
+  it("per-motion CSV for multi-choice: options_abstained voters appear with 'Abstained' choice", async () => {
+    const { csv } = await captureMotionCSV([mcMotionFixture]);
+    // mcMotionFixture has opt-b abstained voter
+    expect(csv).toContain('"Abstained"');
+    expect(csv).toContain("voter4@example.com");
+  });
+
+  it("per-motion CSV special chars in text are escaped (double-quotes become \"\")", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: 'test"quoted@example.com', lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    expect(csv).toContain('""quoted@example.com');
+  });
+
+  // --- Branch coverage: null-coalescing fallbacks in hasNoVoters IIFE ---
+
+  it("'↓ CSV' button disabled state: MC motion with options_for/against/abstained all undefined is disabled", () => {
+    const mcNoOptLists: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+          // options_for / options_against / options_abstained all absent (undefined)
+          options: {},
+        },
+      },
+    ];
+    render(<AGMReportView motions={mcNoOptLists} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).toBeDisabled();
+  });
+
+  it("'↓ CSV' button disabled state: MC motion with options_against voters present is enabled", () => {
+    const mcAgainstOnly: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {
+            "opt-a": [{ voter_email: "against@example.com", lot_number: "L1", entitlement: 100 }],
+          },
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    render(<AGMReportView motions={mcAgainstOnly} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("'↓ CSV' button disabled state: MC motion with options_abstained voters present is enabled", () => {
+    const mcAbstainedOnly: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {
+            "opt-a": [{ voter_email: "abstain@example.com", lot_number: "L1", entitlement: 100 }],
+          },
+          options: {},
+        },
+      },
+    ];
+    render(<AGMReportView motions={mcAbstainedOnly} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("'↓ CSV' button disabled state: MC motion with not_eligible voters only is enabled", () => {
+    const mcNEOnly: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          yes: [],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [{ voter_email: "ne@example.com", lot_number: "L1", entitlement: 100 }],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    render(<AGMReportView motions={mcNEOnly} />);
+    const btn = screen.getByRole("button", { name: "Download results CSV for Board Election" });
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("Fix 4: winningOptionIds !== null check: non-MC motion renders without error (isWinner=false path)", () => {
+    // Non-MC motion — winningOptionIds is null, isWinner evaluates to false via `null !== null && ...`
+    const { container } = render(<AGMReportView motions={[motions[0]]} />);
+    expect(container.querySelector(".admin-table-wrapper")).toBeTruthy();
+    expect(screen.getByText("For")).toBeInTheDocument();
+  });
+
+  it("Fix 4: MC motion with option_limit=null uses 1 as default limit (covers ?? 1 branch)", () => {
+    const mcNullLimit: MotionDetail = {
+      ...mcMotionFixture,
+      id: "mc-null-limit",
+      option_limit: null,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          { option_id: "opt-a", option_text: "Alice", display_order: 1, for_voter_count: 2, for_entitlement_sum: 200, against_voter_count: 0, against_entitlement_sum: 0, abstained_voter_count: 0, abstained_entitlement_sum: 0, voter_count: 2, entitlement_sum: 200, outcome: null },
+          { option_id: "opt-b", option_text: "Bob", display_order: 2, for_voter_count: 1, for_entitlement_sum: 100, against_voter_count: 0, against_entitlement_sum: 0, abstained_voter_count: 0, abstained_entitlement_sum: 0, voter_count: 1, entitlement_sum: 100, outcome: null },
+        ],
+      },
+    };
+    const { container } = render(<AGMReportView motions={[mcNullLimit]} totalEntitlement={500} />);
+    // With limit=1 (default), only top 1 option highlighted
+    const optionRows = container.querySelectorAll("tbody tr[style]");
+    const greenRows = Array.from(optionRows).filter((r) =>
+      r.getAttribute("style")?.includes("var(--green)")
+    );
+    expect(greenRows).toHaveLength(1);
+  });
+
+  // --- Global CSV export: admin submitted_by_admin=true in multi-choice path ---
+
+  it("global CSV export: multi-choice For voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcWithAdmin: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          "opt-b": [],
+        },
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAdmin]);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("global CSV export: multi-choice Against voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcWithAdminAgainst: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {},
+        options_against: {
+          "opt-a": [{ voter_email: "admin_ag@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+        },
+        options_abstained: {},
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAdminAgainst]);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("global CSV export: multi-choice Abstained voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcWithAdminAbs: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {},
+        options_against: {},
+        options_abstained: {
+          "opt-a": [{ voter_email: "admin_ab@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+        },
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAdminAbs]);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("global CSV export: multi-choice absent voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcWithAdminAbsent: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        abstained: [],
+        absent: [{ voter_email: "admin_absent@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+        not_eligible: [],
+        options_for: {},
+        options_against: {},
+        options_abstained: {},
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcWithAdminAbsent]);
+    expect(csv).toContain('"Admin"');
+  });
+
+  it("global CSV export: binary motion voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const binaryWithAdmin: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "admin@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(binaryWithAdmin);
+    expect(csv).toContain('"Admin"');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Branch coverage: null/undefined fallbacks in handleMotionExportCSV
+  // ---------------------------------------------------------------------------
+
+  it("per-motion CSV: voter_name present produces 'Name <email>' in Owner Name and Email columns", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "named@example.com", voter_name: "Jane Doe", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // Owner Name column should be "Jane Doe"
+    expect(csv).toContain('"Jane Doe"');
+    // Voter Email cell uses voter_name to build "Jane Doe <email>"
+    expect(csv).toContain("Jane Doe <named@example.com>");
+  });
+
+  it("per-motion CSV: lot_number undefined produces empty string in Lot Number column", async () => {
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "v@example.com", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // First column in data row should be empty quoted string
+    const dataRow = csv.split("\n")[1];
+    expect(dataRow.startsWith('"",')).toBe(true);
+  });
+
+  it("per-motion CSV: MC motion with tally.options=null does not crash (falls back to empty)", async () => {
+    const mcNullOptions: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        tally: {
+          ...mcMotionFixture.tally,
+          options: null as unknown as MotionDetail["tally"]["options"],
+        },
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [{ voter_email: "abs@example.com", lot_number: "L1", entitlement: 50 }],
+          not_eligible: [],
+          options_for: {},
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcNullOptions);
+    // Just absent row, no crash
+    expect(csv).toContain('"Absent"');
+  });
+
+  it("per-motion CSV: MC against voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcAdminAgainst: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {
+            "opt-a": [{ voter_email: "ag@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          },
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcAdminAgainst);
+    expect(csv).toContain('"Admin"');
+    expect(csv).toContain('"Against"');
+  });
+
+  it("per-motion CSV: MC abstained voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcAdminAbs: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          options_for: { "opt-a": [], "opt-b": [] },
+          options_against: {},
+          options_abstained: {
+            "opt-a": [{ voter_email: "ab@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          },
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcAdminAbs);
+    expect(csv).toContain('"Admin"');
+    expect(csv).toContain('"Abstained"');
+  });
+
+  it("per-motion CSV: MC absent voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const mcAdminAbsent: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [{ voter_email: "abs@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          not_eligible: [],
+          options_for: {},
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcAdminAbsent);
+    expect(csv).toContain('"Admin"');
+    expect(csv).toContain('"Absent"');
+  });
+
+  it("per-motion CSV: binary voter with submitted_by_admin=true shows 'Admin'", async () => {
+    const binaryAdmin: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "adm@example.com", lot_number: "L1", entitlement: 100, submitted_by_admin: true }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(binaryAdmin);
+    expect(csv).toContain('"Admin"');
+    expect(csv).toContain('"For"');
+  });
+
+  it("per-motion CSV: MC options_for fallback to options when options_for undefined for key", async () => {
+    // When options_for doesn't have the key but options does, uses options fallback
+    const mcOptionsFallback: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          // options_for for opt-a is undefined (key doesn't exist)
+          // but opt-b has a voter to ensure hasNoVoters=false (button enabled)
+          options_for: {
+            "opt-b": [{ voter_email: "opt_b_voter@example.com", lot_number: "L2", entitlement: 50 }],
+          },
+          options_against: {},
+          options_abstained: {},
+          // options has opt-a with a voter (fallback path)
+          options: {
+            "opt-a": [{ voter_email: "fallback@example.com", lot_number: "L1", entitlement: 100 }],
+            "opt-b": [],
+          },
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcOptionsFallback);
+    expect(csv).toContain("fallback@example.com");
+    expect(csv).toContain('"For"');
+  });
+
+  it("per-motion CSV: MC options_for and options both undefined for key, uses empty [] fallback", async () => {
+    // When neither options_for nor options has the key, falls back to []
+    const mcBothFallback: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [{ voter_email: "abs@example.com", lot_number: "L1", entitlement: 50 }],
+          not_eligible: [],
+          options_for: {},
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcBothFallback);
+    // No option-specific voters (both fallback to []), only absent row
+    expect(csv).toContain('"Absent"');
+    expect(csv).not.toContain('"For"');
+  });
+
+  it("global CSV export: multi-choice motion with tally.options=null produces only absent rows", async () => {
+    const mcNullOpts: MotionDetail = {
+      ...mcMotionFixture,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: null as unknown as MotionDetail["tally"]["options"],
+      },
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        abstained: [{ voter_email: "abs@example.com", lot_number: "L1", entitlement: 50 }],
+        absent: [],
+        not_eligible: [],
+        options_for: {},
+        options_against: {},
+        options_abstained: {},
+        options: {},
+      },
+    };
+    const csv = await captureCSVFromExport([mcNullOpts]);
+    expect(csv).toContain("Abstained");
+  });
+
+  it("global CSV export: voter_name truthy in buildEmailCell produces 'Name <email>' format", async () => {
+    const withName: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_email: "n@example.com", voter_name: "Alice Smith", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(withName);
+    expect(csv).toContain("Alice Smith <n@example.com>");
+  });
+
+  // --- Null/undefined fallback branches in handleMotionExportCSV ---
+
+  it("per-motion CSV: voter_name truthy + voter_email null uses empty string for email", async () => {
+    // Covers line 325 `v.voter_email ?? ""` — voter_name is truthy but voter_email is undefined
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_name: "No Email Person", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // Voter email column should contain "No Email Person <>" (empty email)
+    expect(csv).toContain("No Email Person <>");
+  });
+
+  it("per-motion CSV: voter_name falsy + voter_email falsy produces empty string in Voter Email", async () => {
+    // Covers line 326 `v.voter_email || ""` — both voter_name and voter_email are absent
+    const singleMotion: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(singleMotion);
+    // Voter Email cell should be empty
+    const dataRow = csv.split("\n")[1];
+    // After lot number and empty owner name, voter email is empty
+    expect(dataRow).toContain('"L1","",""');
+  });
+
+  it("per-motion CSV: MC for voter with lot_number undefined uses empty string fallback", async () => {
+    // Covers line 352 `v.lot_number ?? ""`
+    const mcNoLotFor: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          options_for: {
+            "opt-a": [{ voter_email: "v@example.com", entitlement: 100 }],
+            "opt-b": [],
+          },
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcNoLotFor);
+    // Lot Number column is empty (first column)
+    const dataRow = csv.split("\n").find((r) => r.includes('"For"'));
+    expect(dataRow?.startsWith('"",')).toBe(true);
+  });
+
+  it("per-motion CSV: MC against voter with lot_number undefined uses empty string fallback", async () => {
+    // Covers line 355 `v.lot_number ?? ""`
+    const mcNoLotAgainst: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          options_for: {
+            "opt-a": [{ voter_email: "for@example.com", lot_number: "L1", entitlement: 100 }],
+            "opt-b": [],
+          },
+          options_against: {
+            "opt-a": [{ voter_email: "against@example.com", entitlement: 100 }],
+          },
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcNoLotAgainst);
+    const againstRow = csv.split("\n").find((r) => r.includes('"Against"'));
+    expect(againstRow?.startsWith('"",')).toBe(true);
+  });
+
+  it("per-motion CSV: MC abstained voter with lot_number undefined uses empty string fallback", async () => {
+    // Covers line 358 `v.lot_number ?? ""`
+    const mcNoLotAbs: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [],
+          not_eligible: [],
+          options_for: {
+            "opt-a": [{ voter_email: "for@example.com", lot_number: "L1", entitlement: 100 }],
+            "opt-b": [],
+          },
+          options_against: {},
+          options_abstained: {
+            "opt-a": [{ voter_email: "abs@example.com", entitlement: 100 }],
+          },
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcNoLotAbs);
+    const absRow = csv.split("\n").find((r) => r.includes('"Abstained"'));
+    expect(absRow?.startsWith('"",')).toBe(true);
+  });
+
+  it("per-motion CSV: MC absent/not_eligible voter with lot_number undefined uses empty string fallback", async () => {
+    // Covers line 366 `v.lot_number ?? ""`
+    const mcNoLotAbsent: MotionDetail[] = [
+      {
+        ...mcMotionFixture,
+        voter_lists: {
+          ...mcMotionFixture.voter_lists,
+          absent: [{ voter_email: "abs@example.com", entitlement: 100 }],
+          not_eligible: [],
+          options_for: {},
+          options_against: {},
+          options_abstained: {},
+          options: {},
+        },
+      },
+    ];
+    const { csv } = await captureMotionCSV(mcNoLotAbsent);
+    const absentRow = csv.split("\n").find((r) => r.includes('"Absent"'));
+    expect(absentRow?.startsWith('"",')).toBe(true);
+  });
+
+  it("global CSV export: voter_name truthy + voter_email null produces 'Name <>' in Voter Email", async () => {
+    // Covers line 396 `v.voter_email ?? ""` — voter_name truthy but voter_email undefined
+    const withNameNoEmail: MotionDetail[] = [
+      {
+        ...motions[0],
+        voter_lists: {
+          ...motions[0].voter_lists,
+          yes: [{ voter_name: "Jane Doe", lot_number: "L1", entitlement: 100 }],
+          no: [],
+          abstained: [],
+          absent: [],
+          not_eligible: [],
+        },
+      },
+    ];
+    const csv = await captureCSVFromExport(withNameNoEmail);
+    expect(csv).toContain("Jane Doe <>");
+  });
+
+  // --- Pre-existing uncovered branches in MultiChoiceOptionRows and BinaryVoterList ---
+
+  it("MC drill-down: voter with null lot_number shows '—' in lot column (line 182 fallback)", async () => {
+    const user = userEvent.setup();
+    const mcWithNullLot: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [{ voter_email: "v@example.com", entitlement: 100 }],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [{ voter_email: "v@example.com", entitlement: 100 }],
+          "opt-b": [],
+        },
+      },
+    };
+    render(<AGMReportView motions={[mcWithNullLot]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // lot_number is undefined → shows "—"
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("MC drill-down: voter with voter_name present + voter_email null shows 'Name <>' (line 186 fallback)", async () => {
+    const user = userEvent.setup();
+    const mcWithNameNoEmail: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [{ voter_name: "Test Owner", lot_number: "L1", entitlement: 100 }],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [{ voter_name: "Test Owner", lot_number: "L1", entitlement: 100 }],
+          "opt-b": [],
+        },
+      },
+    };
+    render(<AGMReportView motions={[mcWithNameNoEmail]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // voter_name present but voter_email undefined → shows "Test Owner <>"
+    expect(screen.getByText("Test Owner <>")).toBeInTheDocument();
+  });
+
+  it("MC drill-down: voter with voter_name null + voter_email null shows '—' (line 187 fallback)", async () => {
+    const user = userEvent.setup();
+    const mcNoEmail: MotionDetail = {
+      ...mcMotionFixture,
+      voter_lists: {
+        ...mcMotionFixture.voter_lists,
+        options_for: {
+          "opt-a": [{ voter_name: null, lot_number: "L1", entitlement: 100 }],
+          "opt-b": [],
+        },
+        options_against: {},
+        options_abstained: {},
+        options: {
+          "opt-a": [{ voter_name: null, lot_number: "L1", entitlement: 100 }],
+          "opt-b": [],
+        },
+      },
+    };
+    render(<AGMReportView motions={[mcNoEmail]} />);
+    const showBtn = screen.getAllByRole("button", { name: /Show voting details for Alice/ })[0];
+    await user.click(showBtn);
+    // voter_name null and voter_email undefined → shows "—"
+    const dashes = screen.getAllByText("—");
+    expect(dashes.length).toBeGreaterThan(0);
+  });
+
+  it("MC MultiChoiceOptionRows: optTally with both for_voter_count and voter_count undefined uses 0 fallback (line 87)", () => {
+    // Covers `optTally.for_voter_count ?? optTally.voter_count ?? 0`
+    const mcBothUndefined: MotionDetail = {
+      ...mcMotionFixture,
+      tally: {
+        ...mcMotionFixture.tally,
+        options: [
+          // Both for_voter_count and voter_count are completely absent (undefined)
+          { option_id: "opt-a", option_text: "Alice", display_order: 1, outcome: null } as Parameters<typeof Array.prototype.push>[0],
+          { option_id: "opt-b", option_text: "Bob", display_order: 2, outcome: null } as Parameters<typeof Array.prototype.push>[0],
+        ] as MotionDetail["tally"]["options"],
+      },
+    };
+    render(<AGMReportView motions={[mcBothUndefined]} totalEntitlement={500} />);
+    // Renders without error; summary shows "0 For"
+    expect(screen.getAllByText(/0 For/).length).toBeGreaterThan(0);
+  });
+
+  it("BinaryVoterList: voter with null lot_number shows '—' (line 261 fallback)", async () => {
+    const user = userEvent.setup();
+    const motionNoLot: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        yes: [{ voter_email: "v@example.com", entitlement: 100 }],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options: {},
+      },
+    };
+    render(<AGMReportView motions={[motionNoLot]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // lot_number undefined → shows "—"
+    const dashes = screen.getAllByText("—");
+    expect(dashes.length).toBeGreaterThan(0);
+  });
+
+  it("BinaryVoterList: voter with voter_name present + voter_email null shows 'Name <>' (line 265 fallback)", async () => {
+    const user = userEvent.setup();
+    const motionNameNoEmail: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        yes: [{ voter_name: "Prop Owner", lot_number: "L1", entitlement: 100 }],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options: {},
+      },
+    };
+    render(<AGMReportView motions={[motionNameNoEmail]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // voter_name present but voter_email undefined → "Prop Owner <>"
+    expect(screen.getByText("Prop Owner <>")).toBeInTheDocument();
+  });
+
+  it("BinaryVoterList: voter with voter_name null + voter_email null shows '—' (line 266 fallback)", async () => {
+    const user = userEvent.setup();
+    const motionNoEmailAtAll: typeof motions[0] = {
+      ...motions[0],
+      voter_lists: {
+        yes: [{ voter_name: null, lot_number: "L1", entitlement: 100 }],
+        no: [],
+        abstained: [],
+        absent: [],
+        not_eligible: [],
+        options: {},
+      },
+    };
+    render(<AGMReportView motions={[motionNoEmailAtAll]} />);
+    await user.click(screen.getByRole("button", { name: /Expand voting details for Motion 1/ }));
+    // voter_name null, voter_email undefined → "—"
+    const dashes = screen.getAllByText("—");
+    expect(dashes.length).toBeGreaterThan(0);
+  });
+
 });

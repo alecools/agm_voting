@@ -614,11 +614,25 @@ export async function authenticateVoter(
 
 /**
  * Submit the ballot via the confirm dialog.
+ *
+ * Handles two flows:
+ *  1. No mixed vote state — SubmitDialog appears directly after clicking "Submit ballot".
+ *  2. Mixed vote state — MixedSelectionWarningDialog appears first; click "Continue" to
+ *     dismiss it, then SubmitDialog appears and "Submit ballot" is clicked inside it.
  */
 export async function submitBallot(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Submit ballot" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByRole("button", { name: "Submit ballot" }).last().click();
+
+  // If the mixed-warning dialog appeared, dismiss it first before the submit dialog.
+  const mixedDialog = page.getByRole("dialog", { name: "Mixed voting history" });
+  if (await mixedDialog.isVisible()) {
+    await mixedDialog.getByRole("button", { name: "Continue" }).click();
+    await expect(mixedDialog).not.toBeVisible({ timeout: 5000 });
+  }
+
+  // Now the submit/confirm dialog is visible — click its "Submit ballot" button.
+  await page.getByRole("dialog").getByRole("button", { name: "Submit ballot" }).click();
 }
 
 /**

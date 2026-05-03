@@ -936,6 +936,8 @@ export default function GeneralMeetingDetailPage() {
               left: "50%",
               transform: "translate(-50%, -50%)",
               width: "min(480px, 90vw)",
+              maxHeight: "90vh",
+              overflowY: "auto",
               zIndex: 201,
               background: "white",
               borderRadius: "var(--r-lg)",
@@ -1153,6 +1155,8 @@ export default function GeneralMeetingDetailPage() {
               minWidth: 360,
               maxWidth: 480,
               width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
               boxShadow: "var(--shadow-lg)",
             }}
           >

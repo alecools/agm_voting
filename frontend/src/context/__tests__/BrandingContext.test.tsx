@@ -6,7 +6,7 @@ import { server } from "../../../tests/msw/server";
 import { BrandingProvider, useBranding, DEFAULT_CONFIG, FALLBACK_LOGO_URL, FALLBACK_FAVICON_URL } from "../BrandingContext";
 import { resetConfigFixture, configFixture } from "../../../tests/msw/handlers";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 function TestConsumer() {
   const { config, isLoading } = useBranding();

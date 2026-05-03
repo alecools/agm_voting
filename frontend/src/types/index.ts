@@ -12,6 +12,7 @@ export interface Building {
   name: string;
   manager_email: string;
   is_archived: boolean;
+  unarchive_count: number;
   created_at: string;
 }
 

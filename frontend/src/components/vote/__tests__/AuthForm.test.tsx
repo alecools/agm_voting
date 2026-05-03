@@ -300,9 +300,9 @@ describe("AuthForm — step 2 (code)", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("OTP input has inputMode='numeric'", () => {
+  it("OTP input does not have inputMode (code is alphanumeric)", () => {
     render(<AuthForm {...step2Props()} />);
-    expect(screen.getByLabelText("Verification code")).toHaveAttribute("inputmode", "numeric");
+    expect(screen.getByLabelText("Verification code")).not.toHaveAttribute("inputmode");
   });
 
   // --- US-ACC-08: Required field markers ---

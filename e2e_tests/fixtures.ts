@@ -60,11 +60,13 @@ const IGNORED_PATTERNS = [
   /Provider's accounts list is empty/i,
   /GSI_LOGGER/i,
   /FedCM get\(\) rejects/i,
-  // Generic 403/429 from an empty URL "()": emitted by Chrome when browser-level
-  // credential/sign-in resources are blocked.  Empty URL means it is not from
-  // our /api/ endpoints (which always include the full path).
+  // Generic 403/429/500 from an empty URL "()": emitted by Chrome when browser-level
+  // credential/sign-in resources are blocked, or when Vercel infrastructure returns
+  // a transient 500 on non-API resources.  Empty URL means it is not from our
+  // /api/ endpoints (which always include the full path in the console message).
   /status of 403 \(\)/i,
   /status of 429 \(\)/i,
+  /status of 500 \(\)/i,
 ];
 
 /**

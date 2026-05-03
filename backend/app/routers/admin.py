@@ -10,20 +10,26 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import aiosmtplib
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import engine, get_db
+from app.utils import derive_origin
 from app.logging_config import get_logger
 from app.models import EmailDelivery, GeneralMeeting, get_effective_status
-from app.routers.admin_auth import require_admin
+from app.dependencies import BetterAuthUser, require_admin, require_operator
 from app.services.email_service import EmailService
 from app.schemas.admin import (
     AddEmailRequest,
     AddOwnerEmailRequest,
     UpdateOwnerEmailRequest,
+    AdminUserInviteRequest,
+    AdminUserListOut,
+    AdminUserOut,
     GeneralMeetingBallotResetOut,
     GeneralMeetingCloseOut,
     GeneralMeetingCreate,
@@ -33,6 +39,9 @@ from app.schemas.admin import (
     GeneralMeetingStartOut,
     BuildingArchiveOut,
     BuildingCreate,
+    SubscriptionChangeRequest,
+    SubscriptionResponse,
+    SubscriptionUpdate,
     BuildingImportResult,
     BuildingOut,
     BuildingUpdate,
@@ -60,9 +69,27 @@ from app.services import admin_service
 from app.services import config_service
 from app.services import smtp_config_service
 from app.services import blob_service
-from app.rate_limiter import admin_import_limiter, admin_close_limiter
+from app.services import neon_auth_service
+from app.services.neon_auth_service import (
+    NeonAuthDuplicateUserError,
+    NeonAuthNotConfiguredError,
+    NeonAuthServiceError,
+    NeonAuthUserNotFoundError,
+)
+from app.rate_limiter import (
+    admin_import_limiter,
+    admin_close_limiter,
+    admin_invite_limiter,
+    get_client_ip,
+    provision_limiter,
+    smtp_test_rate_limiter,
+)
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
+# Separate router for endpoints that must NOT require admin auth.
+# Currently only the test-only /auth/provision endpoint lives here — it is
+# guarded by _require_debug_access() (TESTING_MODE=true) instead.
+debug_unauthed_router = APIRouter(tags=["admin"])
 logger = get_logger(__name__)
 
 _CSV_CONTENT_TYPES = {
@@ -159,6 +186,117 @@ def _detect_file_format(file: UploadFile) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Admin user management
+# ---------------------------------------------------------------------------
+
+
+@router.get("/users", response_model=AdminUserListOut)
+async def list_admin_users(
+    current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserListOut:
+    """List all admin users by querying the neon_auth.user table.
+
+    Returns 502 on database error.
+    """
+    try:
+        users = await neon_auth_service.list_admin_users(db)
+    except NeonAuthServiceError as exc:
+        logger.error("list_admin_users_error", error=str(exc))
+        raise HTTPException(status_code=502, detail="User management service error")
+    return AdminUserListOut(users=users)
+
+
+@router.post("/users/invite", response_model=AdminUserOut, status_code=status.HTTP_201_CREATED)
+async def invite_admin_user(
+    request: Request,
+    data: AdminUserInviteRequest,
+    current_user: BetterAuthUser = Depends(require_admin),
+) -> AdminUserOut:
+    """Create a new admin user and trigger a password-reset email.
+
+    Rate limited to 10 calls per 10 minutes per admin session.
+    Returns 409 if the email is already registered.
+    Returns 422 if the email is not a valid email address (Pydantic validation).
+    Returns 503 if Neon Auth management is not configured.
+    """
+    admin_invite_limiter.check(current_user.user_id)
+
+    redirect_origin = derive_origin(request)
+
+    try:
+        user = await neon_auth_service.invite_admin_user(str(data.email), redirect_origin)
+    except NeonAuthNotConfiguredError:
+        raise HTTPException(status_code=503, detail="User management not configured")
+    except NeonAuthDuplicateUserError:
+        raise HTTPException(status_code=409, detail="A user with that email already exists.")
+    except NeonAuthServiceError as exc:
+        logger.error("invite_admin_user_error", error=str(exc))
+        raise HTTPException(status_code=502, detail="User management service error")
+    logger.info("admin_user_invited", performed_by=current_user.user_id, target_email=str(data.email))
+    return user
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_admin_user(
+    user_id: str,
+    current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Remove an admin user.
+
+    Returns 403 if attempting to remove the current user (self-removal guard).
+    Returns 409 if this is the last admin user.
+    Returns 404 if the user does not exist.
+    Returns 503 if Neon Auth management is not configured.
+
+    Note: there is a TOCTOU gap between the pre-delete count check and the
+    actual delete — two concurrent requests could each see 2 users, both pass
+    the guard, and one of them ends up deleting the last admin.  A true atomic
+    fix requires Neon Auth to enforce a minimum-admin-count constraint
+    server-side (or a distributed lock).  The post-delete re-query below
+    narrows the window and gives us visibility if it ever occurs.
+    """
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=403, detail="Cannot remove yourself.")
+
+    try:
+        users = await neon_auth_service.list_admin_users(db)
+    except NeonAuthServiceError as exc:
+        logger.error("remove_admin_user_list_error", error=str(exc))
+        raise HTTPException(status_code=502, detail="User management service error")
+
+    if len(users) <= 1:
+        raise HTTPException(status_code=409, detail="Cannot remove the last admin user.")
+
+    try:
+        await neon_auth_service.remove_admin_user(user_id)
+    except NeonAuthNotConfiguredError:
+        raise HTTPException(status_code=503, detail="User management not configured")
+    except NeonAuthUserNotFoundError:
+        raise HTTPException(status_code=404, detail="User not found.")
+    except NeonAuthServiceError as exc:
+        logger.error("remove_admin_user_error", error=str(exc), user_id=user_id)
+        raise HTTPException(status_code=502, detail="User management service error")
+
+    logger.info("admin_user_removed", performed_by=current_user.user_id, target_user_id=user_id)
+
+    # Post-delete guard: re-query to verify at least one admin still exists.
+    # The pre-check above has a TOCTOU gap under concurrent requests; this
+    # re-query narrows the window and gives critical visibility if it fires.
+    try:
+        remaining = await neon_auth_service.list_admin_users(db)
+        if len(remaining) == 0:
+            logger.critical(
+                "admin_user_removal_left_zero_admins",
+                removed_user_id=user_id,
+                performed_by=current_user.user_id,
+            )
+    except NeonAuthServiceError:
+        pass  # post-delete verification failure must not mask the successful delete
+
+
+# ---------------------------------------------------------------------------
 # Buildings
 # ---------------------------------------------------------------------------
 
@@ -247,6 +385,79 @@ async def archive_building(
 ) -> BuildingArchiveOut:
     building = await admin_service.archive_building(building_id, db)
     return BuildingArchiveOut.model_validate(building)
+
+
+@router.post(
+    "/buildings/{building_id}/unarchive",
+    response_model=BuildingArchiveOut,
+)
+async def unarchive_building(
+    building_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: BetterAuthUser = Depends(require_operator),
+) -> BuildingArchiveOut:
+    building = await admin_service.unarchive_building(building_id, db)
+    return BuildingArchiveOut.model_validate(building)
+
+
+@router.get("/subscription", response_model=SubscriptionResponse)
+async def get_subscription(
+    db: AsyncSession = Depends(get_db),
+) -> SubscriptionResponse:
+    return await admin_service.get_subscription(db)
+
+
+@router.post("/subscription", response_model=SubscriptionResponse)
+async def update_subscription(
+    data: SubscriptionUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: BetterAuthUser = Depends(require_operator),
+) -> SubscriptionResponse:
+    return await admin_service.upsert_subscription(
+        db,
+        tier_name=data.tier_name,
+        building_limit=data.building_limit,
+    )
+
+
+@router.post("/subscription/request-change")
+async def request_subscription_change(
+    request: Request,
+    data: SubscriptionChangeRequest,
+    current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Send a tier-change request email to support@ocss.tech.
+
+    Returns 200 with {"message": "Request sent."} on success.
+    Returns 503 if SMTP is not configured.
+    """
+    from app.services.email_service import SmtpNotConfiguredError
+
+    origin = derive_origin(request)
+    subscription = await admin_service.get_subscription(db)
+
+    try:
+        await admin_service.send_subscription_change_request(
+            db,
+            origin=origin,
+            current_tier=subscription.tier_name,
+            requested_tier=data.requested_tier,
+            requester_email=current_user.email,
+        )
+    except SmtpNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail="Email not configured. Contact support@ocss.tech directly.",
+        )
+
+    logger.info(
+        "subscription_change_requested",
+        performed_by=current_user.user_id,
+        requested_tier=data.requested_tier,
+        origin=origin,
+    )
+    return {"message": "Request sent."}
 
 
 @router.get("/buildings/{building_id}", response_model=BuildingOut)
@@ -807,9 +1018,7 @@ async def reset_general_meeting_ballots(
     Requires ENABLE_BALLOT_RESET=true env var (RR5-01). Returns 403 when unset
     to prevent accidental production use.
     """
-    from app.config import settings as _settings  # noqa: PLC0415
-
-    if not _settings.enable_ballot_reset:
+    if not settings.enable_ballot_reset:
         raise HTTPException(
             status_code=403,
             detail="Ballot reset is disabled. Set ENABLE_BALLOT_RESET=true to enable.",
@@ -826,8 +1035,8 @@ async def reset_general_meeting_ballots(
 async def enter_votes_for_meeting(
     general_meeting_id: uuid.UUID,
     data: AdminVoteEntryRequest,
-    request: Request,
     db: AsyncSession = Depends(get_db),
+    admin_user: BetterAuthUser = Depends(require_admin),
 ) -> AdminVoteEntryResult:
     """Enter in-person votes on behalf of lot owners (US-AVE-01/02/03).
 
@@ -836,9 +1045,8 @@ async def enter_votes_for_meeting(
     Returns 409 if the meeting is not open.
     Returns 422 if unknown lot_owner_ids or invalid votes are provided.
     """
-    admin_username: str | None = request.session.get("admin_username")
     result = await admin_service.enter_votes_for_meeting(
-        general_meeting_id, data, db, admin_username=admin_username
+        general_meeting_id, data, db, admin_username=admin_user.email
     )
     return AdminVoteEntryResult(**result)
 
@@ -927,19 +1135,11 @@ async def update_admin_config(
 # SMTP configuration
 # ---------------------------------------------------------------------------
 
-# RR5-06: Use the project-standard RateLimiter singleton instead of a bare list.
-# Keyed on a fixed string "smtp_test" so the limit is server-wide (not per-IP),
-# matching the original intent of protecting the SMTP server from excessive load.
-# 5 requests per 60-second sliding window.
-from app.rate_limiter import RateLimiter as _RateLimiter
-
-_smtp_test_rate_limiter = _RateLimiter(max_requests=5, window_seconds=60)
-
 
 def _check_smtp_test_rate_limit() -> None:
     """Raise 429 if more than 5 calls to /config/smtp/test occurred in the last 60s."""
     try:
-        _smtp_test_rate_limiter.check("smtp_test")
+        smtp_test_rate_limiter.check("smtp_test")
     except HTTPException as exc:
         raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 test emails per minute") from exc
 
@@ -1038,8 +1238,7 @@ def _require_debug_access() -> None:
     testing_mode is always False, so this guard prevents them from being reachable
     in production even if the admin session is compromised.
     """
-    from app.config import settings as _settings
-    if not _settings.testing_mode:
+    if not settings.testing_mode:
         raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -1115,3 +1314,74 @@ async def debug_db_health() -> dict:
         "checked_out": pool.checkedout(),
         "overflow": pool.overflow(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Test-only admin provisioning endpoint
+# ---------------------------------------------------------------------------
+
+
+class _ProvisionAdminRequest(BaseModel):
+    email: str
+    password: str
+    name: str = "Admin"
+
+
+@debug_unauthed_router.post("/auth/provision", status_code=204)
+async def provision_admin_user(request: Request, body: _ProvisionAdminRequest) -> None:
+    """Create an admin user in Neon Auth directly (server-to-server).
+
+    This endpoint is only available when TESTING_MODE=true.  It is used by the
+    E2E global-setup to seed the admin account on fresh Neon branch deployments
+    where no admin user yet exists.
+
+    It calls Neon Auth's sign-up endpoint internally (server-to-server) so the
+    resulting account is usable for sign-in/email — unlike the management API
+    which creates users whose passwords cannot be used for session-based auth.
+
+    Neon Auth requires an Origin header on the sign-up call; we derive it from
+    the incoming request's x-forwarded-proto/x-forwarded-host headers (set by
+    Vercel on all requests) so the server-to-server call satisfies that check.
+
+    Idempotent: if the user already exists the upstream 4xx is silently ignored
+    and 204 is still returned so global-setup can call this unconditionally.
+    """
+    _require_debug_access()
+    provision_limiter.check(get_client_ip(request))
+
+    if not settings.neon_auth_base_url:
+        raise HTTPException(status_code=503, detail="Auth service not configured")
+
+    # Derive the browser-facing origin so Neon Auth can validate the request
+    # against its trusted_origins list.  Without this header Neon Auth returns
+    # 400 MISSING_ORIGIN and the sign-up silently fails.
+    origin = derive_origin(request)
+
+    url = f"{settings.neon_auth_base_url.rstrip('/')}/sign-up/email"
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if origin:
+        headers["origin"] = origin
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            url,
+            json={"email": body.email, "password": body.password, "name": body.name},
+            headers=headers,
+            timeout=15.0,
+        )
+
+    # 200/201 = created; 4xx = user already exists or validation error (idempotent).
+    # Anything else (5xx, unexpected codes) is a real upstream error — raise 502.
+    is_success = resp.status_code in (200, 201)
+    is_client_error = 400 <= resp.status_code < 500
+    if not is_success and not is_client_error:
+        logger.error("provision_admin_user_upstream_error", status=resp.status_code)
+        raise HTTPException(status_code=502, detail="Upstream auth error")
+    if is_client_error and resp.status_code != 409:
+        # 409 = already exists (expected idempotent case); any other 4xx is unexpected.
+        # Log at WARNING so operator logs surface the issue without failing the endpoint.
+        logger.warning(
+            "provision_admin_user_unexpected_4xx",
+            status=resp.status_code,
+            body=resp.text[:200],
+        )

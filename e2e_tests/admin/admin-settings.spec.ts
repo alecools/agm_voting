@@ -1,11 +1,17 @@
 import { test, expect } from "../fixtures";
-import { ADMIN_AUTH_PATH } from "../workflows/helpers";
+import { makeAdminApi, ADMIN_AUTH_PATH } from "../workflows/helpers";
+
+// Admin email used during global-setup provisioning — matches the current logged-in user.
+const ADMIN_EMAIL = process.env.ADMIN_USERNAME ?? "admin@example.com";
 
 /**
- * E2E tests for the Admin Settings (tenant branding) page.
+ * E2E tests for the Admin Settings page (tenant branding, email server, user management).
  *
  * These tests run against the deployed preview URL. They always restore the
  * original app_name after mutating it so the suite is idempotent.
+ *
+ * The Settings page has three tabs: "UI & Theme", "Email Server", "User Management".
+ * Each test clicks the relevant tab before interacting with tab-specific fields.
  */
 
 const ORIGINAL_APP_NAME = "AGM Voting";
@@ -17,6 +23,21 @@ const ORIGINAL_PRIMARY_COLOUR = "#005f73";
 // directly to avoid Playwright strict-mode violations.
 const primaryColourText = (page: import("@playwright/test").Page) =>
   page.locator("#primary-colour-text");
+
+/** Click the "UI & Theme" tab on the Settings page to activate the branding panel. */
+const clickUiThemeTab = async (page: import("@playwright/test").Page) => {
+  await page.getByRole("tab", { name: "UI & Theme" }).click();
+};
+
+/** Click the "Email Server" tab on the Settings page to activate the SMTP panel. */
+const clickEmailServerTab = async (page: import("@playwright/test").Page) => {
+  await page.getByRole("tab", { name: "Email Server" }).click();
+};
+
+/** Click the "User Management" tab on the Settings page to activate the users panel. */
+const clickUserManagementTab = async (page: import("@playwright/test").Page) => {
+  await page.getByRole("tab", { name: "User Management" }).click();
+};
 
 test.describe("Admin Settings — tenant branding", () => {
   // --- Navigation ---
@@ -30,6 +51,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("settings page renders all form fields including logo upload", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     await expect(page.getByLabel("Logo URL")).toBeVisible();
     await expect(page.getByLabel("Upload logo image")).toBeVisible();
@@ -39,6 +61,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("settings page shows Save button", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByTestId("branding-save-btn")).toBeVisible();
   });
 
@@ -48,6 +71,7 @@ test.describe("Admin Settings — tenant branding", () => {
     const testAppName = `E2E Settings ${Date.now()}`;
 
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
 
     // Update app name and save
@@ -67,6 +91,7 @@ test.describe("Admin Settings — tenant branding", () => {
     const testAppName = `E2E Branding ${Date.now()}`;
 
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
 
     // Capture the current logo URL so we can restore it at the end.
@@ -85,19 +110,10 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
 
-    // Poll until /api/config reflects the new app_name — Lambda caching can cause
-    // the refetch to lag. Only assert the sidebar once the API confirms the change
-    // so we don't race against network latency on the preview deployment.
-    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    for (let i = 0; i < 20; i++) {
-      const res = await page.request.get(`${baseURL}/api/config`);
-      const cfg = await res.json() as { app_name: string };
-      if (cfg.app_name === testAppName) break;
-      await page.waitForTimeout(500);
-    }
-
-    // After invalidateQueries triggers a refetch, the sidebar span should update.
-    // Use a generous timeout to allow for Lambda re-fetch latency.
+    // Wait until the sidebar span reflects the new app_name. The sidebar re-renders
+    // after React Query invalidates the public-config cache following the save. Use
+    // an explicit toHaveText assertion with a generous timeout instead of polling
+    // with hardcoded sleeps — this resolves as soon as the DOM updates.
     await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(testAppName, {
       timeout: 15000,
     });
@@ -117,6 +133,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("success message disappears after a few seconds", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
@@ -126,6 +143,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("form is pre-populated with current config from server", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     // App name field should be populated (not blank)
     const appNameValue = await page.getByLabel("App name").inputValue();
@@ -139,6 +157,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("favicon link tag is present in document head", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     // The <link rel="icon"> element must exist for JS to update it
     const faviconHref = await page.evaluate(() => {
@@ -150,6 +169,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("favicon href reflects logo_url from config after load", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     // After BrandingContext loads, favicon should be set to logo_url or /favicon.ico
     const faviconHref = await page.evaluate(() => {
@@ -164,6 +184,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("saving with empty app name does not show success", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
     await page.getByLabel("App name").fill("");
     await page.getByTestId("branding-save-btn").click();
@@ -173,6 +194,7 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("saving with invalid hex colour shows error", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(primaryColourText(page)).toBeVisible();
     await primaryColourText(page).fill("notacolour");
     await page.getByTestId("branding-save-btn").click();
@@ -183,19 +205,21 @@ test.describe("Admin Settings — tenant branding", () => {
     // Restore valid colour
     await primaryColourText(page).fill(ORIGINAL_PRIMARY_COLOUR);
     await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible();
+    await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
   });
 });
 
 test.describe("Admin Settings — favicon upload", () => {
   test("favicon URL field and upload button are present on the settings page", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("Favicon URL")).toBeVisible();
     await expect(page.getByLabel("Upload favicon image")).toBeVisible();
   });
 
   test("favicon URL field accepts text input", async ({ page }) => {
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("Favicon URL")).toBeVisible();
     const input = page.getByLabel("Favicon URL");
     await input.fill("https://example.com/fav.ico");
@@ -216,15 +240,8 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
   let originalLogoUrl = "";
 
   test.beforeAll(async () => {
-    const { request: playwrightRequest } = await import("@playwright/test");
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await playwrightRequest.newContext({
-      baseURL,
-      ignoreHTTPSErrors: true,
-      storageState: ADMIN_AUTH_PATH,
-      // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
-      timeout: 60000,
-    });
+    const api = await makeAdminApi(baseURL);
     const configRes = await api.get("/api/admin/config");
     const config = await configRes.json() as { logo_url?: string };
     originalLogoUrl = config.logo_url ?? "";
@@ -238,6 +255,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 
     // Step 1: Set a custom logo URL via the settings page
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
     await page.getByLabel("Logo URL").fill(TEST_LOGO_URL);
     await page.getByTestId("branding-save-btn").click();
@@ -275,6 +293,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 
     // Step 1: Clear logo URL
     await page.goto("/admin/settings");
+    await clickUiThemeTab(page);
     await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
     await page.getByLabel("Logo URL").fill("");
     await page.getByTestId("branding-save-btn").click();
@@ -304,5 +323,130 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     await page.getByLabel("Logo URL").fill(originalLogoUrl);
     await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ── Admin Settings — User Management tab ──────────────────────────────────────
+
+test.describe("Admin Settings — User Management tab", () => {
+  // Email used for the invite test. A unique suffix per run prevents the
+  // "already exists" branch from being hit if a prior run's afterAll cleanup
+  // was skipped (e.g. due to a test timeout or network failure).
+  const INVITE_EMAIL = `e2e-invite-${Date.now()}@example.com`;
+
+  // Store the invited user's ID so afterAll can remove it if the invite succeeded.
+  let invitedUserId: string | null = null;
+
+  test.afterAll(async () => {
+    // Remove the invited user if the invite test created them, so the suite is
+    // idempotent and subsequent runs don't hit the 409 "already exists" branch on
+    // the first invite attempt (which would make success assertions ambiguous).
+    if (!invitedUserId) return;
+    const { request: playwrightRequest } = await import("@playwright/test");
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await playwrightRequest.newContext({
+      baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: ADMIN_AUTH_PATH,
+      timeout: 60000,
+    });
+    try {
+      await api.delete(`/api/admin/users/${invitedUserId}`);
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  // --- Happy path ---
+
+  test("User Management tab loads and GET /api/admin/users returns 200", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    const [usersResponse] = await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    expect(usersResponse.status()).toBe(200);
+  });
+
+  test("User Management tab shows current admin user email in the table", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    // The users table must be visible and contain the current admin's email
+    await expect(page.locator(".admin-table")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".admin-table").getByText(ADMIN_EMAIL)).toBeVisible();
+
+    // The current user's row must also show the "(you)" label
+    await expect(page.locator(".admin-table").getByText("(you)")).toBeVisible();
+  });
+
+  // --- Invite form ---
+
+  test("Invite form — success path: invited email appears with success message", async ({ page }) => {
+    test.setTimeout(30000);
+
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    // Open the invite form
+    await page.getByRole("button", { name: "Invite Admin" }).click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite Admin User" });
+    await expect(inviteDialog).toBeVisible();
+    await expect(inviteDialog.getByLabel("Email address")).toBeVisible();
+
+    // Fill in the invite email and submit
+    await inviteDialog.getByLabel("Email address").fill(INVITE_EMAIL);
+
+    const [inviteResponse] = await Promise.all([
+      page.waitForResponse((resp) =>
+        resp.url().includes("/api/admin/users/invite") && resp.request().method() === "POST"
+      ),
+      inviteDialog.getByRole("button", { name: "Send Invite" }).click(),
+    ]);
+
+    // INVITE_EMAIL uses Date.now() so it is always unique per run.
+    // Any non-201 response is a genuine failure — assert 201 directly.
+    expect(inviteResponse.status()).toBe(201);
+
+    // Store ID for afterAll cleanup
+    const body = await inviteResponse.json() as { id: string; email: string };
+    invitedUserId = body.id;
+
+    // Success message appears with the invited email
+    await expect(page.getByRole("status")).toHaveText(`Invite sent to ${INVITE_EMAIL}`, { timeout: 10000 });
+
+    // The invited email is also added to the users table
+    await expect(page.locator(".admin-table").getByText(INVITE_EMAIL)).toBeVisible();
+  });
+
+  // --- Last-admin removal guard ---
+
+  test("Remove button is absent for the current user's own row", async ({ page }) => {
+    await page.goto("/admin/settings");
+
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes("/api/admin/users") && resp.request().method() === "GET"),
+      clickUserManagementTab(page),
+    ]);
+
+    await expect(page.locator(".admin-table")).toBeVisible({ timeout: 10000 });
+
+    // Find the row that contains the current admin's email (identified by the "(you)" label)
+    const currentUserRow = page.locator(".admin-table tbody tr").filter({ hasText: "(you)" });
+    await expect(currentUserRow).toBeVisible();
+
+    // The Remove button must NOT exist in the current user's row — the UI omits it
+    // (not just disables it) to prevent self-removal
+    await expect(currentUserRow.getByRole("button", { name: "Remove" })).not.toBeVisible();
   });
 });

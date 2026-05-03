@@ -231,6 +231,78 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 
 ---
 
+---
+
+### US-USR-01: Admin lists all admin users
+
+**Status:** ✅ Implemented — branch: `admin-user-management`, committed 2026-05-01
+
+**Description:** As an admin, I want to see all current admin users so I can understand who has access to the admin panel.
+
+**Acceptance Criteria:**
+
+- [ ] A "Users" nav item appears in the admin sidebar and navigates to `/admin/users`
+- [ ] The Users page loads the current user list via `GET /api/admin/users` and renders a flat table with columns: Email and Created date
+- [ ] Created date is formatted as a human-readable local date (e.g. "1 May 2026")
+- [ ] The current logged-in admin's own row is visually marked (e.g. "(you)" suffix on the email)
+- [ ] The table handles loading, error, and empty states
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-USR-02: Admin invites a new admin user
+
+**Status:** ✅ Implemented — branch: `admin-user-management`, committed 2026-05-01
+
+**Description:** As an admin, I want to invite a new admin user by email so they can set up their own password and access the admin panel.
+
+**Acceptance Criteria:**
+
+- [ ] The Users page has an "Invite admin" button that opens an inline form with a single email field
+- [ ] Submitting the form calls `POST /api/admin/users/invite` with `{"email": "..."}` and shows a loading state while in flight
+- [ ] The backend creates the user in Neon Auth via the management API and immediately triggers a password-reset email to the invited address
+- [ ] On success, an inline confirmation message reads: "Invite sent to [email]" and the new user appears in the table
+- [ ] If the email is already registered as an admin user, the endpoint returns 409 and the form shows: "A user with that email already exists."
+- [ ] If the email is invalid (not a valid email format), the endpoint returns 422 and the form shows the validation error
+- [ ] No plain-text password is ever stored or shown to the inviting admin
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+**Implementation notes (security and reliability — branch: `fix/review-backend`):**
+
+- Rate limit is now keyed on `current_user.user_id` (not the string "admin") so each admin's invite quota is tracked independently (SRE-1).
+- A success audit log (`admin_user_invited`) is emitted after each successful invite with `performed_by` and `target_email` fields (BACKEND-1/LEGAL-1).
+- If the password-reset email call fails after the Neon Auth user is created, the orphaned account is automatically deleted before raising the error to prevent invite re-attempts from hitting a 409 (SECURITY-4).
+- All Neon management API calls retry once on HTTP 5xx with a 1-second delay (SRE-2).
+
+---
+
+### US-USR-03: Admin removes an admin user
+
+**Status:** ✅ Implemented — branch: `admin-user-management`, committed 2026-05-01
+
+**Description:** As an admin, I want to remove another admin user so they can no longer access the admin panel.
+
+**Acceptance Criteria:**
+
+- [ ] Each user row has a "Remove" button (`.btn--danger` style) — except for the current logged-in admin's own row, where no Remove button is shown at all
+- [ ] Clicking "Remove" shows a confirmation dialog: "Remove [email]? They will lose admin access immediately."
+- [ ] Confirming calls `DELETE /api/admin/users/{user_id}` and shows a loading state while in flight
+- [ ] On success, the removed user disappears from the table; an inline confirmation reads: "User removed."
+- [ ] If the user being removed is the last admin, the endpoint returns 409 and the UI shows an inline error: "Cannot remove the last admin user."
+- [ ] If the user does not exist, the endpoint returns 404
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+**Implementation notes (security and reliability — branch: `fix/review-backend`):**
+
+- A success audit log (`admin_user_removed`) is emitted after each successful removal with `performed_by` and `target_user_id` fields (BACKEND-1/LEGAL-1).
+- After the delete completes, the endpoint re-queries the user list and logs a `CRITICAL` event if zero admins remain. This narrows the TOCTOU gap in the last-admin guard (SECURITY-3). A true atomic fix requires Neon Auth to enforce this constraint server-side.
+- All Neon management API calls retry once on HTTP 5xx with a 1-second delay (SRE-2).
+
+---
+
 ## Non-Goals
 
 - No per-building SMTP configuration (one global config per tenant)
@@ -238,3 +310,5 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 - No exporting or viewing the SMTP password from the admin UI (write-only field)
 - No email notifications to lot owners (invites, reminders, vote confirmations)
 - No PropertyIQ sync changes until API credentials are provided
+- No role hierarchy for admin users (flat — any admin can invite or remove others)
+- No self-removal (the current admin's Remove button is hidden, not merely disabled)

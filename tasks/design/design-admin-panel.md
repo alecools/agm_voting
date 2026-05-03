@@ -147,7 +147,189 @@ On `GeneralMeetingDetailPage`, the voter lists in the results section show all l
 
 ---
 
+---
+
+## Per-Motion Vote Results Download (US-DL-01)
+
+**Status:** Draft
+
+### Overview
+
+Admins on the Results Report section of a General Meeting detail page want to download the vote data for a single motion as a CSV. A full-meeting export button already exists (`↓ Export voter lists (CSV)` in `AGMReportView.tsx`). This feature adds a per-motion download button to each motion card header. All data required for the download is already present in the `MotionDetail` object returned by `GET /api/admin/general-meetings/{id}` — no new backend endpoint is needed.
+
+### Why client-side only
+
+The `GeneralMeetingDetail` response already loads full `voter_lists` (per-lot voter email, lot number, entitlement, proxy status, `submitted_by_admin`) and `tally` data for every motion. A dedicated backend download endpoint would re-query the same data at extra latency cost and add a network round-trip the admin waits through. The existing full-meeting export already uses client-side CSV generation from this same data structure; the per-motion download follows the identical pattern scoped to a single motion.
+
+One field that is NOT currently in the frontend payload is `submitted_at` (the ballot submission timestamp). The acceptance criteria require it. Two approaches are possible:
+
+1. **Add `submitted_at` to the `VoterEntry` shape** — extend `get_general_meeting_detail` to include `submitted_at` from `BallotSubmission.submitted_at` in each voter list entry. This is additive and backward-compatible.
+2. **Omit `submitted_at` from the per-motion CSV** — simplest; the full-meeting export also omits it today.
+
+**Decision:** Add `submitted_at` to `VoterEntry` in both the backend service and frontend types. The field is already available in the `voted_submissions` list that builds `lot_owner_to_*` maps. This makes the per-motion CSV more useful for audit purposes and also enriches the existing full-meeting export at no extra DB cost.
+
+### Backend changes
+
+#### `backend/app/services/admin_service.py`
+
+In `get_general_meeting_detail`, extend the per-lot maps built from `voted_submissions`:
+
+```python
+lot_owner_to_submitted_at: dict[uuid.UUID, datetime] = {
+    sub.lot_owner_id: sub.submitted_at for sub in voted_submissions
+}
+```
+
+In the `_lots()` helper, include `submitted_at` in each returned dict:
+
+```python
+"submitted_at": lot_owner_to_submitted_at.get(lid).isoformat() if lot_owner_to_submitted_at.get(lid) else None,
+```
+
+For absent lots, `submitted_at` is the absent record's `submitted_at` (it represents the time the close-meeting sweep created the absent record, which is acceptable for audit; it is distinct from a real vote submission).
+
+#### `backend/app/schemas/admin.py`
+
+Extend `VoterEntryOut` (or equivalent Pydantic schema used for the voter list entries) to include:
+
+```python
+submitted_at: datetime | None = None
+```
+
+No migration required — `submitted_at` is already on `BallotSubmission` and is only being surfaced in the API response.
+
+### Frontend changes
+
+#### `frontend/src/api/admin.ts`
+
+Extend `VoterEntry` interface:
+
+```typescript
+submitted_at?: string | null;  // ISO 8601 UTC
+```
+
+#### `frontend/src/components/admin/AGMReportView.tsx`
+
+**Per-motion download function** — add a `handleMotionExportCSV(motion: MotionDetail)` function inside the `AGMReportView` component, following the existing `handleExportCSV` pattern. The function:
+
+1. Builds the CSV header and rows for the single motion only
+2. For binary motions: columns `Lot Number,Owner Name,Voter Email,Vote Choice,Entitlement (UOE),Submitted By,Submitted At`
+3. For multi-choice motions: columns `Lot Number,Owner Name,Voter Email,Option,Vote Choice,Entitlement (UOE),Submitted By,Submitted At`
+4. Triggers a browser download via a temporary `<a>` element with `download` attribute (same pattern as existing `handleExportCSV`)
+5. Filename: `<motion_number_or_order>-<title_slug>_results.csv` where `title_slug` is the motion title with non-alphanumeric characters replaced by `_`, truncated to 40 characters, lowercased
+
+**Zero-votes detection** — a motion has zero voter records when all of the following are empty across all categories:
+- Binary: `voter_lists.yes`, `voter_lists.no`, `voter_lists.abstained`, `voter_lists.absent`, `voter_lists.not_eligible`
+- Multi-choice: all `voter_lists.options_for[*]`, `voter_lists.options_against[*]`, `voter_lists.options_abstained[*]`, `voter_lists.abstained`, `voter_lists.absent`, `voter_lists.not_eligible`
+
+**Button placement** — inside the `.admin-card__header` for each motion card, alongside the existing type badges and the binary expand/collapse toggle. Placed at the end of the header row using `marginLeft: "auto"` only when there is no other `marginLeft: auto` element to its left; if the binary expand toggle already has `marginLeft: auto`, the download button is placed immediately before it (both in a `div` wrapper with `display: flex`, `gap: 8`, `marginLeft: auto`).
+
+The button uses:
+
+```tsx
+<button
+  type="button"
+  className="btn btn--admin"
+  onClick={() => handleMotionExportCSV(motion)}
+  disabled={hasNoVoters}
+  aria-disabled={hasNoVoters}
+  aria-label={`Download results CSV for ${motion.title}`}
+>
+  ↓ CSV
+</button>
+```
+
+The `btn--admin` class (linen-200 fill, muted text) matches the density of the existing admin utility buttons (e.g. toggle buttons in the admin table) and is visually subordinate to the primary export button above the report.
+
+### Data flow (happy path)
+
+1. Admin opens `/admin/general-meetings/{id}`
+2. `GET /api/admin/general-meetings/{id}` returns `GeneralMeetingDetail` including `motions[].voter_lists` with `submitted_at` on each voter entry
+3. Admin scrolls to Results Report; each motion card renders a `↓ CSV` button in its header
+4. Admin clicks `↓ CSV` on a motion; `handleMotionExportCSV(motion)` runs synchronously in the browser
+5. Browser triggers a file download with the motion-scoped CSV; no navigation or loading state required
+
+### CSV column specifications
+
+**Binary motion:**
+
+| Column | Source |
+|---|---|
+| `Lot Number` | `voter.lot_number` |
+| `Owner Name` | `voter.voter_name ?? ""` |
+| `Voter Email` | `voter.voter_email ?? ""` — append ` (proxy)` if `voter.proxy_email` is set |
+| `Vote Choice` | `For` / `Against` / `Abstained` / `Absent` / `Not eligible` |
+| `Entitlement (UOE)` | `voter.entitlement` |
+| `Submitted By` | `Admin` if `voter.submitted_by_admin`, else `Voter` |
+| `Submitted At` | `voter.submitted_at ?? ""` |
+
+**Multi-choice motion:**
+
+| Column | Source |
+|---|---|
+| `Lot Number` | `voter.lot_number` |
+| `Owner Name` | `voter.voter_name ?? ""` |
+| `Voter Email` | `voter.voter_email ?? ""` — append ` (proxy)` if `voter.proxy_email` is set |
+| `Option` | `optTally.option_text` — present for option-level rows; `""` for Abstained/Absent/Not eligible rows |
+| `Vote Choice` | `For` / `Against` / `Abstained` / `Absent` / `Not eligible` |
+| `Entitlement (UOE)` | `voter.entitlement` |
+| `Submitted By` | `Admin` if `voter.submitted_by_admin`, else `Voter` |
+| `Submitted At` | `voter.submitted_at ?? ""` |
+
+### Security Considerations
+
+No new endpoints are introduced. The download is generated entirely client-side from data already fetched by `GET /api/admin/general-meetings/{id}`, which is guarded by `require_admin`. No additional auth surface is created.
+
+### Files to change
+
+| File | Change |
+|---|---|
+| `backend/app/services/admin_service.py` | Add `lot_owner_to_submitted_at` map; include `submitted_at` in `_lots()` return dict |
+| `backend/app/schemas/admin.py` | Add `submitted_at: datetime \| None = None` to `VoterEntryOut` |
+| `frontend/src/api/admin.ts` | Add `submitted_at?: string \| null` to `VoterEntry` interface |
+| `frontend/src/components/admin/AGMReportView.tsx` | Add `handleMotionExportCSV()` function; add `↓ CSV` button per motion card header |
+| `backend/tests/test_admin_service.py` | Unit tests: `submitted_at` present in voter entries |
+| `backend/tests/test_admin_integration.py` | Integration test: verify `submitted_at` in meeting detail response |
+| `frontend/src/components/admin/__tests__/AGMReportView.test.tsx` | Unit tests: button renders; disabled when no votes; triggers download; correct CSV content for binary and multi-choice |
+
+### Test cases
+
+**Backend unit tests (`test_admin_service.py`):**
+- `get_general_meeting_detail` returns `submitted_at` on each voter entry in `voter_lists.yes`, `.no`, `.abstained`, `.not_eligible`
+- Absent voter entries include `submitted_at` from the absent `BallotSubmission.submitted_at`
+- Multi-choice per-option voter entries include `submitted_at`
+
+**Backend integration tests (`test_admin_integration.py`):**
+- `GET /api/admin/general-meetings/{id}` with real DB — each voter entry in `voter_lists` has a non-null ISO-8601 `submitted_at`
+
+**Frontend unit tests (`AGMReportView.test.tsx`):**
+- `↓ CSV` button renders in each motion card header
+- Button is disabled when `voter_lists` is empty across all categories
+- Button is enabled when at least one voter entry exists
+- Clicking enabled button calls `URL.createObjectURL` and triggers `a.click()` (mock DOM)
+- Binary motion CSV: correct columns and row content including `submitted_at`
+- Multi-choice motion CSV: `Option` column present; correct per-option rows
+- In-arrear `not_eligible` rows appear in the CSV
+- `submitted_by_admin = true` rows show `Admin` in `Submitted By` column
+- Proxy voters: voter email cell appended with ` (proxy)`
+
+### E2E Test Scenarios
+
+No new E2E spec is required for this feature. The button is exercised indirectly during the admin results journey (the existing `agm-33m-workflow.spec.ts` covers the Results Report section). The per-motion download triggers a browser download which Playwright can intercept via `page.waitForEvent("download")` if a targeted E2E scenario is ever added, but the full-meeting export already validates the CSV generation pattern.
+
+**Affected existing E2E specs:** None require modification — the new button does not change any existing layout or data, only adds a new element to each motion card header. The existing admin report assertions pass unchanged.
+
+**Multi-step sequence scenario (for future E2E if needed):** Open meeting → submit votes as voter → close meeting → admin views Results Report → clicks `↓ CSV` on a motion → download received → CSV contains correct lot number, vote choice, entitlement, and `submitted_at` values.
+
+### Vertical slice decomposition
+
+This feature is a single tightly-coupled slice (backend `submitted_at` field + frontend button). The frontend button is useful without the `submitted_at` field (it can simply omit that column), so implementation can proceed in either order, but the backend change is small enough that both should ship in the same PR.
+
+---
+
 ## Schema Migration Required
 
 Yes — additive:
 - `ballot_submissions.submitted_by_admin` (BOOLEAN NOT NULL DEFAULT FALSE)
+
+No additional migration is required for US-DL-01. The `submitted_at` field is already on `ballot_submissions` and is only newly exposed in the API response.

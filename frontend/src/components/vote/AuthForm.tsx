@@ -144,7 +144,6 @@ export function AuthForm({
                 id="otp-code"
                 className="field__input"
                 type="text"
-                inputMode="numeric"
                 maxLength={20}
                 autoComplete="one-time-code"
                 value={code}

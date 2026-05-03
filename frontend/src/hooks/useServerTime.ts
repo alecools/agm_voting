@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 
 const SERVER_TIME_TIMEOUT_MS = 5000; // 5 seconds (RR3-29)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+/* v8 ignore next -- fallback is unreachable when VITE_API_BASE_URL is defined at build time; defaults to same-origin ("") when env var is absent */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface UseServerTimeResult {
   getServerNow: () => number;

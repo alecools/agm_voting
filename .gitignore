@@ -2,7 +2,7 @@
 test-results
 frontend/playwright-report
 frontend/test-results
-.DS_Store
+**/.DS_Store
 .vercel
 .env
 .env.development

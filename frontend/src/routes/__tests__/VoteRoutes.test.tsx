@@ -7,7 +7,7 @@ import { server } from "../../../tests/msw/server";
 import { VoteRoutes } from "../VoteRoutes";
 import { AGM_ID } from "../../../tests/msw/handlers";
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost";
 
 function renderRoutes(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -34,7 +34,9 @@ const E2E_TESTS_DIR = process.env.GITHUB_WORKSPACE
   ? path.join(process.env.GITHUB_WORKSPACE, "e2e_tests")
   : __dirname;
 
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
+// ADMIN_USERNAME must be a valid email address (Better Auth requires email-based auth).
+// Falls back to a local-dev default. In CI this is set from the ADMIN_USERNAME GitHub secret.
+const ADMIN_EMAIL = process.env.ADMIN_USERNAME ?? "admin@example.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
 // ── Branch-name suffix ─────────────────────────────────────────────────────
@@ -92,89 +94,33 @@ export default async function globalSetup(_config: FullConfig) {
   if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
   // ── Pre-warm the Lambda before any browser navigation ─────────────────────
-  // POST to the admin login endpoint and retry until it returns HTTP 200.
-  // This guarantees the auth Lambda instance handling the request is warm
-  // before the browser login attempt — avoiding 30-60s cold-start timeouts
-  // on the subsequent page.goto("/admin/login") navigation.
-  //
-  // Retry logic:
-  //   - 5xx response → cold start in progress, wait 10s and retry
-  //   - 4xx response (e.g. 401 wrong credentials) → throw immediately
-  //   - 200 → Lambda warm, proceed
-  //   - Loop runs for up to 3 minutes (18 attempts × 10s)
+  // Poll /api/health until it returns 200, confirming the Lambda is warm.
+  // Retries for up to 3 minutes (18 attempts × 10s) to handle Neon cold starts.
   if (BYPASS_TOKEN) {
-    const loginUrl = `${baseURL}/api/admin/auth/login`;
     const healthUrl = `${baseURL}/api/health`;
-    const maxAttempts = 18; // up to 3 minutes
-
-    // Warm up login endpoint and health endpoint in parallel with a 100ms stagger
-    // to avoid hammering the same Lambda instance simultaneously.
-    const warmupLogin = async (): Promise<void> => {
-      let warmedUp = false;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const maxAttempts = 18;
+    let warmedUp = false;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         let res: Response | undefined;
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          try {
-            res = await fetch(loginUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-vercel-protection-bypass": BYPASS_TOKEN,
-              },
-              body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeoutId);
-          }
-        } catch {
-          // Network error or timeout — treat as cold start, retry
-          if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-          continue;
+          res = await fetch(healthUrl, {
+            headers: { "x-vercel-protection-bypass": BYPASS_TOKEN },
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
         }
-        if (res.ok) {
+        if (res && res.ok) {
           warmedUp = true;
           break;
         }
-        if (res.status >= 400 && res.status < 500) {
-          throw new Error(
-            `Lambda warmup login returned ${res.status} — credentials problem, not a cold start. ` +
-            `Check ADMIN_USERNAME / ADMIN_PASSWORD env vars.`
-          );
-        }
-        // 5xx — Lambda still cold, wait and retry
-        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-      }
-      if (!warmedUp) console.warn(`Lambda warmup (login) did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
-    };
-
-    const warmupHealth = async (): Promise<void> => {
-      // 100ms stagger to avoid hitting the same Lambda instance as login warmup
-      await new Promise((r) => setTimeout(r, 100));
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          let res: Response | undefined;
-          try {
-            res = await fetch(healthUrl, {
-              headers: BYPASS_TOKEN ? { "x-vercel-protection-bypass": BYPASS_TOKEN } : {},
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeoutId);
-          }
-          if (res && res.ok) {
-            break;
-          }
-        } catch {}
-        if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
-      }
-    };
-
-    await Promise.all([warmupLogin(), warmupHealth()]);
+      } catch {}
+      if (attempt < maxAttempts - 1) await new Promise((r) => setTimeout(r, 10000));
+    }
+    if (!warmedUp) console.warn(`Lambda warmup did not confirm ready after ${maxAttempts} attempts — proceeding anyway`);
   }
 
   const browser = await chromium.launch();
@@ -213,12 +159,46 @@ export default async function globalSetup(_config: FullConfig) {
   // still need to bypass Vercel Deployment Protection on preview URLs.
   await context.storageState({ path: path.join(authDir, "public.json") });
 
+  // ── Provision admin user (idempotent) ──────────────────────────────────────
+  // Each Neon branch gets its own Better Auth instance with an empty user table.
+  // Before the first E2E run on a fresh branch, the admin user does not exist,
+  // so sign-in would fail with INVALID_EMAIL_OR_PASSWORD.
+  //
+  // POST /api/admin/auth/provision is a TESTING_MODE-gated server-side endpoint
+  // that creates the admin user directly in Neon Auth via a server-to-server
+  // sign-up call (bypassing the auth proxy blocklist that prevents external
+  // callers from self-registering).  The endpoint is idempotent — if the user
+  // already exists the upstream 4xx is silently ignored and 204 is returned.
+  //
+  // The bypass header is included because Vercel Deployment Protection is active.
+  {
+    const provisionHeaders: HeadersInit = {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+    if (BYPASS_TOKEN) provisionHeaders["x-vercel-protection-bypass"] = BYPASS_TOKEN;
+    try {
+      const provisionRes = await fetch(`${baseURL}/api/admin/auth/provision`, {
+        method: "POST",
+        headers: provisionHeaders,
+        body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, name: "Admin" }),
+      });
+      if (!provisionRes.ok && provisionRes.status !== 204) {
+        // 4xx/5xx from the provision endpoint itself (not the upstream auth) is unexpected.
+        // Log but do not throw — the sign-in below will surface any real auth failure.
+        console.warn(`[global-setup] provision endpoint returned ${provisionRes.status}`);
+      }
+    } catch {
+      // Network errors during provisioning are non-fatal — sign-in will surface any real failure.
+    }
+  }
+
   await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
-  await page.getByLabel("Username").fill(ADMIN_USERNAME);
+  await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   try {
-    await page.waitForURL(/\/admin\/buildings/, { timeout: 120000 });
+    await page.waitForURL(/\/admin\/general-meetings/, { timeout: 120000 });
   } catch {
     const url = page.url();
     const content = await page.content();
@@ -236,6 +216,9 @@ export default async function globalSetup(_config: FullConfig) {
     storageState: path.join(authDir, "admin.json"),
     // 60s: get_db retries for up to ~55s under pool pressure; 30s default is too short
     timeout: 60000,
+    // CSRF middleware requires X-Requested-With on all state-changing requests.
+    // Playwright APIRequestContext does not set this header automatically.
+    extraHTTPHeaders: { "X-Requested-With": "XMLHttpRequest" },
   });
 
   // Warm up the Lambda: retry GET /api/admin/buildings until it returns 200

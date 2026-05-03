@@ -128,7 +128,24 @@ export default function BuildingsPage() {
       closeModal();
     },
     onError: (err) => {
-      setFormError(err.message);
+      // When the backend returns 422 with a "Building limit reached" detail,
+      // extract the message from the JSON body and show it inline.
+      const raw = err.message;
+      if (raw.includes("Building limit reached")) {
+        try {
+          const jsonStart = raw.indexOf("{");
+          if (jsonStart !== -1) {
+            const parsed = JSON.parse(raw.slice(jsonStart)) as { detail?: string };
+            if (parsed.detail) {
+              setFormError(parsed.detail);
+              return;
+            }
+          }
+        } catch {
+          // fall through to generic message
+        }
+      }
+      setFormError(raw);
     },
   });
 
