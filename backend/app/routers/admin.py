@@ -39,6 +39,7 @@ from app.schemas.admin import (
     GeneralMeetingStartOut,
     BuildingArchiveOut,
     BuildingCreate,
+    SubscriptionChangeRequest,
     SubscriptionResponse,
     SubscriptionUpdate,
     BuildingImportResult,
@@ -417,6 +418,46 @@ async def update_subscription(
         tier_name=data.tier_name,
         building_limit=data.building_limit,
     )
+
+
+@router.post("/subscription/request-change")
+async def request_subscription_change(
+    request: Request,
+    data: SubscriptionChangeRequest,
+    current_user: BetterAuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Send a tier-change request email to support@ocss.tech.
+
+    Returns 200 with {"message": "Request sent."} on success.
+    Returns 503 if SMTP is not configured.
+    """
+    from app.services.email_service import SmtpNotConfiguredError
+
+    origin = derive_origin(request)
+    subscription = await admin_service.get_subscription(db)
+
+    try:
+        await admin_service.send_subscription_change_request(
+            db,
+            origin=origin,
+            current_tier=subscription.tier_name,
+            requested_tier=data.requested_tier,
+            requester_email=current_user.email,
+        )
+    except SmtpNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail="Email not configured. Contact support@ocss.tech directly.",
+        )
+
+    logger.info(
+        "subscription_change_requested",
+        performed_by=current_user.user_id,
+        requested_tier=data.requested_tier,
+        origin=origin,
+    )
+    return {"message": "Request sent."}
 
 
 @router.get("/buildings/{building_id}", response_model=BuildingOut)

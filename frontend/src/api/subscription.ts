@@ -33,6 +33,13 @@ export async function updateSubscription(
   });
 }
 
+export async function requestSubscriptionChange(requestedTier: string): Promise<void> {
+  await apiFetch<{ message: string }>("/api/admin/subscription/request-change", {
+    method: "POST",
+    body: JSON.stringify({ requested_tier: requestedTier }),
+  });
+}
+
 export async function unarchiveBuilding(id: string): Promise<BuildingArchiveOut> {
   return apiFetch<BuildingArchiveOut>(`/api/admin/buildings/${id}/unarchive`, {
     method: "POST",

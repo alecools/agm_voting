@@ -1896,12 +1896,13 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
   });
 
-  it("shows support contact text after subscription loads", async () => {
+  it("shows tier change request section after subscription loads", async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
     await user.click(screen.getByRole("tab", { name: "Subscription" }));
-    await waitFor(() => expect(screen.getByText(/contact support/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument();
   });
 
   it("switching away and back to Subscription tab does not re-fetch subscription", async () => {
@@ -1917,15 +1918,22 @@ describe("SettingsPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
 
-    // First activation — triggers fetch
+    // First activation — triggers fetch; tier display is a <dd> element
     await user.click(screen.getByRole("tab", { name: "Subscription" }));
-    await waitFor(() => expect(screen.getByText("Starter")).toBeInTheDocument());
+    // Verify tier is shown in the definition list (not in the select options)
+    await waitFor(() => {
+      const dds = screen.getAllByRole("definition");
+      expect(dds[0]).toHaveTextContent("Starter");
+    });
     expect(fetchCount).toBe(1);
 
     // Switch away then back — must NOT trigger a second fetch
     await user.click(screen.getByRole("tab", { name: "UI & Theme" }));
     await user.click(screen.getByRole("tab", { name: "Subscription" }));
-    await waitFor(() => expect(screen.getByText("Starter")).toBeVisible());
+    await waitFor(() => {
+      const dds = screen.getAllByRole("definition");
+      expect(dds[0]).toHaveTextContent("Starter");
+    });
     expect(fetchCount).toBe(1);
   });
 
@@ -1936,5 +1944,135 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
     await user.click(screen.getByRole("tab", { name: "Subscription" }));
     await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
+  });
+
+  // --- Tier change request ---
+
+  it("tier change request section renders select and Send request button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument();
+  });
+
+  it("Send request button is disabled when no tier is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+  });
+
+  it("Send request button is enabled when a tier is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Growth");
+    expect(screen.getByRole("button", { name: "Send request" })).not.toBeDisabled();
+  });
+
+  it("tier change request: shows success message and resets select on success", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Enterprise");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument()
+    );
+    // Select is reset to placeholder after success
+    expect(screen.getByRole("combobox", { name: "Requested tier" })).toHaveValue("");
+  });
+
+  it("tier change request: UI has NOT transitioned while request is pending, HAS transitioned after it completes", async () => {
+    // Async transition test: verifies fire-and-forget would fail this test
+    const user = userEvent.setup();
+    let resolveRequest!: () => void;
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, () =>
+        new Promise<Response>((resolve) => {
+          resolveRequest = () => resolve(HttpResponse.json({ message: "Request sent." }) as unknown as Response);
+        })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Starter");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    // While pending — success message must NOT be visible yet
+    expect(screen.queryByText("Request sent. We'll be in touch.")).not.toBeInTheDocument();
+
+    // Complete the request
+    resolveRequest();
+    await waitFor(() =>
+      expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument()
+    );
+  });
+
+  it("tier change request: shows error message on API failure", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, () =>
+        HttpResponse.json({ detail: "SMTP not configured" }, { status: 503 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Growth");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+  });
+
+  it("tier change request: shows fallback error for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(subscriptionApi, "requestSubscriptionChange").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Free");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(screen.getByText("Failed to send request.")).toBeInTheDocument());
+  });
+
+  it("tier change request: Send request button is disabled while submitting", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/api/admin/subscription/request-change`, async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return HttpResponse.json({ message: "Request sent." });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Requested tier" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Requested tier" }), "Expansion");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    // After completion the select is reset to empty so the button remains disabled;
+    // verify the async work completed by checking the success message appears.
+    await waitFor(() => expect(screen.getByText("Request sent. We'll be in touch.")).toBeInTheDocument());
+  });
+
+  // --- Mobile horizontal scroll (Change 2) ---
+
+  it("settings tab list has overflowX auto for mobile scroll", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tablist")).toBeInTheDocument());
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toHaveStyle({ overflowX: "auto" });
   });
 });
