@@ -203,10 +203,12 @@ export default async function globalSetup(_config: FullConfig) {
     // default post-login page changes.  A negative check — waiting until the
     // path no longer includes /admin/login — is resilient to any future
     // default-page changes and handles intermediate redirects through /admin.
-    await page.waitForFunction(
-      () => !window.location.pathname.includes("/admin/login"),
-      { timeout: 120000 }
-    );
+    // waitForURL is used (not waitForFunction) because waitForFunction evaluates
+    // JS in the page context and the execution context is detached mid-poll on
+    // navigation, causing it to hang indefinitely at 180 s.
+    await page.waitForURL(url => !url.includes("/admin/login"), {
+      timeout: 120000,
+    });
   } catch {
     const url = page.url();
     const content = await page.content();
