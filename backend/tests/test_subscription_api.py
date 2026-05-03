@@ -4,13 +4,16 @@ Tests for subscription and unarchive endpoints.
 Covers:
   GET  /api/admin/subscription
   POST /api/admin/subscription
+  POST /api/admin/subscription/request-change
   POST /api/admin/buildings/{id}/unarchive
-  Service: get_subscription, upsert_subscription, unarchive_building, create_building (limit)
+  Service: get_subscription, upsert_subscription, send_subscription_change_request,
+           unarchive_building, create_building (limit)
   Dependencies: require_operator
 """
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -537,3 +540,316 @@ class TestRequireOperator:
         with pytest.raises(HTTPException) as exc_info:
             await _require_operator(current_user=user)
         assert exc_info.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/subscription/request-change
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestRequestSubscriptionChange:
+    # --- Happy path ---
+
+    async def test_returns_200_with_message_on_success(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Returns 200 and {"message": "Request sent."} when SMTP send succeeds."""
+        with patch(
+            "aiosmtplib.send",
+            new_callable=AsyncMock,
+        ) as mock_send, patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+            mock_send.return_value = None
+
+            response = await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Growth"},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "Request sent."}
+
+    async def test_smtp_send_called_with_correct_recipient(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """The email must be sent to support@ocss.tech."""
+        from email.mime.text import MIMEText
+
+        captured: list[MIMEText] = []
+
+        async def _mock_send(msg, **kwargs):  # type: ignore[no-untyped-def]
+            captured.append(msg)
+
+        with patch(
+            "aiosmtplib.send",
+            side_effect=_mock_send,
+        ), patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+
+            response = await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Enterprise"},
+            )
+
+        assert response.status_code == 200
+        assert len(captured) == 1
+        assert captured[0]["To"] == "support@ocss.tech"
+
+    async def test_email_subject_contains_origin(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Email subject must include the deployment origin."""
+        from email.mime.text import MIMEText
+
+        captured: list[MIMEText] = []
+
+        async def _mock_send(msg, **kwargs):  # type: ignore[no-untyped-def]
+            captured.append(msg)
+
+        with patch(
+            "aiosmtplib.send",
+            side_effect=_mock_send,
+        ), patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+
+            await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Starter"},
+            )
+
+        assert "Tier change request" in captured[0]["Subject"]
+
+    async def test_email_body_contains_all_fields(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Email body must contain requested tier and current user email."""
+        from email.mime.text import MIMEText
+
+        captured: list[MIMEText] = []
+
+        async def _mock_send(msg, **kwargs):  # type: ignore[no-untyped-def]
+            captured.append(msg)
+
+        with patch(
+            "aiosmtplib.send",
+            side_effect=_mock_send,
+        ), patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+
+            await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Expansion"},
+            )
+
+        body = captured[0].get_payload()
+        assert "Expansion" in body
+        assert "operator@example.com" in body
+
+    async def test_accessible_by_regular_admin(
+        self, non_operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """POST /subscription/request-change is accessible by all admins (not operator-only)."""
+        with patch(
+            "aiosmtplib.send",
+            new_callable=AsyncMock,
+        ), patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+
+            response = await non_operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Starter"},
+            )
+
+        assert response.status_code == 200
+
+    async def test_current_tier_falls_back_to_no_plan_set(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """When no tier is configured, email body shows 'No plan set'."""
+        from email.mime.text import MIMEText
+
+        await _reset_tenant_settings(db_session)
+        captured: list[MIMEText] = []
+
+        async def _mock_send(msg, **kwargs):  # type: ignore[no-untyped-def]
+            captured.append(msg)
+
+        with patch(
+            "aiosmtplib.send",
+            side_effect=_mock_send,
+        ), patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+
+            response = await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Pro"},
+            )
+
+        assert response.status_code == 200
+        body = captured[0].get_payload()
+        assert "No plan set" in body
+
+    # --- SMTP not configured (503) ---
+
+    async def test_returns_503_when_smtp_not_configured(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Returns 503 with contact message when SMTP host is missing."""
+        with patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config(smtp_host="")
+
+            response = await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Pro"},
+            )
+
+        assert response.status_code == 503
+        assert "support@ocss.tech" in response.json()["detail"]
+
+    async def test_returns_503_when_smtp_password_missing(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Returns 503 when SMTP password is not set."""
+        with patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config(smtp_password_enc=None)
+
+            response = await operator_client.post(
+                "/api/admin/subscription/request-change",
+                json={"requested_tier": "Growth"},
+            )
+
+        assert response.status_code == 503
+
+    # --- Input validation ---
+
+    async def test_rejects_empty_requested_tier(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """Missing required field returns 422."""
+        response = await operator_client.post(
+            "/api/admin/subscription/request-change",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_rejects_requested_tier_too_long(
+        self, operator_client: AsyncClient, db_session: AsyncSession
+    ):
+        """requested_tier > 255 chars returns 422."""
+        response = await operator_client.post(
+            "/api/admin/subscription/request-change",
+            json={"requested_tier": "X" * 256},
+        )
+        assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: send_subscription_change_request service function
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSendSubscriptionChangeRequestService:
+    async def test_raises_smtp_not_configured_when_host_missing(
+        self, db_session: AsyncSession
+    ):
+        """SmtpNotConfiguredError raised when smtp_host is empty."""
+        from app.services.admin_service import send_subscription_change_request
+        from app.services.email_service import SmtpNotConfiguredError
+
+        with patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config(smtp_host="")
+
+            with pytest.raises(SmtpNotConfiguredError):
+                await send_subscription_change_request(
+                    db_session,
+                    origin="https://example.com",
+                    current_tier="Starter",
+                    requested_tier="Growth",
+                    requester_email="admin@example.com",
+                )
+
+    async def test_calls_aiosmtplib_send_with_correct_args(
+        self, db_session: AsyncSession
+    ):
+        """aiosmtplib.send is called with the SMTP credentials from config."""
+        from app.services.admin_service import send_subscription_change_request
+
+        with patch(
+            "aiosmtplib.send",
+            new_callable=AsyncMock,
+        ) as mock_send, patch(
+            "app.services.smtp_config_service.get_smtp_config",
+            new_callable=AsyncMock,
+        ) as mock_cfg:
+            mock_cfg.return_value = _make_smtp_config()
+            mock_send.return_value = None
+
+            await send_subscription_change_request(
+                db_session,
+                origin="https://test.example.com",
+                current_tier="Free",
+                requested_tier="Starter",
+                requester_email="user@example.com",
+            )
+
+        mock_send.assert_awaited_once()
+        call_kwargs = mock_send.await_args.kwargs
+        assert call_kwargs["hostname"] == "smtp.example.com"
+        assert call_kwargs["port"] == 587
+        assert call_kwargs["username"] == "smtpuser@example.com"
+
+
+# ---------------------------------------------------------------------------
+# Helper factory
+# ---------------------------------------------------------------------------
+
+
+def _make_smtp_config(
+    *,
+    smtp_host: str = "smtp.example.com",
+    smtp_port: int = 587,
+    smtp_username: str = "smtpuser@example.com",
+    smtp_from_email: str = "from@example.com",
+    smtp_password_enc: bytes | None = b"enc-pwd",
+) -> object:
+    """Return a lightweight mock of SmtpConfig for unit testing."""
+
+    class _FakeSMTP:
+        pass
+
+    cfg = _FakeSMTP()
+    cfg.smtp_host = smtp_host
+    cfg.smtp_port = smtp_port
+    cfg.smtp_username = smtp_username
+    cfg.smtp_from_email = smtp_from_email
+    cfg.smtp_password_enc = smtp_password_enc
+    return cfg

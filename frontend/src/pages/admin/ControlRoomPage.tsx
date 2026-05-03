@@ -134,15 +134,19 @@ export default function ControlRoomPage() {
             <form onSubmit={(e) => { void handleSubSave(e); }} className="admin-form">
               <div className="field">
                 <label className="field__label" htmlFor="ctrl-tier-name">Tier name</label>
-                <input
+                <select
                   id="ctrl-tier-name"
-                  className="field__input"
-                  type="text"
+                  className="field__select"
                   value={tierName}
                   onChange={(e) => setTierName(e.target.value)}
-                  placeholder="e.g. Starter, Pro, Enterprise"
-                  maxLength={255}
-                />
+                >
+                  <option value="">— select tier —</option>
+                  <option value="Free">Free</option>
+                  <option value="Starter">Starter</option>
+                  <option value="Growth">Growth</option>
+                  <option value="Expansion">Expansion</option>
+                  <option value="Enterprise">Enterprise</option>
+                </select>
               </div>
               <div className="field">
                 <label className="field__label" htmlFor="ctrl-building-limit">

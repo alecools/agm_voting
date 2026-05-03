@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -122,11 +122,11 @@ describe("ControlRoomPage", () => {
     mockUseSession.mockReturnValue(makeSession(true));
     server.use(
       http.get(`${BASE}/api/admin/subscription`, () =>
-        HttpResponse.json({ tier_name: "Pro", building_limit: 25, active_building_count: 7 })
+        HttpResponse.json({ tier_name: "Growth", building_limit: 25, active_building_count: 7 })
       )
     );
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Tier name")).toHaveValue("Pro"));
+    await waitFor(() => expect(screen.getByLabelText("Tier name")).toHaveValue("Growth"));
     expect(screen.getByLabelText("Building limit (leave blank for unlimited)")).toHaveValue(25);
   });
 
@@ -176,14 +176,13 @@ describe("ControlRoomPage", () => {
         HttpResponse.json({ tier_name: "Starter", building_limit: 10, active_building_count: 3 })
       ),
       http.post(`${BASE}/api/admin/subscription`, () =>
-        HttpResponse.json({ tier_name: "Pro", building_limit: 20, active_building_count: 3 })
+        HttpResponse.json({ tier_name: "Growth", building_limit: 20, active_building_count: 3 })
       )
     );
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("Tier name")).toHaveValue("Starter"));
 
-    await user.clear(screen.getByLabelText("Tier name"));
-    await user.type(screen.getByLabelText("Tier name"), "Pro");
+    fireEvent.change(screen.getByLabelText("Tier name"), { target: { value: "Growth" } });
     await user.clear(screen.getByLabelText("Building limit (leave blank for unlimited)"));
     await user.type(screen.getByLabelText("Building limit (leave blank for unlimited)"), "20");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -260,8 +259,8 @@ describe("ControlRoomPage", () => {
     );
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("Tier name")).toHaveValue("Starter"));
-    // Clear the tier name field so it becomes empty string
-    await user.clear(screen.getByLabelText("Tier name"));
+    // Select the blank option so tier name becomes empty string
+    fireEvent.change(screen.getByLabelText("Tier name"), { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.getByText("Subscription settings saved.")).toBeInTheDocument());
     expect((capturedBody as { tier_name: unknown }).tier_name).toBeNull();

@@ -342,6 +342,58 @@ async def upsert_subscription(
     )
 
 
+async def send_subscription_change_request(
+    db: AsyncSession,
+    *,
+    origin: str,
+    current_tier: str | None,
+    requested_tier: str,
+    requester_email: str,
+) -> None:
+    """Send a tier-change request email to support@ocss.tech.
+
+    Raises SmtpNotConfiguredError if SMTP is not configured.
+    """
+    from app.services.email_service import SmtpNotConfiguredError
+    from app.services.smtp_config_service import get_smtp_config, get_decrypted_password
+    import aiosmtplib
+    from email.mime.text import MIMEText
+
+    smtp_config = await get_smtp_config(db)
+    if (
+        not smtp_config.smtp_host
+        or not smtp_config.smtp_username
+        or not smtp_config.smtp_from_email
+        or smtp_config.smtp_password_enc is None
+    ):
+        raise SmtpNotConfiguredError("SMTP not configured")
+
+    smtp_password = get_decrypted_password(smtp_config)
+
+    tier_display = current_tier or "No plan set"
+    body = (
+        f"A tier change has been requested.\n\n"
+        f"Deployment: {origin}\n"
+        f"Current tier: {tier_display}\n"
+        f"Requested tier: {requested_tier}\n"
+        f"Requested by: {requester_email}\n"
+    )
+
+    msg = MIMEText(body, "plain")
+    msg["Subject"] = f"Tier change request — {origin}"
+    msg["From"] = smtp_config.smtp_from_email
+    msg["To"] = "support@ocss.tech"
+
+    await aiosmtplib.send(
+        msg,
+        hostname=smtp_config.smtp_host,
+        port=smtp_config.smtp_port,
+        username=smtp_config.smtp_username,
+        password=smtp_password,
+        start_tls=True,
+    )
+
+
 async def unarchive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
     """Set is_archived=False on the given building. Raises 404 if not found."""
     result = await db.execute(select(Building).where(Building.id == building_id))

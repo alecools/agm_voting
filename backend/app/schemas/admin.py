@@ -618,6 +618,10 @@ class SubscriptionUpdate(BaseModel):
         return v
 
 
+class SubscriptionChangeRequest(BaseModel):
+    requested_tier: str = Field(..., max_length=255)
+
+
 # ---------------------------------------------------------------------------
 # Archive schemas
 # ---------------------------------------------------------------------------

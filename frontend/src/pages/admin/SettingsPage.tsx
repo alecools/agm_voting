@@ -6,7 +6,7 @@ import { listAdminUsers, inviteAdminUser, removeAdminUser } from "../../api/user
 import type { AdminUser } from "../../api/users";
 import { authClient, changePassword } from "../../lib/auth-client";
 import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } from "../../components/PasswordRequirements";
-import { getSubscription } from "../../api/subscription";
+import { getSubscription, requestSubscriptionChange } from "../../api/subscription";
 import type { SubscriptionResponse } from "../../api/subscription";
 
 type SettingsTab = "ui-theme" | "email-server" | "user-management" | "subscription";
@@ -69,6 +69,12 @@ export default function SettingsPage() {
   const [subscription, setSubscription] = useState<SubscriptionResponse | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState("");
+
+  // Tier change request state
+  const [tierChangeSelected, setTierChangeSelected] = useState("");
+  const [isSendingTierChange, setIsSendingTierChange] = useState(false);
+  const [tierChangeSuccess, setTierChangeSuccess] = useState(false);
+  const [tierChangeError, setTierChangeError] = useState("");
 
   // Change password state
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
@@ -155,6 +161,23 @@ export default function SettingsPage() {
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  async function handleTierChangeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setTierChangeError("");
+    setTierChangeSuccess(false);
+    setIsSendingTierChange(true);
+    try {
+      await requestSubscriptionChange(tierChangeSelected);
+      setTierChangeSuccess(true);
+      setTierChangeSelected("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send request.";
+      setTierChangeError(message);
+    } finally {
+      setIsSendingTierChange(false);
+    }
+  }
 
   async function handleLogoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -391,7 +414,8 @@ export default function SettingsPage() {
       <div
         role="tablist"
         aria-label="Settings sections"
-        style={{ display: "flex", gap: 0, borderBottom: "2px solid var(--border)", marginBottom: 24 }}
+        className="settings-tabs"
+        style={{ display: "flex", gap: 0, borderBottom: "2px solid var(--border)", marginBottom: 24, overflowX: "auto" }}
       >
         <button
           role="tab"
@@ -900,9 +924,45 @@ export default function SettingsPage() {
               </dl>
             )}
             {!subscriptionLoading && !subscriptionError && subscription && (
-              <p style={{ marginTop: 16, color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-                To upgrade your plan or request changes, contact support.
-              </p>
+              <form
+                onSubmit={(e) => { void handleTierChangeSubmit(e); }}
+                className="admin-form"
+                style={{ marginTop: 24 }}
+              >
+                <p className="admin-card__title" style={{ marginBottom: 12 }}>Request tier change</p>
+                <div className="field">
+                  <label className="field__label" htmlFor="tier-change-select">Requested tier</label>
+                  <select
+                    id="tier-change-select"
+                    className="field__select"
+                    value={tierChangeSelected}
+                    onChange={(e) => setTierChangeSelected(e.target.value)}
+                    aria-invalid={!!tierChangeError}
+                  >
+                    <option value="">-- Select a tier --</option>
+                    <option value="Free">Free</option>
+                    <option value="Starter">Starter</option>
+                    <option value="Growth">Growth</option>
+                    <option value="Expansion">Expansion</option>
+                    <option value="Enterprise">Enterprise</option>
+                  </select>
+                </div>
+                {tierChangeSuccess && (
+                  <p role="status" className="state-message state-message--success">
+                    Request sent. We&apos;ll be in touch.
+                  </p>
+                )}
+                {tierChangeError && (
+                  <p className="field__error" role="alert">{tierChangeError}</p>
+                )}
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={isSendingTierChange || !tierChangeSelected}
+                >
+                  {isSendingTierChange ? "Sending…" : "Send request"}
+                </button>
+              </form>
             )}
           </div>
         </div>

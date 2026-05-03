@@ -1592,6 +1592,10 @@ export const handlers = [
     return HttpResponse.json(subscriptionFixture);
   }),
 
+  http.post(`${BASE}/api/admin/subscription/request-change`, () => {
+    return HttpResponse.json({ message: "Request sent." });
+  }),
+
   http.post(`${BASE}/api/admin/buildings/:buildingId/unarchive`, ({ params }) => {
     const buildingId = params.buildingId as string;
     if (buildingId === "not-found-id") {
