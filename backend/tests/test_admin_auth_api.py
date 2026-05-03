@@ -619,7 +619,14 @@ class TestAdminLoginRateLimitMiddleware:
             response = await mw.dispatch(request, fake_call_next)
 
         assert response.status_code == 429
-        assert "Too many failed login attempts" in response.body.decode()
+        import json as _json
+        body = _json.loads(response.body.decode())
+        assert "Too many failed login attempts" in body["detail"]
+        # retry_after_seconds must be present and positive
+        assert "retry_after_seconds" in body
+        assert body["retry_after_seconds"] > 0
+        # Retry-After HTTP header must be set to the same value
+        assert response.headers.get("retry-after") == str(body["retry_after_seconds"])
         assert not call_next_called  # handler was never called
 
     async def test_expired_window_record_is_cleared_and_request_proceeds(self):
@@ -751,3 +758,66 @@ class TestAdminLoginRateLimitMiddleware:
             response = await c.get("/api/auth/sign-in/email")
 
         assert response.status_code != 429
+
+    async def test_429_retry_after_seconds_calculated_from_window_expiry(self):
+        """retry_after_seconds in 429 body reflects remaining seconds until window expiry."""
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        # first_attempt_at was 5 minutes ago; window is 15 minutes → 10 minutes remain
+        blocked = MagicMock(spec=AdminLoginAttempt)
+        blocked.id = "blocked-uuid"
+        blocked.failed_count = 5
+        blocked.first_attempt_at = now - timedelta(minutes=5)
+
+        pre_db = _make_mock_db_session(attempt_record=blocked)
+        factory = _make_session_factory(pre_db)
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "1.2.3.4"
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, lambda _: None)
+
+        assert response.status_code == 429
+        import json as _json
+        body = _json.loads(response.body.decode())
+        # 5 minutes elapsed of a 15-minute window → ~10 minutes remain (600 seconds ± a few)
+        assert 595 <= body["retry_after_seconds"] <= 605
+        assert response.headers.get("retry-after") == str(body["retry_after_seconds"])
+
+    async def test_429_retry_after_seconds_minimum_is_one(self):
+        """retry_after_seconds is at least 1 even when the window is nearly expired."""
+        from app.main import AdminLoginRateLimitMiddleware
+
+        now = datetime.now(UTC)
+        # first_attempt_at is almost exactly 15 minutes ago (window nearly expired)
+        blocked = MagicMock(spec=AdminLoginAttempt)
+        blocked.id = "near-expiry-uuid"
+        blocked.failed_count = 5
+        blocked.first_attempt_at = now - timedelta(seconds=899)  # 1 second before expiry
+
+        pre_db = _make_mock_db_session(attempt_record=blocked)
+        factory = _make_session_factory(pre_db)
+
+        mw = AdminLoginRateLimitMiddleware(app=MagicMock())
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/auth/sign-in/email"
+        request.headers = {}
+        request.client = MagicMock()
+        request.client.host = "1.2.3.4"
+
+        with patch("app.database.AsyncSessionLocal", factory):
+            response = await mw.dispatch(request, lambda _: None)
+
+        import json as _json
+        body = _json.loads(response.body.decode())
+        assert body["retry_after_seconds"] >= 1

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import AdminLoginPage from "../AdminLoginPage";
@@ -7,9 +7,9 @@ import { BrandingContext, DEFAULT_CONFIG } from "../../../context/BrandingContex
 import type { TenantConfig } from "../../../api/config";
 
 // Use vi.hoisted() so mock functions are available inside the hoisted vi.mock() factories.
-const { mockNavigate, mockSignInEmail, mockGetSession, mockForgetPassword, mockResetPassword } = vi.hoisted(() => ({
+const { mockNavigate, mockFetch, mockGetSession, mockForgetPassword, mockResetPassword } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
-  mockSignInEmail: vi.fn(),
+  mockFetch: vi.fn(),
   mockGetSession: vi.fn(),
   mockForgetPassword: vi.fn(),
   mockResetPassword: vi.fn(),
@@ -26,9 +26,6 @@ vi.mock("react-router-dom", async () => {
 // Mock the Better Auth client so tests don't make real network calls.
 vi.mock("../../../lib/auth-client", () => ({
   authClient: {
-    signIn: {
-      email: mockSignInEmail,
-    },
     getSession: mockGetSession,
     forgetPassword: mockForgetPassword,
     resetPassword: mockResetPassword,
@@ -45,13 +42,31 @@ function renderPage(config: TenantConfig = DEFAULT_CONFIG, initialPath = "/admin
   );
 }
 
+/** Build a minimal Response-like object for fetch mocking. */
+function makeFetchResponse(status: number, body: unknown = {}): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
+}
+
 describe("AdminLoginPage", () => {
+  const originalFetch = globalThis.fetch;
+
   beforeEach(() => {
     mockNavigate.mockClear();
-    mockSignInEmail.mockClear();
+    mockFetch.mockClear();
     mockGetSession.mockResolvedValue({ data: { session: {}, user: {} }, error: null });
     mockForgetPassword.mockClear();
     mockResetPassword.mockClear();
+    // Replace global fetch with our mock
+    globalThis.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
   });
 
   // --- Happy path ---
@@ -68,7 +83,7 @@ describe("AdminLoginPage", () => {
   });
 
   it("navigates to /admin on successful sign-in", async () => {
-    mockSignInEmail.mockResolvedValueOnce({ data: { user: { email: "admin@example.com" } }, error: null });
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(200, {}));
     const user = userEvent.setup();
     renderPage();
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
@@ -80,7 +95,7 @@ describe("AdminLoginPage", () => {
   });
 
   it("calls getSession before navigating to ensure session is populated", async () => {
-    mockSignInEmail.mockResolvedValueOnce({ data: { user: { email: "admin@example.com" } }, error: null });
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(200, {}));
     const callOrder: string[] = [];
     mockGetSession.mockImplementationOnce(async () => {
       callOrder.push("getSession");
@@ -96,18 +111,21 @@ describe("AdminLoginPage", () => {
     expect(callOrder).toEqual(["getSession", "navigate"]);
   });
 
-  it("calls signIn.email with the entered email and password", async () => {
-    mockSignInEmail.mockResolvedValueOnce({ data: { user: {} }, error: null });
+  it("POSTs to /api/auth/sign-in/email with the entered email and password", async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(200, {}));
     const user = userEvent.setup();
     renderPage();
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
     await user.type(screen.getByLabelText("Password"), "secret123");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => {
-      expect(mockSignInEmail).toHaveBeenCalledWith({
-        email: "admin@example.com",
-        password: "secret123",
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/auth/sign-in/email",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ email: "admin@example.com", password: "secret123" }),
+        })
+      );
     });
   });
 
@@ -136,8 +154,8 @@ describe("AdminLoginPage", () => {
 
   // --- Input validation / error states ---
 
-  it("shows error message when signIn.email returns an error object", async () => {
-    mockSignInEmail.mockResolvedValueOnce({ data: null, error: { message: "Invalid credentials" } });
+  it("shows error message when fetch returns a non-ok non-429 status", async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(401, { detail: "Bad credentials" }));
     const user = userEvent.setup();
     renderPage();
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
@@ -150,8 +168,8 @@ describe("AdminLoginPage", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it("shows error message when signIn.email throws", async () => {
-    mockSignInEmail.mockRejectedValueOnce(new Error("Network error"));
+  it("shows error message when fetch throws a network error", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
     const user = userEvent.setup();
     renderPage();
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
@@ -166,8 +184,8 @@ describe("AdminLoginPage", () => {
   // --- Async UI transitions ---
 
   it("shows Signing in… while the sign-in call is pending", async () => {
-    let resolve!: (value: { data: unknown; error: null }) => void;
-    mockSignInEmail.mockImplementationOnce(
+    let resolve!: (value: Response) => void;
+    mockFetch.mockImplementationOnce(
       () => new Promise((res) => { resolve = res; })
     );
     const user = userEvent.setup();
@@ -179,15 +197,15 @@ describe("AdminLoginPage", () => {
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeInTheDocument();
     expect(mockNavigate).not.toHaveBeenCalled();
     // Complete the sign-in
-    resolve({ data: { user: {} }, error: null });
+    resolve(makeFetchResponse(200, {}));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin", { replace: true });
     });
   });
 
   it("disables submit button while loading", async () => {
-    let resolve!: (value: { data: unknown; error: null }) => void;
-    mockSignInEmail.mockImplementationOnce(
+    let resolve!: (value: Response) => void;
+    mockFetch.mockImplementationOnce(
       () => new Promise((res) => { resolve = res; })
     );
     const user = userEvent.setup();
@@ -196,7 +214,7 @@ describe("AdminLoginPage", () => {
     await user.type(screen.getByLabelText("Password"), "pass");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
-    resolve({ data: { user: {} }, error: null });
+    resolve(makeFetchResponse(200, {}));
   });
 
   // --- Navigation ---
@@ -377,7 +395,7 @@ describe("AdminLoginPage", () => {
 
   it("Back to login clears any previous login error when returning", async () => {
     // Show a login error first
-    mockSignInEmail.mockResolvedValueOnce({ data: null, error: { message: "bad" } });
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(401, {}));
     const user = userEvent.setup();
     renderPage();
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
@@ -389,6 +407,98 @@ describe("AdminLoginPage", () => {
     await user.click(screen.getByRole("button", { name: "← Back to login" }));
     // Login error is cleared
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // --- 429 rate-limit countdown ---
+
+  it("shows countdown message with role=status when 429 is returned", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResponse(429, { detail: "Too many failed login attempts.", retry_after_seconds: 600 })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("status").textContent).toMatch(/Too many failed attempts/);
+    expect(screen.getByRole("status").textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("disables Sign in button while rate-limited", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResponse(429, { detail: "Too many failed login attempts.", retry_after_seconds: 600 })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+
+  it("does not navigate when 429 is returned", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResponse(429, { detail: "Too many failed login attempts.", retry_after_seconds: 60 })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("uses 900s default when retry_after_seconds is absent from 429 body", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResponse(429, { detail: "Too many failed login attempts." })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    // 900 seconds = 15:00
+    expect(screen.getByRole("status").textContent).toContain("15:00");
+  });
+
+  it("countdown re-enables button and removes status when it reaches zero", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResponse(429, { detail: "Too many failed login attempts.", retry_after_seconds: 2 })
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPage();
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    });
+    // Advance clock past the lockout
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Sign in" })).not.toBeDisabled();
+  });
+
+  it("sign-in button is NOT disabled before rate-limit is hit", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Sign in" })).not.toBeDisabled();
   });
 
   // --- Set new password view (arrives via reset email link with ?token=) ---

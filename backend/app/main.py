@@ -7,12 +7,12 @@ from contextvars import ContextVar
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response
 
 from app.config import settings
 from app.logging_config import configure_logging, get_logger
@@ -45,6 +45,84 @@ _SECURITY_HEADERS = {
         "frame-ancestors 'none'"
     ),
 }
+
+
+_CORS_ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+_CORS_ALLOW_HEADERS = "Content-Type, Authorization, Accept, X-Requested-With"
+_CORS_MAX_AGE = "600"
+
+
+class DynamicCORSMiddleware(BaseHTTPMiddleware):
+    """CORS middleware that derives the allowed origin from the incoming request.
+
+    On Vercel, each customer deployment has its own hostname.  Rather than
+    requiring every tenant to set ALLOWED_ORIGIN, this middleware reflects the
+    request's own origin back when it matches the deployment's host
+    (x-forwarded-host).  This means any Vercel preview or production deployment
+    automatically allows its own origin without any configuration.
+
+    ALLOWED_ORIGIN env var is honoured for backward compatibility: if it is set
+    to a non-default value, that origin is also allowed (in addition to
+    same-host requests).
+
+    Decision criteria for "is this origin allowed?":
+    1. The Origin header matches the deployment's own origin as derived from
+       x-forwarded-proto + x-forwarded-host (same-host rule).
+    2. OR the Origin header matches settings.allowed_origin exactly (explicit
+       override, e.g. for local dev or legacy config).
+    """
+
+    _DEFAULT_ALLOWED_ORIGIN = "http://localhost:5173"
+
+    def _is_allowed_origin(self, origin: str, request: Request) -> bool:
+        """Return True if origin is permitted for this request."""
+        from app.utils import derive_origin
+
+        # Same-host rule: origin must match the deployment's own derived origin.
+        if origin == derive_origin(request):
+            return True
+        # Explicit override: honour the configured ALLOWED_ORIGIN value.
+        configured = settings.allowed_origin.strip()
+        if origin == configured:
+            return True
+        return False
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+
+        # Non-browser requests (no Origin header) and same-origin requests pass
+        # through unchanged — no CORS headers needed.
+        if not origin:
+            return await call_next(request)
+
+        allowed = self._is_allowed_origin(origin, request)
+
+        # Handle preflight (OPTIONS) requests.
+        if request.method == "OPTIONS":
+            if allowed:
+                preflight = Response(
+                    status_code=200,
+                    headers={
+                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Credentials": "true",
+                        "Access-Control-Allow-Methods": _CORS_ALLOW_METHODS,
+                        "Access-Control-Allow-Headers": _CORS_ALLOW_HEADERS,
+                        "Access-Control-Max-Age": _CORS_MAX_AGE,
+                        "Vary": "Origin",
+                    },
+                )
+                return preflight
+            # Disallowed origin — return 400 without CORS headers so the browser
+            # blocks the cross-origin request.
+            return Response(status_code=400)
+
+        # Non-preflight requests: process normally and attach CORS headers if allowed.
+        response = await call_next(request)
+        if allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -201,9 +279,24 @@ class AdminLoginRateLimitMiddleware(BaseHTTPMiddleware):
                 and attempt_record.failed_count >= self._MAX_FAILURES
             ):
                 await db.commit()
+                retry_after_seconds = max(
+                    1,
+                    int(
+                        (
+                            attempt_record.first_attempt_at.replace(tzinfo=UTC)
+                            + timedelta(seconds=self._WINDOW_SECONDS)
+                            - now
+                        ).total_seconds()
+                    )
+                    + 1,  # round up so the client never retries too early
+                )
                 return JSONResponse(
                     status_code=429,
-                    content={"detail": "Too many failed login attempts. Try again in 15 minutes."},
+                    content={
+                        "detail": "Too many failed login attempts.",
+                        "retry_after_seconds": retry_after_seconds,
+                    },
+                    headers={"Retry-After": str(retry_after_seconds)},
                 )
 
             await db.commit()  # release FOR UPDATE lock before calling next handler
@@ -366,21 +459,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.allowed_origin],
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        # US-IAS-05: X-Requested-With is our CSRF double-submit header.
-        # SameSite=Lax cookies are sent on top-level navigations from cross-origin
-        # but NOT on cross-origin subresource requests (XHR/fetch).  However, to
-        # defend against CSRF via cross-origin form posts that browsers still allow
-        # on Lax, we also require X-Requested-With on every state-changing request
-        # (enforced by CSRFMiddleware below).  A cross-origin attacker cannot set
-        # arbitrary headers without passing the CORS preflight — providing strong CSRF
-        # protection without needing a separate synchronizer token.
-        allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
-    )
+    # US-IAS-05: DynamicCORSMiddleware reflects the request's own origin back
+    # when the Origin header matches the deployment host (x-forwarded-host) or
+    # the explicitly configured ALLOWED_ORIGIN.  This removes the requirement
+    # for tenants to set ALLOWED_ORIGIN — every Vercel deployment allows its
+    # own origin automatically.  ALLOWED_ORIGIN is still honoured for backward
+    # compatibility (local dev, legacy configs).
+    app.add_middleware(DynamicCORSMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,

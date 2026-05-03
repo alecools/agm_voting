@@ -583,13 +583,11 @@ class TestMain:
         assert response.json() == {"status": "ok"}
 
     def test_cors_middleware_present(self):
-        from starlette.middleware.cors import CORSMiddleware
+        from app.main import DynamicCORSMiddleware, app
 
-        from app.main import app
-
-        # Check that CORS middleware is in the middleware stack
+        # Check that DynamicCORSMiddleware is in the middleware stack
         middleware_classes = [m.cls for m in app.user_middleware if hasattr(m, "cls")]
-        assert CORSMiddleware in middleware_classes
+        assert DynamicCORSMiddleware in middleware_classes
 
     def test_session_middleware_present(self):
         from starlette.middleware.sessions import SessionMiddleware
