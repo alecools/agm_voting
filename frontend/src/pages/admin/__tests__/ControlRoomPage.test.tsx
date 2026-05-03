@@ -31,8 +31,8 @@ vi.mock("../../../lib/auth-client", () => ({
   },
 }));
 
-function makeSession(isServerAdmin: boolean) {
-  return { data: { user: { id: "u1", email: "op@example.com", is_server_admin: isServerAdmin } }, isPending: false };
+function makeSession(isOperator: boolean) {
+  return { data: { user: { id: "u1", email: "op@example.com", role: isOperator ? "admin" : "user" } }, isPending: false };
 }
 
 function renderPage() {
@@ -73,7 +73,7 @@ describe("ControlRoomPage", () => {
   // --- Non-operator redirect ---
 
   it("redirects to /admin when user is not a server admin", async () => {
-    mockUseSession.mockReturnValue({ data: { user: { id: "u1", is_server_admin: false } }, isPending: false });
+    mockUseSession.mockReturnValue({ data: { user: { id: "u1", role: "user" } }, isPending: false });
     renderPage();
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/admin", { replace: true });
@@ -81,7 +81,7 @@ describe("ControlRoomPage", () => {
   });
 
   it("returns null (renders nothing) when user is not a server admin after session resolves", () => {
-    mockUseSession.mockReturnValue({ data: { user: { id: "u1", is_server_admin: false } }, isPending: false });
+    mockUseSession.mockReturnValue({ data: { user: { id: "u1", role: "user" } }, isPending: false });
     renderPage();
     expect(screen.queryByRole("heading", { name: "Control Room" })).not.toBeInTheDocument();
   });

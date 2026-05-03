@@ -75,7 +75,7 @@ export default function AdminLayout() {
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [smtpBannerDismissed, setSmtpBannerDismissed] = useState(false);
   const { data: sessionData } = authClient.useSession();
-  const isServerAdmin = (sessionData as { user?: { is_server_admin?: boolean } } | null)?.user?.is_server_admin === true;
+  const isServerAdmin = (sessionData as { user?: { role?: string } } | null)?.user?.role === "admin";
 
   useEffect(() => {
     setSmtpBannerDismissed(false);
