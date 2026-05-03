@@ -11,7 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : isDeployed ? 4 : undefined,
   // In CI shard jobs: emit blob reports for later merging; locally: HTML only
   reporter: process.env.CI ? [["blob"], ["list"]] : [["html"]],
-  timeout: isDeployed ? 360000 : 30000,
+  timeout: isDeployed ? 180000 : 30000,
   expect: {
     timeout: isDeployed ? 10000 : 5000,
   },

@@ -198,7 +198,7 @@ export default async function globalSetup(_config: FullConfig) {
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   try {
-    await page.waitForURL(/\/admin\/general-meetings/, { timeout: 240000 });
+    await page.waitForURL(/\/admin\/general-meetings/, { timeout: 120000 });
   } catch {
     const url = page.url();
     const content = await page.content();
