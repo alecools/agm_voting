@@ -6,9 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../../tests/msw/server";
 import SettingsPage from "../SettingsPage";
-import { resetConfigFixture, resetAdminUsersFixture, CURRENT_USER_ID, ADMIN_USER_CURRENT, ADMIN_USER_OTHER } from "../../../../tests/msw/handlers";
+import { resetConfigFixture, resetAdminUsersFixture, resetSubscriptionFixture, CURRENT_USER_ID, ADMIN_USER_CURRENT, ADMIN_USER_OTHER } from "../../../../tests/msw/handlers";
 import * as configApi from "../../../api/config";
 import * as usersApi from "../../../api/users";
+import * as subscriptionApi from "../../../api/subscription";
 import { vi } from "vitest";
 import { authClient, changePassword as changePasswordFn } from "../../../lib/auth-client";
 
@@ -43,6 +44,7 @@ describe("SettingsPage", () => {
   beforeEach(() => {
     resetConfigFixture();
     resetAdminUsersFixture();
+    resetSubscriptionFixture();
   });
 
   // --- Happy path ---
@@ -1806,5 +1808,133 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "Updating…" })).toBeDisabled();
     resolve({ error: null });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change Password" })).not.toBeInTheDocument());
+  });
+
+  // --- Subscription tab ---
+
+  it("renders Subscription tab button", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+  });
+
+  it("clicking Subscription tab activates it", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    expect(screen.getByRole("tab", { name: "Subscription" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "UI & Theme" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("shows loading state while fetching subscription", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, async () => {
+        await new Promise((r) => setTimeout(r, 100));
+        return HttpResponse.json({ tier_name: "Starter", building_limit: 10, active_building_count: 3 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    // The subscription tab panel should show loading
+    expect(screen.getByText("Loading subscription…")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Loading subscription…")).not.toBeInTheDocument());
+  });
+
+  it("displays subscription data after loading", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: "Pro", building_limit: 20, active_building_count: 5 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Pro")).toBeInTheDocument());
+    expect(screen.getByText(/5/)).toBeInTheDocument();
+    expect(screen.getByText(/20/)).toBeInTheDocument();
+  });
+
+  it("shows 'No plan set' when tier_name is null", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: null, building_limit: null, active_building_count: 2 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("No plan set")).toBeInTheDocument());
+  });
+
+  it("shows 'Unlimited' when building_limit is null", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ tier_name: "Enterprise", building_limit: null, active_building_count: 10 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText(/Unlimited/)).toBeInTheDocument());
+  });
+
+  it("shows error when subscription fetch fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () =>
+        HttpResponse.json({ detail: "Forbidden" }, { status: 403 })
+      )
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
+  });
+
+  it("shows support contact text after subscription loads", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText(/contact support/)).toBeInTheDocument());
+  });
+
+  it("switching away and back to Subscription tab does not re-fetch subscription", async () => {
+    // Exercises the hasFetchedSubscription.current guard: second activation must not re-fetch.
+    const user = userEvent.setup();
+    let fetchCount = 0;
+    server.use(
+      http.get(`${BASE}/api/admin/subscription`, () => {
+        fetchCount++;
+        return HttpResponse.json({ tier_name: "Starter", building_limit: 10, active_building_count: 3 });
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+
+    // First activation — triggers fetch
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Starter")).toBeInTheDocument());
+    expect(fetchCount).toBe(1);
+
+    // Switch away then back — must NOT trigger a second fetch
+    await user.click(screen.getByRole("tab", { name: "UI & Theme" }));
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Starter")).toBeVisible());
+    expect(fetchCount).toBe(1);
+  });
+
+  it("subscription fetch error uses fallback for non-Error thrown value", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(subscriptionApi, "getSubscription").mockRejectedValueOnce("plain string error");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Subscription" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Subscription" }));
+    await waitFor(() => expect(screen.getByText("Failed to load subscription.")).toBeInTheDocument());
   });
 });

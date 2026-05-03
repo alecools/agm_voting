@@ -17,6 +17,7 @@ import type {
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
 import type { TenantConfig, SmtpConfig, SmtpStatus } from "../../src/api/config";
 import type { AdminUser, AdminUserListResponse } from "../../src/api/users";
+import type { SubscriptionResponse } from "../../src/api/subscription";
 
 const BASE = "http://localhost";
 
@@ -89,6 +90,24 @@ export let adminUsersFixture: AdminUserListResponse = {
 export function resetAdminUsersFixture() {
   adminUsersFixture = {
     users: [ADMIN_USER_CURRENT, ADMIN_USER_OTHER],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Subscription fixtures
+// ---------------------------------------------------------------------------
+
+export let subscriptionFixture: SubscriptionResponse = {
+  tier_name: "Starter",
+  building_limit: 10,
+  active_building_count: 3,
+};
+
+export function resetSubscriptionFixture() {
+  subscriptionFixture = {
+    tier_name: "Starter",
+    building_limit: 10,
+    active_building_count: 3,
   };
 }
 
@@ -1553,5 +1572,35 @@ export const handlers = [
       );
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ---------------------------------------------------------------------------
+  // Subscription endpoints
+  // ---------------------------------------------------------------------------
+
+  http.get(`${BASE}/api/admin/subscription`, () =>
+    HttpResponse.json(subscriptionFixture)
+  ),
+
+  http.post(`${BASE}/api/admin/subscription`, async ({ request }) => {
+    const body = await request.json() as { tier_name: string | null; building_limit: number | null };
+    subscriptionFixture = {
+      tier_name: body.tier_name,
+      building_limit: body.building_limit,
+      active_building_count: subscriptionFixture.active_building_count,
+    };
+    return HttpResponse.json(subscriptionFixture);
+  }),
+
+  http.post(`${BASE}/api/admin/buildings/:buildingId/unarchive`, ({ params }) => {
+    const buildingId = params.buildingId as string;
+    if (buildingId === "not-found-id") {
+      return HttpResponse.json({ detail: "Building not found" }, { status: 404 });
+    }
+    const building = ADMIN_BUILDINGS.find((b) => b.id === buildingId);
+    if (!building) {
+      return HttpResponse.json({ id: buildingId, name: "Unknown", is_archived: false });
+    }
+    return HttpResponse.json({ id: building.id, name: building.name, is_archived: false });
   }),
 ];

@@ -6,8 +6,10 @@ import { listAdminUsers, inviteAdminUser, removeAdminUser } from "../../api/user
 import type { AdminUser } from "../../api/users";
 import { authClient, changePassword } from "../../lib/auth-client";
 import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } from "../../components/PasswordRequirements";
+import { getSubscription } from "../../api/subscription";
+import type { SubscriptionResponse } from "../../api/subscription";
 
-type SettingsTab = "ui-theme" | "email-server" | "user-management";
+type SettingsTab = "ui-theme" | "email-server" | "user-management" | "subscription";
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -61,6 +63,12 @@ export default function SettingsPage() {
   const [isRemoving, setIsRemoving] = useState(false);
   const [removeSuccess, setRemoveSuccess] = useState("");
   const [removeError, setRemoveError] = useState("");
+
+  // Subscription tab state
+  const hasFetchedSubscription = useRef(false);
+  const [subscription, setSubscription] = useState<SubscriptionResponse | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState("");
 
   // Change password state
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
@@ -125,6 +133,26 @@ export default function SettingsPage() {
     if (activeTab !== "user-management") return;
     if (hasFetchedUsers.current) return;
     refreshUsers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Load subscription when Subscription tab is first activated — once only.
+  useEffect(() => {
+    if (activeTab !== "subscription") return;
+    if (hasFetchedSubscription.current) return;
+    setSubscriptionLoading(true);
+    setSubscriptionError("");
+    getSubscription()
+      .then((data) => {
+        setSubscription(data);
+        hasFetchedSubscription.current = true;
+      })
+      .catch(() => {
+        setSubscriptionError("Failed to load subscription.");
+      })
+      .finally(() => {
+        setSubscriptionLoading(false);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -427,6 +455,27 @@ export default function SettingsPage() {
           }}
         >
           User Management
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === "subscription"}
+          aria-controls="tab-panel-subscription"
+          id="tab-subscription"
+          type="button"
+          onClick={() => setActiveTab("subscription")}
+          style={{
+            padding: "10px 20px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "subscription" ? "3px solid var(--navy)" : "3px solid transparent",
+            fontWeight: activeTab === "subscription" ? 700 : 400,
+            color: activeTab === "subscription" ? "var(--navy)" : "var(--text-secondary)",
+            cursor: "pointer",
+            marginBottom: -2,
+            fontSize: "0.9rem",
+          }}
+        >
+          Subscription
         </button>
       </div>
 
@@ -818,6 +867,46 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+      {/* Subscription tab */}
+      <div
+        role="tabpanel"
+        id="tab-panel-subscription"
+        aria-labelledby="tab-subscription"
+        hidden={activeTab !== "subscription"}
+      >
+        <div className="admin-card">
+          <div className="admin-card__header">
+            <p className="admin-card__title">Subscription</p>
+          </div>
+          <div className="admin-card__body">
+            {subscriptionLoading && (
+              <p className="state-message">Loading subscription…</p>
+            )}
+            {subscriptionError && !subscriptionLoading && (
+              <p className="state-message state-message--error">{subscriptionError}</p>
+            )}
+            {!subscriptionLoading && !subscriptionError && subscription && (
+              <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "max-content 1fr", gap: "8px 24px" }}>
+                <dt className="field__label" style={{ margin: 0 }}>Tier</dt>
+                <dd style={{ margin: 0 }}>{subscription.tier_name ?? "No plan set"}</dd>
+                <dt className="field__label" style={{ margin: 0 }}>Usage</dt>
+                <dd style={{ margin: 0 }}>
+                  {subscription.active_building_count}
+                  {" / "}
+                  {subscription.building_limit !== null ? subscription.building_limit : "Unlimited"}
+                  {" buildings"}
+                </dd>
+              </dl>
+            )}
+            {!subscriptionLoading && !subscriptionError && subscription && (
+              <p style={{ marginTop: 16, color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+                To upgrade your plan or request changes, contact support.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Test email modal */}
       {showTestEmailModal && (

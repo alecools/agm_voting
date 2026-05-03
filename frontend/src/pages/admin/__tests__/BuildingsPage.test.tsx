@@ -831,4 +831,82 @@ describe("BuildingsPage — name filter (Fix 4)", () => {
     });
     vi.useRealTimers();
   }, 10000);
+
+  // --- Building limit enforcement (lines 133-148 in BuildingsPage.tsx) ---
+
+  it("shows parsed detail message when server returns 422 Building limit reached", async () => {
+    // The onError callback parses JSON from the error message when "Building limit reached" is present.
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        return HttpResponse.json(
+          { detail: "Building limit reached. You have 10 of 10 active buildings on the Starter plan. Contact support to upgrade." },
+          { status: 422 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    await waitFor(() => {
+      expect(screen.getByText(/Building limit reached/)).toBeInTheDocument();
+    });
+    // The parsed detail message is shown (not just "HTTP 422: ...")
+    expect(screen.getByText(/Contact support to upgrade/)).toBeInTheDocument();
+    // Modal stays open on error
+    expect(screen.getByRole("dialog", { name: "New Building" })).toBeInTheDocument();
+  });
+
+  it("falls through to raw error message when Building limit reached body has no JSON object", async () => {
+    // Exercises the jsonStart === -1 branch (line 137): error message contains
+    // "Building limit reached" but has no "{" — falls through to setFormError(raw).
+    const { createBuilding } = await import("../../../api/admin");
+    vi.spyOn(createBuilding as never, "call" as never);
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        // Return a plain-text body — apiFetch will throw "HTTP 422: Building limit reached"
+        // with no JSON object embedded, so jsonStart === -1 and we fall through.
+        return new HttpResponse("Building limit reached plain text", {
+          status: 422,
+          headers: { "Content-Type": "text/plain" },
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    // The raw error message is shown (contains "Building limit reached")
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/Building limit reached/);
+  });
+
+  it("falls through to raw error message when JSON has no detail field", async () => {
+    // Exercises the !parsed.detail branch (line 139): JSON is valid but has no "detail" key.
+    server.use(
+      http.post("http://localhost/api/admin/buildings", () => {
+        // Body is JSON with "Building limit reached" in the message but no "detail" key.
+        return HttpResponse.json({ message: "Building limit reached" }, { status: 422 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Building" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ New Building" }));
+    await user.type(screen.getByLabelText("Building Name"), "Overflow Tower");
+    await user.type(screen.getByLabelText("Manager Email"), "mgr@example.com");
+    await user.click(screen.getByRole("button", { name: "Create Building" }));
+    // The raw error is shown since parsed.detail is falsy
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
 });

@@ -596,6 +596,29 @@ class GeneralMeetingBallotResetOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Subscription schemas
+# ---------------------------------------------------------------------------
+
+
+class SubscriptionResponse(BaseModel):
+    tier_name: str | None
+    building_limit: int | None
+    active_building_count: int
+
+
+class SubscriptionUpdate(BaseModel):
+    tier_name: str | None = Field(default=None, max_length=255)
+    building_limit: int | None = None
+
+    @field_validator("building_limit")
+    @classmethod
+    def building_limit_positive(cls, v: int | None) -> int | None:
+        if v is not None and v < 1:
+            raise ValueError("building_limit must be >= 1")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # Archive schemas
 # ---------------------------------------------------------------------------
 

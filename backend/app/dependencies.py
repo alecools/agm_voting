@@ -11,7 +11,7 @@ import asyncio
 from dataclasses import dataclass
 
 import httpx
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from app.config import settings
 
@@ -43,6 +43,7 @@ class BetterAuthUser:
 
     email: str
     user_id: str
+    is_server_admin: bool = False
 
 
 async def require_admin(request: Request) -> BetterAuthUser:
@@ -102,9 +103,26 @@ async def require_admin(request: Request) -> BetterAuthUser:
             return BetterAuthUser(
                 email=user["email"],
                 user_id=user["id"],
+                is_server_admin=bool(user.get("is_server_admin", False)),
             )
         # Non-200: retry (handles Neon Auth cold starts)
 
     if last_error is not None:
         raise HTTPException(status_code=503, detail="Auth service unavailable")
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+async def require_operator(
+    current_user: BetterAuthUser = Depends(require_admin),
+) -> BetterAuthUser:
+    """Require the authenticated user to also be a server admin (operator).
+
+    Calls require_admin first (raises 401 if not authenticated), then checks
+    is_server_admin (raises 403 if not a server admin).
+
+    Use this dependency on endpoints that manage platform-level settings such
+    as subscription configuration and building unarchive.
+    """
+    if not current_user.is_server_admin:
+        raise HTTPException(status_code=403, detail="Operator access required")
+    return current_user

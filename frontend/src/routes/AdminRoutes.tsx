@@ -7,6 +7,7 @@ import GeneralMeetingListPage from "../pages/admin/GeneralMeetingListPage";
 import GeneralMeetingDetailPage from "../pages/admin/GeneralMeetingDetailPage";
 import CreateGeneralMeetingPage from "../pages/admin/CreateGeneralMeetingPage";
 import SettingsPage from "../pages/admin/SettingsPage";
+import ControlRoomPage from "../pages/admin/ControlRoomPage";
 import RequireAdminAuth from "../components/admin/RequireAdminAuth";
 
 export default function AdminRoutes() {
@@ -27,6 +28,7 @@ export default function AdminRoutes() {
         <Route path="general-meetings/new" element={<CreateGeneralMeetingPage />} />
         <Route path="general-meetings/:meetingId" element={<GeneralMeetingDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="control-room" element={<ControlRoomPage />} />
       </Route>
     </Routes>
   );

@@ -21,7 +21,7 @@ from app.database import engine, get_db
 from app.utils import derive_origin
 from app.logging_config import get_logger
 from app.models import EmailDelivery, GeneralMeeting, get_effective_status
-from app.dependencies import BetterAuthUser, require_admin
+from app.dependencies import BetterAuthUser, require_admin, require_operator
 from app.services.email_service import EmailService
 from app.schemas.admin import (
     AddEmailRequest,
@@ -39,6 +39,8 @@ from app.schemas.admin import (
     GeneralMeetingStartOut,
     BuildingArchiveOut,
     BuildingCreate,
+    SubscriptionResponse,
+    SubscriptionUpdate,
     BuildingImportResult,
     BuildingOut,
     BuildingUpdate,
@@ -382,6 +384,39 @@ async def archive_building(
 ) -> BuildingArchiveOut:
     building = await admin_service.archive_building(building_id, db)
     return BuildingArchiveOut.model_validate(building)
+
+
+@router.post(
+    "/buildings/{building_id}/unarchive",
+    response_model=BuildingArchiveOut,
+)
+async def unarchive_building(
+    building_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: BetterAuthUser = Depends(require_operator),
+) -> BuildingArchiveOut:
+    building = await admin_service.unarchive_building(building_id, db)
+    return BuildingArchiveOut.model_validate(building)
+
+
+@router.get("/subscription", response_model=SubscriptionResponse)
+async def get_subscription(
+    db: AsyncSession = Depends(get_db),
+) -> SubscriptionResponse:
+    return await admin_service.get_subscription(db)
+
+
+@router.post("/subscription", response_model=SubscriptionResponse)
+async def update_subscription(
+    data: SubscriptionUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: BetterAuthUser = Depends(require_operator),
+) -> SubscriptionResponse:
+    return await admin_service.upsert_subscription(
+        db,
+        tier_name=data.tier_name,
+        building_limit=data.building_limit,
+    )
 
 
 @router.get("/buildings/{building_id}", response_model=BuildingOut)
