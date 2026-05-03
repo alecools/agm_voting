@@ -6,6 +6,13 @@ import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } f
 
 type View = "login" | "reset" | "set-password";
 
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export default function AdminLoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,6 +23,10 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
+
+  // Rate-limit countdown state: timestamp (ms since epoch) when the lockout expires.
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<number | null>(null);
+  const [countdownMs, setCountdownMs] = useState<number>(0);
 
   // Forgot password state
   const [view, setView] = useState<View>("login");
@@ -49,6 +60,23 @@ export default function AdminLoginPage() {
       newPasswordRef.current?.focus();
     }
   }, [view]);
+
+  // Countdown ticker: updates every second while rate-limited.
+  useEffect(() => {
+    if (rateLimitedUntil === null) return;
+    const tick = () => {
+      const remaining = rateLimitedUntil - Date.now();
+      if (remaining <= 0) {
+        setRateLimitedUntil(null);
+        setCountdownMs(0);
+      } else {
+        setCountdownMs(remaining);
+      }
+    };
+    tick(); // run immediately so the display is correct on first render
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [rateLimitedUntil]);
 
   function showResetView() {
     setResetEmail(email);
@@ -88,16 +116,40 @@ export default function AdminLoginPage() {
     setLoginError(null);
     setLoginLoading(true);
     try {
-      const result = await authClient.signIn.email({ email, password });
-      if (result.error) {
-        setLoginError("Invalid email or password.");
-      } else {
-        // Refetch the session so RequireAdminAuth sees it before we navigate.
-        // Without this, useSession() may still return null on the next render,
-        // causing a redirect back to the login page.
-        await authClient.getSession();
-        navigate("/admin", { replace: true });
+      // Use a direct fetch so we can inspect the HTTP status and extract
+      // retry_after_seconds from a 429 response body.  The Better Auth SDK
+      // does not expose the raw HTTP status code, making 429 detection unreliable.
+      const res = await fetch("/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
+
+      if (res.status === 429) {
+        let retryAfterSeconds = 900; // safe default: 15 minutes
+        try {
+          const body = await res.json() as { detail?: string; retry_after_seconds?: number };
+          if (typeof body.retry_after_seconds === "number") {
+            retryAfterSeconds = body.retry_after_seconds;
+          }
+        } catch {
+          // ignore JSON parse errors — use default
+        }
+        setRateLimitedUntil(Date.now() + retryAfterSeconds * 1000);
+        return;
       }
+
+      if (!res.ok) {
+        setLoginError("Invalid email or password.");
+        return;
+      }
+
+      // Refetch the session so RequireAdminAuth sees it before we navigate.
+      // Without this, useSession() may still return null on the next render,
+      // causing a redirect back to the login page.
+      await authClient.getSession();
+      navigate("/admin", { replace: true });
     } catch {
       setLoginError("Invalid email or password.");
     } finally {
@@ -191,11 +243,15 @@ export default function AdminLoginPage() {
           </form>
         ) : view === "login" ? (
           <form onSubmit={(e) => { void handleLoginSubmit(e); }} className="admin-login-card__form">
-            {loginError && (
+            {rateLimitedUntil !== null ? (
+              <p className="admin-login-card__error" role="status">
+                Too many failed attempts. Try again in {formatCountdown(countdownMs)}
+              </p>
+            ) : loginError ? (
               <p className="admin-login-card__error" role="alert">
                 {loginError}
               </p>
-            )}
+            ) : null}
 
             <div className="field">
               <label htmlFor="email" className="field__label">
@@ -230,7 +286,7 @@ export default function AdminLoginPage() {
             <button
               type="submit"
               className="btn btn--primary btn--full"
-              disabled={loginLoading}
+              disabled={loginLoading || rateLimitedUntil !== null}
             >
               {loginLoading ? "Signing in…" : "Sign in"}
             </button>
