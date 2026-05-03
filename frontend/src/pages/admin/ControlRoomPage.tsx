@@ -15,7 +15,7 @@ export default function ControlRoomPage() {
   // Redirect non-operators to /admin
   useEffect(() => {
     if (sessionPending) return;
-    const isServerAdmin = (sessionData as { user?: { is_server_admin?: boolean } } | null)?.user?.is_server_admin;
+    const isServerAdmin = (sessionData as { user?: { role?: string } } | null)?.user?.role === "admin";
     if (!isServerAdmin) {
       navigate("/admin", { replace: true });
     }
@@ -109,7 +109,7 @@ export default function ControlRoomPage() {
     return <p className="state-message">Loading…</p>;
   }
 
-  const isServerAdmin = (sessionData as { user?: { is_server_admin?: boolean } } | null)?.user?.is_server_admin;
+  const isServerAdmin = (sessionData as { user?: { role?: string } } | null)?.user?.role === "admin";
   if (!isServerAdmin) {
     return null;
   }

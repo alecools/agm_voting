@@ -103,7 +103,7 @@ async def require_admin(request: Request) -> BetterAuthUser:
             return BetterAuthUser(
                 email=user["email"],
                 user_id=user["id"],
-                is_server_admin=bool(user.get("is_server_admin", False)),
+                is_server_admin=user.get("role") == "admin",
             )
         # Non-200: retry (handles Neon Auth cold starts)
 
