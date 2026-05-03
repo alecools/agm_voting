@@ -197,30 +197,7 @@ export default async function globalSetup(_config: FullConfig) {
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  try {
-    // Wait until the page navigates away from /admin/login.
-    // A positive waitForURL pattern like /\/admin\/buildings/ breaks when the
-    // default post-login page changes.  A negative check — waiting until the
-    // path no longer includes /admin/login — is resilient to any future
-    // default-page changes and handles intermediate redirects through /admin.
-    // waitForURL is used (not waitForFunction) because waitForFunction evaluates
-    // JS in the page context and the execution context is detached mid-poll on
-    // navigation, causing it to hang indefinitely at 180 s.
-    await page.waitForURL(url => !url.toString().includes("/admin/login"), {
-      timeout: 120000,
-    });
-  } catch {
-    // waitForURL timed out — check if login actually succeeded before giving up
-    const currentUrl = page.url();
-    if (currentUrl.includes("/admin/login")) {
-      const content = await page.content();
-      throw new Error(
-        `Admin login failed — stuck at ${currentUrl}\nPage content (first 500 chars):\n${content.slice(0, 500)}`
-      );
-    }
-    // Login succeeded but waitForURL predicate timed out (e.g. Neon Auth cold start > 120s)
-    // URL is now off /admin/login — continue
-  }
+  await page.waitForURL(/\/admin\/general-meetings/, { timeout: 120000 });
   await context.storageState({ path: path.join(authDir, "admin.json") });
   await browser.close();
 
