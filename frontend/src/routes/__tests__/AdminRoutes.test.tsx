@@ -86,10 +86,10 @@ describe("AdminRoutes", () => {
     });
   });
 
-  it("redirects /admin to buildings when authenticated", async () => {
+  it("redirects /admin to general-meetings when authenticated", async () => {
     renderRoutes("/admin");
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Buildings" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "General Meetings" })).toBeInTheDocument();
     });
   });
 

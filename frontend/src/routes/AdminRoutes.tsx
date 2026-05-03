@@ -21,7 +21,7 @@ export default function AdminRoutes() {
           </RequireAdminAuth>
         }
       >
-        <Route index element={<Navigate to="buildings" replace />} />
+        <Route index element={<Navigate to="general-meetings" replace />} />
         <Route path="buildings" element={<BuildingsPage />} />
         <Route path="buildings/:buildingId" element={<BuildingDetailPage />} />
         <Route path="general-meetings" element={<GeneralMeetingListPage />} />

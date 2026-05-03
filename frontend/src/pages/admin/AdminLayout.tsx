@@ -11,17 +11,6 @@ function NavContent({ onNavClick, isServerAdmin }: { onNavClick?: () => void; is
       <ul className="admin-nav">
         <li className="admin-nav__item">
           <NavLink
-            to="/admin/buildings"
-            className={({ isActive }) =>
-              `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
-            }
-            onClick={onNavClick}
-          >
-            Buildings
-          </NavLink>
-        </li>
-        <li className="admin-nav__item">
-          <NavLink
             to="/admin/general-meetings"
             className={({ isActive }) =>
               `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
@@ -29,6 +18,17 @@ function NavContent({ onNavClick, isServerAdmin }: { onNavClick?: () => void; is
             onClick={onNavClick}
           >
             General Meetings
+          </NavLink>
+        </li>
+        <li className="admin-nav__item">
+          <NavLink
+            to="/admin/buildings"
+            className={({ isActive }) =>
+              `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
+            }
+            onClick={onNavClick}
+          >
+            Buildings
           </NavLink>
         </li>
         <li className="admin-nav__item">
