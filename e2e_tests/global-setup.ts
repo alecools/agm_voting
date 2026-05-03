@@ -210,11 +210,16 @@ export default async function globalSetup(_config: FullConfig) {
       timeout: 120000,
     });
   } catch {
-    const url = page.url();
-    const content = await page.content();
-    throw new Error(
-      `Admin login failed — stuck at ${url}\nPage content (first 500 chars):\n${content.slice(0, 500)}`
-    );
+    // waitForURL timed out — check if login actually succeeded before giving up
+    const currentUrl = page.url();
+    if (currentUrl.includes("/admin/login")) {
+      const content = await page.content();
+      throw new Error(
+        `Admin login failed — stuck at ${currentUrl}\nPage content (first 500 chars):\n${content.slice(0, 500)}`
+      );
+    }
+    // Login succeeded but waitForURL predicate timed out (e.g. Neon Auth cold start > 120s)
+    // URL is now off /admin/login — continue
   }
   await context.storageState({ path: path.join(authDir, "admin.json") });
   await browser.close();
