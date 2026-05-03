@@ -99,8 +99,10 @@ test.describe("Admin flow", () => {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    // Redirect to /admin/buildings confirms auth is wired correctly in this deployment
-    await expect(page).toHaveURL(/\/admin\/buildings/);
+    // Redirect to an admin page confirms auth is wired correctly in this deployment.
+    // Accept general-meetings (new default) or buildings (legacy) so the test
+    // is resilient to future default-page changes.
+    await expect(page).toHaveURL(/\/admin\/(general-meetings|buildings)/);
     // Table must be visible — confirms DB connection and migrations are healthy
     await expect(page.getByRole("table")).toBeVisible();
   });
