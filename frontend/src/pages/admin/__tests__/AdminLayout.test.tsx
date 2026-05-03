@@ -19,6 +19,7 @@ const { mockSignOut, mockNavigate } = vi.hoisted(() => ({
 vi.mock("../../../lib/auth-client", () => ({
   authClient: {
     signOut: mockSignOut,
+    useSession: vi.fn().mockReturnValue({ data: null, isPending: false }),
   },
 }));
 

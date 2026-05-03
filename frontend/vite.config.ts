@@ -74,6 +74,9 @@ export default defineConfig({
         "src/components/PasswordRequirements.tsx",
         // User management API
         "src/api/users.ts",
+        // Subscription and Control Room feature
+        "src/api/subscription.ts",
+        "src/pages/admin/ControlRoomPage.tsx",
       ],
       thresholds: {
         // Per-file thresholds for Phase 4 vote files
@@ -102,6 +105,9 @@ export default defineConfig({
         // Password UX improvements
         "src/components/PasswordRequirements.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
         "src/api/users.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Subscription and Control Room feature
+        "src/api/subscription.ts": { lines: 100, functions: 100, branches: 100, statements: 100 },
+        "src/pages/admin/ControlRoomPage.tsx": { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },

@@ -39,6 +39,7 @@ from app.models import (
     VoteStatus,
     get_effective_status,
 )
+from app.models.tenant_settings import TenantSettings
 from app.schemas.admin import (
     AdminVoteEntryRequest,
     BuildingUpdate,
@@ -274,7 +275,107 @@ async def import_buildings_from_excel(
     return {"created": created, "updated": updated}
 
 
+# ---------------------------------------------------------------------------
+# Subscription / tenant settings
+# ---------------------------------------------------------------------------
+
+
+async def _count_active_buildings(db: AsyncSession) -> int:
+    """Return the count of non-archived buildings."""
+    result = await db.execute(
+        select(func.count()).select_from(Building).where(Building.is_archived == False)  # noqa: E712
+    )
+    return result.scalar_one()
+
+
+async def get_subscription(db: AsyncSession):
+    """Return the current subscription settings plus active building count.
+
+    Returns defaults (None plan, None limit) when no settings row exists yet.
+    """
+    from app.schemas.admin import SubscriptionResponse
+
+    result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = result.scalar_one_or_none()
+
+    active_count = await _count_active_buildings(db)
+
+    if settings is None:
+        return SubscriptionResponse(
+            tier_name=None,
+            building_limit=None,
+            active_building_count=active_count,
+        )
+    return SubscriptionResponse(
+        tier_name=settings.tier_name,
+        building_limit=settings.building_limit,
+        active_building_count=active_count,
+    )
+
+
+async def upsert_subscription(
+    db: AsyncSession,
+    tier_name: str | None,
+    building_limit: int | None,
+):
+    """Upsert the single tenant_settings row (id=1)."""
+    from app.schemas.admin import SubscriptionResponse
+
+    result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = result.scalar_one_or_none()
+
+    if settings is None:
+        settings = TenantSettings(id=1, tier_name=tier_name, building_limit=building_limit)
+        db.add(settings)
+    else:
+        settings.tier_name = tier_name
+        settings.building_limit = building_limit
+
+    await db.commit()
+    await db.refresh(settings)
+
+    active_count = await _count_active_buildings(db)
+    return SubscriptionResponse(
+        tier_name=settings.tier_name,
+        building_limit=settings.building_limit,
+        active_building_count=active_count,
+    )
+
+
+async def unarchive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
+    """Set is_archived=False on the given building. Raises 404 if not found."""
+    result = await db.execute(select(Building).where(Building.id == building_id))
+    building = result.scalar_one_or_none()
+    if building is None:
+        raise HTTPException(status_code=404, detail="Building not found")
+    building.is_archived = False
+    await db.commit()
+    await db.refresh(building)
+    return building
+
+
+# ---------------------------------------------------------------------------
+# Buildings (CRUD)
+# ---------------------------------------------------------------------------
+
+
 async def create_building(name: str, manager_email: str, db: AsyncSession) -> Building:
+    # Enforce subscription building limit (if set).
+    sub_result = await db.execute(select(TenantSettings).where(TenantSettings.id == 1))
+    settings = sub_result.scalar_one_or_none()
+    if settings is not None and settings.building_limit is not None:
+        active_count = await _count_active_buildings(db)
+        if active_count >= settings.building_limit:
+            tier = settings.tier_name or "current"
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Building limit reached. You have {active_count} of "
+                    f"{settings.building_limit} active buildings on the {tier} plan. "
+                    "Contact support to upgrade."
+                ),
+            )
+
     result = await db.execute(
         select(Building).where(func.lower(Building.name) == func.lower(name))
     )

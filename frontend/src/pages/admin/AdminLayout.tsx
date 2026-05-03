@@ -5,7 +5,7 @@ import { authClient } from "../../lib/auth-client";
 import { useBranding } from "../../context/BrandingContext";
 import { getSmtpStatus } from "../../api/config";
 
-function NavContent({ onNavClick }: { onNavClick?: () => void }) {
+function NavContent({ onNavClick, isServerAdmin }: { onNavClick?: () => void; isServerAdmin?: boolean }) {
   return (
     <>
       <ul className="admin-nav">
@@ -42,6 +42,19 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
             Settings
           </NavLink>
         </li>
+        {isServerAdmin && (
+          <li className="admin-nav__item">
+            <NavLink
+              to="/admin/control-room"
+              className={({ isActive }) =>
+                `admin-nav__link${isActive ? " admin-nav__link--active" : ""}`
+              }
+              onClick={onNavClick}
+            >
+              Control Room
+            </NavLink>
+          </li>
+        )}
       </ul>
       <div style={{ marginTop: "auto", padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
         <Link to="/" className="admin-nav__link" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={onNavClick}>
@@ -61,6 +74,8 @@ export default function AdminLayout() {
   const location = useLocation();
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [smtpBannerDismissed, setSmtpBannerDismissed] = useState(false);
+  const { data: sessionData } = authClient.useSession();
+  const isServerAdmin = (sessionData as { user?: { is_server_admin?: boolean } } | null)?.user?.is_server_admin === true;
 
   useEffect(() => {
     setSmtpBannerDismissed(false);
@@ -102,7 +117,7 @@ export default function AdminLayout() {
           )}
           <span className="admin-sidebar__role">Admin Portal</span>
         </div>
-        <NavContent />
+        <NavContent isServerAdmin={isServerAdmin} />
         <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             className="admin-nav__link"
@@ -141,7 +156,7 @@ export default function AdminLayout() {
         >
           ✕
         </button>
-        <NavContent onNavClick={() => setIsNavOpen(false)} />
+        <NavContent onNavClick={() => setIsNavOpen(false)} isServerAdmin={isServerAdmin} />
         <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,.07)", display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             className="admin-nav__link"
