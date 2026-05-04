@@ -15,7 +15,7 @@ jobs:
     name: E2E Setup
     if: |
       github.event.deployment_status.state == 'success' &&
-      github.event.deployment.environment != 'Production'
+      !startsWith(github.event.deployment.environment, 'Production')
     runs-on: ubuntu-latest
 
     outputs:

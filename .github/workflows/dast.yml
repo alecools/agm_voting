@@ -14,9 +14,9 @@ jobs:
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
-          target: 'https://agm-voting-env-demo-ocss.vercel.app'
+          target: 'https://vms-demo.ocss.tech'
           rules_file_name: '.github/zap-rules.tsv'
-          fail_action: false
+          fail_action: true
         env:
           ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ZAP_AUTH_HEADER: x-vercel-protection-bypass
