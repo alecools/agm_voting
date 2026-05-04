@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAdminConfig, updateAdminConfig, uploadLogo, uploadFavicon, getSmtpConfig, updateSmtpConfig, testSmtpConfig } from "../../api/config";
-import type { TenantConfig } from "../../api/config";
+import { getAdminConfig, updateAdminConfig, uploadLogo, uploadFavicon, getSmtpConfig, updateSmtpConfig, testSmtpConfig, getSmsConfig, updateSmsConfig, testSmsConfig } from "../../api/config";
+import type { TenantConfig, SmsConfigOut, SmsProvider } from "../../api/config";
 import { listAdminUsers, inviteAdminUser, removeAdminUser } from "../../api/users";
 import type { AdminUser } from "../../api/users";
 import { authClient, changePassword } from "../../lib/auth-client";
@@ -9,7 +9,7 @@ import PasswordRequirements, { checkPasswordRequirements, allRequirementsMet } f
 import { getSubscription, requestSubscriptionChange } from "../../api/subscription";
 import type { SubscriptionResponse } from "../../api/subscription";
 
-type SettingsTab = "ui-theme" | "email-server" | "user-management" | "subscription";
+type SettingsTab = "ui-theme" | "email-server" | "sms" | "user-management" | "subscription";
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -47,6 +47,35 @@ export default function SettingsPage() {
   const [smtpTestResult, setSmtpTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [testEmailRecipient, setTestEmailRecipient] = useState("");
+
+  // SMS state
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsProvider, setSmsProvider] = useState<SmsProvider | null>(null);
+  // smtp2go fields
+  const [smtp2goApiKey, setSmtp2goApiKey] = useState("");
+  const [smtp2goApiKeyIsSet, setSmtp2goApiKeyIsSet] = useState(false);
+  const [smtp2goSenderNumber, setSmtp2goSenderNumber] = useState("");
+  // twilio fields
+  const [twilioAccountSid, setTwilioAccountSid] = useState("");
+  const [twilioAuthToken, setTwilioAuthToken] = useState("");
+  const [twilioAuthTokenIsSet, setTwilioAuthTokenIsSet] = useState(false);
+  const [twilioFromNumber, setTwilioFromNumber] = useState("");
+  // clicksend fields
+  const [clicksendUsername, setClicksendUsername] = useState("");
+  const [clicksendApiKey, setClicksendApiKey] = useState("");
+  const [clicksendApiKeyIsSet, setClicksendApiKeyIsSet] = useState(false);
+  const [clicksendFromNumber, setClicksendFromNumber] = useState("");
+  // webhook fields
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [webhookSecretIsSet, setWebhookSecretIsSet] = useState(false);
+  // SMS save/test state
+  const [isSmsSaving, setIsSmsSaving] = useState(false);
+  const [smsSaveSuccess, setSmsSaveSuccess] = useState(false);
+  const [smsSaveError, setSmsSaveError] = useState("");
+  const [isTestingSms, setIsTestingSms] = useState(false);
+  const [smsTestPhone, setSmsTestPhone] = useState("");
+  const [smsTestResult, setSmsTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // User management state
   const hasFetchedUsers = useRef(false);
@@ -86,8 +115,8 @@ export default function SettingsPage() {
   const [changePwdSuccess, setChangePwdSuccess] = useState("");
 
   useEffect(() => {
-    Promise.all([getAdminConfig(), getSmtpConfig()])
-      .then(([config, smtp]) => {
+    Promise.all([getAdminConfig(), getSmtpConfig(), getSmsConfig()])
+      .then(([config, smtp, sms]) => {
         setAppName(config.app_name);
         setLogoUrl(config.logo_url);
         setFaviconUrl(config.favicon_url);
@@ -101,6 +130,19 @@ export default function SettingsPage() {
         setSmtpPasswordIsSet(smtp.password_is_set);
         const isUnconfigured = !smtp.smtp_host || !smtp.smtp_username || !smtp.smtp_from_email || !smtp.password_is_set;
         setIsSmtpUnconfigured(isUnconfigured);
+
+        setSmsEnabled(sms.sms_enabled);
+        setSmsProvider(sms.sms_provider);
+        setSmtp2goApiKeyIsSet(sms.smtp2go_api_key_is_set);
+        setSmtp2goSenderNumber(sms.smtp2go_sender_number);
+        setTwilioAccountSid(sms.twilio_account_sid);
+        setTwilioAuthTokenIsSet(sms.twilio_auth_token_is_set);
+        setTwilioFromNumber(sms.twilio_from_number);
+        setClicksendUsername(sms.clicksend_username);
+        setClicksendApiKeyIsSet(sms.clicksend_api_key_is_set);
+        setClicksendFromNumber(sms.clicksend_from_number);
+        setWebhookUrl(sms.webhook_url);
+        setWebhookSecretIsSet(sms.webhook_secret_is_set);
       })
       .catch(() => {
         setSaveError("Failed to load settings.");
@@ -259,6 +301,66 @@ export default function SettingsPage() {
     } finally {
       setIsTestingSmtp(false);
       setTestEmailRecipient("");
+    }
+  }
+
+  async function handleSmsSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSmsSaveError("");
+    setSmsSaveSuccess(false);
+    setSmsTestResult(null);
+    setIsSmsSaving(true);
+    try {
+      const payload: Parameters<typeof updateSmsConfig>[0] = {
+        sms_enabled: smsEnabled,
+        sms_provider: smsProvider,
+      };
+      if (smsProvider === "smtp2go") {
+        if (smtp2goApiKey) payload.smtp2go_api_key = smtp2goApiKey;
+        payload.smtp2go_sender_number = smtp2goSenderNumber;
+      } else if (smsProvider === "twilio") {
+        payload.twilio_account_sid = twilioAccountSid;
+        if (twilioAuthToken) payload.twilio_auth_token = twilioAuthToken;
+        payload.twilio_from_number = twilioFromNumber;
+      } else if (smsProvider === "clicksend") {
+        payload.clicksend_username = clicksendUsername;
+        if (clicksendApiKey) payload.clicksend_api_key = clicksendApiKey;
+        payload.clicksend_from_number = clicksendFromNumber;
+      } else if (smsProvider === "webhook") {
+        payload.webhook_url = webhookUrl;
+        if (webhookSecret) payload.webhook_secret = webhookSecret;
+      }
+      const updated: SmsConfigOut = await updateSmsConfig(payload);
+      setSmtp2goApiKeyIsSet(updated.smtp2go_api_key_is_set);
+      setSmtp2goApiKey("");
+      setTwilioAuthTokenIsSet(updated.twilio_auth_token_is_set);
+      setTwilioAuthToken("");
+      setClicksendApiKeyIsSet(updated.clicksend_api_key_is_set);
+      setClicksendApiKey("");
+      setWebhookSecretIsSet(updated.webhook_secret_is_set);
+      setWebhookSecret("");
+      setSmsSaveSuccess(true);
+      setTimeout(() => setSmsSaveSuccess(false), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save SMS settings.";
+      setSmsSaveError(message);
+    } finally {
+      setIsSmsSaving(false);
+    }
+  }
+
+  async function handleSmsTest() {
+    setSmsTestResult(null);
+    setIsTestingSms(true);
+    try {
+      await testSmsConfig(smsTestPhone);
+      setSmsTestResult({ ok: true, message: `Test SMS sent to ${smsTestPhone}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Test SMS failed.";
+      setSmsTestResult({ ok: false, message });
+    } finally {
+      setIsTestingSms(false);
+      setSmsTestPhone("");
     }
   }
 
@@ -458,6 +560,27 @@ export default function SettingsPage() {
           }}
         >
           Email Server
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === "sms"}
+          aria-controls="tab-panel-sms"
+          id="tab-sms"
+          type="button"
+          onClick={() => setActiveTab("sms")}
+          style={{
+            padding: "10px 20px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "sms" ? "3px solid var(--navy)" : "3px solid transparent",
+            fontWeight: activeTab === "sms" ? 700 : 400,
+            color: activeTab === "sms" ? "var(--navy)" : "var(--text-secondary)",
+            cursor: "pointer",
+            marginBottom: -2,
+            fontSize: "0.9rem",
+          }}
+        >
+          SMS
         </button>
         <button
           role="tab"
@@ -789,6 +912,237 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+      {/* SMS tab */}
+      <div
+        role="tabpanel"
+        id="tab-panel-sms"
+        aria-labelledby="tab-sms"
+        hidden={activeTab !== "sms"}
+      >
+        <div className="admin-card">
+          <div className="admin-card__header">
+            <p className="admin-card__title">SMS Settings</p>
+          </div>
+          <div className="admin-card__body">
+            <form onSubmit={(e) => { void handleSmsSubmit(e); }} className="admin-form">
+              <div className="field">
+                <label className="field__label" htmlFor="sms-enabled">
+                  <input
+                    id="sms-enabled"
+                    type="checkbox"
+                    checked={smsEnabled}
+                    onChange={(e) => setSmsEnabled(e.target.checked)}
+                    style={{ marginRight: 8 }}
+                  />
+                  Enable SMS OTP
+                </label>
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="sms-provider">Provider</label>
+                <select
+                  id="sms-provider"
+                  className="field__select"
+                  value={smsProvider ?? ""}
+                  onChange={(e) => setSmsProvider((e.target.value || null) as SmsProvider | null)}
+                >
+                  <option value="">-- Select a provider --</option>
+                  <option value="smtp2go">SMTP2GO</option>
+                  <option value="twilio">Twilio</option>
+                  <option value="clicksend">ClickSend</option>
+                  <option value="webhook">Webhook</option>
+                </select>
+              </div>
+
+              {smsProvider === "smtp2go" && (
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="smtp2go-api-key">API key</label>
+                    <input
+                      id="smtp2go-api-key"
+                      className="field__input"
+                      type="password"
+                      value={smtp2goApiKey}
+                      onChange={(e) => setSmtp2goApiKey(e.target.value)}
+                      placeholder={smtp2goApiKeyIsSet ? "Enter new key to change" : "Enter API key"}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="smtp2go-sender-number">Sender number</label>
+                    <input
+                      id="smtp2go-sender-number"
+                      className="field__input"
+                      type="tel"
+                      value={smtp2goSenderNumber}
+                      onChange={(e) => setSmtp2goSenderNumber(e.target.value)}
+                      placeholder="+61412345678"
+                    />
+                  </div>
+                </>
+              )}
+
+              {smsProvider === "twilio" && (
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="twilio-account-sid">Account SID</label>
+                    <input
+                      id="twilio-account-sid"
+                      className="field__input"
+                      type="text"
+                      value={twilioAccountSid}
+                      onChange={(e) => setTwilioAccountSid(e.target.value)}
+                      placeholder="ACxxxxxxxx"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="twilio-auth-token">Auth token</label>
+                    <input
+                      id="twilio-auth-token"
+                      className="field__input"
+                      type="password"
+                      value={twilioAuthToken}
+                      onChange={(e) => setTwilioAuthToken(e.target.value)}
+                      placeholder={twilioAuthTokenIsSet ? "Enter new token to change" : "Enter auth token"}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="twilio-from-number">From number</label>
+                    <input
+                      id="twilio-from-number"
+                      className="field__input"
+                      type="tel"
+                      value={twilioFromNumber}
+                      onChange={(e) => setTwilioFromNumber(e.target.value)}
+                      placeholder="+61412345678"
+                    />
+                  </div>
+                </>
+              )}
+
+              {smsProvider === "clicksend" && (
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="clicksend-username">Username</label>
+                    <input
+                      id="clicksend-username"
+                      className="field__input"
+                      type="text"
+                      value={clicksendUsername}
+                      onChange={(e) => setClicksendUsername(e.target.value)}
+                      placeholder="user@example.com"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="clicksend-api-key">API key</label>
+                    <input
+                      id="clicksend-api-key"
+                      className="field__input"
+                      type="password"
+                      value={clicksendApiKey}
+                      onChange={(e) => setClicksendApiKey(e.target.value)}
+                      placeholder={clicksendApiKeyIsSet ? "Enter new key to change" : "Enter API key"}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="clicksend-from-number">From number</label>
+                    <input
+                      id="clicksend-from-number"
+                      className="field__input"
+                      type="tel"
+                      value={clicksendFromNumber}
+                      onChange={(e) => setClicksendFromNumber(e.target.value)}
+                      placeholder="+61412345678"
+                    />
+                  </div>
+                </>
+              )}
+
+              {smsProvider === "webhook" && (
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="webhook-url">Webhook URL</label>
+                    <input
+                      id="webhook-url"
+                      className="field__input"
+                      type="url"
+                      value={webhookUrl}
+                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      placeholder="https://example.com/sms-webhook"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="webhook-secret">Webhook secret (optional)</label>
+                    <input
+                      id="webhook-secret"
+                      className="field__input"
+                      type="password"
+                      value={webhookSecret}
+                      onChange={(e) => setWebhookSecret(e.target.value)}
+                      placeholder={webhookSecretIsSet ? "Enter new secret to change" : "Enter secret (optional)"}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </>
+              )}
+
+              {smsSaveSuccess && (
+                <p className="state-message state-message--success" role="status">SMS settings saved.</p>
+              )}
+              {smsSaveError && (
+                <p className="field__error">{smsSaveError}</p>
+              )}
+              {smsTestResult && (
+                <p
+                  className={smsTestResult.ok ? "state-message state-message--success" : "state-message state-message--error"}
+                  role="status"
+                >
+                  {smsTestResult.message}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="btn btn--primary"
+                data-testid="sms-save-btn"
+                disabled={isSmsSaving}
+              >
+                {isSmsSaving ? "Saving…" : "Save"}
+              </button>
+            </form>
+
+            {smsEnabled && (
+              <div style={{ marginTop: 24 }}>
+                <p className="admin-card__title" style={{ marginBottom: 12 }}>Send test SMS</p>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+                    <label className="field__label" htmlFor="sms-test-phone">Phone number</label>
+                    <input
+                      id="sms-test-phone"
+                      className="field__input"
+                      type="tel"
+                      value={smsTestPhone}
+                      onChange={(e) => setSmsTestPhone(e.target.value)}
+                      placeholder="+61412345678"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    disabled={isTestingSms || !smsTestPhone}
+                    onClick={() => { void handleSmsTest(); }}
+                  >
+                    {isTestingSms ? "Sending…" : "Send test SMS"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* User Management tab */}
       <div

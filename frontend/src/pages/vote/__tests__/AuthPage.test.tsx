@@ -528,3 +528,199 @@ describe("voter API: logout", () => {
     expect(result).toEqual({ ok: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// SMS OTP channel selector (US-SMS-01)
+// ---------------------------------------------------------------------------
+
+describe("AuthPage — SMS channel selector", () => {
+  beforeEach(() => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      )
+    );
+  });
+
+  // --- has_phone: false — no channel selector shown ---
+
+  it("does NOT show channel selector when has_phone is false", async () => {
+    // Default handler returns has_phone: false
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    // Should go straight to code step — no radiogroup
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+  });
+
+  // --- has_phone: true — channel selector shown ---
+
+  it("shows channel selector radiogroup when has_phone is true", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
+  });
+
+  it("channel selector has Email and SMS options", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    expect(screen.getByRole("radio", { name: /Email/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /SMS/i })).toBeInTheDocument();
+  });
+
+  it("email option is selected by default in channel selector", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    expect(screen.getByRole("radio", { name: /Email/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /SMS/i })).not.toBeChecked();
+  });
+
+  it("selecting SMS makes second requestOtp call with channel=sms", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const requests: string[] = [];
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, async ({ request }) => {
+        const body = await request.json() as { channel?: string };
+        requests.push(body?.channel ?? "none");
+        return HttpResponse.json({ sent: true, has_phone: true });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    // After Send code, should move to code entry step
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+  });
+
+  it("Send code button is shown in channel selector step", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("button", { name: "Send code" }));
+    expect(screen.getByRole("button", { name: "Send code" })).toBeInTheDocument();
+  });
+
+  it("channel selector error is shown when second OTP request fails", async () => {
+    let callCount = 0;
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true });
+        return HttpResponse.json({ detail: "Rate limited" }, { status: 429 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    await waitFor(() => {
+      expect(screen.getByText("Failed to send code. Please try again.")).toBeInTheDocument();
+    });
+  });
+
+  // --- Multi-step sequence: email → channel → code → navigate ---
+
+  it("clicking email radio after SMS radio sets channel back to email", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    // Click SMS first
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    expect(screen.getByRole("radio", { name: /SMS/i })).toBeChecked();
+    // Now click email radio — triggers the email radio onChange (line 154)
+    await user.click(screen.getByRole("radio", { name: /Email/i }));
+    expect(screen.getByRole("radio", { name: /Email/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /SMS/i })).not.toBeChecked();
+  });
+
+  it("full sequence: email → channel selector → SMS → code → navigate", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    const user = userEvent.setup();
+    mockNavigate.mockClear();
+    renderPage();
+    // Step 1: enter email
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    // Step 2: channel selector appears
+    await waitFor(() => screen.getByRole("radiogroup"));
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    // Step 3: make second OTP request with channel=sms
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true })
+      )
+    );
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    // Step 4: code entry appears
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    await user.type(screen.getByLabelText("Verification code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    // Step 5: navigate to voting
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
+    });
+  });
+});

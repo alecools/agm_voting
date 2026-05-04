@@ -10,8 +10,10 @@ export function AuthPage() {
   const navigate = useNavigate();
   const { config } = useBranding();
   const [authError, setAuthError] = useState("");
-  const [authStep, setAuthStep] = useState<"email" | "code">("email");
+  const [authStep, setAuthStep] = useState<"email" | "channel" | "code">("email");
   const [otpEmail, setOtpEmail] = useState("");
+  const [hasPhone, setHasPhone] = useState(false);
+  const [channel, setChannel] = useState<"email" | "sms">("email");
   const [isRestoringSession, setIsRestoringSession] = useState(false);
 
   // Shared logic: write sessionStorage keys and navigate after a successful auth response
@@ -59,14 +61,27 @@ export function AuthPage() {
   }, [meetingId, handleAuthSuccess]);
 
   const requestOtpMutation = useMutation({
-    mutationFn: ({ email }: { email: string }) => {
+    mutationFn: ({ email, otpChannel }: { email: string; otpChannel?: "email" | "sms" }) => {
       /* c8 ignore next */
       if (!meetingId) return Promise.reject(new Error("Missing meeting context"));
-      return requestOtp({ email, general_meeting_id: meetingId });
+      return requestOtp({ email, general_meeting_id: meetingId, channel: otpChannel });
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       setAuthError("");
-      setAuthStep("code");
+      // First call (no channel specified): check if voter has a phone number
+      if (variables.otpChannel === undefined) {
+        if (data.has_phone) {
+          // Show channel selector — voter can choose email or SMS
+          setHasPhone(true);
+          setAuthStep("channel");
+        } else {
+          // No phone on record: go straight to code entry (email OTP sent)
+          setAuthStep("code");
+        }
+      } else {
+        // Second call with explicit channel: go to code entry
+        setAuthStep("code");
+      }
     },
     onError: () => {
       setAuthError("Failed to send code. Please try again.");
@@ -97,6 +112,12 @@ export function AuthPage() {
     requestOtpMutation.mutate({ email });
   };
 
+  const handleChannelSelect = (selectedChannel: "email" | "sms") => {
+    setChannel(selectedChannel);
+    setAuthError("");
+    requestOtpMutation.mutate({ email: otpEmail, otpChannel: selectedChannel });
+  };
+
   const handleVerify = (email: string, code: string) => {
     setAuthError("");
     verifyMutation.mutate({ email, code });
@@ -115,15 +136,60 @@ export function AuthPage() {
       <button type="button" className="btn btn--ghost back-btn" onClick={() => navigate("/")}>
         ← Back
       </button>
-      <AuthForm
-        onRequestOtp={handleRequestOtp}
-        onVerify={handleVerify}
-        isRequestingOtp={requestOtpMutation.isPending}
-        isVerifying={verifyMutation.isPending}
-        step={authStep}
-        otpEmail={otpEmail}
-        error={authError}
-      />
+
+      {authStep === "channel" && hasPhone ? (
+        <div className="auth-channel-selector">
+          <h2 className="auth-channel-selector__title">How would you like to receive your code?</h2>
+          <div
+            role="radiogroup"
+            aria-label="Verification channel"
+            className="auth-channel-selector__options"
+          >
+            <label className="auth-channel-selector__option">
+              <input
+                type="radio"
+                name="otp-channel"
+                value="email"
+                checked={channel === "email"}
+                onChange={() => setChannel("email")}
+              />
+              {" "}Email
+            </label>
+            <label className="auth-channel-selector__option">
+              <input
+                type="radio"
+                name="otp-channel"
+                value="sms"
+                checked={channel === "sms"}
+                onChange={() => setChannel("sms")}
+              />
+              {" "}SMS
+            </label>
+          </div>
+          {authError && (
+            <p className="field__error" role="alert">{authError}</p>
+          )}
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={requestOtpMutation.isPending}
+            onClick={() => handleChannelSelect(channel)}
+          >
+            {requestOtpMutation.isPending ? "Sending…" : "Send code"}
+          </button>
+        </div>
+      ) : (
+        <AuthForm
+          onRequestOtp={handleRequestOtp}
+          onVerify={handleVerify}
+          isRequestingOtp={requestOtpMutation.isPending}
+          isVerifying={verifyMutation.isPending}
+          step={authStep === "channel" ? "email" : authStep}
+          otpEmail={otpEmail}
+          error={authError}
+        />
+      )}
+
       {config.support_email && (
         <p className="support-contact">
           Need help? Contact{" "}

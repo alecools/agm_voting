@@ -36,6 +36,7 @@ export interface LotOwner {
   proxy_email: string | null;
   proxy_given_name: string | null;
   proxy_surname: string | null;
+  phone_number: string | null;
 }
 
 export interface GeneralMeeting {

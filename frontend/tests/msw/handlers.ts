@@ -15,7 +15,7 @@ import type {
   ResendReportOut,
 } from "../../src/api/admin";
 import type { GeneralMeetingSummaryData } from "../../src/api/public";
-import type { TenantConfig, SmtpConfig, SmtpStatus } from "../../src/api/config";
+import type { TenantConfig, SmtpConfig, SmtpStatus, SmsConfigOut } from "../../src/api/config";
 import type { AdminUser, AdminUserListResponse } from "../../src/api/users";
 import type { SubscriptionResponse } from "../../src/api/subscription";
 
@@ -53,6 +53,38 @@ export function resetSmtpStatusFixture() {
   smtpStatusFixture = { configured: false };
 }
 
+export let smsConfigFixture: SmsConfigOut = {
+  sms_enabled: false,
+  sms_provider: null,
+  smtp2go_api_key_is_set: false,
+  smtp2go_sender_number: "",
+  twilio_account_sid: "",
+  twilio_auth_token_is_set: false,
+  twilio_from_number: "",
+  clicksend_username: "",
+  clicksend_api_key_is_set: false,
+  clicksend_from_number: "",
+  webhook_url: "",
+  webhook_secret_is_set: false,
+};
+
+export function resetSmsConfigFixture() {
+  smsConfigFixture = {
+    sms_enabled: false,
+    sms_provider: null,
+    smtp2go_api_key_is_set: false,
+    smtp2go_sender_number: "",
+    twilio_account_sid: "",
+    twilio_auth_token_is_set: false,
+    twilio_from_number: "",
+    clicksend_username: "",
+    clicksend_api_key_is_set: false,
+    clicksend_from_number: "",
+    webhook_url: "",
+    webhook_secret_is_set: false,
+  };
+}
+
 export function resetConfigFixture() {
   configFixture = {
     app_name: "General Meeting",
@@ -63,6 +95,7 @@ export function resetConfigFixture() {
   };
   resetSmtpConfigFixture();
   resetSmtpStatusFixture();
+  resetSmsConfigFixture();
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +187,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: null,
     proxy_given_name: null,
     proxy_surname: null,
+    phone_number: null,
   },
   {
     id: "lo2",
@@ -170,6 +204,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: "proxy@example.com",
     proxy_given_name: null,
     proxy_surname: null,
+    phone_number: null,
   },
 ];
 
@@ -762,6 +797,7 @@ export const adminHandlers = [
       proxy_email: null,
       proxy_given_name: null,
       proxy_surname: null,
+      phone_number: null,
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),
@@ -841,7 +877,7 @@ export const adminHandlers = [
   }),
 
   http.patch(`${BASE}/api/admin/lot-owners/:lotOwnerId`, async ({ request }) => {
-    const body = await request.json() as { unit_entitlement?: number; financial_position?: string };
+    const body = await request.json() as { unit_entitlement?: number; financial_position?: string; phone_number?: string | null };
     if (body?.unit_entitlement !== undefined && body.unit_entitlement < 0) {
       return HttpResponse.json(
         { detail: "unit_entitlement must be >= 0" },
@@ -852,6 +888,7 @@ export const adminHandlers = [
       ...ADMIN_LOT_OWNERS[0],
       unit_entitlement: body?.unit_entitlement ?? ADMIN_LOT_OWNERS[0].unit_entitlement,
       financial_position: (body?.financial_position as "normal" | "in_arrear") ?? ADMIN_LOT_OWNERS[0].financial_position,
+      phone_number: body?.phone_number !== undefined ? body.phone_number : ADMIN_LOT_OWNERS[0].phone_number,
     };
     return HttpResponse.json(updated);
   }),
@@ -1253,6 +1290,35 @@ export const adminHandlers = [
   http.post(`${BASE}/api/admin/config/smtp/test`, () => {
     return HttpResponse.json({ ok: true });
   }),
+
+  // SMS configuration endpoints
+  http.get(`${BASE}/api/admin/config/sms`, () => {
+    return HttpResponse.json(smsConfigFixture);
+  }),
+
+  http.put(`${BASE}/api/admin/config/sms`, async ({ request }) => {
+    const body = await request.json() as Partial<SmsConfigOut> & { smtp2go_api_key?: string | null; twilio_auth_token?: string | null; clicksend_api_key?: string | null; webhook_secret?: string | null };
+    smsConfigFixture = {
+      ...smsConfigFixture,
+      sms_enabled: body?.sms_enabled !== undefined ? body.sms_enabled : smsConfigFixture.sms_enabled,
+      sms_provider: body?.sms_provider !== undefined ? body.sms_provider : smsConfigFixture.sms_provider,
+      smtp2go_api_key_is_set: body?.smtp2go_api_key ? true : smsConfigFixture.smtp2go_api_key_is_set,
+      smtp2go_sender_number: body?.smtp2go_sender_number ?? smsConfigFixture.smtp2go_sender_number,
+      twilio_account_sid: body?.twilio_account_sid ?? smsConfigFixture.twilio_account_sid,
+      twilio_auth_token_is_set: body?.twilio_auth_token ? true : smsConfigFixture.twilio_auth_token_is_set,
+      twilio_from_number: body?.twilio_from_number ?? smsConfigFixture.twilio_from_number,
+      clicksend_username: body?.clicksend_username ?? smsConfigFixture.clicksend_username,
+      clicksend_api_key_is_set: body?.clicksend_api_key ? true : smsConfigFixture.clicksend_api_key_is_set,
+      clicksend_from_number: body?.clicksend_from_number ?? smsConfigFixture.clicksend_from_number,
+      webhook_url: body?.webhook_url ?? smsConfigFixture.webhook_url,
+      webhook_secret_is_set: body?.webhook_secret ? true : smsConfigFixture.webhook_secret_is_set,
+    };
+    return HttpResponse.json(smsConfigFixture);
+  }),
+
+  http.post(`${BASE}/api/admin/settings/sms/test`, () => {
+    return HttpResponse.json({ ok: true });
+  }),
 ];
 
 export const SUMMARY_AGM_ID = "agm-summary-test-999";
@@ -1437,7 +1503,7 @@ export const handlers = [
   ),
 
   http.post(`${BASE}/api/auth/request-otp`, () =>
-    HttpResponse.json({ sent: true })
+    HttpResponse.json({ sent: true, has_phone: false })
   ),
 
   http.post(`${BASE}/api/auth/verify`, () =>

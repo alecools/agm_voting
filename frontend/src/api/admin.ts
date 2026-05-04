@@ -191,6 +191,7 @@ export interface LotOwnerCreateRequest {
   emails: string[];
   unit_entitlement: number;
   financial_position?: string;
+  phone_number?: string | null;
 }
 
 export interface LotOwnerUpdateRequest {
@@ -198,6 +199,7 @@ export interface LotOwnerUpdateRequest {
   surname?: string | null;
   unit_entitlement?: number;
   financial_position?: string;
+  phone_number?: string | null;
 }
 
 export interface AddEmailRequest {

@@ -82,3 +82,65 @@ export async function testSmtpConfig(toEmail: string): Promise<{ ok: boolean }> 
 export async function getSmtpStatus(): Promise<SmtpStatus> {
   return apiFetch<SmtpStatus>("/api/admin/config/smtp/status");
 }
+
+export type SmsProvider = "smtp2go" | "twilio" | "clicksend" | "webhook";
+
+export interface SmsConfigOut {
+  sms_enabled: boolean;
+  sms_provider: SmsProvider | null;
+  // smtp2go
+  smtp2go_api_key_is_set: boolean;
+  smtp2go_sender_number: string;
+  // twilio
+  twilio_account_sid: string;
+  twilio_auth_token_is_set: boolean;
+  twilio_from_number: string;
+  // clicksend
+  clicksend_username: string;
+  clicksend_api_key_is_set: boolean;
+  clicksend_from_number: string;
+  // webhook
+  webhook_url: string;
+  webhook_secret_is_set: boolean;
+}
+
+export interface SmsConfigUpdate {
+  sms_enabled?: boolean;
+  sms_provider?: SmsProvider | null;
+  // smtp2go
+  smtp2go_api_key?: string | null;
+  smtp2go_sender_number?: string | null;
+  // twilio
+  twilio_account_sid?: string | null;
+  twilio_auth_token?: string | null;
+  twilio_from_number?: string | null;
+  // clicksend
+  clicksend_username?: string | null;
+  clicksend_api_key?: string | null;
+  clicksend_from_number?: string | null;
+  // webhook
+  webhook_url?: string | null;
+  webhook_secret?: string | null;
+}
+
+export interface SmsTestRequest {
+  to_phone: string;
+}
+
+export async function getSmsConfig(): Promise<SmsConfigOut> {
+  return apiFetch<SmsConfigOut>("/api/admin/config/sms");
+}
+
+export async function updateSmsConfig(data: SmsConfigUpdate): Promise<SmsConfigOut> {
+  return apiFetch<SmsConfigOut>("/api/admin/config/sms", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function testSmsConfig(toPhone: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/admin/settings/sms/test", {
+    method: "POST",
+    body: JSON.stringify({ to_phone: toPhone } satisfies SmsTestRequest),
+  });
+}

@@ -40,6 +40,7 @@ function EditModal({
   const [financialPosition, setFinancialPosition] = useState(
     lotOwner.financial_position
   );
+  const [phoneNumber, setPhoneNumber] = useState(lotOwner.phone_number ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   // Owner email management
@@ -71,6 +72,7 @@ function EditModal({
   useEffect(() => {
     setUnitEntitlement(lotOwner.unit_entitlement.toString());
     setFinancialPosition(lotOwner.financial_position);
+    setPhoneNumber(lotOwner.phone_number ?? "");
     setFormError(null);
     setOwnerEmails(lotOwner.owner_emails);
     setNewOwnerEmail("");
@@ -213,6 +215,9 @@ function EditModal({
     if (parsed !== lotOwner.unit_entitlement) updateData.unit_entitlement = parsed;
     if (financialPosition !== lotOwner.financial_position)
       updateData.financial_position = financialPosition;
+    const trimmedPhone = phoneNumber.trim() || null;
+    if (trimmedPhone !== (lotOwner.phone_number ?? null))
+      updateData.phone_number = trimmedPhone;
 
     if (Object.keys(updateData).length === 0) {
       if (emailsModified || proxyModified) {
@@ -596,6 +601,20 @@ function EditModal({
               <option value="normal">Normal</option>
               <option value="in_arrear">In Arrear</option>
             </select>
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="lot-phone-number">
+              Phone number
+            </label>
+            <input
+              id="lot-phone-number"
+              className="field__input"
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+61412345678"
+            />
           </div>
 
           {formError && (

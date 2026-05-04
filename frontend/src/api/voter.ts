@@ -26,10 +26,12 @@ export interface GeneralMeetingWithBuildingOut {
 export interface OtpRequestBody {
   email: string;
   general_meeting_id: string;
+  channel?: "email" | "sms";
 }
 
 export interface OtpRequestResponse {
   sent: boolean;
+  has_phone: boolean;
 }
 
 export interface AuthVerifyRequest {
