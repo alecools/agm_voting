@@ -20,7 +20,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from app.config import settings
+from app.logging_config import get_logger
 from app.utils import derive_origin
+
+logger = get_logger(__name__)
 
 # Neon Auth is serverless; cold starts can cause transient non-200s on get-session.
 # Retry this path to avoid redirecting the user to the login page mid-session.
@@ -97,6 +100,9 @@ async def proxy_auth(path: str, request: Request) -> Response:
     origin = derive_origin(request)
     if origin:
         headers["origin"] = origin
+        logger.info("auth_proxy: path=%s injected_origin=%s", path, origin)
+    else:
+        logger.info("auth_proxy: path=%s injected_origin=none", path)
 
     body = await request.body()
 
@@ -132,6 +138,15 @@ async def proxy_auth(path: str, request: Request) -> Response:
             break
 
     assert resp is not None  # loop always executes at least once
+
+    if resp.status_code >= 400:
+        logger.warning(
+            "auth_proxy: path=%s injected_origin=%s neon_auth_status=%d neon_auth_body=%.200s",
+            path,
+            origin or "none",
+            resp.status_code,
+            resp.text,
+        )
 
     # Forward response headers except transfer-encoding (incompatible with
     # buffered Response — httpx already decoded any chunked transfer encoding).
