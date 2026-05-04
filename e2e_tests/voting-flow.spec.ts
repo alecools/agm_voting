@@ -13,13 +13,79 @@ import {
 
 const E2E_BUILDING_NAME = `E2E Test Building-${RUN_SUFFIX}`;
 const E2E_LOT_EMAIL = "e2e-voter@test.com";
+const E2E_LOT_NUMBER = "E2E-1";
+const E2E_LOT_ENTITLEMENT = 10;
 
-// Voting-flow tests rely on data seeded by global-setup.ts:
-//   - Building "E2E Test Building"
-//   - Lot owner  lot=E2E-1  email=e2e-voter@test.com
-//   - A fresh open AGM with at least one motion (created each run)
+// Self-contained — seeds its own building, lot owners, and AGMs so it does not
+// depend on global-setup.ts shared state that may be cleaned up by UAT cleanup
+// between the global-setup run and the tests.
 
 test.describe("Lot owner voting flow", () => {
+  let openMeetingId = "";
+  let closedMeetingId = "";
+
+  test.beforeAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await makeAdminApi(baseURL);
+
+    // ── Building + lot owner ─────────────────────────────────────────────────
+    const buildingId = await seedBuilding(api, E2E_BUILDING_NAME, "e2e-manager@test.com");
+
+    await seedLotOwner(api, buildingId, {
+      lotNumber: E2E_LOT_NUMBER,
+      emails: [E2E_LOT_EMAIL],
+      unitEntitlement: E2E_LOT_ENTITLEMENT,
+      financialPosition: "normal",
+    });
+
+    // ── Closed AGM — satisfies the "AGM closed state" test ──────────────────
+    // createOpenMeeting closes any existing open/pending meetings first, then
+    // creates a fresh one. We create one, close it immediately, so the building
+    // home page shows a "View My Submission" button.
+    closedMeetingId = await createOpenMeeting(
+      api,
+      buildingId,
+      `E2E Test AGM Closed-${RUN_SUFFIX}`,
+      [
+        {
+          title: "E2E Closed Motion",
+          description: "Test motion for closed meeting state.",
+          orderIndex: 1,
+          motionType: "general",
+        },
+      ]
+    );
+    await closeMeeting(api, closedMeetingId);
+
+    // ── Open AGM — satisfies the auth + voting tests ─────────────────────────
+    // createOpenMeeting closes the just-closed meeting (it is already closed, so
+    // the filter skips it) and creates a new open one for the auth flow tests.
+    openMeetingId = await createOpenMeeting(
+      api,
+      buildingId,
+      `E2E Test AGM-${RUN_SUFFIX}`,
+      [
+        {
+          title: "E2E Test Motion 1",
+          description: "Do you approve this E2E test motion?",
+          orderIndex: 1,
+          motionType: "general",
+        },
+      ]
+    );
+    await clearBallots(api, openMeetingId);
+
+    await api.dispose();
+  }, { timeout: 90000 });
+
+  test.afterAll(async () => {
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+    const api = await makeAdminApi(baseURL);
+    if (openMeetingId) await deleteMeeting(api, openMeetingId);
+    if (closedMeetingId) await deleteMeeting(api, closedMeetingId);
+    await api.dispose();
+  }, { timeout: 30000 });
+
   test("failed authentication: wrong credentials show error, correct credentials proceed", async ({ page }) => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
     const api = await makeAdminApi(baseURL);
@@ -34,10 +100,6 @@ test.describe("Lot owner voting flow", () => {
 
     // Auth page — email step
     await expect(page.getByLabel("Email address")).toBeVisible({ timeout: 15000 });
-
-    // Extract meeting ID from URL (/vote/<meeting_id>/auth)
-    const meetingIdMatch = page.url().match(/\/vote\/([^/]+)\//);
-    const meetingId = meetingIdMatch ? meetingIdMatch[1] : "";
 
     // Wrong email — request-otp always returns 200 (enumeration protection);
     // the error surfaces only after submitting an invalid OTP code.
@@ -59,7 +121,7 @@ test.describe("Lot owner voting flow", () => {
     await page.getByLabel("Email address").fill(E2E_LOT_EMAIL);
     await page.getByRole("button", { name: "Send Verification Code" }).click();
     await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
-    const code = await getTestOtp(api, E2E_LOT_EMAIL, meetingId);
+    const code = await getTestOtp(api, E2E_LOT_EMAIL, openMeetingId);
     await page.getByLabel("Verification code").fill(code);
     await page.getByRole("button", { name: "Verify" }).click();
     await api.dispose();
@@ -71,8 +133,7 @@ test.describe("Lot owner voting flow", () => {
 
   test("AGM closed state: closed AGM shows View My Submission button", async ({ page }) => {
     await page.goto("/");
-    // Select the E2E building — it has at least one closed AGM from the
-    // previous run (globalSetup closes all open ones before creating a new one)
+    // Select the E2E building — it has a closed AGM created in beforeAll
     const combobox = page.getByLabel("Select your building");
     await combobox.fill(E2E_BUILDING_NAME);
     await page.getByRole("option", { name: E2E_BUILDING_NAME, exact: true }).click();
