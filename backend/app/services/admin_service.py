@@ -586,6 +586,15 @@ async def delete_building(building_id: uuid.UUID, db: AsyncSession) -> None:
             detail="Only archived buildings can be deleted",
         )
     await db.delete(building)
+    await db.flush()
+    # After cascade-delete of lots → lot_persons rows, clean up persons that are
+    # no longer linked to any lot or proxy across all buildings.
+    await db.execute(
+        delete(Person).where(
+            Person.id.not_in(select(lot_persons.c.person_id)),
+            Person.id.not_in(select(LotProxy.person_id)),
+        )
+    )
     await db.commit()
 
 
@@ -722,26 +731,57 @@ async def update_person(
 
 def _lot_owners_order_clause(sort_by: str | None, sort_dir: str | None):
     key = sort_by or "lot_number"
+    descending = (sort_dir or "asc") == "desc"
+
     if key == "unit_entitlement":
         col = Lot.unit_entitlement
-    elif key == "financial_position":
+        return col.desc() if descending else col.asc()
+
+    if key == "financial_position":
         col = Lot.financial_position
-    else:
-        # Default: lot_number — natural numeric sort by stripping non-digit suffix
-        # and casting the leading numeric portion to integer, then falling back to
-        # the raw string for lots whose numbers have no numeric prefix.
-        numeric_prefix = func.cast(
-            func.nullif(func.regexp_replace(Lot.lot_number, r"\D.*", "", "g"), ""),
-            Integer,
+        return col.desc() if descending else col.asc()
+
+    if key == "email":
+        # Correlated subquery: min(lower(email)) for persons linked to this lot.
+        # Lots with no person sort last regardless of direction (nullslast).
+        from sqlalchemy import nullslast, nullsfirst
+        email_subq = (
+            select(func.min(func.lower(Person.email)))
+            .join(lot_persons, lot_persons.c.person_id == Person.id)
+            .where(lot_persons.c.lot_id == Lot.id)
+            .correlate(Lot)
+            .scalar_subquery()
         )
-        col = (numeric_prefix, Lot.lot_number)
-    if (sort_dir or "asc") == "desc":
-        if isinstance(col, tuple):
-            return (col[0].desc(), col[1].desc())
-        return col.desc()
-    if isinstance(col, tuple):
-        return (col[0].asc(), col[1].asc())
-    return col.asc()
+        if descending:
+            return nullslast(email_subq.desc())
+        return nullsfirst(email_subq.asc())
+
+    if key == "proxy_email":
+        # Correlated subquery: lower(proxy person email) for this lot's proxy.
+        # Lots with no proxy sort last regardless of direction (nullslast).
+        from sqlalchemy import nullslast, nullsfirst
+        proxy_email_subq = (
+            select(func.lower(Person.email))
+            .join(LotProxy, LotProxy.person_id == Person.id)
+            .where(LotProxy.lot_id == Lot.id)
+            .correlate(Lot)
+            .scalar_subquery()
+        )
+        if descending:
+            return nullslast(proxy_email_subq.desc())
+        return nullsfirst(proxy_email_subq.asc())
+
+    # Default: lot_number — natural numeric sort by stripping non-digit suffix
+    # and casting the leading numeric portion to integer, then falling back to
+    # the raw string for lots whose numbers have no numeric prefix.
+    numeric_prefix = func.cast(
+        func.nullif(func.regexp_replace(Lot.lot_number, r"\D.*", "", "g"), ""),
+        Integer,
+    )
+    col = (numeric_prefix, Lot.lot_number)
+    if descending:
+        return (col[0].desc(), col[1].desc())
+    return (col[0].asc(), col[1].asc())
 
 
 async def list_lot_owners(
@@ -1285,6 +1325,17 @@ async def _upsert_lot_owners(
                     .on_conflict_do_nothing()
                 )
                 total_emails += 1
+
+    # Step 4: Delete orphaned persons — persons no longer linked to any lot or proxy.
+    # After rebuilding lot_persons for this building, any person who has no remaining
+    # lot_persons rows and no lot_proxies rows across ALL buildings is unreachable and
+    # should be cleaned up to avoid stale data accumulation.
+    await db.execute(
+        delete(Person).where(
+            Person.id.not_in(select(lot_persons.c.person_id)),
+            Person.id.not_in(select(LotProxy.person_id)),
+        )
+    )
 
     await db.commit()
 
@@ -1891,13 +1942,14 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
     }
 
 
-_MEETINGS_TEXT_SORT_COLUMNS = {"title"}
+_MEETINGS_TEXT_SORT_COLUMNS = {"title", "building_name"}
 _MEETINGS_SORT_COLUMNS = {
     "title": GeneralMeeting.title,
     "created_at": GeneralMeeting.created_at,
     "meeting_at": GeneralMeeting.meeting_at,
     "voting_closes_at": GeneralMeeting.voting_closes_at,
     "status": GeneralMeeting.status,
+    "building_name": Building.name,
 }
 
 

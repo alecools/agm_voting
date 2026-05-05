@@ -104,6 +104,7 @@ describe("GeneralMeetingTable", () => {
   it("renders all sortable column headers when onSort is provided", () => {
     const onSort = vi.fn();
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    expect(screen.getByRole("button", { name: /Building/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Title/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Status/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Meeting At/ })).toBeInTheDocument();
@@ -210,11 +211,30 @@ describe("GeneralMeetingTable", () => {
     expect(th).toHaveAttribute("aria-sort", "none");
   });
 
-  it("Building column is never sortable (no sort button)", () => {
+  it("Building column is sortable when onSort is provided", () => {
     const onSort = vi.fn();
     renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
-    // Building th should be a plain <th>, not a button
-    expect(screen.queryByRole("button", { name: /^Building$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Building/ })).toBeInTheDocument();
+  });
+
+  it("calls onSort with 'building_name' when Building header button is clicked", async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "created_at", sortDir: "desc", onSort });
+    await user.click(screen.getByRole("button", { name: /Building/ }));
+    expect(onSort).toHaveBeenCalledWith("building_name");
+  });
+
+  it("Building column shows aria-sort='ascending' when sortBy='building_name' and sortDir='asc'", () => {
+    const onSort = vi.fn();
+    renderTable({ meetings, sortBy: "building_name", sortDir: "asc", onSort });
+    const btn = screen.getByRole("button", { name: /Building/ });
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("Building column is a plain th (no sort button) when no onSort prop provided", () => {
+    renderTable({ meetings });
+    expect(screen.queryByRole("button", { name: /Building/ })).not.toBeInTheDocument();
     expect(screen.getByText("Building")).toBeInTheDocument();
   });
 

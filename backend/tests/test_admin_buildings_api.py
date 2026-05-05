@@ -1311,6 +1311,58 @@ class TestDeleteBuilding:
         response = await client.delete(f"/api/admin/buildings/{uuid.uuid4()}")
         assert response.status_code == 404
 
+    # --- Orphan person cleanup ---
+
+    async def test_delete_building_removes_persons_only_linked_to_that_building(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Persons whose only lot_persons link is in the deleted building are removed."""
+        b = Building(name="Orphan Delete Building", manager_email="orphan@test.com")
+        b.is_archived = True
+        db_session.add(b)
+        await db_session.flush()
+        lo = LotOwner(building_id=b.id, lot_number="OP1", unit_entitlement=10)
+        db_session.add(lo)
+        await db_session.flush()
+        person = await add_person_to_lot(db_session, lo, "orphan.only@test.com")
+        await db_session.commit()
+        person_id = person.id
+
+        await client.delete(f"/api/admin/buildings/{b.id}")
+
+        result = await db_session.execute(select(Person).where(Person.id == person_id))
+        assert result.scalar_one_or_none() is None, (
+            "Person with no remaining lot_persons or lot_proxies should be deleted"
+        )
+
+    async def test_delete_building_does_not_remove_persons_linked_to_other_buildings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Persons who own lots in another building are NOT deleted when this building is deleted."""
+        b_del = Building(name="Delete This Building", manager_email="del@test.com")
+        b_del.is_archived = True
+        b_keep = Building(name="Keep This Building", manager_email="keep@test.com")
+        db_session.add_all([b_del, b_keep])
+        await db_session.flush()
+
+        lo_del = LotOwner(building_id=b_del.id, lot_number="D1", unit_entitlement=10)
+        lo_keep = LotOwner(building_id=b_keep.id, lot_number="K1", unit_entitlement=10)
+        db_session.add_all([lo_del, lo_keep])
+        await db_session.flush()
+
+        # Same person linked to both buildings
+        person = await add_person_to_lot(db_session, lo_del, "shared.person@test.com")
+        await add_person_to_lot(db_session, lo_keep, "shared.person@test.com")
+        await db_session.commit()
+        person_id = person.id
+
+        await client.delete(f"/api/admin/buildings/{b_del.id}")
+
+        result = await db_session.execute(select(Person).where(Person.id == person_id))
+        assert result.scalar_one_or_none() is not None, (
+            "Person still linked to another building's lot must NOT be deleted"
+        )
+
 
 
 # ---------------------------------------------------------------------------

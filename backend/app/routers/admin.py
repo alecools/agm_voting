@@ -355,7 +355,7 @@ async def create_building(
 
 
 _VALID_BUILDINGS_SORT_BY = {"name", "manager_email", "created_at"}
-_VALID_LOT_OWNERS_SORT_BY = {"lot_number", "unit_entitlement", "financial_position"}
+_VALID_LOT_OWNERS_SORT_BY = {"lot_number", "unit_entitlement", "financial_position", "email", "proxy_email"}
 _VALID_SORT_DIRS = {"asc", "desc"}
 
 
@@ -953,7 +953,7 @@ async def create_general_meeting(
     return GeneralMeetingOut(**meeting_dict)
 
 
-_VALID_MEETINGS_SORT_BY = {"title", "created_at", "meeting_at", "voting_closes_at", "status"}
+_VALID_MEETINGS_SORT_BY = {"title", "created_at", "meeting_at", "voting_closes_at", "status", "building_name"}
 
 
 @router.get("/general-meetings", response_model=list[GeneralMeetingListItem])

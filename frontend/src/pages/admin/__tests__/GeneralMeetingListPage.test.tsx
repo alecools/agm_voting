@@ -858,15 +858,34 @@ describe("GeneralMeetingListPage", () => {
     });
   });
 
-  it("Status and Building column headers do NOT have sortable buttons", async () => {
+  it("Status column header does NOT have a sortable button", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("2024 AGM")).toBeInTheDocument();
     });
     // Status th should not contain a sort button
-    // Building th should not contain a sort button
     expect(screen.queryByRole("button", { name: /^Status$/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Building$/ })).not.toBeInTheDocument();
+  });
+
+  it("Building column header has a sortable button", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Building/ })).toBeInTheDocument();
+  });
+
+  it("clicking Building column header activates ascending sort indicator on Building", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("2024 AGM")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Building/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Building/ }).closest("th"))
+        .toHaveAttribute("aria-sort", "ascending");
+    });
   });
 
   // --- RR2-03: filter toggle resets pagination to page 1 ---

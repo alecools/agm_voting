@@ -13,6 +13,7 @@ const PAGE_SIZE = 20;
 // Text columns default to asc, date columns default to desc
 const DEFAULT_SORT_DIR: Record<string, SortDir> = {
   title: "asc",
+  building_name: "asc",
   created_at: "desc",
 };
 

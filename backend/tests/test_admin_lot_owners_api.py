@@ -301,6 +301,110 @@ class TestListLotOwners:
         lot_numbers = [o["lot_number"] for o in data]
         assert lot_numbers == ["1", "2", "10"]
 
+    async def test_sort_by_email_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=email&sort_dir=asc returns lots ordered by min(lower(email)) ascending."""
+        lot_z = LotOwner(building_id=building.id, lot_number="SE1", unit_entitlement=10)
+        lot_a = LotOwner(building_id=building.id, lot_number="SE2", unit_entitlement=10)
+        lot_m = LotOwner(building_id=building.id, lot_number="SE3", unit_entitlement=10)
+        db_session.add_all([lot_z, lot_a, lot_m])
+        await db_session.flush()
+        await add_person_to_lot(db_session, lot_z, "zebra@example.com")
+        await add_person_to_lot(db_session, lot_a, "apple@example.com")
+        await add_person_to_lot(db_session, lot_m, "mango@example.com")
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=email&sort_dir=asc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        se_data = [o for o in data if o["lot_number"] in ("SE1", "SE2", "SE3")]
+        assert len(se_data) == 3
+        lot_numbers = [o["lot_number"] for o in se_data]
+        # apple < mango < zebra → SE2, SE3, SE1
+        assert lot_numbers == ["SE2", "SE3", "SE1"]
+
+    async def test_sort_by_email_desc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=email&sort_dir=desc returns lots ordered by min(lower(email)) descending."""
+        lot_z = LotOwner(building_id=building.id, lot_number="SD1", unit_entitlement=10)
+        lot_a = LotOwner(building_id=building.id, lot_number="SD2", unit_entitlement=10)
+        lot_m = LotOwner(building_id=building.id, lot_number="SD3", unit_entitlement=10)
+        db_session.add_all([lot_z, lot_a, lot_m])
+        await db_session.flush()
+        await add_person_to_lot(db_session, lot_z, "zebra.sd@example.com")
+        await add_person_to_lot(db_session, lot_a, "apple.sd@example.com")
+        await add_person_to_lot(db_session, lot_m, "mango.sd@example.com")
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=email&sort_dir=desc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        sd_data = [o for o in data if o["lot_number"] in ("SD1", "SD2", "SD3")]
+        assert len(sd_data) == 3
+        lot_numbers = [o["lot_number"] for o in sd_data]
+        # desc: zebra > mango > apple → SD1, SD3, SD2
+        assert lot_numbers == ["SD1", "SD3", "SD2"]
+
+    async def test_sort_by_proxy_email_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=proxy_email&sort_dir=asc returns lots ordered by proxy email ascending; lots
+        without a proxy sort first (nullsfirst)."""
+        lot_z = LotOwner(building_id=building.id, lot_number="SP1", unit_entitlement=10)
+        lot_a = LotOwner(building_id=building.id, lot_number="SP2", unit_entitlement=10)
+        lot_none = LotOwner(building_id=building.id, lot_number="SP3", unit_entitlement=10)
+        db_session.add_all([lot_z, lot_a, lot_none])
+        await db_session.flush()
+        proxy_z = await get_or_create_person(db_session, "zproxy@example.com")
+        proxy_a = await get_or_create_person(db_session, "aproxy@example.com")
+        db_session.add(LotProxy(lot_id=lot_z.id, person_id=proxy_z.id))
+        db_session.add(LotProxy(lot_id=lot_a.id, person_id=proxy_a.id))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=proxy_email&sort_dir=asc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        sp_data = [o for o in data if o["lot_number"] in ("SP1", "SP2", "SP3")]
+        assert len(sp_data) == 3
+        lot_numbers = [o["lot_number"] for o in sp_data]
+        # nullsfirst: SP3 (no proxy) first, then aproxy < zproxy → SP2, SP1
+        assert lot_numbers == ["SP3", "SP2", "SP1"]
+
+    async def test_sort_by_proxy_email_desc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=proxy_email&sort_dir=desc returns lots ordered by proxy email descending;
+        lots without a proxy sort last (nullslast)."""
+        lot_z = LotOwner(building_id=building.id, lot_number="SPD1", unit_entitlement=10)
+        lot_a = LotOwner(building_id=building.id, lot_number="SPD2", unit_entitlement=10)
+        lot_none = LotOwner(building_id=building.id, lot_number="SPD3", unit_entitlement=10)
+        db_session.add_all([lot_z, lot_a, lot_none])
+        await db_session.flush()
+        proxy_z = await get_or_create_person(db_session, "zproxy.d@example.com")
+        proxy_a = await get_or_create_person(db_session, "aproxy.d@example.com")
+        db_session.add(LotProxy(lot_id=lot_z.id, person_id=proxy_z.id))
+        db_session.add(LotProxy(lot_id=lot_a.id, person_id=proxy_a.id))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=proxy_email&sort_dir=desc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        spd_data = [o for o in data if o["lot_number"] in ("SPD1", "SPD2", "SPD3")]
+        assert len(spd_data) == 3
+        lot_numbers = [o["lot_number"] for o in spd_data]
+        # nullslast: zproxy > aproxy → SPD1, SPD2, then SPD3 (no proxy) last
+        assert lot_numbers == ["SPD1", "SPD2", "SPD3"]
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}/lot-owners/count
@@ -976,6 +1080,119 @@ class TestImportLotOwners:
         data = response.json()
         assert data["imported"] == 0
         assert data["emails"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Orphan person cleanup after lot owner import
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestImportLotOwnersOrphanCleanup:
+    """After re-import, persons with no remaining lot_persons or lot_proxies rows
+    are deleted. Persons still linked to other buildings' lots are preserved."""
+
+    async def test_reimport_removes_orphaned_person(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """A person removed from all lots in this building (and no other links) is deleted."""
+        csv1 = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["ORP1", "orphan.import@test.com", "100"]],
+        )
+        resp = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv1, "text/csv")},
+        )
+        assert resp.status_code == 200
+
+        # Confirm person was created
+        from sqlalchemy import select as _sel
+        person_result = await db_session.execute(
+            _sel(Person).where(Person.email == "orphan.import@test.com")
+        )
+        person = person_result.scalar_one_or_none()
+        assert person is not None
+        person_id = person.id
+
+        # Re-import with a different email — original person loses all lot_persons links
+        csv2 = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["ORP1", "replacement@test.com", "100"]],
+        )
+        resp2 = await client.post(
+            f"/api/admin/buildings/{building.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv2, "text/csv")},
+        )
+        assert resp2.status_code == 200
+
+        # Original person must be deleted (no more lot_persons or lot_proxies)
+        db_session.expire_all()
+        gone = await db_session.execute(
+            _sel(Person).where(Person.id == person_id)
+        )
+        assert gone.scalar_one_or_none() is None, (
+            "Orphaned person was not deleted after re-import removed all their lot links"
+        )
+
+    async def test_reimport_preserves_person_linked_to_other_building(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A person who owns a lot in another building is NOT deleted even when
+        removed from this building's import."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        b1 = Building(name="OrphanClean B1", manager_email="oc1@test.com")
+        b2 = Building(name="OrphanClean B2", manager_email="oc2@test.com")
+        db_session.add_all([b1, b2])
+        await db_session.flush()
+
+        # Import person into b1
+        csv1 = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["OC1", "shared.oc@test.com", "100"]],
+        )
+        resp = await client.post(
+            f"/api/admin/buildings/{b1.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv1, "text/csv")},
+        )
+        assert resp.status_code == 200
+
+        # Also link same person to b2 directly in DB
+        from sqlalchemy import select as _sel
+        person_result = await db_session.execute(
+            _sel(Person).where(Person.email == "shared.oc@test.com")
+        )
+        person = person_result.scalar_one()
+        person_id = person.id
+
+        lo_b2 = LotOwner(building_id=b2.id, lot_number="OC2", unit_entitlement=50)
+        db_session.add(lo_b2)
+        await db_session.flush()
+        await db_session.execute(
+            pg_insert(lot_persons).values(lot_id=lo_b2.id, person_id=person.id).on_conflict_do_nothing()
+        )
+        await db_session.commit()
+
+        # Re-import b1 with a different email — removes shared.oc from b1's lots
+        csv2 = make_csv(
+            ["lot_number", "email", "unit_entitlement"],
+            [["OC1", "replacement.oc@test.com", "100"]],
+        )
+        resp2 = await client.post(
+            f"/api/admin/buildings/{b1.id}/lot-owners/import",
+            files={"file": ("owners.csv", csv2, "text/csv")},
+        )
+        assert resp2.status_code == 200
+
+        # Person must still exist — they're still linked to b2's lot
+        db_session.expire_all()
+        still_there = await db_session.execute(
+            _sel(Person).where(Person.id == person_id)
+        )
+        assert still_there.scalar_one_or_none() is not None, (
+            "Person still linked to another building's lot was incorrectly deleted"
+        )
 
 
 # ---------------------------------------------------------------------------

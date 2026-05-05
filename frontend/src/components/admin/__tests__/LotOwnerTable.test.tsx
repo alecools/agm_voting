@@ -75,21 +75,13 @@ describe("LotOwnerTable", () => {
 
   // --- Column headers ---
 
-  it("renders sortable headers for lot_number, unit_entitlement, financial_position", () => {
+  it("renders sortable headers for lot_number, email, unit_entitlement, financial_position, proxy_email", () => {
     render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
     expect(screen.getByRole("button", { name: /Lot Number/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Email/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unit Entitlement/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Financial Position/ })).toBeInTheDocument();
-  });
-
-  it("renders non-sortable plain headers for Email and Proxy", () => {
-    render(<LotOwnerTable lotOwners={lotOwners} onEdit={() => {}} />);
-    // Email and Proxy are plain <th> — no sort button
-    expect(screen.queryByRole("button", { name: /Email/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Proxy/ })).not.toBeInTheDocument();
-    // But the header text still appears
-    expect(screen.getByText("Email")).toBeInTheDocument();
-    expect(screen.getByText("Proxy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Proxy/ })).toBeInTheDocument();
   });
 
   it("renders exactly 6 column headers (Lot Number, Email, Unit Entitlement, Financial Position, Proxy, Actions)", () => {
@@ -243,6 +235,10 @@ describe("LotOwnerTable", () => {
       .toHaveAttribute("aria-sort", "none");
     expect(screen.getByRole("button", { name: /Financial Position/ }).closest("th"))
       .toHaveAttribute("aria-sort", "none");
+    expect(screen.getByRole("button", { name: /Email/ }).closest("th"))
+      .toHaveAttribute("aria-sort", "none");
+    expect(screen.getByRole("button", { name: /Proxy/ }).closest("th"))
+      .toHaveAttribute("aria-sort", "none");
   });
 
   // --- onSortChange callback ---
@@ -293,6 +289,64 @@ describe("LotOwnerTable", () => {
     );
     await user.click(screen.getByRole("button", { name: /Financial Position/ }));
     expect(onSortChange).toHaveBeenCalledWith("financial_position");
+  });
+
+  it("clicking Email header calls onSortChange with 'email'", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    render(
+      <LotOwnerTable
+        lotOwners={lotOwners}
+        onEdit={() => {}}
+        sortColumn="lot_number"
+        sortDir="asc"
+        onSortChange={onSortChange}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /Email/ }));
+    expect(onSortChange).toHaveBeenCalledWith("email");
+  });
+
+  it("clicking Proxy header calls onSortChange with 'proxy_email'", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    render(
+      <LotOwnerTable
+        lotOwners={lotOwners}
+        onEdit={() => {}}
+        sortColumn="lot_number"
+        sortDir="asc"
+        onSortChange={onSortChange}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /Proxy/ }));
+    expect(onSortChange).toHaveBeenCalledWith("proxy_email");
+  });
+
+  it("Email column shows aria-sort='ascending' when sortColumn='email' and sortDir='asc'", () => {
+    render(
+      <LotOwnerTable
+        lotOwners={lotOwners}
+        onEdit={() => {}}
+        sortColumn="email"
+        sortDir="asc"
+      />
+    );
+    const btn = screen.getByRole("button", { name: /Email/ });
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("Proxy column shows aria-sort='descending' when sortColumn='proxy_email' and sortDir='desc'", () => {
+    render(
+      <LotOwnerTable
+        lotOwners={lotOwners}
+        onEdit={() => {}}
+        sortColumn="proxy_email"
+        sortDir="desc"
+      />
+    );
+    const btn = screen.getByRole("button", { name: /Proxy/ });
+    expect(btn.closest("th")).toHaveAttribute("aria-sort", "descending");
   });
 
   it("onSortChange is called exactly once per header click", async () => {
