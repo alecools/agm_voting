@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,6 +25,7 @@ class LotOwnerEmail(Base):
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     given_name: Mapped[str | None] = mapped_column(String, nullable=True)
     surname: Mapped[str | None] = mapped_column(String, nullable=True)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     # Relationships
     lot_owner: Mapped["LotOwner"] = relationship(  # noqa: F821

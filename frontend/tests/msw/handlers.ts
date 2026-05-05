@@ -179,7 +179,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     given_name: "Alice",
     surname: "Smith",
     owner_emails: [
-      { id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith" },
+      { id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith", phone_number: null },
     ],
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
@@ -187,7 +187,6 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: null,
     proxy_given_name: null,
     proxy_surname: null,
-    phone_number: null,
   },
   {
     id: "lo2",
@@ -196,7 +195,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     given_name: null,
     surname: null,
     owner_emails: [
-      { id: "em2", email: "owner2@example.com", given_name: null, surname: null },
+      { id: "em2", email: "owner2@example.com", given_name: null, surname: null, phone_number: null },
     ],
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
@@ -204,7 +203,6 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: "proxy@example.com",
     proxy_given_name: null,
     proxy_surname: null,
-    phone_number: null,
   },
 ];
 
@@ -790,14 +788,13 @@ export const adminHandlers = [
       lot_number: body?.lot_number ?? "NEW",
       given_name: null,
       surname: null,
-      owner_emails: [{ id: "em-new", email: "new@example.com", given_name: null, surname: null }],
+      owner_emails: [{ id: "em-new", email: "new@example.com", given_name: null, surname: null, phone_number: null }],
       emails: ["new@example.com"],
       unit_entitlement: 50,
       financial_position: "normal",
       proxy_email: null,
       proxy_given_name: null,
       proxy_surname: null,
-      phone_number: null,
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),
@@ -877,7 +874,7 @@ export const adminHandlers = [
   }),
 
   http.patch(`${BASE}/api/admin/lot-owners/:lotOwnerId`, async ({ request }) => {
-    const body = await request.json() as { unit_entitlement?: number; financial_position?: string; phone_number?: string | null };
+    const body = await request.json() as { unit_entitlement?: number; financial_position?: string };
     if (body?.unit_entitlement !== undefined && body.unit_entitlement < 0) {
       return HttpResponse.json(
         { detail: "unit_entitlement must be >= 0" },
@@ -888,7 +885,6 @@ export const adminHandlers = [
       ...ADMIN_LOT_OWNERS[0],
       unit_entitlement: body?.unit_entitlement ?? ADMIN_LOT_OWNERS[0].unit_entitlement,
       financial_position: (body?.financial_position as "normal" | "in_arrear") ?? ADMIN_LOT_OWNERS[0].financial_position,
-      phone_number: body?.phone_number !== undefined ? body.phone_number : ADMIN_LOT_OWNERS[0].phone_number,
     };
     return HttpResponse.json(updated);
   }),
@@ -1316,7 +1312,7 @@ export const adminHandlers = [
     return HttpResponse.json(smsConfigFixture);
   }),
 
-  http.post(`${BASE}/api/admin/settings/sms/test`, () => {
+  http.post(`${BASE}/api/admin/config/sms/test`, () => {
     return HttpResponse.json({ ok: true });
   }),
 ];

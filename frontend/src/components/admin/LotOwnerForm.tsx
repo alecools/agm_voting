@@ -40,7 +40,6 @@ function EditModal({
   const [financialPosition, setFinancialPosition] = useState(
     lotOwner.financial_position
   );
-  const [phoneNumber, setPhoneNumber] = useState(lotOwner.phone_number ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   // Owner email management
@@ -50,11 +49,13 @@ function EditModal({
   const [newOwnerSurname, setNewOwnerSurname] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailsModified, setEmailsModified] = useState(false);
+  const [newOwnerPhone, setNewOwnerPhone] = useState("");
   // Inline edit state: which entry is being edited
   const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
   const [editEmailValue, setEditEmailValue] = useState("");
   const [editGivenName, setEditGivenName] = useState("");
   const [editSurname, setEditSurname] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
 
   // Proxy management
@@ -72,18 +73,19 @@ function EditModal({
   useEffect(() => {
     setUnitEntitlement(lotOwner.unit_entitlement.toString());
     setFinancialPosition(lotOwner.financial_position);
-    setPhoneNumber(lotOwner.phone_number ?? "");
     setFormError(null);
     setOwnerEmails(lotOwner.owner_emails);
     setNewOwnerEmail("");
     setNewOwnerGivenName("");
     setNewOwnerSurname("");
+    setNewOwnerPhone("");
     setEmailError(null);
     setEmailsModified(false);
     setEditingEmailId(null);
     setEditEmailValue("");
     setEditGivenName("");
     setEditSurname("");
+    setEditPhone("");
     setEditError(null);
     setProxyEmail(lotOwner.proxy_email ?? null);
     setNewProxyEmail("");
@@ -118,7 +120,7 @@ function EditModal({
   const addOwnerEmailMutation = useMutation<
     LotOwner,
     Error,
-    { email: string; given_name: string | null; surname: string | null }
+    { email: string; given_name: string | null; surname: string | null; phone_number?: string | null }
   >({
     mutationFn: (data) => addOwnerEmailToLotOwner(lotOwner.id, data),
     onSuccess: (updated) => {
@@ -138,7 +140,7 @@ function EditModal({
   const updateOwnerEmailMutation = useMutation<
     LotOwner,
     Error,
-    { emailId: string; email?: string | null; given_name?: string | null; surname?: string | null }
+    { emailId: string; email?: string | null; given_name?: string | null; surname?: string | null; phone_number?: string | null }
   >({
     mutationFn: ({ emailId, ...data }) => updateOwnerEmail(lotOwner.id, emailId, data),
     onSuccess: (updated) => {
@@ -215,9 +217,6 @@ function EditModal({
     if (parsed !== lotOwner.unit_entitlement) updateData.unit_entitlement = parsed;
     if (financialPosition !== lotOwner.financial_position)
       updateData.financial_position = financialPosition;
-    const trimmedPhone = phoneNumber.trim() || null;
-    if (trimmedPhone !== (lotOwner.phone_number ?? null))
-      updateData.phone_number = trimmedPhone;
 
     if (Object.keys(updateData).length === 0) {
       if (emailsModified || proxyModified) {
@@ -245,6 +244,7 @@ function EditModal({
       email: trimmedEmail,
       given_name: newOwnerGivenName.trim() || null,
       surname: newOwnerSurname.trim() || null,
+      phone_number: newOwnerPhone.trim() || null,
     });
   }
 
@@ -258,11 +258,13 @@ function EditModal({
     setEditEmailValue(entry.email ?? "");
     setEditGivenName(entry.given_name ?? "");
     setEditSurname(entry.surname ?? "");
+    setEditPhone(entry.phone_number ?? "");
     setEditError(null);
   }
 
   function handleCancelEdit() {
     setEditingEmailId(null);
+    setEditPhone("");
     setEditError(null);
   }
 
@@ -282,6 +284,7 @@ function EditModal({
       email: trimmedEmail,
       given_name: editGivenName.trim() || null,
       surname: editSurname.trim() || null,
+      phone_number: editPhone.trim() || null,
     });
   }
 
@@ -377,6 +380,14 @@ function EditModal({
                       onChange={(e) => setEditEmailValue(e.target.value)}
                       aria-label="Edit email"
                     />
+                    <input
+                      className="field__input"
+                      type="tel"
+                      placeholder="+61412345678 (optional)"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      aria-label="Edit phone number"
+                    />
                     {editError && (
                       <p className="field__error" role="alert" style={{ margin: 0 }}>{editError}</p>
                     )}
@@ -411,6 +422,11 @@ function EditModal({
                       }
                       {" "}
                       <span style={{ color: "var(--text-secondary)" }}>{entry.email ?? ""}</span>
+                      {entry.phone_number && (
+                        <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+                          {entry.phone_number}
+                        </span>
+                      )}
                     </span>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button
@@ -462,6 +478,15 @@ function EditModal({
                 aria-label="New owner surname"
               />
             </div>
+            <input
+              id="add-owner-phone"
+              className="field__input"
+              type="tel"
+              placeholder="Phone number (optional)"
+              value={newOwnerPhone}
+              onChange={(e) => setNewOwnerPhone(e.target.value)}
+              aria-label="New owner phone number"
+            />
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 id="add-owner-email-input"
@@ -601,20 +626,6 @@ function EditModal({
               <option value="normal">Normal</option>
               <option value="in_arrear">In Arrear</option>
             </select>
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor="lot-phone-number">
-              Phone number
-            </label>
-            <input
-              id="lot-phone-number"
-              className="field__input"
-              type="tel"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="+61412345678"
-            />
           </div>
 
           {formError && (

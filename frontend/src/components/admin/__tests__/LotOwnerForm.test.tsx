@@ -23,14 +23,13 @@ const existingLotOwner: LotOwner = {
   lot_number: "1A",
   given_name: null,
   surname: null,
-  owner_emails: [{ id: "em1", email: "owner1@example.com", given_name: null, surname: null }],
+  owner_emails: [{ id: "em1", email: "owner1@example.com", given_name: null, surname: null, phone_number: null }],
   emails: ["owner1@example.com"],
   unit_entitlement: 100,
   financial_position: "normal",
   proxy_email: null,
   proxy_given_name: null,
   proxy_surname: null,
-  phone_number: null,
 };
 
 const multiEmailOwner: LotOwner = {
@@ -1440,84 +1439,91 @@ describe("LotOwnerForm - EditModal owner_emails management", () => {
 
 // ---------------------------------------------------------------------------
 // Edit modal — phone number field (SMS OTP)
+// Phone is now per-contact (per LotOwnerEmail), not per LotOwner.
 // ---------------------------------------------------------------------------
-describe("LotOwnerForm - Edit modal phone number", () => {
-  it("renders phone number field in edit modal", () => {
+describe("LotOwnerForm - Edit modal phone number (per email row)", () => {
+  const ownerWithPhone: LotOwner = {
+    ...existingLotOwner,
+    owner_emails: [
+      { id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith", phone_number: "+61400000000" },
+    ],
+  };
+
+  it("renders phone number field in inline email edit form", async () => {
+    const user = userEvent.setup();
     renderEditForm(existingLotOwner);
-    expect(screen.getByLabelText("Phone number")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    expect(screen.getByLabelText("Edit phone number")).toBeInTheDocument();
   });
 
-  it("phone number field has type=tel", () => {
+  it("edit phone number field has type=tel", async () => {
+    const user = userEvent.setup();
     renderEditForm(existingLotOwner);
-    expect(screen.getByLabelText("Phone number")).toHaveAttribute("type", "tel");
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    expect(screen.getByLabelText("Edit phone number")).toHaveAttribute("type", "tel");
   });
 
-  it("phone number field is empty when lot owner has no phone", () => {
-    renderEditForm({ ...existingLotOwner, phone_number: null });
-    expect(screen.getByLabelText("Phone number")).toHaveValue("");
-  });
-
-  it("phone number field is pre-populated when lot owner has a phone", () => {
-    renderEditForm({ ...existingLotOwner, phone_number: "+61412345678" });
-    expect(screen.getByLabelText("Phone number")).toHaveValue("+61412345678");
-  });
-
-  it("submits with changed phone number and calls onSuccess", async () => {
+  it("edit phone number field is empty when email row has no phone", async () => {
     const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm(existingLotOwner, onSuccess);
-    const phoneInput = screen.getByLabelText("Phone number");
+    renderEditForm(existingLotOwner);
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    expect(screen.getByLabelText("Edit phone number")).toHaveValue("");
+  });
+
+  it("edit phone number field is pre-populated when email row has a phone", async () => {
+    const user = userEvent.setup();
+    renderEditForm(ownerWithPhone);
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    expect(screen.getByLabelText("Edit phone number")).toHaveValue("+61400000000");
+  });
+
+  it("renders phone number in the add-owner phone field", () => {
+    renderEditForm(existingLotOwner);
+    expect(screen.getByLabelText("New owner phone number")).toBeInTheDocument();
+    expect(screen.getByLabelText("New owner phone number")).toHaveAttribute("type", "tel");
+  });
+
+  it("displays phone number in email row display view when present", () => {
+    renderEditForm(ownerWithPhone);
+    expect(screen.getByText("+61400000000")).toBeInTheDocument();
+  });
+
+  it("does not display phone number in display view when absent", () => {
+    renderEditForm(existingLotOwner);
+    // No phone shown — the owner_emails entry has phone_number: null
+    expect(screen.queryByText(/\+61/)).not.toBeInTheDocument();
+  });
+
+  it("saves email edit with phone number and closes the inline edit form", async () => {
+    const user = userEvent.setup();
+    renderEditForm(existingLotOwner);
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    const phoneInput = screen.getByLabelText("Edit phone number");
     await user.type(phoneInput, "+61412345678");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // After save the inline edit form should close (editingEmailId reset by mutation onSuccess)
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
+      expect(screen.queryByLabelText("Edit phone number")).not.toBeInTheDocument();
     });
   });
 
-  it("detects phone number as changed when it differs from current value", async () => {
+  it("resets edit phone field when cancel is clicked", async () => {
     const user = userEvent.setup();
-    const onSuccess = vi.fn();
-    renderEditForm({ ...existingLotOwner, phone_number: "+61400000000" }, onSuccess);
-    const phoneInput = screen.getByLabelText("Phone number");
-    await user.clear(phoneInput);
-    await user.type(phoneInput, "+61412345678");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalled();
-    });
+    renderEditForm(ownerWithPhone);
+    await user.click(screen.getByRole("button", { name: /Edit owner1@example.com/i }));
+    const phoneInput = screen.getByLabelText("Edit phone number");
+    expect(phoneInput).toHaveValue("+61400000000");
+    // Use getAllByRole because the modal also has a "Cancel" button in the footer
+    const cancelButtons = screen.getAllByRole("button", { name: "Cancel" });
+    await user.click(cancelButtons[0]);
+    // After cancel, inline edit is gone
+    expect(screen.queryByLabelText("Edit phone number")).not.toBeInTheDocument();
   });
 
-  it("resets phone number field when editTarget changes via rerender", () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <LotOwnerForm
-          buildingId="b1"
-          editTarget={{ ...existingLotOwner, phone_number: "+61400000000" }}
-          onSuccess={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      </QueryClientProvider>
-    );
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <LotOwnerForm
-          buildingId="b1"
-          editTarget={{ ...existingLotOwner, phone_number: "+61499999999" }}
-          onSuccess={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      </QueryClientProvider>
-    );
-    expect(screen.getByLabelText("Phone number")).toHaveValue("+61499999999");
-  });
-
-  it("treats blank phone as null (no change when phone_number is already null)", async () => {
+  it("no changes to lot owner fields shows 'No changes detected'", async () => {
     const user = userEvent.setup();
-    renderEditForm({ ...existingLotOwner, phone_number: null });
-    // Submit without any changes — should show 'No changes detected'
+    renderEditForm(existingLotOwner);
+    // Submit without any changes to unit entitlement or financial position
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
     expect(screen.getByText("No changes detected.")).toBeInTheDocument();
   });

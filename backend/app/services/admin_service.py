@@ -633,6 +633,7 @@ def _owner_email_to_dict(row: LotOwnerEmail) -> dict:
         "email": row.email,
         "given_name": row.given_name,
         "surname": row.surname,
+        "phone_number": row.phone_number,
     }
 
 
@@ -870,12 +871,11 @@ async def import_lot_owners_from_csv(
                     "email_entries": [],
                     "given_name": row_given_name,
                     "surname": row_surname,
-                    "phone_number": phone_number,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
                 if addr:
-                    # Deduplicate by email: last-row name wins
+                    # Deduplicate by email: last-row name/phone wins
                     existing_entry = next(
                         (e for e in lot_data[lot_number]["email_entries"] if e["email"] == addr),
                         None,
@@ -883,9 +883,15 @@ async def import_lot_owners_from_csv(
                     if existing_entry is not None:
                         existing_entry["given_name"] = row_given_name
                         existing_entry["surname"] = row_surname
+                        existing_entry["phone_number"] = phone_number
                     else:
                         lot_data[lot_number]["email_entries"].append(
-                            {"email": addr, "given_name": row_given_name, "surname": row_surname}
+                            {
+                                "email": addr,
+                                "given_name": row_given_name,
+                                "surname": row_surname,
+                                "phone_number": phone_number,
+                            }
                         )
 
     # Check for duplicate lot numbers and report them with row details (RR3-31)
@@ -1037,12 +1043,11 @@ async def import_lot_owners_from_excel(
                     "email_entries": [],
                     "given_name": row_given_name,
                     "surname": row_surname,
-                    "phone_number": phone_number,
                 }
             for addr in email.split(";"):
                 addr = addr.strip().lower()
                 if addr:
-                    # Deduplicate by email: last-row name wins
+                    # Deduplicate by email: last-row name/phone wins
                     existing_entry = next(
                         (e for e in lot_data[lot_number]["email_entries"] if e["email"] == addr),
                         None,
@@ -1050,9 +1055,15 @@ async def import_lot_owners_from_excel(
                     if existing_entry is not None:
                         existing_entry["given_name"] = row_given_name
                         existing_entry["surname"] = row_surname
+                        existing_entry["phone_number"] = phone_number
                     else:
                         lot_data[lot_number]["email_entries"].append(
-                            {"email": addr, "given_name": row_given_name, "surname": row_surname}
+                            {
+                                "email": addr,
+                                "given_name": row_given_name,
+                                "surname": row_surname,
+                                "phone_number": phone_number,
+                            }
                         )
 
     # Check for duplicate lot numbers and report them with row details (RR3-31)
@@ -1097,8 +1108,6 @@ async def _upsert_lot_owners(
                 lo.given_name = data["given_name"]
             if data.get("surname") is not None:
                 lo.surname = data["surname"]
-            if "phone_number" in data:
-                lo.phone_number = data["phone_number"]
             await db.flush()
             # Replace emails: delete existing, insert new entries
             await db.execute(
@@ -1111,6 +1120,7 @@ async def _upsert_lot_owners(
                         email=entry["email"],
                         given_name=entry["given_name"],
                         surname=entry["surname"],
+                        phone_number=entry.get("phone_number"),
                     ))
         else:
             new_lo = LotOwner(
@@ -1118,7 +1128,6 @@ async def _upsert_lot_owners(
                 lot_number=lot_number,
                 given_name=data.get("given_name"),
                 surname=data.get("surname"),
-                phone_number=data.get("phone_number"),
                 unit_entitlement=data["unit_entitlement"],
                 financial_position=data["financial_position"],
             )
@@ -1131,6 +1140,7 @@ async def _upsert_lot_owners(
                         email=entry["email"],
                         given_name=entry["given_name"],
                         surname=entry["surname"],
+                        phone_number=entry.get("phone_number"),
                     ))
 
     await db.commit()
@@ -1415,6 +1425,7 @@ async def add_owner_email_to_lot_owner(
     given_name: str | None,
     surname: str | None,
     db: AsyncSession,
+    phone_number: str | None = None,
 ) -> dict:
     """Add an email+name owner entry to a lot owner. Returns the updated lot owner dict."""
     result = await db.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
@@ -1443,6 +1454,7 @@ async def add_owner_email_to_lot_owner(
         email=normalised_email,
         given_name=clean_given_name,
         surname=clean_surname,
+        phone_number=phone_number,
     ))
     await db.commit()
 
@@ -1470,10 +1482,13 @@ async def update_owner_email(
     given_name: str | None,
     surname: str | None,
     db: AsyncSession,
+    phone_number: str | None = None,
+    clear_phone: bool = False,
 ) -> dict:
-    """Update email, given_name, and/or surname on a LotOwnerEmail row by ID.
+    """Update email, given_name, surname, and/or phone_number on a LotOwnerEmail row by ID.
 
     Validates that the email_id belongs to lot_owner_id. Returns the updated lot owner dict.
+    Pass phone_number=<value> to set a phone; pass clear_phone=True to set it to NULL.
     """
     # Fetch the lot owner first
     lo_result = await db.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
@@ -1510,6 +1525,10 @@ async def update_owner_email(
         email_obj.given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None
     if surname is not None:
         email_obj.surname = bleach.clean(surname, tags=[], strip=True).strip() or None
+    if phone_number is not None:
+        email_obj.phone_number = phone_number
+    elif clear_phone:
+        email_obj.phone_number = None
 
     await db.commit()
 

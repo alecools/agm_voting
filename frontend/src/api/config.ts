@@ -139,7 +139,7 @@ export async function updateSmsConfig(data: SmsConfigUpdate): Promise<SmsConfigO
 }
 
 export async function testSmsConfig(toPhone: string): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>("/api/admin/settings/sms/test", {
+  return apiFetch<{ ok: boolean }>("/api/admin/config/sms/test", {
     method: "POST",
     body: JSON.stringify({ to_phone: toPhone } satisfies SmsTestRequest),
   });

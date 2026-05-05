@@ -2315,7 +2315,7 @@ describe("SettingsPage", () => {
 
   it("Send test SMS shows error message on failure", async () => {
     server.use(
-      http.post(`${BASE}/api/admin/settings/sms/test`, () =>
+      http.post(`${BASE}/api/admin/config/sms/test`, () =>
         HttpResponse.json({ detail: "Send failed" }, { status: 500 })
       )
     );
