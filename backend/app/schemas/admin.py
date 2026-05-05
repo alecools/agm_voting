@@ -128,6 +128,7 @@ class LotOwnerOut(BaseModel):
     proxy_email: str | None = None
     proxy_given_name: str | None = None
     proxy_surname: str | None = None
+    proxy_phone_number: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -256,6 +257,7 @@ class SetProxyRequest(BaseModel):
     proxy_email: str = Field(..., max_length=254)
     given_name: str | None = Field(default=None, max_length=255)
     surname: str | None = Field(default=None, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=20)
 
     @field_validator("proxy_email")
     @classmethod

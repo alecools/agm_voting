@@ -612,16 +612,16 @@ async def get_building_or_404(building_id: uuid.UUID, db: AsyncSession) -> Build
 
 
 async def _get_proxy_info(lot_id: uuid.UUID, db: AsyncSession) -> dict | None:
-    """Return {proxy_email, given_name, surname} for the lot's proxy via the persons join, or None."""
+    """Return {proxy_email, given_name, surname, phone_number} for the lot's proxy via the persons join, or None."""
     proxy_result = await db.execute(
-        select(Person.email, Person.given_name, Person.surname)
+        select(Person.email, Person.given_name, Person.surname, Person.phone_number)
         .join(LotProxy, LotProxy.person_id == Person.id)
         .where(LotProxy.lot_id == lot_id)
     )
     row = proxy_result.first()
     if row is None:
         return None
-    return {"proxy_email": row[0], "given_name": row[1], "surname": row[2]}
+    return {"proxy_email": row[0], "given_name": row[1], "surname": row[2], "phone_number": row[3]}
 
 
 async def count_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> int:
@@ -691,6 +691,25 @@ async def lookup_person(email: str, db: AsyncSession) -> Person | None:
     normalised = email.strip().lower()
     result = await db.execute(select(Person).where(Person.email == normalised))
     return result.scalar_one_or_none()
+
+
+async def search_persons(q: str, db: AsyncSession, limit: int = 10) -> list[Person]:
+    """Return persons whose email starts with q (case-insensitive). Max limit results.
+
+    Uses ILIKE 'prefix%' which can use the btree UNIQUE index on persons.email.
+    Empty/whitespace q returns [] without a DB query.
+    """
+    prefix = q.strip().lower()
+    if not prefix:
+        return []
+    effective_limit = min(limit, 20)
+    result = await db.execute(
+        select(Person)
+        .where(Person.email.ilike(f"{prefix}%"))
+        .order_by(Person.email)
+        .limit(effective_limit)
+    )
+    return list(result.scalars().all())
 
 
 async def update_person(
@@ -822,12 +841,12 @@ async def list_lot_owners(
         persons_by_lot.setdefault(lot_id_val, []).append(_person_to_dict(person_obj))
 
     proxies_result = await db.execute(
-        select(LotProxy.lot_id, Person.email, Person.given_name, Person.surname)
+        select(LotProxy.lot_id, Person.email, Person.given_name, Person.surname, Person.phone_number)
         .join(Person, LotProxy.person_id == Person.id)
         .where(LotProxy.lot_id.in_(owner_ids))
     )
     proxy_by_lot: dict[uuid.UUID, dict] = {
-        row[0]: {"proxy_email": row[1], "given_name": row[2], "surname": row[3]}
+        row[0]: {"proxy_email": row[1], "given_name": row[2], "surname": row[3], "phone_number": row[4]}
         for row in proxies_result.all()
     }
 
@@ -843,6 +862,7 @@ async def list_lot_owners(
             "proxy_email": proxy_info.get("proxy_email"),
             "proxy_given_name": proxy_info.get("given_name"),
             "proxy_surname": proxy_info.get("surname"),
+            "proxy_phone_number": proxy_info.get("phone_number"),
         })
     return out
 
@@ -868,6 +888,7 @@ async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1394,6 +1415,7 @@ async def add_lot_owner(
         "proxy_email": None,
         "proxy_given_name": None,
         "proxy_surname": None,
+        "proxy_phone_number": None,
     }
 
 
@@ -1427,6 +1449,7 @@ async def update_lot_owner(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1476,6 +1499,7 @@ async def add_email_to_lot_owner(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1528,6 +1552,7 @@ async def remove_email_from_lot_owner(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1537,6 +1562,7 @@ async def set_lot_owner_proxy(
     db: AsyncSession,
     given_name: str | None = None,
     surname: str | None = None,
+    phone_number: str | None = None,
 ) -> dict:
     """Create or replace the proxy nomination for a lot. Resolves/creates person by email."""
     result = await db.execute(
@@ -1548,11 +1574,13 @@ async def set_lot_owner_proxy(
 
     person = await get_or_create_person(proxy_email, db)
 
-    # Update person's name fields if provided (fill-blanks policy: only set if currently NULL)
+    # Update person's name/phone fields if provided (fill-blanks policy: only set if currently NULL)
     if given_name is not None and person.given_name is None:
         person.given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None
     if surname is not None and person.surname is None:
         person.surname = bleach.clean(surname, tags=[], strip=True).strip() or None
+    if phone_number is not None and person.phone_number is None:
+        person.phone_number = phone_number
 
     proxy_result = await db.execute(
         select(LotProxy).where(LotProxy.lot_id == lot_owner_id)
@@ -1580,6 +1608,7 @@ async def set_lot_owner_proxy(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1616,6 +1645,7 @@ async def remove_lot_owner_proxy(
         "proxy_email": None,
         "proxy_given_name": None,
         "proxy_surname": None,
+        "proxy_phone_number": None,
     }
 
 
@@ -1674,6 +1704,7 @@ async def add_owner_email_to_lot_owner(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1717,6 +1748,7 @@ async def remove_person_from_lot(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 
@@ -1784,6 +1816,7 @@ async def update_owner_email(
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
+        "proxy_phone_number": proxy_info["phone_number"] if proxy_info else None,
     }
 
 

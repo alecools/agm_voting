@@ -24,12 +24,21 @@ export interface LotOwnerEmailEntry {
   phone_number?: string | null;
 }
 
+export interface Person {
+  id: string;
+  email: string;
+  given_name: string | null;
+  surname: string | null;
+  phone_number: string | null;
+}
+
 export interface LotOwner {
   id: string;
   building_id: string;
   lot_number: string;
   given_name: string | null;
   surname: string | null;
+  persons?: Person[];
   owner_emails: LotOwnerEmailEntry[];
   emails: string[];
   unit_entitlement: number;
@@ -37,6 +46,7 @@ export interface LotOwner {
   proxy_email: string | null;
   proxy_given_name: string | null;
   proxy_surname: string | null;
+  proxy_phone_number?: string | null;
 }
 
 export interface GeneralMeeting {
