@@ -510,10 +510,17 @@ test("33M.5: check vote tallies after first partial vote — half yes on M1, hal
     expect(m1, "Motion 1 not found").toBeDefined();
     expect(m2, "Motion 2 not found").toBeDefined();
 
-    expect(m1!.tally.yes.voter_count, "Motion 1 yes votes after step 4").toBe(halfLotCount);
+    // General motions: in-arrear lots record not_eligible instead of yes/no
+    expect(
+      m1!.tally.yes.voter_count + m1!.tally.not_eligible.voter_count,
+      "Motion 1 voted count after step 4"
+    ).toBe(halfLotCount);
     expect(m1!.tally.no.voter_count, "Motion 1 no votes should be 0").toBe(0);
 
-    expect(m2!.tally.no.voter_count, "Motion 2 no votes after step 4").toBe(halfLotCount);
+    expect(
+      m2!.tally.no.voter_count + m2!.tally.not_eligible.voter_count,
+      "Motion 2 voted count after step 4"
+    ).toBe(halfLotCount);
     expect(m2!.tally.yes.voter_count, "Motion 2 yes votes should be 0").toBe(0);
   } finally {
     await api.dispose();
@@ -699,8 +706,15 @@ test("33M.9: voter alecools votes half of lots on motions 5 and 6", async ({ pag
     const motions = await getFullMotions(api2, meetingId);
     const m5 = motions.find((m) => m.display_order === 5);
     const m6 = motions.find((m) => m.display_order === 6);
-    expect(m5!.tally.yes.voter_count, `M5 should have ${halfLotCount} yes votes`).toBe(halfLotCount);
-    expect(m6!.tally.no.voter_count, `M6 should have ${halfLotCount} no votes`).toBe(halfLotCount);
+    // General motions: in-arrear lots record not_eligible instead of yes/no
+    expect(
+      m5!.tally.yes.voter_count + m5!.tally.not_eligible.voter_count,
+      `M5 voted count should be ${halfLotCount}`
+    ).toBe(halfLotCount);
+    expect(
+      m6!.tally.no.voter_count + m6!.tally.not_eligible.voter_count,
+      `M6 voted count should be ${halfLotCount}`
+    ).toBe(halfLotCount);
   } finally {
     await api2.dispose();
   }
@@ -799,9 +813,10 @@ test("33M.11: voter alecools — remaining lots vote on M6 only (M5 closed)", as
     const motions = await getFullMotions(api2, meetingId);
     const m5 = motions.find((m) => m.display_order === 5);
     const m6 = motions.find((m) => m.display_order === 6);
+    // General motion: in-arrear lots record not_eligible instead of yes
     expect(
-      m5!.tally.yes.voter_count,
-      `Motion 5 should still have only ${halfLotCount} yes votes`
+      m5!.tally.yes.voter_count + m5!.tally.not_eligible.voter_count,
+      `Motion 5 should still have only ${halfLotCount} voted lots`
     ).toBe(halfLotCount);
     // Include not_eligible: in-arrear lots get not_eligible on General motions (M6 is General)
     const m6TotalVoters =
@@ -1370,9 +1385,10 @@ test("33M.22: close meeting and verify final tally integrity", async () => {
     // Admin in-person vote entry (steps 33M.19+) may add not_eligible for in-arrear lots.
     const m5 = motionsBefore.find((m) => m.display_order === 5);
     expect(m5, "Motion 5 not found").toBeDefined();
+    // General motion: in-arrear lots record not_eligible instead of yes
     expect(
-      m5!.tally.yes.voter_count,
-      `M5 yes votes should be ${halfLotCount}`
+      m5!.tally.yes.voter_count + m5!.tally.not_eligible.voter_count,
+      `M5 voted count should be ${halfLotCount}`
     ).toBe(halfLotCount);
     expect(m5!.voting_closed_at, "M5 should be closed").not.toBeNull();
 
