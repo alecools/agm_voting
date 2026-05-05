@@ -66,6 +66,16 @@ test.use({ storageState: path.join(__dirname, "../.auth/admin.json") });
 let buildingId = "";
 let meetingId = "";
 
+// Tracks (lotId, email) pairs seeded by beforeAll so afterAll can remove them.
+// Only links that did NOT already exist before this run are recorded here.
+const seededLotPersonLinks: { lotId: string; email: string }[] = [];
+
+// Expected lot assignments for the test voters.
+// alecools@gmail.com is expected to own lots 1–6 in The Vale.
+// dunsgaard@live.com.au is expected to own lot 7 in The Vale.
+const ALECOOLS_LOT_NUMBERS = ["1", "2", "3", "4", "5", "6"];
+const DUNSGAARD_LOT_NUMBERS = ["7"];
+
 // motion IDs keyed by display_order (1-indexed, matching CSV row numbers)
 // display_order 1-15 = CSV motions, the MC motion appended last
 let motionIds: Record<number, string> = {};
@@ -111,7 +121,8 @@ async function setMotionVisible(
 }
 
 // ---------------------------------------------------------------------------
-// beforeAll: find The Vale building, close any open/pending meetings
+// beforeAll: find The Vale building, ensure voter email→lot links exist,
+//            close any open/pending meetings
 // ---------------------------------------------------------------------------
 test.beforeAll(async () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
@@ -134,6 +145,50 @@ test.beforeAll(async () => {
       }
       return building.id;
     });
+
+    // Ensure voter email↔lot links exist in lot_persons.
+    // After the persons refactor, auth queries lot_persons JOIN persons.
+    // If the UAT DB was migrated without those rows (e.g. lot_owner_emails was
+    // empty for these test emails before the migration ran), auth returns 401.
+    // This block self-heals by adding the missing links and recording them for
+    // cleanup in afterAll.
+    const lotOwnersRes = await api.get(
+      `/api/admin/buildings/${buildingId}/lot-owners?limit=1000`
+    );
+    if (lotOwnersRes.ok()) {
+      const lots = (await lotOwnersRes.json()) as {
+        id: string;
+        lot_number: string;
+        emails: string[];
+      }[];
+
+      const emailsToSeed: { lotNumbers: string[]; email: string }[] = [
+        { lotNumbers: ALECOOLS_LOT_NUMBERS, email: ALECOOLS_EMAIL },
+        { lotNumbers: DUNSGAARD_LOT_NUMBERS, email: DUNSGAARD_EMAIL },
+      ];
+
+      for (const { lotNumbers, email } of emailsToSeed) {
+        for (const lotNumber of lotNumbers) {
+          const lot = lots.find((l) => l.lot_number === lotNumber);
+          if (!lot) continue;
+          // Skip if the email is already linked to this lot
+          if (lot.emails.includes(email)) continue;
+          // Add the link — 409 means it appeared between the list fetch and
+          // this call, which is fine (treat as already linked)
+          const addRes = await api.post(
+            `/api/admin/lot-owners/${lot.id}/emails`,
+            { data: { email } }
+          );
+          if (addRes.ok()) {
+            seededLotPersonLinks.push({ lotId: lot.id, email });
+          } else if (addRes.status() !== 409) {
+            console.warn(
+              `[33M beforeAll] Failed to seed ${email} on lot ${lotNumber} (${addRes.status()}): ${await addRes.text()}`
+            );
+          }
+        }
+      }
+    }
 
     // Close any open/pending meetings for The Vale so we can create a new one
     const agmsRes = await api.get(
@@ -158,19 +213,28 @@ test.beforeAll(async () => {
 }, { timeout: 120000 });
 
 // ---------------------------------------------------------------------------
-// afterAll: close + delete the test meeting
+// afterAll: close + delete the test meeting, remove seeded lot_persons links
 // ---------------------------------------------------------------------------
 test.afterAll(async () => {
-  if (!meetingId) return;
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
   const api = await makeAdminApi(baseURL);
   try {
-    // Close (ignore 409 if already closed)
-    await api
-      .post(`/api/admin/general-meetings/${meetingId}/close`)
-      .catch(() => {});
-    // Delete
-    await api.delete(`/api/admin/general-meetings/${meetingId}`).catch(() => {});
+    if (meetingId) {
+      // Close (ignore 409 if already closed)
+      await api
+        .post(`/api/admin/general-meetings/${meetingId}/close`)
+        .catch(() => {});
+      // Delete
+      await api.delete(`/api/admin/general-meetings/${meetingId}`).catch(() => {});
+    }
+
+    // Remove lot_persons links that were seeded by this run's beforeAll.
+    // Only links that did NOT exist before this run are cleaned up.
+    for (const { lotId, email } of seededLotPersonLinks) {
+      await api
+        .delete(`/api/admin/lot-owners/${lotId}/emails/${encodeURIComponent(email)}`)
+        .catch(() => {}); // best-effort — ignore 404 if already gone
+    }
   } finally {
     await api.dispose();
   }
