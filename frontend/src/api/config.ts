@@ -124,7 +124,7 @@ export interface SmsConfigUpdate {
 }
 
 export interface SmsTestRequest {
-  to_phone: string;
+  to: string;
 }
 
 export async function getSmsConfig(): Promise<SmsConfigOut> {
@@ -141,6 +141,6 @@ export async function updateSmsConfig(data: SmsConfigUpdate): Promise<SmsConfigO
 export async function testSmsConfig(toPhone: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>("/api/admin/config/sms/test", {
     method: "POST",
-    body: JSON.stringify({ to_phone: toPhone } satisfies SmsTestRequest),
+    body: JSON.stringify({ to: toPhone } satisfies SmsTestRequest),
   });
 }
