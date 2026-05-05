@@ -645,7 +645,7 @@ class TestSmsTestRequestSchema:
 
 @pytest_asyncio.fixture
 async def sms_building_and_meeting(db_session: AsyncSession):
-    """Building with one open GeneralMeeting and one lot owner who has a phone."""
+    """Building with one open GeneralMeeting and one lot owner who has a phone on their email row."""
     b = Building(name=f"SMS Bldg {uuid.uuid4().hex[:6]}", manager_email="smsmgr@test.com")
     db_session.add(b)
     await db_session.flush()
@@ -654,12 +654,11 @@ async def sms_building_and_meeting(db_session: AsyncSession):
         building_id=b.id,
         lot_number="SMS-1",
         unit_entitlement=100,
-        phone_number="+61411111111",
     )
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="sms_voter@test.com")
+    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="sms_voter@test.com", phone_number="+61411111111")
     db_session.add(lo_email)
 
     agm = GeneralMeeting(
@@ -677,7 +676,7 @@ async def sms_building_and_meeting(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def sms_building_no_phone(db_session: AsyncSession):
-    """Building with a voter who has no phone number."""
+    """Building with a voter who has no phone number on their email row."""
     b = Building(name=f"NoPh Bldg {uuid.uuid4().hex[:6]}", manager_email="noph@test.com")
     db_session.add(b)
     await db_session.flush()
@@ -686,12 +685,11 @@ async def sms_building_no_phone(db_session: AsyncSession):
         building_id=b.id,
         lot_number="NP-1",
         unit_entitlement=100,
-        phone_number=None,
     )
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="nophone_voter@test.com")
+    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="nophone_voter@test.com", phone_number=None)
     db_session.add(lo_email)
 
     agm = GeneralMeeting(
@@ -1172,9 +1170,12 @@ class TestNormalisePhoneE164:
 
 @pytest.mark.asyncio(loop_scope="session")
 class TestLotOwnerImportWithPhone:
+    """Phone number is now stored per LotOwnerEmail (per-contact), not per LotOwner."""
+
     # --- Happy path ---
 
     async def test_csv_import_stores_phone_e164(self, app, db_session: AsyncSession):
+        """CSV import: phone stored on the LotOwnerEmail row matching the email column."""
         building = Building(name=f"PhoneImport {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
@@ -1193,16 +1194,25 @@ class TestLotOwnerImportWithPhone:
                 files={"file": ("owners.csv", content, "text/csv")},
             )
         assert resp.status_code == 200
-        result = await db_session.execute(
+        # Phone is on the LotOwnerEmail row, not LotOwner
+        lo_result = await db_session.execute(
             select(LotOwner).where(
                 LotOwner.building_id == building.id,
                 LotOwner.lot_number == "1",
             )
         )
-        lo = result.scalar_one()
-        assert lo.phone_number == "+61412345678"
+        lo = lo_result.scalar_one()
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(
+                LotOwnerEmail.lot_owner_id == lo.id,
+                LotOwnerEmail.email == "voter@test.com",
+            )
+        )
+        em = em_result.scalar_one()
+        assert em.phone_number == "+61412345678"
 
     async def test_csv_import_no_phone_column_sets_none(self, app, db_session: AsyncSession):
+        """CSV without phone column: LotOwnerEmail.phone_number is NULL."""
         building = Building(name=f"NoPhCol {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
@@ -1221,20 +1231,27 @@ class TestLotOwnerImportWithPhone:
                 files={"file": ("owners.csv", content, "text/csv")},
             )
         assert resp.status_code == 200
-        result = await db_session.execute(
+        lo_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == building.id)
         )
-        lo = result.scalar_one()
-        assert lo.phone_number is None
+        lo = lo_result.scalar_one()
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
+        )
+        em = em_result.scalar_one()
+        assert em.phone_number is None
 
     async def test_csv_import_blank_phone_cell_stores_none(self, app, db_session: AsyncSession):
+        """CSV with blank phone cell: LotOwnerEmail.phone_number is NULL.
+        No email column — the lot is imported without an email row, so phone is silently ignored."""
         building = Building(name=f"BlankPh {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
 
+        # Include an email so a LotOwnerEmail row is created to assert on
         content = make_csv(
-            ["Lot#", "UOE2", "Phone"],
-            [["1", "100", ""]],
+            ["Lot#", "UOE2", "Email", "Phone"],
+            [["1", "100", "voter@test.com", ""]],
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -1246,28 +1263,36 @@ class TestLotOwnerImportWithPhone:
                 files={"file": ("owners.csv", content, "text/csv")},
             )
         assert resp.status_code == 200
-        result = await db_session.execute(
+        lo_result = await db_session.execute(
             select(LotOwner).where(LotOwner.building_id == building.id)
         )
-        lo = result.scalar_one()
-        assert lo.phone_number is None
+        lo = lo_result.scalar_one()
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
+        )
+        em = em_result.scalar_one()
+        assert em.phone_number is None
 
     async def test_csv_import_updates_phone_on_existing_lot(self, app, db_session: AsyncSession):
+        """Re-importing updates phone_number on the new LotOwnerEmail row for the same lot."""
         building = Building(name=f"PhUpd {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
+        # Pre-existing lot owner with an email row that already has a phone
         lo = LotOwner(
             building_id=building.id,
             lot_number="1",
             unit_entitlement=100,
-            phone_number="+61400000000",
         )
         db_session.add(lo)
         await db_session.flush()
+        old_em = LotOwnerEmail(lot_owner_id=lo.id, email="voter@test.com", phone_number="+61400000000")
+        db_session.add(old_em)
+        await db_session.flush()
 
         content = make_csv(
-            ["Lot#", "UOE2", "Phone"],
-            [["1", "100", "0499999999"]],
+            ["Lot#", "UOE2", "Email", "Phone"],
+            [["1", "100", "voter@test.com", "0499999999"]],
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -1279,12 +1304,20 @@ class TestLotOwnerImportWithPhone:
                 files={"file": ("owners.csv", content, "text/csv")},
             )
         assert resp.status_code == 200
-        await db_session.refresh(lo)
-        assert lo.phone_number == "+61499999999"
+        # Import replaces email rows; fetch the new row
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(
+                LotOwnerEmail.lot_owner_id == lo.id,
+                LotOwnerEmail.email == "voter@test.com",
+            )
+        )
+        new_em = em_result.scalar_one()
+        assert new_em.phone_number == "+61499999999"
 
     # --- Excel import with phone ---
 
     async def test_excel_import_stores_phone_e164(self, app, db_session: AsyncSession):
+        """Excel import: phone stored on the LotOwnerEmail row."""
         building = Building(name=f"XlsPhone {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
@@ -1307,24 +1340,32 @@ class TestLotOwnerImportWithPhone:
                 )},
             )
         assert resp.status_code == 200
-        result = await db_session.execute(
+        lo_result = await db_session.execute(
             select(LotOwner).where(
                 LotOwner.building_id == building.id,
                 LotOwner.lot_number == "1",
             )
         )
-        lo = result.scalar_one()
-        assert lo.phone_number == "+61412345678"
+        lo = lo_result.scalar_one()
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(
+                LotOwnerEmail.lot_owner_id == lo.id,
+                LotOwnerEmail.email == "voter@test.com",
+            )
+        )
+        em = em_result.scalar_one()
+        assert em.phone_number == "+61412345678"
 
     async def test_excel_import_phone_number_column_name(self, app, db_session: AsyncSession):
-        """Excel with 'phone_number' header (not 'phone') is also accepted."""
+        """Excel with 'phone_number' header (not 'phone') is also accepted.
+        No email column — phone is silently ignored since no email row is created."""
         building = Building(name=f"XlsPhNum {uuid.uuid4().hex[:6]}", manager_email="mgr@t.com")
         db_session.add(building)
         await db_session.flush()
 
         content = make_excel(
-            ["Lot#", "UOE2", "phone_number"],
-            [["2", 50, "+61499123456"]],
+            ["Lot#", "UOE2", "Email", "phone_number"],
+            [["2", 50, "voter2@test.com", "+61499123456"]],
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -1340,12 +1381,19 @@ class TestLotOwnerImportWithPhone:
                 )},
             )
         assert resp.status_code == 200
-        result = await db_session.execute(
+        lo_result = await db_session.execute(
             select(LotOwner).where(
                 LotOwner.building_id == building.id,
                 LotOwner.lot_number == "2",
             )
         )
-        lo = result.scalar_one()
-        assert lo.phone_number == "+61499123456"
+        lo = lo_result.scalar_one()
+        em_result = await db_session.execute(
+            select(LotOwnerEmail).where(
+                LotOwnerEmail.lot_owner_id == lo.id,
+                LotOwnerEmail.email == "voter2@test.com",
+            )
+        )
+        em = em_result.scalar_one()
+        assert em.phone_number == "+61499123456"
 

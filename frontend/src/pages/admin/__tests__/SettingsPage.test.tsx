@@ -2232,16 +2232,16 @@ describe("SettingsPage", () => {
       resolveRequest(HttpResponse.json({
         sms_enabled: false,
         sms_provider: null,
-        smtp2go_api_key_is_set: false,
-        smtp2go_sender_number: "",
-        twilio_account_sid: "",
-        twilio_auth_token_is_set: false,
-        twilio_from_number: "",
-        clicksend_username: "",
-        clicksend_api_key_is_set: false,
-        clicksend_from_number: "",
-        webhook_url: "",
-        webhook_secret_is_set: false,
+        sms_smtp2go_api_key_is_set: false,
+        sms_from_number: null,
+        sms_twilio_account_sid: null,
+        sms_twilio_auth_token_is_set: false,
+        sms_twilio_from_number: null,
+        sms_clicksend_username: null,
+        sms_clicksend_api_key_is_set: false,
+        sms_clicksend_from_number: null,
+        sms_webhook_url: null,
+        sms_webhook_secret_is_set: false,
       }) as unknown as Response);
     });
     await waitFor(() => expect(screen.getByText("SMS settings saved.")).toBeInTheDocument());
@@ -2315,7 +2315,7 @@ describe("SettingsPage", () => {
 
   it("Send test SMS shows error message on failure", async () => {
     server.use(
-      http.post(`${BASE}/api/admin/settings/sms/test`, () =>
+      http.post(`${BASE}/api/admin/config/sms/test`, () =>
         HttpResponse.json({ detail: "Send failed" }, { status: 500 })
       )
     );
@@ -2337,16 +2337,16 @@ describe("SettingsPage", () => {
         HttpResponse.json({
           sms_enabled: true,
           sms_provider: "twilio",
-          smtp2go_api_key_is_set: false,
-          smtp2go_sender_number: "",
-          twilio_account_sid: "AC123",
-          twilio_auth_token_is_set: true,
-          twilio_from_number: "+61400000000",
-          clicksend_username: "",
-          clicksend_api_key_is_set: false,
-          clicksend_from_number: "",
-          webhook_url: "",
-          webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false,
+          sms_from_number: null,
+          sms_twilio_account_sid: "AC123",
+          sms_twilio_auth_token_is_set: true,
+          sms_twilio_from_number: "+61400000000",
+          sms_clicksend_username: null,
+          sms_clicksend_api_key_is_set: false,
+          sms_clicksend_from_number: null,
+          sms_webhook_url: null,
+          sms_webhook_secret_is_set: false,
         })
       )
     );
@@ -2368,16 +2368,16 @@ describe("SettingsPage", () => {
         return HttpResponse.json({
           sms_enabled: true,
           sms_provider: "twilio",
-          smtp2go_api_key_is_set: false,
-          smtp2go_sender_number: "",
-          twilio_account_sid: "AC999",
-          twilio_auth_token_is_set: true,
-          twilio_from_number: "+61411111111",
-          clicksend_username: "",
-          clicksend_api_key_is_set: false,
-          clicksend_from_number: "",
-          webhook_url: "",
-          webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false,
+          sms_from_number: null,
+          sms_twilio_account_sid: "AC999",
+          sms_twilio_auth_token_is_set: true,
+          sms_twilio_from_number: "+61411111111",
+          sms_clicksend_username: null,
+          sms_clicksend_api_key_is_set: false,
+          sms_clicksend_from_number: null,
+          sms_webhook_url: null,
+          sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2393,9 +2393,9 @@ describe("SettingsPage", () => {
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
     expect(capturedBody?.sms_provider).toBe("twilio");
-    expect(capturedBody?.twilio_account_sid).toBe("AC999");
-    expect(capturedBody?.twilio_auth_token).toBe("secret-token");
-    expect(capturedBody?.twilio_from_number).toBe("+61411111111");
+    expect(capturedBody?.sms_twilio_account_sid).toBe("AC999");
+    expect(capturedBody?.sms_twilio_auth_token).toBe("secret-token");
+    expect(capturedBody?.sms_twilio_from_number).toBe("+61411111111");
   });
 
   it("SMS save with smtp2go provider: includes smtp2go fields in payload", async () => {
@@ -2406,16 +2406,16 @@ describe("SettingsPage", () => {
         return HttpResponse.json({
           sms_enabled: true,
           sms_provider: "smtp2go",
-          smtp2go_api_key_is_set: true,
-          smtp2go_sender_number: "+61400001111",
-          twilio_account_sid: "",
-          twilio_auth_token_is_set: false,
-          twilio_from_number: "",
-          clicksend_username: "",
-          clicksend_api_key_is_set: false,
-          clicksend_from_number: "",
-          webhook_url: "",
-          webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: true,
+          sms_from_number: "+61400001111",
+          sms_twilio_account_sid: null,
+          sms_twilio_auth_token_is_set: false,
+          sms_twilio_from_number: null,
+          sms_clicksend_username: null,
+          sms_clicksend_api_key_is_set: false,
+          sms_clicksend_from_number: null,
+          sms_webhook_url: null,
+          sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2430,8 +2430,8 @@ describe("SettingsPage", () => {
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
     expect(capturedBody?.sms_provider).toBe("smtp2go");
-    expect(capturedBody?.smtp2go_api_key).toBe("my-api-key");
-    expect(capturedBody?.smtp2go_sender_number).toBe("+61400001111");
+    expect(capturedBody?.sms_smtp2go_api_key).toBe("my-api-key");
+    expect(capturedBody?.sms_from_number).toBe("+61400001111");
   });
 
   it("SMS save with clicksend provider: includes clicksend fields in payload", async () => {
@@ -2442,16 +2442,16 @@ describe("SettingsPage", () => {
         return HttpResponse.json({
           sms_enabled: true,
           sms_provider: "clicksend",
-          smtp2go_api_key_is_set: false,
-          smtp2go_sender_number: "",
-          twilio_account_sid: "",
-          twilio_auth_token_is_set: false,
-          twilio_from_number: "",
-          clicksend_username: "user@example.com",
-          clicksend_api_key_is_set: true,
-          clicksend_from_number: "+61400002222",
-          webhook_url: "",
-          webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false,
+          sms_from_number: null,
+          sms_twilio_account_sid: null,
+          sms_twilio_auth_token_is_set: false,
+          sms_twilio_from_number: null,
+          sms_clicksend_username: "user@example.com",
+          sms_clicksend_api_key_is_set: true,
+          sms_clicksend_from_number: "+61400002222",
+          sms_webhook_url: null,
+          sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2468,9 +2468,9 @@ describe("SettingsPage", () => {
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
     expect(capturedBody?.sms_provider).toBe("clicksend");
-    expect(capturedBody?.clicksend_username).toBe("user@example.com");
-    expect(capturedBody?.clicksend_api_key).toBe("cs-api-key");
-    expect(capturedBody?.clicksend_from_number).toBe("+61400002222");
+    expect(capturedBody?.sms_clicksend_username).toBe("user@example.com");
+    expect(capturedBody?.sms_clicksend_api_key).toBe("cs-api-key");
+    expect(capturedBody?.sms_clicksend_from_number).toBe("+61400002222");
   });
 
   it("SMS save with webhook provider: includes webhook fields in payload", async () => {
@@ -2481,16 +2481,16 @@ describe("SettingsPage", () => {
         return HttpResponse.json({
           sms_enabled: true,
           sms_provider: "webhook",
-          smtp2go_api_key_is_set: false,
-          smtp2go_sender_number: "",
-          twilio_account_sid: "",
-          twilio_auth_token_is_set: false,
-          twilio_from_number: "",
-          clicksend_username: "",
-          clicksend_api_key_is_set: false,
-          clicksend_from_number: "",
-          webhook_url: "https://example.com/sms",
-          webhook_secret_is_set: true,
+          sms_smtp2go_api_key_is_set: false,
+          sms_from_number: null,
+          sms_twilio_account_sid: null,
+          sms_twilio_auth_token_is_set: false,
+          sms_twilio_from_number: null,
+          sms_clicksend_username: null,
+          sms_clicksend_api_key_is_set: false,
+          sms_clicksend_from_number: null,
+          sms_webhook_url: "https://example.com/sms",
+          sms_webhook_secret_is_set: true,
         });
       })
     );
@@ -2505,8 +2505,8 @@ describe("SettingsPage", () => {
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
     expect(capturedBody?.sms_provider).toBe("webhook");
-    expect(capturedBody?.webhook_url).toBe("https://example.com/sms");
-    expect(capturedBody?.webhook_secret).toBe("my-secret");
+    expect(capturedBody?.sms_webhook_url).toBe("https://example.com/sms");
+    expect(capturedBody?.sms_webhook_secret).toBe("my-secret");
   });
 
   it("getSmsConfig load failure shows error message", async () => {
@@ -2528,10 +2528,10 @@ describe("SettingsPage", () => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           sms_enabled: true, sms_provider: "smtp2go",
-          smtp2go_api_key_is_set: true, smtp2go_sender_number: "+61400001111",
-          twilio_account_sid: "", twilio_auth_token_is_set: false, twilio_from_number: "",
-          clicksend_username: "", clicksend_api_key_is_set: false, clicksend_from_number: "",
-          webhook_url: "", webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: true, sms_from_number: "+61400001111",
+          sms_twilio_account_sid: null, sms_twilio_auth_token_is_set: false, sms_twilio_from_number: null,
+          sms_clicksend_username: null, sms_clicksend_api_key_is_set: false, sms_clicksend_from_number: null,
+          sms_webhook_url: null, sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2546,7 +2546,7 @@ describe("SettingsPage", () => {
     await user.type(within(smsPanel).getByLabelText("Sender number"), "+61400001111");
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
-    expect(capturedBody?.smtp2go_api_key).toBeUndefined();
+    expect(capturedBody?.sms_smtp2go_api_key).toBeUndefined();
   });
 
   it("SMS save with twilio: omits auth_token from payload when field is empty", async () => {
@@ -2556,10 +2556,10 @@ describe("SettingsPage", () => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           sms_enabled: true, sms_provider: "twilio",
-          smtp2go_api_key_is_set: false, smtp2go_sender_number: "",
-          twilio_account_sid: "AC123", twilio_auth_token_is_set: true, twilio_from_number: "+61400001111",
-          clicksend_username: "", clicksend_api_key_is_set: false, clicksend_from_number: "",
-          webhook_url: "", webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false, sms_from_number: null,
+          sms_twilio_account_sid: "AC123", sms_twilio_auth_token_is_set: true, sms_twilio_from_number: "+61400001111",
+          sms_clicksend_username: null, sms_clicksend_api_key_is_set: false, sms_clicksend_from_number: null,
+          sms_webhook_url: null, sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2575,7 +2575,7 @@ describe("SettingsPage", () => {
     await user.type(within(smsPanel).getByLabelText("From number"), "+61400001111");
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
-    expect(capturedBody?.twilio_auth_token).toBeUndefined();
+    expect(capturedBody?.sms_twilio_auth_token).toBeUndefined();
   });
 
   it("SMS save with clicksend: omits api_key from payload when field is empty", async () => {
@@ -2585,10 +2585,10 @@ describe("SettingsPage", () => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           sms_enabled: true, sms_provider: "clicksend",
-          smtp2go_api_key_is_set: false, smtp2go_sender_number: "",
-          twilio_account_sid: "", twilio_auth_token_is_set: false, twilio_from_number: "",
-          clicksend_username: "user@example.com", clicksend_api_key_is_set: false, clicksend_from_number: "+61400002222",
-          webhook_url: "", webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false, sms_from_number: null,
+          sms_twilio_account_sid: null, sms_twilio_auth_token_is_set: false, sms_twilio_from_number: null,
+          sms_clicksend_username: "user@example.com", sms_clicksend_api_key_is_set: false, sms_clicksend_from_number: "+61400002222",
+          sms_webhook_url: null, sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2604,7 +2604,7 @@ describe("SettingsPage", () => {
     await user.type(within(smsPanel).getByLabelText("From number"), "+61400002222");
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
-    expect(capturedBody?.clicksend_api_key).toBeUndefined();
+    expect(capturedBody?.sms_clicksend_api_key).toBeUndefined();
   });
 
   it("SMS save with webhook: omits secret from payload when field is empty", async () => {
@@ -2614,10 +2614,10 @@ describe("SettingsPage", () => {
         capturedBody = await request.json() as Record<string, unknown>;
         return HttpResponse.json({
           sms_enabled: true, sms_provider: "webhook",
-          smtp2go_api_key_is_set: false, smtp2go_sender_number: "",
-          twilio_account_sid: "", twilio_auth_token_is_set: false, twilio_from_number: "",
-          clicksend_username: "", clicksend_api_key_is_set: false, clicksend_from_number: "",
-          webhook_url: "https://example.com/sms", webhook_secret_is_set: false,
+          sms_smtp2go_api_key_is_set: false, sms_from_number: null,
+          sms_twilio_account_sid: null, sms_twilio_auth_token_is_set: false, sms_twilio_from_number: null,
+          sms_clicksend_username: null, sms_clicksend_api_key_is_set: false, sms_clicksend_from_number: null,
+          sms_webhook_url: "https://example.com/sms", sms_webhook_secret_is_set: false,
         });
       })
     );
@@ -2632,7 +2632,7 @@ describe("SettingsPage", () => {
     // Leave secret empty — tests the falsy branch
     await user.click(screen.getByTestId("sms-save-btn"));
     await waitFor(() => expect(capturedBody).not.toBeNull());
-    expect(capturedBody?.webhook_secret).toBeUndefined();
+    expect(capturedBody?.sms_webhook_secret).toBeUndefined();
   });
 
   it("SMS save error uses fallback message for non-Error thrown value", async () => {

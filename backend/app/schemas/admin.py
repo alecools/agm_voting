@@ -110,6 +110,7 @@ class LotOwnerEmailOut(BaseModel):
     email: str | None
     given_name: str | None = None
     surname: str | None = None
+    phone_number: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -212,6 +213,7 @@ class AddOwnerEmailRequest(BaseModel):
     email: str = Field(..., max_length=254)
     given_name: str | None = Field(default=None, max_length=255)
     surname: str | None = Field(default=None, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=20)
 
     @field_validator("email")
     @classmethod
@@ -225,10 +227,13 @@ class UpdateOwnerEmailRequest(BaseModel):
     email: str | None = Field(default=None, max_length=254)
     given_name: str | None = Field(default=None, max_length=255)
     surname: str | None = Field(default=None, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "UpdateOwnerEmailRequest":
-        if self.email is None and self.given_name is None and self.surname is None:
+        # A field is "provided" if it appears in the request payload, even if its
+        # value is None (explicit null is a valid way to clear phone_number).
+        if not self.model_fields_set:
             raise ValueError("At least one field must be provided")
         return self
 

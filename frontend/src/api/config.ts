@@ -89,38 +89,38 @@ export interface SmsConfigOut {
   sms_enabled: boolean;
   sms_provider: SmsProvider | null;
   // smtp2go
-  smtp2go_api_key_is_set: boolean;
-  smtp2go_sender_number: string;
+  sms_smtp2go_api_key_is_set: boolean;
+  sms_from_number: string | null;
   // twilio
-  twilio_account_sid: string;
-  twilio_auth_token_is_set: boolean;
-  twilio_from_number: string;
+  sms_twilio_account_sid: string | null;
+  sms_twilio_auth_token_is_set: boolean;
+  sms_twilio_from_number: string | null;
   // clicksend
-  clicksend_username: string;
-  clicksend_api_key_is_set: boolean;
-  clicksend_from_number: string;
+  sms_clicksend_username: string | null;
+  sms_clicksend_api_key_is_set: boolean;
+  sms_clicksend_from_number: string | null;
   // webhook
-  webhook_url: string;
-  webhook_secret_is_set: boolean;
+  sms_webhook_url: string | null;
+  sms_webhook_secret_is_set: boolean;
 }
 
 export interface SmsConfigUpdate {
   sms_enabled?: boolean;
   sms_provider?: SmsProvider | null;
   // smtp2go
-  smtp2go_api_key?: string | null;
-  smtp2go_sender_number?: string | null;
+  sms_smtp2go_api_key?: string | null;
+  sms_from_number?: string | null;
   // twilio
-  twilio_account_sid?: string | null;
-  twilio_auth_token?: string | null;
-  twilio_from_number?: string | null;
+  sms_twilio_account_sid?: string | null;
+  sms_twilio_auth_token?: string | null;
+  sms_twilio_from_number?: string | null;
   // clicksend
-  clicksend_username?: string | null;
-  clicksend_api_key?: string | null;
-  clicksend_from_number?: string | null;
+  sms_clicksend_username?: string | null;
+  sms_clicksend_api_key?: string | null;
+  sms_clicksend_from_number?: string | null;
   // webhook
-  webhook_url?: string | null;
-  webhook_secret?: string | null;
+  sms_webhook_url?: string | null;
+  sms_webhook_secret?: string | null;
 }
 
 export interface SmsTestRequest {
@@ -139,7 +139,7 @@ export async function updateSmsConfig(data: SmsConfigUpdate): Promise<SmsConfigO
 }
 
 export async function testSmsConfig(toPhone: string): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>("/api/admin/settings/sms/test", {
+  return apiFetch<{ ok: boolean }>("/api/admin/config/sms/test", {
     method: "POST",
     body: JSON.stringify({ to_phone: toPhone } satisfies SmsTestRequest),
   });

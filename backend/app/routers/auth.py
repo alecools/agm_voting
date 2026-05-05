@@ -293,15 +293,15 @@ async def request_otp(
 
     email_known = bool(email_records or proxy_records)
 
-    # Resolve whether the voter has a phone number on any of their direct lots.
-    # Proxy lots are excluded — phone belongs to the lot owner, not the proxy.
+    # Resolve whether the voter has a phone number on their matched LotOwnerEmail row(s).
+    # Proxy lots are excluded — phone belongs to the contact, not the proxy.
     has_phone = False
     if email_records:
-        lot_owner_ids = [rec.lot_owner_id for rec in email_records]
+        email_ids = [rec.id for rec in email_records]
         phone_result = await db.execute(
-            select(LotOwner.phone_number).where(
-                LotOwner.id.in_(lot_owner_ids),
-                LotOwner.phone_number.isnot(None),
+            select(LotOwnerEmail.phone_number).where(
+                LotOwnerEmail.id.in_(email_ids),
+                LotOwnerEmail.phone_number.isnot(None),
             ).limit(1)
         )
         has_phone = phone_result.scalar_one_or_none() is not None
@@ -348,11 +348,11 @@ async def request_otp(
         skip_email_effective = body.skip_email and settings.testing_mode
         if not skip_email_effective:
             if body.channel == "sms":
-                # SMS path: fetch phone number and dispatch via SmsService.
+                # SMS path: fetch phone number from the matched LotOwnerEmail row(s).
                 phone_result2 = await db.execute(
-                    select(LotOwner.phone_number).where(
-                        LotOwner.id.in_([rec.lot_owner_id for rec in email_records]),
-                        LotOwner.phone_number.isnot(None),
+                    select(LotOwnerEmail.phone_number).where(
+                        LotOwnerEmail.id.in_([rec.id for rec in email_records]),
+                        LotOwnerEmail.phone_number.isnot(None),
                     ).limit(1)
                 )
                 phone_number = phone_result2.scalar_one_or_none()

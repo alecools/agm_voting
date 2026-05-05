@@ -3294,3 +3294,196 @@ class TestOwnerEmailSchemas:
 
         with pytest.raises(ValidationError):
             UpdateOwnerEmailRequest(surname="S" * 256)
+
+    def test_update_owner_email_phone_number_only_valid(self):
+        from app.schemas.admin import UpdateOwnerEmailRequest
+
+        req = UpdateOwnerEmailRequest(phone_number="+61412345678")
+        assert req.phone_number == "+61412345678"
+        assert req.email is None
+
+    def test_update_owner_email_phone_number_too_long_raises(self):
+        from pydantic import ValidationError
+        from app.schemas.admin import UpdateOwnerEmailRequest
+
+        with pytest.raises(ValidationError):
+            UpdateOwnerEmailRequest(phone_number="0" * 21)
+
+    def test_add_owner_email_phone_number_accepted(self):
+        from app.schemas.admin import AddOwnerEmailRequest
+
+        req = AddOwnerEmailRequest(email="x@test.com", phone_number="+61400000000")
+        assert req.phone_number == "+61400000000"
+
+    def test_add_owner_email_phone_number_too_long_raises(self):
+        from pydantic import ValidationError
+        from app.schemas.admin import AddOwnerEmailRequest
+
+        with pytest.raises(ValidationError):
+            AddOwnerEmailRequest(email="x@test.com", phone_number="0" * 21)
+
+
+# ---------------------------------------------------------------------------
+# Phone number per LotOwnerEmail (per-contact)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestOwnerEmailPhoneNumber:
+    """phone_number lives on LotOwnerEmail, not LotOwner."""
+
+    # --- Happy path: owner_emails response includes phone_number field ---
+
+    async def test_owner_emails_response_includes_phone_number_field(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """GET /lot-owners/{id} returns phone_number in each owner_emails entry."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN01", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(
+            lot_owner_id=lo.id,
+            email="phn1@test.com",
+            phone_number="+61412345678",
+        ))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/lot-owners/{lo.id}")
+        assert response.status_code == 200
+        data = response.json()
+        entry = data["owner_emails"][0]
+        assert "phone_number" in entry
+        assert entry["phone_number"] == "+61412345678"
+
+    async def test_owner_emails_phone_number_null_when_not_set(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """owner_emails.phone_number is null when not set."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN02", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="phn2@test.com"))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/lot-owners/{lo.id}")
+        assert response.status_code == 200
+        entry = response.json()["owner_emails"][0]
+        assert entry["phone_number"] is None
+
+    async def test_add_owner_email_with_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """POST /owner-emails with phone_number stores it on the email row."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN03", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/owner-emails",
+            json={"email": "phn3@test.com", "phone_number": "+61499000000"},
+        )
+        assert response.status_code == 201
+        entry = next(
+            (e for e in response.json()["owner_emails"] if e["email"] == "phn3@test.com"),
+            None,
+        )
+        assert entry is not None
+        assert entry["phone_number"] == "+61499000000"
+
+    async def test_add_owner_email_without_phone_number_defaults_to_null(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """POST /owner-emails without phone_number: phone_number is null."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN04", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/admin/lot-owners/{lo.id}/owner-emails",
+            json={"email": "phn4@test.com"},
+        )
+        assert response.status_code == 201
+        entry = response.json()["owner_emails"][0]
+        assert entry["phone_number"] is None
+
+    async def test_update_owner_email_sets_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PATCH /owner-emails/{id} with phone_number updates it."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN05", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        em = LotOwnerEmail(lot_owner_id=lo.id, email="phn5@test.com")
+        db_session.add(em)
+        await db_session.commit()
+        await db_session.refresh(em)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}/owner-emails/{em.id}",
+            json={"phone_number": "+61411111111"},
+        )
+        assert response.status_code == 200
+        entry = next(
+            (e for e in response.json()["owner_emails"] if str(e["id"]) == str(em.id)),
+            None,
+        )
+        assert entry is not None
+        assert entry["phone_number"] == "+61411111111"
+
+    async def test_update_owner_email_clears_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PATCH /owner-emails/{id} with phone_number=null clears it."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN06", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        em = LotOwnerEmail(lot_owner_id=lo.id, email="phn6@test.com", phone_number="+61400000000")
+        db_session.add(em)
+        await db_session.commit()
+        await db_session.refresh(em)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}/owner-emails/{em.id}",
+            json={"phone_number": None},
+        )
+        assert response.status_code == 200
+        entry = next(
+            (e for e in response.json()["owner_emails"] if str(e["id"]) == str(em.id)),
+            None,
+        )
+        assert entry is not None
+        assert entry["phone_number"] is None
+
+    # --- Input validation ---
+
+    async def test_update_owner_email_phone_number_too_long_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PATCH /owner-emails/{id} with phone_number > 20 chars returns 422."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN07", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        em = LotOwnerEmail(lot_owner_id=lo.id, email="phn7@test.com")
+        db_session.add(em)
+        await db_session.commit()
+        await db_session.refresh(em)
+
+        response = await client.patch(
+            f"/api/admin/lot-owners/{lo.id}/owner-emails/{em.id}",
+            json={"phone_number": "0" * 21},
+        )
+        assert response.status_code == 422
+
+    # --- Migration correctness: phone on email row, not lot owner ---
+
+    async def test_lot_owner_has_no_phone_number_field(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """GET /lot-owners/{id} response does not contain a top-level phone_number field."""
+        lo = LotOwner(building_id=building.id, lot_number="PHN08", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/lot-owners/{lo.id}")
+        assert response.status_code == 200
+        assert "phone_number" not in response.json()

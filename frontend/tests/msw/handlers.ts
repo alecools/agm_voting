@@ -56,32 +56,32 @@ export function resetSmtpStatusFixture() {
 export let smsConfigFixture: SmsConfigOut = {
   sms_enabled: false,
   sms_provider: null,
-  smtp2go_api_key_is_set: false,
-  smtp2go_sender_number: "",
-  twilio_account_sid: "",
-  twilio_auth_token_is_set: false,
-  twilio_from_number: "",
-  clicksend_username: "",
-  clicksend_api_key_is_set: false,
-  clicksend_from_number: "",
-  webhook_url: "",
-  webhook_secret_is_set: false,
+  sms_smtp2go_api_key_is_set: false,
+  sms_from_number: null,
+  sms_twilio_account_sid: null,
+  sms_twilio_auth_token_is_set: false,
+  sms_twilio_from_number: null,
+  sms_clicksend_username: null,
+  sms_clicksend_api_key_is_set: false,
+  sms_clicksend_from_number: null,
+  sms_webhook_url: null,
+  sms_webhook_secret_is_set: false,
 };
 
 export function resetSmsConfigFixture() {
   smsConfigFixture = {
     sms_enabled: false,
     sms_provider: null,
-    smtp2go_api_key_is_set: false,
-    smtp2go_sender_number: "",
-    twilio_account_sid: "",
-    twilio_auth_token_is_set: false,
-    twilio_from_number: "",
-    clicksend_username: "",
-    clicksend_api_key_is_set: false,
-    clicksend_from_number: "",
-    webhook_url: "",
-    webhook_secret_is_set: false,
+    sms_smtp2go_api_key_is_set: false,
+    sms_from_number: null,
+    sms_twilio_account_sid: null,
+    sms_twilio_auth_token_is_set: false,
+    sms_twilio_from_number: null,
+    sms_clicksend_username: null,
+    sms_clicksend_api_key_is_set: false,
+    sms_clicksend_from_number: null,
+    sms_webhook_url: null,
+    sms_webhook_secret_is_set: false,
   };
 }
 
@@ -179,7 +179,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     given_name: "Alice",
     surname: "Smith",
     owner_emails: [
-      { id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith" },
+      { id: "em1", email: "owner1@example.com", given_name: "Alice", surname: "Smith", phone_number: null },
     ],
     emails: ["owner1@example.com"],
     unit_entitlement: 100,
@@ -187,7 +187,6 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: null,
     proxy_given_name: null,
     proxy_surname: null,
-    phone_number: null,
   },
   {
     id: "lo2",
@@ -196,7 +195,7 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     given_name: null,
     surname: null,
     owner_emails: [
-      { id: "em2", email: "owner2@example.com", given_name: null, surname: null },
+      { id: "em2", email: "owner2@example.com", given_name: null, surname: null, phone_number: null },
     ],
     emails: ["owner2@example.com"],
     unit_entitlement: 200,
@@ -204,7 +203,6 @@ export const ADMIN_LOT_OWNERS: LotOwner[] = [
     proxy_email: "proxy@example.com",
     proxy_given_name: null,
     proxy_surname: null,
-    phone_number: null,
   },
 ];
 
@@ -790,14 +788,13 @@ export const adminHandlers = [
       lot_number: body?.lot_number ?? "NEW",
       given_name: null,
       surname: null,
-      owner_emails: [{ id: "em-new", email: "new@example.com", given_name: null, surname: null }],
+      owner_emails: [{ id: "em-new", email: "new@example.com", given_name: null, surname: null, phone_number: null }],
       emails: ["new@example.com"],
       unit_entitlement: 50,
       financial_position: "normal",
       proxy_email: null,
       proxy_given_name: null,
       proxy_surname: null,
-      phone_number: null,
     };
     return HttpResponse.json(newOwner, { status: 201 });
   }),
@@ -877,7 +874,7 @@ export const adminHandlers = [
   }),
 
   http.patch(`${BASE}/api/admin/lot-owners/:lotOwnerId`, async ({ request }) => {
-    const body = await request.json() as { unit_entitlement?: number; financial_position?: string; phone_number?: string | null };
+    const body = await request.json() as { unit_entitlement?: number; financial_position?: string };
     if (body?.unit_entitlement !== undefined && body.unit_entitlement < 0) {
       return HttpResponse.json(
         { detail: "unit_entitlement must be >= 0" },
@@ -888,7 +885,6 @@ export const adminHandlers = [
       ...ADMIN_LOT_OWNERS[0],
       unit_entitlement: body?.unit_entitlement ?? ADMIN_LOT_OWNERS[0].unit_entitlement,
       financial_position: (body?.financial_position as "normal" | "in_arrear") ?? ADMIN_LOT_OWNERS[0].financial_position,
-      phone_number: body?.phone_number !== undefined ? body.phone_number : ADMIN_LOT_OWNERS[0].phone_number,
     };
     return HttpResponse.json(updated);
   }),
@@ -1297,26 +1293,26 @@ export const adminHandlers = [
   }),
 
   http.put(`${BASE}/api/admin/config/sms`, async ({ request }) => {
-    const body = await request.json() as Partial<SmsConfigOut> & { smtp2go_api_key?: string | null; twilio_auth_token?: string | null; clicksend_api_key?: string | null; webhook_secret?: string | null };
+    const body = await request.json() as Partial<SmsConfigOut> & { sms_smtp2go_api_key?: string | null; sms_twilio_auth_token?: string | null; sms_clicksend_api_key?: string | null; sms_webhook_secret?: string | null };
     smsConfigFixture = {
       ...smsConfigFixture,
       sms_enabled: body?.sms_enabled !== undefined ? body.sms_enabled : smsConfigFixture.sms_enabled,
       sms_provider: body?.sms_provider !== undefined ? body.sms_provider : smsConfigFixture.sms_provider,
-      smtp2go_api_key_is_set: body?.smtp2go_api_key ? true : smsConfigFixture.smtp2go_api_key_is_set,
-      smtp2go_sender_number: body?.smtp2go_sender_number ?? smsConfigFixture.smtp2go_sender_number,
-      twilio_account_sid: body?.twilio_account_sid ?? smsConfigFixture.twilio_account_sid,
-      twilio_auth_token_is_set: body?.twilio_auth_token ? true : smsConfigFixture.twilio_auth_token_is_set,
-      twilio_from_number: body?.twilio_from_number ?? smsConfigFixture.twilio_from_number,
-      clicksend_username: body?.clicksend_username ?? smsConfigFixture.clicksend_username,
-      clicksend_api_key_is_set: body?.clicksend_api_key ? true : smsConfigFixture.clicksend_api_key_is_set,
-      clicksend_from_number: body?.clicksend_from_number ?? smsConfigFixture.clicksend_from_number,
-      webhook_url: body?.webhook_url ?? smsConfigFixture.webhook_url,
-      webhook_secret_is_set: body?.webhook_secret ? true : smsConfigFixture.webhook_secret_is_set,
+      sms_smtp2go_api_key_is_set: body?.sms_smtp2go_api_key ? true : smsConfigFixture.sms_smtp2go_api_key_is_set,
+      sms_from_number: body?.sms_from_number !== undefined ? body.sms_from_number : smsConfigFixture.sms_from_number,
+      sms_twilio_account_sid: body?.sms_twilio_account_sid !== undefined ? body.sms_twilio_account_sid : smsConfigFixture.sms_twilio_account_sid,
+      sms_twilio_auth_token_is_set: body?.sms_twilio_auth_token ? true : smsConfigFixture.sms_twilio_auth_token_is_set,
+      sms_twilio_from_number: body?.sms_twilio_from_number !== undefined ? body.sms_twilio_from_number : smsConfigFixture.sms_twilio_from_number,
+      sms_clicksend_username: body?.sms_clicksend_username !== undefined ? body.sms_clicksend_username : smsConfigFixture.sms_clicksend_username,
+      sms_clicksend_api_key_is_set: body?.sms_clicksend_api_key ? true : smsConfigFixture.sms_clicksend_api_key_is_set,
+      sms_clicksend_from_number: body?.sms_clicksend_from_number !== undefined ? body.sms_clicksend_from_number : smsConfigFixture.sms_clicksend_from_number,
+      sms_webhook_url: body?.sms_webhook_url !== undefined ? body.sms_webhook_url : smsConfigFixture.sms_webhook_url,
+      sms_webhook_secret_is_set: body?.sms_webhook_secret ? true : smsConfigFixture.sms_webhook_secret_is_set,
     };
     return HttpResponse.json(smsConfigFixture);
   }),
 
-  http.post(`${BASE}/api/admin/settings/sms/test`, () => {
+  http.post(`${BASE}/api/admin/config/sms/test`, () => {
     return HttpResponse.json({ ok: true });
   }),
 ];

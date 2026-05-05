@@ -133,16 +133,16 @@ export default function SettingsPage() {
 
         setSmsEnabled(sms.sms_enabled);
         setSmsProvider(sms.sms_provider);
-        setSmtp2goApiKeyIsSet(sms.smtp2go_api_key_is_set);
-        setSmtp2goSenderNumber(sms.smtp2go_sender_number);
-        setTwilioAccountSid(sms.twilio_account_sid);
-        setTwilioAuthTokenIsSet(sms.twilio_auth_token_is_set);
-        setTwilioFromNumber(sms.twilio_from_number);
-        setClicksendUsername(sms.clicksend_username);
-        setClicksendApiKeyIsSet(sms.clicksend_api_key_is_set);
-        setClicksendFromNumber(sms.clicksend_from_number);
-        setWebhookUrl(sms.webhook_url);
-        setWebhookSecretIsSet(sms.webhook_secret_is_set);
+        setSmtp2goApiKeyIsSet(sms.sms_smtp2go_api_key_is_set);
+        setSmtp2goSenderNumber(sms.sms_from_number ?? "");
+        setTwilioAccountSid(sms.sms_twilio_account_sid ?? "");
+        setTwilioAuthTokenIsSet(sms.sms_twilio_auth_token_is_set);
+        setTwilioFromNumber(sms.sms_twilio_from_number ?? "");
+        setClicksendUsername(sms.sms_clicksend_username ?? "");
+        setClicksendApiKeyIsSet(sms.sms_clicksend_api_key_is_set);
+        setClicksendFromNumber(sms.sms_clicksend_from_number ?? "");
+        setWebhookUrl(sms.sms_webhook_url ?? "");
+        setWebhookSecretIsSet(sms.sms_webhook_secret_is_set);
       })
       .catch(() => {
         setSaveError("Failed to load settings.");
@@ -316,28 +316,28 @@ export default function SettingsPage() {
         sms_provider: smsProvider,
       };
       if (smsProvider === "smtp2go") {
-        if (smtp2goApiKey) payload.smtp2go_api_key = smtp2goApiKey;
-        payload.smtp2go_sender_number = smtp2goSenderNumber;
+        if (smtp2goApiKey) payload.sms_smtp2go_api_key = smtp2goApiKey;
+        payload.sms_from_number = smtp2goSenderNumber;
       } else if (smsProvider === "twilio") {
-        payload.twilio_account_sid = twilioAccountSid;
-        if (twilioAuthToken) payload.twilio_auth_token = twilioAuthToken;
-        payload.twilio_from_number = twilioFromNumber;
+        payload.sms_twilio_account_sid = twilioAccountSid;
+        if (twilioAuthToken) payload.sms_twilio_auth_token = twilioAuthToken;
+        payload.sms_twilio_from_number = twilioFromNumber;
       } else if (smsProvider === "clicksend") {
-        payload.clicksend_username = clicksendUsername;
-        if (clicksendApiKey) payload.clicksend_api_key = clicksendApiKey;
-        payload.clicksend_from_number = clicksendFromNumber;
+        payload.sms_clicksend_username = clicksendUsername;
+        if (clicksendApiKey) payload.sms_clicksend_api_key = clicksendApiKey;
+        payload.sms_clicksend_from_number = clicksendFromNumber;
       } else if (smsProvider === "webhook") {
-        payload.webhook_url = webhookUrl;
-        if (webhookSecret) payload.webhook_secret = webhookSecret;
+        payload.sms_webhook_url = webhookUrl;
+        if (webhookSecret) payload.sms_webhook_secret = webhookSecret;
       }
       const updated: SmsConfigOut = await updateSmsConfig(payload);
-      setSmtp2goApiKeyIsSet(updated.smtp2go_api_key_is_set);
+      setSmtp2goApiKeyIsSet(updated.sms_smtp2go_api_key_is_set);
       setSmtp2goApiKey("");
-      setTwilioAuthTokenIsSet(updated.twilio_auth_token_is_set);
+      setTwilioAuthTokenIsSet(updated.sms_twilio_auth_token_is_set);
       setTwilioAuthToken("");
-      setClicksendApiKeyIsSet(updated.clicksend_api_key_is_set);
+      setClicksendApiKeyIsSet(updated.sms_clicksend_api_key_is_set);
       setClicksendApiKey("");
-      setWebhookSecretIsSet(updated.webhook_secret_is_set);
+      setWebhookSecretIsSet(updated.sms_webhook_secret_is_set);
       setWebhookSecret("");
       setSmsSaveSuccess(true);
       setTimeout(() => setSmsSaveSuccess(false), 3000);

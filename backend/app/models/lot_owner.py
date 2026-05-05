@@ -32,7 +32,6 @@ class LotOwner(Base):
     lot_number: Mapped[str] = mapped_column(String, nullable=False)
     given_name: Mapped[str | None] = mapped_column(String, nullable=True)
     surname: Mapped[str | None] = mapped_column(String, nullable=True)
-    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     unit_entitlement: Mapped[int] = mapped_column(Integer, nullable=False)
     financial_position: Mapped[FinancialPosition] = mapped_column(
         Enum(FinancialPosition, name="financialposition"),

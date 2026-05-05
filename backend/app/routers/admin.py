@@ -684,9 +684,10 @@ async def add_owner_email_to_lot_owner(
     data: AddOwnerEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
-    """Add an owner email (with optional name) to a lot owner."""
+    """Add an owner email (with optional name and phone) to a lot owner."""
     owner = await admin_service.add_owner_email_to_lot_owner(
-        lot_owner_id, data.email, data.given_name, data.surname, db
+        lot_owner_id, data.email, data.given_name, data.surname, db,
+        phone_number=data.phone_number,
     )
     return LotOwnerOut(**owner)
 
@@ -702,9 +703,21 @@ async def update_owner_email(
     data: UpdateOwnerEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
-    """Update the email address and/or name on an owner email record."""
+    """Update the email address, name, and/or phone on an owner email record."""
+    # phone_number=None in the request body means "no change requested" unless it is
+    # explicitly supplied as null.  We detect explicit null by checking the raw request
+    # dict (model_fields_set is not available on model_validate from dict in all Pydantic
+    # versions, so we use __pydantic_fields_set__).
+    phone_set = "phone_number" in data.model_fields_set
     owner = await admin_service.update_owner_email(
-        lot_owner_id, email_id, data.email, data.given_name, data.surname, db
+        lot_owner_id,
+        email_id,
+        data.email,
+        data.given_name,
+        data.surname,
+        db,
+        phone_number=data.phone_number if (phone_set and data.phone_number is not None) else None,
+        clear_phone=(phone_set and data.phone_number is None),
     )
     return LotOwnerOut(**owner)
 
