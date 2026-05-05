@@ -6853,6 +6853,65 @@ class TestListGeneralMeetingsSort:
         test_titles = [t for t in titles if any(kw in t for kw in ("apple", "mango", "zebra"))]
         assert test_titles == sorted(test_titles)
 
+    # --- building_name sort ---
+
+    async def test_sort_by_building_name_asc_returns_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """sort_by=building_name&sort_dir=asc returns meetings in A→Z building name order."""
+        b_z_resp = await client.post("/api/admin/buildings", json={"name": "ZebraTower Sort", "manager_email": "zbsort@test.com"})
+        b_z_id = b_z_resp.json()["id"]
+        b_a_resp = await client.post("/api/admin/buildings", json={"name": "AlphaTower Sort", "manager_email": "absort@test.com"})
+        b_a_id = b_a_resp.json()["id"]
+        b_m_resp = await client.post("/api/admin/buildings", json={"name": "MangoTower Sort", "manager_email": "mgsort@test.com"})
+        b_m_id = b_m_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_z_id, "Meeting Z-tower"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_a_id, "Meeting A-tower"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_m_id, "Meeting M-tower"))
+
+        response = await client.get("/api/admin/general-meetings?sort_by=building_name&sort_dir=asc")
+        assert response.status_code == 200
+        building_names = [m["building_name"].lower() for m in response.json()]
+        test_names = [n for n in building_names if any(kw in n for kw in ("zebratower", "alphatower", "mangotower"))]
+        assert test_names == sorted(test_names)
+
+    async def test_sort_by_building_name_desc_returns_reverse_alphabetical_order(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """sort_by=building_name&sort_dir=desc returns meetings in Z→A building name order."""
+        b_z_resp = await client.post("/api/admin/buildings", json={"name": "ZebraDesc Sort", "manager_email": "zds@test.com"})
+        b_z_id = b_z_resp.json()["id"]
+        b_a_resp = await client.post("/api/admin/buildings", json={"name": "AlphaDesc Sort", "manager_email": "ads@test.com"})
+        b_a_id = b_a_resp.json()["id"]
+        b_m_resp = await client.post("/api/admin/buildings", json={"name": "MangoDesc Sort", "manager_email": "mds@test.com"})
+        b_m_id = b_m_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_z_id, "MeetingZDesc"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_a_id, "MeetingADesc"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b_m_id, "MeetingMDesc"))
+
+        response = await client.get("/api/admin/general-meetings?sort_by=building_name&sort_dir=desc")
+        assert response.status_code == 200
+        building_names = [m["building_name"].lower() for m in response.json()]
+        test_names = [n for n in building_names if any(kw in n for kw in ("zebradesc", "alphadesc", "mangodesc"))]
+        assert test_names == sorted(test_names, reverse=True)
+
+    async def test_sort_by_building_name_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """building_name sort is case-insensitive."""
+        b1_resp = await client.post("/api/admin/buildings", json={"name": "zebra ci sort", "manager_email": "zci@test.com"})
+        b1_id = b1_resp.json()["id"]
+        b2_resp = await client.post("/api/admin/buildings", json={"name": "APPLE CI SORT", "manager_email": "aci@test.com"})
+        b2_id = b2_resp.json()["id"]
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b1_id, "CISortZebraMeeting"))
+        await client.post("/api/admin/general-meetings", json=self._agm_payload(b2_id, "CISortAppleMeeting"))
+
+        response = await client.get("/api/admin/general-meetings?sort_by=building_name&sort_dir=asc")
+        assert response.status_code == 200
+        building_names = [m["building_name"].lower() for m in response.json()]
+        test_names = [n for n in building_names if "ci sort" in n]
+        assert test_names == sorted(test_names)
+
 
 # ---------------------------------------------------------------------------
 # Slice 4 — Multi-choice pass/fail outcome algorithm

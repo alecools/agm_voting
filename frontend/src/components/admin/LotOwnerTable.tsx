@@ -60,7 +60,12 @@ export default function LotOwnerTable({
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <th>Email</th>
+            <SortableColumnHeader
+              label="Email"
+              column="email"
+              currentSort={currentSort}
+              onSort={handleSort}
+            />
             <SortableColumnHeader
               label="Unit Entitlement"
               column="unit_entitlement"
@@ -73,7 +78,12 @@ export default function LotOwnerTable({
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <th>Proxy</th>
+            <SortableColumnHeader
+              label="Proxy"
+              column="proxy_email"
+              currentSort={currentSort}
+              onSort={handleSort}
+            />
             <th>Actions</th>
           </tr>
         </thead>

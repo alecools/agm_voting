@@ -44,7 +44,16 @@ export default function GeneralMeetingTable({ meetings, isLoading, sortBy, sortD
       <table className="admin-table">
         <thead>
           <tr>
-            <th>Building</th>
+            {onSort ? (
+              <SortableColumnHeader
+                label="Building"
+                column="building_name"
+                currentSort={currentSort}
+                onSort={onSort}
+              />
+            ) : (
+              <th>Building</th>
+            )}
             {onSort ? (
               <SortableColumnHeader
                 label="Title"
