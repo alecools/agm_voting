@@ -16,6 +16,7 @@ import {
   importProxyNominations,
   importFinancialPositions,
   closeMotion,
+  searchPersons,
 } from "../admin";
 
 const BASE = "http://localhost";
@@ -766,5 +767,77 @@ describe("closeMotion", () => {
       )
     );
     await expect(closeMotion("m-notfound")).rejects.toThrow("404");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchPersons
+// ---------------------------------------------------------------------------
+describe("searchPersons", () => {
+  // --- Happy path ---
+
+  it("returns matching persons for a given prefix query", async () => {
+    server.use(
+      http.get(`${BASE}/api/admin/persons/search`, ({ request }) => {
+        const url = new URL(request.url);
+        const q = url.searchParams.get("q") ?? "";
+        if (q.startsWith("alice")) {
+          return HttpResponse.json([
+            { id: "p1", email: "alice@example.com", given_name: "Alice", surname: "Smith", phone_number: null },
+          ]);
+        }
+        return HttpResponse.json([]);
+      })
+    );
+    const result = await searchPersons("alice");
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe("alice@example.com");
+    expect(result[0].given_name).toBe("Alice");
+    expect(result[0].surname).toBe("Smith");
+    expect(result[0].phone_number).toBeNull();
+  });
+
+  it("returns empty array when no persons match", async () => {
+    server.use(
+      http.get(`${BASE}/api/admin/persons/search`, () => HttpResponse.json([]))
+    );
+    const result = await searchPersons("zzz");
+    expect(result).toEqual([]);
+  });
+
+  it("sends q and limit query params", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/persons/search`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await searchPersons("bob", 5);
+    expect(capturedUrl).toContain("q=bob");
+    expect(capturedUrl).toContain("limit=5");
+  });
+
+  it("uses default limit=10 when not specified", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get(`${BASE}/api/admin/persons/search`, ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    await searchPersons("test");
+    expect(capturedUrl).toContain("limit=10");
+  });
+
+  // --- Error handling ---
+
+  it("throws on server error (500)", async () => {
+    server.use(
+      http.get(`${BASE}/api/admin/persons/search`, () =>
+        HttpResponse.json({ detail: "Internal server error" }, { status: 500 })
+      )
+    );
+    await expect(searchPersons("x")).rejects.toThrow("500");
   });
 });

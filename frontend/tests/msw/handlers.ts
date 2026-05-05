@@ -861,6 +861,25 @@ export const adminHandlers = [
     return HttpResponse.json(updated);
   }),
 
+  // Person search endpoint
+  http.get(`${BASE}/api/admin/persons/search`, ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
+    const limit = parseInt(url.searchParams.get("limit") ?? "10", 10);
+    if (!q) return HttpResponse.json([]);
+    const allPersons = ADMIN_LOT_OWNERS.flatMap((lo) =>
+      lo.owner_emails.map((e) => ({
+        id: e.id,
+        email: e.email ?? "",
+        given_name: e.given_name,
+        surname: e.surname,
+        phone_number: e.phone_number ?? null,
+      }))
+    );
+    const matches = allPersons.filter((p) => p.email.startsWith(q)).slice(0, limit);
+    return HttpResponse.json(matches);
+  }),
+
   http.delete(`${BASE}/api/admin/lot-owners/:lotOwnerId/owner-emails/:emailId`, ({ params }) => {
     const updated: LotOwner = {
       ...ADMIN_LOT_OWNERS[0],

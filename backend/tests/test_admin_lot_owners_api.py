@@ -3995,3 +3995,240 @@ class TestPersonServiceCoverage:
         assert body["id"] == str(lo.id)
         # Person was removed — persons list should be empty
         assert body["persons"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/persons/search — prefix search
+# ---------------------------------------------------------------------------
+
+
+class TestSearchPersons:
+    # --- Happy path ---
+
+    async def test_search_returns_matching_persons(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/persons/search?q=srch returns persons whose email starts with the prefix."""
+        p1 = Person(email="srch_alpha@test.com", given_name="Alpha", surname="Test")
+        p2 = Person(email="srch_beta@test.com", given_name="Beta", surname="Test")
+        p3 = Person(email="other_unrelated@test.com")
+        db_session.add_all([p1, p2, p3])
+        await db_session.commit()
+
+        response = await client.get("/api/admin/persons/search", params={"q": "srch_"})
+        assert response.status_code == 200
+        data = response.json()
+        emails = [p["email"] for p in data]
+        assert "srch_alpha@test.com" in emails
+        assert "srch_beta@test.com" in emails
+        assert "other_unrelated@test.com" not in emails
+
+    async def test_search_returns_empty_list_when_no_match(
+        self, client: AsyncClient
+    ):
+        """GET /api/admin/persons/search?q=nomatch returns []."""
+        response = await client.get("/api/admin/persons/search", params={"q": "zzz_nomatch_xyz_"})
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_search_respects_limit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/persons/search?q=lim&limit=1 returns at most 1 result."""
+        p1 = Person(email="lim_one@test.com")
+        p2 = Person(email="lim_two@test.com")
+        db_session.add_all([p1, p2])
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/admin/persons/search", params={"q": "lim_", "limit": 1}
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_search_is_case_insensitive(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /api/admin/persons/search?q=UPPER_CI matches lowercase-stored emails."""
+        p = Person(email="upper_ci_test@test.com")
+        db_session.add(p)
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/admin/persons/search", params={"q": "UPPER_CI"}
+        )
+        assert response.status_code == 200
+        emails = [r["email"] for r in response.json()]
+        assert "upper_ci_test@test.com" in emails
+
+    async def test_search_returns_full_person_fields(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Search results include id, email, given_name, surname, phone_number."""
+        p = Person(
+            email="srch_full@test.com",
+            given_name="Full",
+            surname="Person",
+            phone_number="+61400000001",
+        )
+        db_session.add(p)
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/admin/persons/search", params={"q": "srch_full"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        match = next(r for r in data if r["email"] == "srch_full@test.com")
+        assert match["given_name"] == "Full"
+        assert match["surname"] == "Person"
+        assert match["phone_number"] == "+61400000001"
+
+    # --- Input validation ---
+
+    async def test_search_missing_q_returns_422(self, client: AsyncClient):
+        """GET /api/admin/persons/search without q returns 422."""
+        response = await client.get("/api/admin/persons/search")
+        assert response.status_code == 422
+
+    async def test_search_limit_above_20_returns_422(self, client: AsyncClient):
+        """GET /api/admin/persons/search?q=x&limit=21 returns 422 (max is 20)."""
+        response = await client.get(
+            "/api/admin/persons/search", params={"q": "x", "limit": 21}
+        )
+        assert response.status_code == 422
+
+    async def test_search_empty_q_returns_422(self, client: AsyncClient):
+        """GET /api/admin/persons/search?q= returns 422 (min_length=1)."""
+        response = await client.get("/api/admin/persons/search", params={"q": ""})
+        assert response.status_code == 422
+
+    async def test_search_whitespace_only_q_returns_empty_list(
+        self, client: AsyncClient
+    ):
+        """GET /api/admin/persons/search?q= (whitespace) returns [] (service early-return path)."""
+        response = await client.get("/api/admin/persons/search", params={"q": " "})
+        assert response.status_code == 200
+        assert response.json() == []
+
+
+# ---------------------------------------------------------------------------
+# proxy_phone_number in responses (new LotOwnerOut field)
+# ---------------------------------------------------------------------------
+
+
+class TestProxyPhoneNumber:
+    # --- Happy path ---
+
+    async def test_set_proxy_with_phone_returns_proxy_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /lot-owners/{id}/proxy with phone_number fills proxy_phone_number in response."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN01", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "pphn@test.com", "phone_number": "+61400000002"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_email"] == "pphn@test.com"
+        assert data["proxy_phone_number"] == "+61400000002"
+
+    async def test_set_proxy_without_phone_returns_null_proxy_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """PUT /lot-owners/{id}/proxy without phone_number returns proxy_phone_number=null."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN02", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "pphn_nophone@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_phone_number"] is None
+
+    async def test_get_lot_owner_returns_proxy_phone_number_when_set(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """GET /lot-owners/{id} includes proxy_phone_number when proxy person has a phone."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN03", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        person = Person(email="pphn_get@test.com", phone_number="+61400000003")
+        db_session.add(person)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_id=lo.id, person_id=person.id))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/lot-owners/{lo.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_phone_number"] == "+61400000003"
+
+    async def test_list_lot_owners_includes_proxy_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """GET /buildings/{id}/lot-owners includes proxy_phone_number for lots with proxy."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN04", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        person = Person(email="pphn_list@test.com", phone_number="+61400000004")
+        db_session.add(person)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_id=lo.id, person_id=person.id))
+        await db_session.commit()
+
+        response = await client.get(f"/api/admin/buildings/{building.id}/lot-owners")
+        assert response.status_code == 200
+        owners = response.json()
+        target = next(o for o in owners if o["lot_number"] == "PPHN04")
+        assert target["proxy_phone_number"] == "+61400000004"
+
+    async def test_proxy_phone_not_overwritten_when_already_set(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """Fill-blanks: proxy phone not overwritten when person.phone_number already has a value."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN05", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.commit()
+
+        # First set: fill phone
+        r1 = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "pphn_nowrit@test.com", "phone_number": "+61400000005"},
+        )
+        assert r1.status_code == 200
+
+        # Second set (same person): try to overwrite phone
+        r2 = await client.put(
+            f"/api/admin/lot-owners/{lo.id}/proxy",
+            json={"proxy_email": "pphn_nowrit@test.com", "phone_number": "+61400000099"},
+        )
+        assert r2.status_code == 200
+        # Phone should still be the original value (fill-blanks policy)
+        assert r2.json()["proxy_phone_number"] == "+61400000005"
+
+    async def test_remove_proxy_returns_null_proxy_phone_number(
+        self, client: AsyncClient, db_session: AsyncSession, building: Building
+    ):
+        """DELETE /lot-owners/{id}/proxy returns proxy_phone_number=null after removal."""
+        lo = LotOwner(building_id=building.id, lot_number="PPHN06", unit_entitlement=100)
+        db_session.add(lo)
+        await db_session.flush()
+        person = Person(email="pphn_del@test.com", phone_number="+61400000006")
+        db_session.add(person)
+        await db_session.flush()
+        db_session.add(LotProxy(lot_id=lo.id, person_id=person.id))
+        await db_session.commit()
+
+        response = await client.delete(f"/api/admin/lot-owners/{lo.id}/proxy")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["proxy_phone_number"] is None

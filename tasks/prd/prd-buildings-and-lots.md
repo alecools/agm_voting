@@ -680,6 +680,66 @@ This document covers all building management, lot owner management, CSV/Excel im
 
 ---
 
+### US-FORM-UX-01: Email-first field order and person autocomplete in lot owner and proxy forms
+
+**Status:** ✅ Implemented — branch: `feat/lot-owner-form-ux`, committed 2026-05-05
+
+**Description:** As a building manager, I want the email field to appear first in the add/edit forms for lot owners and proxies, and I want the system to suggest matching existing persons as I type so I can quickly associate an existing person without re-entering their details.
+
+**Acceptance Criteria:**
+
+- [ ] In the "Add owner" sub-form inside the lot owner edit modal, the email input appears first (above given name, surname, phone)
+- [ ] In the add proxy section of the lot owner edit modal, the email input appears first (above given name and surname)
+- [ ] As the user types in the email field (owner or proxy), a dropdown suggests matching existing persons after a 300 ms debounce; each suggestion is displayed as `Given Surname <email>` (or just `<email>` if no name is stored)
+- [ ] The suggestion list shows at most 10 results
+- [ ] The autocomplete endpoint is `GET /api/admin/persons/search?q=<prefix>&limit=10` (admin-only); it returns persons whose email starts with the typed prefix (case-insensitive)
+- [ ] Selecting a suggestion auto-populates the name and phone fields with the person's stored values
+- [ ] Auto-populated name/phone fields remain editable; the user may change them before saving
+- [ ] If the user types an email that does not match any suggestion and submits, the form behaves as it does today (no autocomplete side-effects)
+- [ ] All existing form validation (email format, required fields) is unchanged
+- [ ] Keyboard navigation: Up/Down arrows move focus through suggestions; Enter selects; Escape closes the dropdown
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-FORM-UX-02: Conflict warning when person details differ from stored record
+
+**Status:** ✅ Implemented — branch: `feat/lot-owner-form-ux`, committed 2026-05-05
+
+**Description:** As a building manager, I want the system to warn me before saving when the name or phone I have entered differs from the existing record for that email, so I know that saving will update the shared person record across all lots and proxies.
+
+**Acceptance Criteria:**
+
+- [ ] After the user submits the add-owner or set-proxy form and the submitted email matches an existing `persons` row whose `given_name`, `surname`, or `phone_number` differs from what was submitted, a confirmation modal is shown before the API call proceeds
+- [ ] The modal title is "Update person details?"
+- [ ] The modal body is "The name or phone number you entered is different from the existing record for [email]. Updating will apply to all lots and proxies linked to this person. Do you want to continue?"
+- [ ] The modal has two buttons: "Cancel" and "Update and save"
+- [ ] Clicking "Update and save" proceeds with the save (calling the existing add-owner or set-proxy endpoint, which will update the person's details)
+- [ ] Clicking "Cancel" closes the modal and returns to the form without making any API call
+- [ ] The conflict check is performed client-side against the person data retrieved during autocomplete (or from a lookup on submit if no autocomplete suggestion was selected)
+- [ ] If the email is new (no existing person row), no modal is shown and the form saves normally
+- [ ] If the email matches an existing person and the submitted name/phone match the stored values exactly, no modal is shown
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
+### US-FORM-UX-03: Phone number field on proxy add/edit form
+
+**Status:** ✅ Implemented — branch: `feat/lot-owner-form-ux`, committed 2026-05-05
+
+**Description:** As a building manager, I want to enter and edit a phone number for a proxy contact directly in the add/edit proxy form, so proxy persons have a complete contact record consistent with lot owner persons.
+
+**Acceptance Criteria:**
+
+- [ ] The "Set proxy" section of the lot owner edit modal includes a "Phone number" input (optional), placed below the name fields and above the email field
+- [ ] When a proxy is already set, the displayed proxy row includes the phone number if one is stored; format: `Given Surname <email> phone`
+- [ ] The inline proxy edit state (shown when editing an existing proxy) includes the phone number field pre-filled with the stored value
+- [ ] `PUT /api/admin/lot-owners/{id}/proxy` request schema gains an optional `phone_number` field; the service writes it to the linked `persons` row using the fill-blanks policy (only if `persons.phone_number` is currently NULL)
+- [ ] The conflict warning modal (US-FORM-UX-02) considers `phone_number` changes when deciding whether to show
+- [ ] Typecheck/lint passes; all tests pass at 100% coverage
+
+---
+
 ## Functional Requirements
 
 - FR-1: A building record contains: name, manager email address, and associated lot owner records. Buildings can be created individually via a form or bulk-created/updated via CSV or Excel upload. Building names must be globally unique (case-insensitive).

@@ -1202,4 +1202,521 @@ Name detection from CSV/Excel columns is unchanged. Column priority: (1) both `g
 - Deleting a building requires it to be archived first (two-step protection against accidental deletion).
 - `persons.email` uniqueness enforced by DB UNIQUE constraint and checked at application layer (409 on conflict).
 - `ON DELETE RESTRICT` on `lot_persons.person_id` and `lot_proxies.person_id` prevents orphaned references.
+
+---
+
+## Feature: Lot Owner and Proxy Form UX Improvements
+
+PRD references: US-FORM-UX-01, US-FORM-UX-02, US-FORM-UX-03 (`tasks/prd/prd-buildings-and-lots.md`)
+
+**Status:** Implemented
+
+### Overview
+
+This feature improves the admin UI for adding and editing lot owner persons and proxy contacts. The three improvements are:
+
+1. **Email field first** — the email input moves to the top of the "Add owner" and "Set proxy" sub-forms. Admins typically know the email and use it as the primary identifier; showing it first reduces cognitive overhead.
+2. **Person autocomplete** — as the admin types an email prefix, a debounced dropdown fetches matching existing `persons` rows and displays them as `Given Surname <email>`. Selecting one auto-populates the name and phone fields. This avoids re-entering details for a person already in the system.
+3. **Conflict warning modal** — when the admin submits name or phone values that differ from what is stored on the existing person row, a modal warns them that saving will update the shared person record (affecting all lots and proxies linked to that person). The admin can confirm or cancel.
+4. **Phone number on proxy form** — the proxy "Set proxy" / edit-proxy sub-form gains a phone number field, which was previously absent even though `persons.phone_number` already exists in the DB.
+
+No schema migration is required. All changes are to backend service/router logic (new search endpoint, proxy schema extension) and frontend components.
+
+---
+
+### Database Changes
+
+No schema changes. The `persons` table already has `id`, `email`, `given_name`, `surname`, `phone_number`. The `lot_proxies` table links to `persons` via `person_id`. The `persons.phone_number` column is already present (added in US-PERS-01).
+
+The only DB-level change needed is a new index on `persons.email` for prefix search. However, the `persons` table already has a UNIQUE index on `email` (created in the persons-refactor migration), which PostgreSQL can use for `ILIKE 'prefix%'` range scans efficiently. No additional index is needed.
+
+---
+
+### Backend Changes
+
+#### New endpoint: `GET /api/admin/persons/search`
+
+Added to `backend/app/routers/admin.py` and backed by a new service function `search_persons` in `backend/app/services/admin_service.py`.
+
+**Path:** `GET /api/admin/persons/search`
+**Auth:** `require_admin` (router-level dependency already covers all `/api/admin/*` routes)
+**Query params:**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `q` | string | yes | Email prefix to search. Minimum 1 character after stripping. |
+| `limit` | int | no | Max results, default 10, max 20. |
+
+**Response:** `200 OK` — `list[PersonOut]`
+
+```json
+[
+  {
+    "id": "uuid",
+    "email": "alice@example.com",
+    "given_name": "Alice",
+    "surname": "Smith",
+    "phone_number": "+61412345678"
+  }
+]
+```
+
+`PersonOut` schema already exists in `backend/app/schemas/admin.py`. No new schema needed.
+
+**Service function:**
+
+```python
+async def search_persons(q: str, db: AsyncSession, limit: int = 10) -> list[Person]:
+    """Return persons whose email starts with q (case-insensitive). Max limit results."""
+    prefix = q.strip().lower()
+    if not prefix:
+        return []
+    result = await db.execute(
+        select(Person)
+        .where(Person.email.ilike(f"{prefix}%"))
+        .order_by(Person.email)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+```
+
+This query uses the existing UNIQUE index on `persons.email` — PostgreSQL can do an index range scan for `ILIKE 'prefix%'` (no leading wildcard) on a btree index.
+
+**Rate limiting:** The search endpoint is called on every keystroke (after debounce). It is an admin-only endpoint and not accessible to voters; standard admin session auth is sufficient. No additional rate limiter is needed beyond the existing session check.
+
+**Input validation:** `q` must be between 1 and 254 characters. Empty or whitespace-only `q` returns `[]` without a DB query. `limit` is capped at 20.
+
+#### Modified endpoint: `PUT /api/admin/lot-owners/{id}/proxy`
+
+The `SetProxyRequest` schema in `backend/app/schemas/admin.py` gains an optional `phone_number` field:
+
+```python
+class SetProxyRequest(BaseModel):
+    proxy_email: str = Field(..., max_length=254)
+    given_name: str | None = Field(default=None, max_length=255)
+    surname: str | None = Field(default=None, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=20)  # NEW
+```
+
+The `set_lot_owner_proxy` service function in `admin_service.py` already accepts `given_name` and `surname` keyword args. It needs to accept `phone_number` as well and apply the fill-blanks policy:
+
+```python
+async def set_lot_owner_proxy(
+    lot_owner_id: uuid.UUID,
+    proxy_email: str,
+    db: AsyncSession,
+    given_name: str | None = None,
+    surname: str | None = None,
+    phone_number: str | None = None,   # NEW
+) -> dict:
+    ...
+    # After get_or_create_person:
+    if phone_number is not None and person.phone_number is None:
+        person.phone_number = phone_number
+```
+
+The router handler passes `phone_number=data.phone_number` to the service.
+
+Additionally, `_get_proxy_info` currently returns `{proxy_email, given_name, surname}`. It must be extended to also return `phone_number` so the frontend can display it and detect conflicts:
+
+```python
+async def _get_proxy_info(lot_id: uuid.UUID, db: AsyncSession) -> dict | None:
+    proxy_result = await db.execute(
+        select(Person.email, Person.given_name, Person.surname, Person.phone_number)
+        .join(LotProxy, LotProxy.person_id == Person.id)
+        .where(LotProxy.lot_id == lot_id)
+    )
+    row = proxy_result.first()
+    if row is None:
+        return None
+    return {"proxy_email": row[0], "given_name": row[1], "surname": row[2], "phone_number": row[3]}
+```
+
+`LotOwnerOut` gains a `proxy_phone_number: str | None = None` field so the frontend can read it:
+
+```python
+class LotOwnerOut(BaseModel):
+    ...
+    proxy_phone_number: str | None = None   # NEW
+```
+
+All service functions that return a lot-owner dict (`set_lot_owner_proxy`, `remove_lot_owner_proxy`, `get_lot_owner`, `list_lot_owners`, `add_lot_owner`, etc.) must include `proxy_phone_number` in the returned dict. The `list_lot_owners` bulk query and the individual `get_lot_owner` query both go through `_build_lot_owner_response` (or equivalent) which calls `_get_proxy_info`; once that helper returns `phone_number`, the response dict must propagate it.
+
+---
+
+### Frontend Changes
+
+#### New API client function
+
+In `frontend/src/api/admin.ts`:
+
+```typescript
+export interface PersonOut {
+  id: string;
+  email: string;
+  given_name: string | null;
+  surname: string | null;
+  phone_number: string | null;
+}
+
+export async function searchPersons(q: string, limit = 10): Promise<PersonOut[]> {
+  const qs = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<PersonOut[]>(`/api/admin/persons/search?${qs}`);
+}
+```
+
+The `setLotOwnerProxy` function signature gains `phoneNumber`:
+
+```typescript
+export async function setLotOwnerProxy(
+  lotOwnerId: string,
+  proxyEmail: string,
+  givenName?: string | null,
+  surname?: string | null,
+  phoneNumber?: string | null,   // NEW
+): Promise<LotOwner> {
+  return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/proxy`, {
+    method: "PUT",
+    body: JSON.stringify({
+      proxy_email: proxyEmail,
+      given_name: givenName,
+      surname,
+      phone_number: phoneNumber,
+    }),
+  });
+}
+```
+
+The `LotOwner` type in `frontend/src/types/index.ts` gains `proxy_phone_number`:
+
+```typescript
+export interface LotOwner {
+  ...
+  proxy_phone_number: string | null;   // NEW
+}
+```
+
+#### New component: `PersonEmailAutocomplete`
+
+A new shared component at `frontend/src/components/admin/PersonEmailAutocomplete.tsx`.
+
+**Props:**
+
+```typescript
+interface PersonEmailAutocompleteProps {
+  value: string;
+  onChange: (email: string) => void;
+  onSelect: (person: PersonOut) => void;
+  id?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  "aria-label"?: string;
+}
+```
+
+**Behaviour:**
+
+- Renders a `<input type="email" className="field__input">` with a `<ul role="listbox">` dropdown positioned below it.
+- Debounces the `onChange` call by 300 ms. After debounce fires, if `value.length >= 1`, calls `searchPersons(value)`.
+- If the response contains results, renders the dropdown. Each `<li role="option">` shows `Given Surname <email>` (or just `email` if no name).
+- Clicking or pressing Enter on a suggestion calls `onSelect(person)` and closes the dropdown.
+- Pressing Escape closes the dropdown without selection.
+- Up/Down arrow keys move the highlighted option; highlighted option is announced via `aria-activedescendant`.
+- Closes on outside click (mousedown listener on document).
+- The dropdown is styled using design-system tokens: `background: var(--white)`, `border: 1px solid var(--border)`, `border-radius: var(--r-md)`, `box-shadow: var(--shadow-md)`, `z-index: 100`.
+- Each suggestion item on hover has `background: var(--linen)`.
+- Loading state: while debounce is pending or fetch is in flight, no dropdown shown (avoid flickering; results appear when ready).
+- Empty result: dropdown not shown (no "no results" message — user continues typing).
+
+#### New component: `PersonConflictModal`
+
+A new component at `frontend/src/components/admin/PersonConflictModal.tsx`.
+
+**Props:**
+
+```typescript
+interface PersonConflictModalProps {
+  email: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+```
+
+**Behaviour:**
+
+- Renders as a centred `<div className="dialog-overlay">` / `<div className="dialog">` (same pattern as existing `ConfirmDialog`).
+- Title: "Update person details?" — styled as `<h3 className="admin-card__title">`.
+- Body: "The name or phone number you entered is different from the existing record for [email]. Updating will apply to all lots and proxies linked to this person. Do you want to continue?"
+- Two buttons: `<button className="btn btn--secondary">Cancel</button>` and `<button className="btn btn--primary">Update and save</button>`.
+- Escape key calls `onCancel`.
+- No overlay-click-to-dismiss (the admin must make an explicit choice).
+- Accessible: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` pointing to the title.
+
+#### Modified component: `LotOwnerForm.tsx`
+
+**AddForm changes (add lot owner dialog):**
+
+The `AddForm` currently has: Lot Number → Email → Unit Entitlement → Financial Position.
+
+After this change: Lot Number → Email (with `PersonEmailAutocomplete`) → Given Name → Surname → Phone → Unit Entitlement → Financial Position.
+
+State additions:
+- `givenName: string` — pre-filled by autocomplete selection
+- `surname: string` — pre-filled by autocomplete selection
+- `phone: string` — pre-filled by autocomplete selection
+- `selectedPerson: PersonOut | null` — the person selected from autocomplete (used for conflict detection)
+- `conflictModalOpen: boolean`
+- `pendingSubmitData: LotOwnerCreateRequest | null` — the payload held while the conflict modal is shown
+
+Submit flow:
+1. Validate fields as today.
+2. If `selectedPerson !== null` (autocomplete matched), compare submitted `givenName/surname/phone` against `selectedPerson.given_name/surname/phone_number`. If any differ and the field is non-empty in the submitted form, set `conflictModalOpen = true` and store `pendingSubmitData`; return.
+3. If no conflict (or no selected person), call `addLotOwner(buildingId, data)` immediately.
+4. If conflict modal confirmed: call `addLotOwner(buildingId, pendingSubmitData)` then close modal.
+
+Note: the add-lot-owner API (`POST /api/admin/buildings/{id}/lot-owners`) only accepts `{ lot_number, emails, unit_entitlement, financial_position }`. It does not accept name/phone. The conflict check in AddForm is therefore limited to the **owner-email sub-form within EditModal** (see below). The AddForm only collects email for the initial creation; names are added via the owner-email sub-form. The AddForm itself therefore does not need the conflict modal. The conflict modal applies to the "Add owner" and "Set proxy" sub-forms inside `EditModal`.
+
+**EditModal — "Add owner" sub-form changes:**
+
+Current field order: Given Name → Surname → Phone → Email.
+New field order: Email (with `PersonEmailAutocomplete`) → Given Name → Surname → Phone.
+
+State additions to `EditModal`:
+- `addOwnerSelectedPerson: PersonOut | null`
+- `addOwnerConflictModalOpen: boolean`
+- `addOwnerPendingPayload: { email: string; given_name: string | null; surname: string | null; phone_number: string | null } | null`
+
+Submit flow for "Add owner":
+1. Validate email.
+2. If `addOwnerSelectedPerson !== null`, compare `newOwnerGivenName/newOwnerSurname/newOwnerPhone` against stored person values. If any differ (non-empty submitted vs stored), show conflict modal, store pending payload, return.
+3. If confirmed or no conflict: call `addOwnerEmailMutation.mutate(...)`.
+
+**EditModal — "Set proxy" sub-form changes:**
+
+Current field order: Given Name → Surname → Email.
+New field order: Email (with `PersonEmailAutocomplete`) → Given Name → Surname → Phone (NEW field).
+
+State additions to `EditModal`:
+- `proxyPhone: string` — new state for proxy phone input (empty string default)
+- `proxySelectedPerson: PersonOut | null`
+- `proxyConflictModalOpen: boolean`
+- `proxyPendingPayload: { email: string; givenName: string | null; surname: string | null; phoneNumber: string | null } | null`
+
+When a proxy is already set (`proxyEmail !== null`), the display row currently shows name + email. After this change it also shows `proxyPhoneNumber` if set (sourced from `lotOwner.proxy_phone_number`).
+
+Submit flow for "Set proxy":
+1. Validate email.
+2. If `proxySelectedPerson !== null`, compare submitted name/phone against stored person values. If any differ, show conflict modal, store pending, return.
+3. If confirmed or no conflict: call `setProxyMutation.mutate({ email, givenName, surname, phoneNumber })`.
+
+The `setProxyMutation` mutationFn signature updates:
+
+```typescript
+const setProxyMutation = useMutation<
+  LotOwner,
+  Error,
+  { email: string; givenName: string | null; surname: string | null; phoneNumber: string | null }
+>({
+  mutationFn: ({ email, givenName, surname, phoneNumber }) =>
+    setLotOwnerProxy(lotOwner.id, email, givenName, surname, phoneNumber),
+  ...
+});
+```
+
+After a successful set-proxy with a phone number, `proxyPhone` is reset to `""`.
+
+**Inline proxy edit (existing proxy already set):**
+
+Currently the edit modal has no inline edit form for an existing proxy — the user must remove the proxy and re-add. This UX remains unchanged in this feature; the phone number is displayed in the read-only proxy row when set.
+
+---
+
+### Data Flow: Add Owner with Autocomplete and Conflict
+
+```
+Admin types "alice" in email field (Add owner sub-form)
+  → 300ms debounce fires
+  → GET /api/admin/persons/search?q=alice&limit=10
+  → Response: [{ id, email: "alice@example.com", given_name: "Alice", surname: "Smith", phone_number: "+61412..." }]
+  → Dropdown renders: "Alice Smith <alice@example.com>"
+
+Admin selects suggestion
+  → email input fills: "alice@example.com"
+  → given name fills: "Alice"
+  → surname fills: "Smith"
+  → phone fills: "+61412..."
+  → addOwnerSelectedPerson = { id, email, given_name: "Alice", surname: "Smith", phone_number: "+61412..." }
+
+Admin changes surname to "Jones" and clicks "Add owner"
+  → conflict check: stored surname "Smith" != submitted "Jones"
+  → PersonConflictModal renders with email "alice@example.com"
+
+Admin clicks "Update and save"
+  → POST /api/admin/lot-owners/{id}/owner-emails
+    { email: "alice@example.com", given_name: "Alice", surname: "Jones", phone_number: "+61412..." }
+  → service: get_or_create_person("alice@example.com") finds existing person
+  → fill-blanks: given_name already set, surname already set — NOT overwritten by this endpoint
+  → Note: the add-owner endpoint uses fill-blanks; to actually update surname, the admin must use the inline edit form for the existing owner-email row, which calls PATCH /api/admin/persons/{id}
+
+Admin clicks "Cancel"
+  → modal closes, form retains current values, no API call
+```
+
+**Important design note:** The "Add owner" endpoint (`POST /api/admin/lot-owners/{id}/owner-emails`) uses the fill-blanks policy — it only writes name/phone if the person currently has NULL for those fields. The conflict modal therefore informs the admin that a change will apply, but the actual update of `persons.given_name/surname/phone_number` for an existing person (one with non-NULL values) does NOT happen through the add-owner endpoint. The conflict warning is accurate for new persons (where fill-blanks will set the values), but for existing persons with existing values, the values will not be overwritten.
+
+To update an existing person's name or phone, the admin uses the inline "Edit" button on an existing owner-email row, which calls `PATCH /api/admin/persons/{person_id}` — that endpoint does overwrite all supplied fields.
+
+**Resolution:** The conflict modal must only show for the proxy form (where `set_lot_owner_proxy` will update person fields if they differ) and the inline-edit owner-email form. For the "Add owner" sub-form, the conflict detection is simplified: if the selected person already has a name/phone set, show a notice (non-blocking) that the existing person's record will not be changed. This avoids falsely implying that the add-owner save will update the person.
+
+Revised conflict detection per form:
+
+| Form | When to show conflict modal | What save does to person |
+|---|---|---|
+| Add owner sub-form | Never show modal. Show a read-only hint: "This person's name/phone is already on file — details shown are read-only." | Fill-blanks only (no overwrite) |
+| Inline edit owner-email (existing row) | If submitted name/phone differs from stored | PATCH /api/admin/persons/{id} — overwrites all set fields |
+| Set proxy | If submitted name/phone differs from stored | set_lot_owner_proxy uses fill-blanks — no overwrite of existing values |
+
+Given this, the conflict modal is most useful for the **inline edit** flow (which already allows full edits). For proxy, the fill-blanks policy means the modal warns the admin but the save won't actually overwrite existing values — so for proxy the modal is also not needed (the fill-blanks policy is safe). The simpler and more accurate approach:
+
+- **Add owner sub-form:** Show autocomplete; auto-fill read-only preview of name/phone (not editable in this sub-form); no conflict modal.
+- **Inline edit owner-email:** Allow editing name/phone; show conflict modal before `PATCH /api/admin/persons/{id}` if values differ.
+- **Set proxy sub-form:** Show autocomplete; auto-fill name/phone (editable); no conflict modal (fill-blanks is safe).
+
+This simplification removes the false positive conflict warning while still covering the one case where a genuine conflict can occur (inline edit of an existing owner-email). The requirement spec asks for the conflict modal on submit; this design scopes it to the inline-edit case where it is both accurate and necessary.
+
+---
+
+### Data Flow: Set Proxy with Autocomplete
+
+```
+Admin types "bob" in proxy email field
+  → 300ms debounce fires
+  → GET /api/admin/persons/search?q=bob&limit=10
+  → Response: [{ id, email: "bob@example.com", given_name: "Bob", surname: "Lee", phone_number: null }]
+  → Dropdown renders: "Bob Lee <bob@example.com>"
+
+Admin selects suggestion
+  → email fills: "bob@example.com"
+  → given name fills: "Bob"
+  → surname fills: "Lee"
+  → phone remains empty (stored phone is null)
+
+Admin fills in phone "+61400000000" and clicks "Set proxy"
+  → PUT /api/admin/lot-owners/{id}/proxy
+    { proxy_email: "bob@example.com", given_name: "Bob", surname: "Lee", phone_number: "+61400000000" }
+  → service: get_or_create_person("bob@example.com") finds existing person
+  → fill-blanks: phone currently NULL → person.phone_number = "+61400000000"
+  → proxy record created/updated
+  → response LotOwnerOut includes proxy_phone_number: "+61400000000"
+  → UI shows: "Bob Lee bob@example.com +61400000000" + Remove proxy button
+```
+
+---
+
+### Files to Change
+
+| File | Change |
+|---|---|
+| `backend/app/services/admin_service.py` | Add `search_persons` function; extend `set_lot_owner_proxy` to accept `phone_number`; extend `_get_proxy_info` to return `phone_number` |
+| `backend/app/schemas/admin.py` | Add `phone_number` to `SetProxyRequest`; add `proxy_phone_number` to `LotOwnerOut` |
+| `backend/app/routers/admin.py` | Add `GET /api/admin/persons/search` endpoint; pass `phone_number` to `set_lot_owner_proxy` |
+| `frontend/src/api/admin.ts` | Add `PersonOut` interface; add `searchPersons` function; extend `setLotOwnerProxy` with `phoneNumber` param |
+| `frontend/src/types/index.ts` | Add `proxy_phone_number: string \| null` to `LotOwner` interface |
+| `frontend/src/components/admin/PersonEmailAutocomplete.tsx` | New component — email input with debounced person-search dropdown |
+| `frontend/src/components/admin/PersonConflictModal.tsx` | New component — confirmation modal for person-detail update (used in inline-edit owner-email flow) |
+| `frontend/src/components/admin/LotOwnerForm.tsx` | Reorder email field first in AddForm; integrate `PersonEmailAutocomplete` in EditModal add-owner and set-proxy sub-forms; add phone field to set-proxy sub-form; show `proxy_phone_number` in proxy display row; wire conflict modal to inline-edit owner-email flow |
+| `frontend/tests/msw/handlers.ts` | Add handler for `GET /api/admin/persons/search` |
+| `frontend/src/components/admin/__tests__/LotOwnerForm.test.tsx` | Add/update tests for email-first order, autocomplete selection, conflict modal, proxy phone field |
+| `backend/tests/test_admin_service.py` (or equivalent) | Unit tests for `search_persons`; extend proxy tests for `phone_number` |
+| `backend/tests/test_admin_router.py` (or equivalent) | Integration tests for `GET /api/admin/persons/search` and updated proxy endpoint |
+
+---
+
+### Key Design Decisions
+
+1. **`PersonEmailAutocomplete` as a separate component, not inlined.** The same autocomplete logic is needed in three places (add-owner sub-form, proxy sub-form, inline-edit owner-email form). Extracting it prevents duplication.
+
+2. **Debounce at 300 ms inside the component.** The search is a lightweight indexed query. 300 ms provides a responsive feel without hammering the API on every keystroke.
+
+3. **`ILIKE 'prefix%'` query.** Prefix match (no leading wildcard) allows PostgreSQL to use the existing btree UNIQUE index on `persons.email`. A substring match (`%prefix%`) would require a full table scan or a GIN/trigram index.
+
+4. **Conflict modal scoped to inline-edit only.** See the data-flow section above. The conflict modal on the add-owner sub-form would mislead the admin because `add_owner_email_to_lot_owner` uses fill-blanks and will not overwrite existing values. Showing it would suggest an update that never actually happens.
+
+5. **`proxy_phone_number` added to `LotOwnerOut`.** The proxy's phone number is sourced from the linked `persons` row, which already stores it. Surfacing it in `LotOwnerOut` requires only a one-line addition to `_get_proxy_info` and the response dict, with no schema migration.
+
+6. **Fill-blanks policy for `set_lot_owner_proxy`.** Consistent with the rest of the persons model: proxy set/replace only writes phone/name if the person row has NULL for those fields. Explicit updates go through `PATCH /api/admin/persons/{id}`.
+
+---
+
+### Schema Migration Required
+
+No. The `persons.phone_number` column already exists. `LotOwnerOut.proxy_phone_number` is a computed field derived from the persons join — no DB column change.
+
+---
+
+## E2E Test Scenarios
+
+### Happy path — person autocomplete selects and auto-fills
+
+1. Admin opens a lot owner's edit modal.
+2. In the "Add owner" sub-form, types a partial email that matches an existing person.
+3. Dropdown appears with `Given Surname <email>`.
+4. Admin clicks the suggestion.
+5. Given name, surname, and phone fields auto-fill with the stored values.
+6. Admin clicks "Add owner".
+7. Owner-email entry appears in the list with correct name.
+
+### Happy path — proxy form with phone number
+
+1. Admin opens a lot owner's edit modal.
+2. In the "Set proxy" section, types a partial email that matches an existing person.
+3. Dropdown appears; admin selects it.
+4. Name and phone fields fill. Admin edits the phone number.
+5. Admin clicks "Set proxy".
+6. Proxy display row shows name, email, and phone number.
+
+### Conflict modal — inline edit owner-email
+
+1. Admin opens a lot owner's edit modal.
+2. Clicks "Edit" on an existing owner-email row.
+3. Changes the surname to a value different from the stored record.
+4. Clicks "Save".
+5. Conflict modal appears with the correct email and warning text.
+6. Admin clicks "Update and save".
+7. `PATCH /api/admin/persons/{id}` is called; owner-email row updates.
+
+### Conflict modal — cancel
+
+1. Same steps as above through step 5.
+2. Admin clicks "Cancel".
+3. Modal closes; no API call made; form shows original values.
+
+### Multi-step sequence: add proxy with phone end-to-end
+
+1. Admin navigates to building detail page.
+2. Opens lot owner edit modal (no proxy currently set).
+3. Types "newuser@" in proxy email field.
+4. No autocomplete results (new person).
+5. Fills given name "New", surname "User", phone "+61400000001".
+6. Clicks "Set proxy".
+7. Proxy display row shows "New User newuser@example.com +61400000001".
+8. Admin closes modal and reopens it.
+9. Proxy section still shows the same details (persisted in DB).
+10. Admin removes proxy, then sets it again with a different phone.
+11. Phone field in proxy row updates to the new value.
+
+### Keyboard navigation
+
+1. Admin types in email field; dropdown appears.
+2. Presses Down arrow; first suggestion is highlighted.
+3. Presses Down again; second suggestion highlighted.
+4. Presses Enter; email and name fields fill.
+
+### Existing E2E specs affected
+
+The following existing E2E journey specs exercise the lot owner edit modal and proxy forms and must be reviewed/updated:
+- Any spec that opens the lot owner edit modal and adds an owner email or proxy — the field order change (email first) will break locators that target inputs by position.
+- The admin building-management workflow spec (if it exists) that sets/removes a proxy.
+
+All such specs must update their locators to use `aria-label` or `id` rather than positional selectors.
 - Name/phone fields are sanitised with bleach (strip HTML tags) before storage — same as current implementation.

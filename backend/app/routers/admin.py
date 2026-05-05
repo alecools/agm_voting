@@ -751,6 +751,20 @@ async def remove_owner_email_by_id(
 
 
 @router.get(
+    "/persons/search",
+    response_model=list[PersonOut],
+)
+async def search_persons(
+    q: str = Query(..., min_length=1, max_length=254),
+    limit: int = Query(default=10, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> list[PersonOut]:
+    """Prefix-search persons by email. Returns up to `limit` (max 20) matches."""
+    persons = await admin_service.search_persons(q, db, limit=limit)
+    return [PersonOut.model_validate(p) for p in persons]
+
+
+@router.get(
     "/persons/lookup",
     response_model=PersonOut,
 )
@@ -807,6 +821,7 @@ async def set_lot_owner_proxy(
         lot_owner_id, data.proxy_email, db,
         given_name=data.given_name,
         surname=data.surname,
+        phone_number=data.phone_number,
     )
     return LotOwnerOut(**owner)
 

@@ -272,11 +272,29 @@ export async function setLotOwnerProxy(
   proxyEmail: string,
   givenName?: string | null,
   surname?: string | null,
+  phoneNumber?: string | null,
 ): Promise<LotOwner> {
   return apiFetch<LotOwner>(`/api/admin/lot-owners/${lotOwnerId}/proxy`, {
     method: "PUT",
-    body: JSON.stringify({ proxy_email: proxyEmail, given_name: givenName, surname }),
+    body: JSON.stringify({ proxy_email: proxyEmail, given_name: givenName, surname, phone_number: phoneNumber }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Person search
+// ---------------------------------------------------------------------------
+
+export interface PersonOut {
+  id: string;
+  email: string;
+  given_name: string | null;
+  surname: string | null;
+  phone_number: string | null;
+}
+
+export async function searchPersons(q: string, limit = 10): Promise<PersonOut[]> {
+  const qs = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<PersonOut[]>(`/api/admin/persons/search?${qs}`);
 }
 
 export async function removeLotOwnerProxy(
