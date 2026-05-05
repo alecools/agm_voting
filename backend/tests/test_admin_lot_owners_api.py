@@ -160,6 +160,147 @@ class TestListLotOwners:
         )
         assert response.status_code == 404
 
+    # --- Server-side sort ---
+
+    async def test_sort_by_lot_number_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=lot_number&sort_dir=asc returns lots in numeric-ascending order."""
+        for lot_num in ("10", "2", "1"):
+            db_session.add(LotOwner(building_id=building.id, lot_number=lot_num, unit_entitlement=10))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=lot_number&sort_dir=asc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot_numbers = [o["lot_number"] for o in data]
+        # Natural numeric order: 1, 2, 10
+        assert lot_numbers == ["1", "2", "10"]
+
+    async def test_sort_by_lot_number_desc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=lot_number&sort_dir=desc returns lots in numeric-descending order."""
+        for lot_num in ("1", "2", "10"):
+            db_session.add(LotOwner(building_id=building.id, lot_number=lot_num, unit_entitlement=10))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=lot_number&sort_dir=desc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot_numbers = [o["lot_number"] for o in data]
+        # Natural numeric order descending: 10, 2, 1
+        assert lot_numbers == ["10", "2", "1"]
+
+    async def test_sort_by_unit_entitlement_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=unit_entitlement&sort_dir=asc returns lots ordered by entitlement ascending."""
+        for entitlement, lot_num in ((300, "A"), (100, "B"), (200, "C")):
+            db_session.add(LotOwner(building_id=building.id, lot_number=lot_num, unit_entitlement=entitlement))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=unit_entitlement&sort_dir=asc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        entitlements = [o["unit_entitlement"] for o in data]
+        assert entitlements == [100, 200, 300]
+
+    async def test_sort_by_unit_entitlement_desc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=unit_entitlement&sort_dir=desc returns lots ordered by entitlement descending."""
+        for entitlement, lot_num in ((100, "A"), (300, "B"), (200, "C")):
+            db_session.add(LotOwner(building_id=building.id, lot_number=lot_num, unit_entitlement=entitlement))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=unit_entitlement&sort_dir=desc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        entitlements = [o["unit_entitlement"] for o in data]
+        assert entitlements == [300, 200, 100]
+
+    async def test_sort_by_financial_position_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=financial_position asc: PostgreSQL enum declaration order is normal < in_arrear,
+        so ascending sort puts 'normal' before 'in_arrear'."""
+        from app.models import FinancialPosition
+        db_session.add(LotOwner(building_id=building.id, lot_number="X1", unit_entitlement=10,
+                                financial_position=FinancialPosition.in_arrear))
+        db_session.add(LotOwner(building_id=building.id, lot_number="X2", unit_entitlement=10,
+                                financial_position=FinancialPosition.normal))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=financial_position&sort_dir=asc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Enum declaration order: normal (1st) < in_arrear (2nd)
+        positions = [o["financial_position"] for o in data]
+        assert positions[0] == "normal"
+        assert positions[-1] == "in_arrear"
+
+    async def test_sort_by_financial_position_desc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """sort_by=financial_position desc: 'in_arrear' comes first (declared last)."""
+        from app.models import FinancialPosition
+        db_session.add(LotOwner(building_id=building.id, lot_number="Y1", unit_entitlement=10,
+                                financial_position=FinancialPosition.normal))
+        db_session.add(LotOwner(building_id=building.id, lot_number="Y2", unit_entitlement=10,
+                                financial_position=FinancialPosition.in_arrear))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=financial_position&sort_dir=desc"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Descending: in_arrear (2nd in declaration) comes first
+        positions = [o["financial_position"] for o in data]
+        assert positions[0] == "in_arrear"
+        assert positions[-1] == "normal"
+
+    async def test_invalid_sort_by_returns_400(self, client: AsyncClient, building: Building):
+        """An unrecognised sort_by value returns 400."""
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_by=invalid_column"
+        )
+        assert response.status_code == 400
+
+    async def test_invalid_sort_dir_returns_400(self, client: AsyncClient, building: Building):
+        """An unrecognised sort_dir value returns 400."""
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners?sort_dir=sideways"
+        )
+        assert response.status_code == 400
+
+    async def test_default_sort_is_lot_number_asc(
+        self, client: AsyncClient, building: Building, db_session: AsyncSession
+    ):
+        """Without sort params the results are ordered by lot_number ascending (natural numeric)."""
+        for lot_num in ("10", "2", "1"):
+            db_session.add(LotOwner(building_id=building.id, lot_number=lot_num, unit_entitlement=10))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/admin/buildings/{building.id}/lot-owners"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        lot_numbers = [o["lot_number"] for o in data]
+        assert lot_numbers == ["1", "2", "10"]
+
 
 # ---------------------------------------------------------------------------
 # GET /api/admin/buildings/{building_id}/lot-owners/count

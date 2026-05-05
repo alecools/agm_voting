@@ -989,4 +989,98 @@ describe("BuildingDetailPage", () => {
       expect(screen.getAllByRole("button", { name: "Go to page 1" })[0]).toHaveClass("pagination__btn--active");
     });
   });
+
+  // --- Server-side sort: URL params passed to API ---
+
+  it("passes lot_sort_by and lot_sort_dir from URL to listLotOwners query", async () => {
+    let capturedUrl: string | null = null;
+    server.use(
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    renderPage("b1", "?lot_sort_by=unit_entitlement&lot_sort_dir=desc");
+    await waitFor(() => {
+      expect(capturedUrl).not.toBeNull();
+    });
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("sort_by")).toBe("unit_entitlement");
+    expect(url.searchParams.get("sort_dir")).toBe("desc");
+  });
+
+  it("defaults to lot_sort_by=lot_number and lot_sort_dir=asc when no URL params present", async () => {
+    let capturedUrl: string | null = null;
+    server.use(
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([]);
+      })
+    );
+    renderPage("b1");
+    await waitFor(() => {
+      expect(capturedUrl).not.toBeNull();
+    });
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("sort_by")).toBe("lot_number");
+    expect(url.searchParams.get("sort_dir")).toBe("asc");
+  });
+
+  it("clicking Lot Number sort column updates lot_sort_by and lot_sort_dir URL params", async () => {
+    const user = userEvent.setup();
+    renderPage("b1", "?lot_sort_by=unit_entitlement&lot_sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByText("1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Lot Number/ }));
+    await waitFor(() => {
+      // After clicking Lot Number (a new column), dir defaults to asc
+      expect(screen.getByRole("button", { name: /Lot Number/ }).closest("th"))
+        .toHaveAttribute("aria-sort", "ascending");
+    });
+  });
+
+  it("clicking active sort column toggles direction from asc to desc", async () => {
+    const user = userEvent.setup();
+    renderPage("b1", "?lot_sort_by=lot_number&lot_sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getByText("1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Lot Number/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Lot Number/ }).closest("th"))
+        .toHaveAttribute("aria-sort", "descending");
+    });
+  });
+
+  it("clicking active sort column in desc toggles to asc", async () => {
+    const user = userEvent.setup();
+    renderPage("b1", "?lot_sort_by=lot_number&lot_sort_dir=desc");
+    await waitFor(() => {
+      expect(screen.getByText("1A")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Lot Number/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Lot Number/ }).closest("th"))
+        .toHaveAttribute("aria-sort", "ascending");
+    });
+  });
+
+  it("sort change resets lotPage param to 1", async () => {
+    server.use(
+      http.get("http://localhost/api/admin/buildings/:buildingId/lot-owners/count", () =>
+        HttpResponse.json({ count: 25 })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage("b1", "?lotPage=2&lot_sort_by=lot_number&lot_sort_dir=asc");
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Go to page 2" })[0]).toHaveClass("pagination__btn--active");
+    });
+    await user.click(screen.getByRole("button", { name: /Unit Entitlement/ }));
+    await waitFor(() => {
+      // Page should reset to 1
+      expect(screen.getAllByRole("button", { name: "Go to page 1" })[0]).toHaveClass("pagination__btn--active");
+    });
+  });
 });

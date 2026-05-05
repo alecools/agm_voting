@@ -14,7 +14,7 @@ import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
 from fastapi import HTTPException
-from sqlalchemy import case, delete, func, literal, select
+from sqlalchemy import Integer, case, delete, func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -720,10 +720,47 @@ async def update_person(
     return person
 
 
-async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int = 20, offset: int = 0) -> list[dict]:
+def _lot_owners_order_clause(sort_by: str | None, sort_dir: str | None):
+    key = sort_by or "lot_number"
+    if key == "unit_entitlement":
+        col = Lot.unit_entitlement
+    elif key == "financial_position":
+        col = Lot.financial_position
+    else:
+        # Default: lot_number — natural numeric sort by stripping non-digit suffix
+        # and casting the leading numeric portion to integer, then falling back to
+        # the raw string for lots whose numbers have no numeric prefix.
+        numeric_prefix = func.cast(
+            func.nullif(func.regexp_replace(Lot.lot_number, r"\D.*", "", "g"), ""),
+            Integer,
+        )
+        col = (numeric_prefix, Lot.lot_number)
+    if (sort_dir or "asc") == "desc":
+        if isinstance(col, tuple):
+            return (col[0].desc(), col[1].desc())
+        return col.desc()
+    if isinstance(col, tuple):
+        return (col[0].asc(), col[1].asc())
+    return col.asc()
+
+
+async def list_lot_owners(
+    building_id: uuid.UUID,
+    db: AsyncSession,
+    limit: int = 20,
+    offset: int = 0,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict]:
     await get_building_or_404(building_id, db)
+    order = _lot_owners_order_clause(sort_by, sort_dir)
+    order_args = order if isinstance(order, tuple) else (order,)
     result = await db.execute(
-        select(Lot).where(Lot.building_id == building_id).offset(offset).limit(limit)
+        select(Lot)
+        .where(Lot.building_id == building_id)
+        .order_by(*order_args)
+        .offset(offset)
+        .limit(limit)
     )
     owners = list(result.scalars().all())
 

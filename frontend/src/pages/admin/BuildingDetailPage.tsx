@@ -9,6 +9,7 @@ import LotOwnerCSVUpload from "../../components/admin/LotOwnerCSVUpload";
 import ProxyNominationsUpload from "../../components/admin/ProxyNominationsUpload";
 import FinancialPositionUpload from "../../components/admin/FinancialPositionUpload";
 import Pagination from "../../components/admin/Pagination";
+import type { SortDir } from "../../components/admin/SortableColumnHeader";
 
 const PAGE_SIZE = 20;
 
@@ -335,6 +336,10 @@ export default function BuildingDetailPage() {
   const lotPageParam = parseInt(searchParams.get("lotPage") ?? "1", 10);
   const lotPage = isNaN(lotPageParam) || lotPageParam < 1 ? 1 : lotPageParam;
 
+  // Sort state from URL search params
+  const lotSortBy = searchParams.get("lot_sort_by") ?? "lot_number";
+  const lotSortDir = (searchParams.get("lot_sort_dir") ?? "asc") as SortDir;
+
   const { data: building } = useQuery<Building>({
     queryKey: ["admin", "buildings", buildingId],
     queryFn: () => getBuilding(buildingId!),
@@ -356,8 +361,14 @@ export default function BuildingDetailPage() {
     isLoading,
     error,
   } = useQuery<LotOwner[]>({
-    queryKey: ["admin", "lot-owners", buildingId, safeLotPage],
-    queryFn: () => listLotOwners(buildingId!, { limit: PAGE_SIZE, offset: (safeLotPage - 1) * PAGE_SIZE }),
+    queryKey: ["admin", "lot-owners", buildingId, safeLotPage, lotSortBy, lotSortDir],
+    queryFn: () =>
+      listLotOwners(buildingId!, {
+        limit: PAGE_SIZE,
+        offset: (safeLotPage - 1) * PAGE_SIZE,
+        sort_by: lotSortBy,
+        sort_dir: lotSortDir,
+      }),
     enabled: !!buildingId,
   });
 
@@ -366,11 +377,17 @@ export default function BuildingDetailPage() {
     const nextOffset = safeLotPage * PAGE_SIZE;
     if (nextOffset < totalLotCount && buildingId) {
       void queryClient.prefetchQuery({
-        queryKey: ["admin", "lot-owners", buildingId, safeLotPage + 1],
-        queryFn: () => listLotOwners(buildingId, { limit: PAGE_SIZE, offset: nextOffset }),
+        queryKey: ["admin", "lot-owners", buildingId, safeLotPage + 1, lotSortBy, lotSortDir],
+        queryFn: () =>
+          listLotOwners(buildingId, {
+            limit: PAGE_SIZE,
+            offset: nextOffset,
+            sort_by: lotSortBy,
+            sort_dir: lotSortDir,
+          }),
       });
     }
-  }, [safeLotPage, totalLotCount, buildingId, queryClient]);
+  }, [safeLotPage, totalLotCount, buildingId, queryClient, lotSortBy, lotSortDir]);
 
   function handleLotPageChange(newPage: number) {
     const next = new URLSearchParams(searchParams);
@@ -378,6 +395,23 @@ export default function BuildingDetailPage() {
       next.delete("lotPage");
     } else {
       next.set("lotPage", String(newPage));
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  function handleLotOwnerSortChange(column: string) {
+    const next = new URLSearchParams(searchParams);
+    // Reset to page 1 on sort change
+    next.delete("lotPage");
+    if (column === lotSortBy) {
+      // Toggle direction
+      const newDir: SortDir = lotSortDir === "asc" ? "desc" : "asc";
+      next.set("lot_sort_by", column);
+      next.set("lot_sort_dir", newDir);
+    } else {
+      // New column — default to ascending
+      next.set("lot_sort_by", column);
+      next.set("lot_sort_dir", "asc");
     }
     setSearchParams(next, { replace: true });
   }
@@ -538,7 +572,14 @@ export default function BuildingDetailPage() {
           isLoading={isLoading}
         />
         <div style={{ opacity: isLoading ? 0.5 : 1, transition: "opacity 0.15s", pointerEvents: isLoading ? "none" : "auto" }}>
-          <LotOwnerTable lotOwners={lotOwners} onEdit={handleEdit} isLoading={isLoading} />
+          <LotOwnerTable
+            lotOwners={lotOwners}
+            onEdit={handleEdit}
+            isLoading={isLoading}
+            sortColumn={lotSortBy}
+            sortDir={lotSortDir}
+            onSortChange={handleLotOwnerSortChange}
+          />
         </div>
         <Pagination
           page={safeLotPage}

@@ -1,17 +1,14 @@
-import { useState, useMemo } from "react";
 import type { LotOwner } from "../../types";
-import Pagination from "./Pagination";
 import SortableColumnHeader from "./SortableColumnHeader";
 import type { SortDir } from "./SortableColumnHeader";
-
-const PAGE_SIZE = 25;
-
-type LotOwnerSortColumn = "lot_number" | "unit_entitlement" | "financial_position" | "email" | "proxy";
 
 interface LotOwnerTableProps {
   lotOwners: LotOwner[];
   onEdit: (lotOwner: LotOwner) => void;
   isLoading?: boolean;
+  sortColumn?: string;
+  sortDir?: SortDir;
+  onSortChange?: (column: string) => void;
 }
 
 function FinancialPositionBadge({ position }: { position: string }) {
@@ -37,78 +34,22 @@ function FinancialPositionBadge({ position }: { position: string }) {
   return <span style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Normal</span>;
 }
 
-function compareFinancialPosition(a: string, b: string): number {
-  // normal < in_arrear (0 < 1)
-  const order: Record<string, number> = { normal: 0, in_arrear: 1 };
-  return (order[a] ?? 0) - (order[b] ?? 0);
-}
-
-export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwnerTableProps) {
-  const [page, setPage] = useState(1);
-  const [sortState, setSortState] = useState<{ column: LotOwnerSortColumn; dir: SortDir }>({
-    column: "lot_number",
-    dir: "asc",
-  });
-
-  const sorted = useMemo(() => {
-    const copy = [...lotOwners];
-    copy.sort((a, b) => {
-      let cmp = 0;
-      if (sortState.column === "lot_number") {
-        cmp = a.lot_number.localeCompare(b.lot_number, undefined, { numeric: true });
-      } else if (sortState.column === "unit_entitlement") {
-        cmp = (a.unit_entitlement ?? 0) - (b.unit_entitlement ?? 0);
-      } else if (sortState.column === "financial_position") {
-        cmp = compareFinancialPosition(a.financial_position, b.financial_position);
-      } else if (sortState.column === "email") {
-        const emailA = (a.emails ?? [])[0] ?? "";
-        const emailB = (b.emails ?? [])[0] ?? "";
-        cmp = emailA.localeCompare(emailB);
-      } else if (sortState.column === "proxy") {
-        // Sort by whether proxy exists (no proxy < has proxy), then by proxy email
-        const hasA = a.proxy_email != null ? 1 : 0;
-        const hasB = b.proxy_email != null ? 1 : 0;
-        cmp = hasA - hasB;
-        if (cmp === 0) {
-          cmp = (a.proxy_email ?? "").localeCompare(b.proxy_email ?? "");
-        }
-      }
-      return sortState.dir === "asc" ? cmp : -cmp;
-    });
-    return copy;
-  }, [lotOwners, sortState]);
+export default function LotOwnerTable({
+  lotOwners,
+  onEdit,
+  isLoading,
+  sortColumn = "lot_number",
+  sortDir = "asc",
+  onSortChange,
+}: LotOwnerTableProps) {
+  const currentSort = { column: sortColumn, dir: sortDir };
 
   function handleSort(column: string) {
-    const col = column as LotOwnerSortColumn;
-    setSortState((prev) => {
-      if (prev.column === col) {
-        return { column: col, dir: prev.dir === "asc" ? "desc" : "asc" };
-      }
-      const newDir: SortDir = "asc";
-      return { column: col, dir: newDir };
-    });
-    setPage(1);
+    onSortChange?.(column);
   }
-
-  const currentSort = { column: sortState.column, dir: sortState.dir };
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const visible = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  const paginationControls = totalPages > 1 ? (
-    <Pagination
-      page={safePage}
-      totalPages={totalPages}
-      totalItems={sorted.length}
-      pageSize={PAGE_SIZE}
-      onPageChange={setPage}
-    />
-  ) : null;
 
   return (
     <div>
-      {paginationControls}
       <div className="admin-table-wrapper">
       <table className="admin-table">
         <thead>
@@ -119,12 +60,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <SortableColumnHeader
-              label="Email"
-              column="email"
-              currentSort={currentSort}
-              onSort={handleSort}
-            />
+            <th>Email</th>
             <SortableColumnHeader
               label="Unit Entitlement"
               column="unit_entitlement"
@@ -137,12 +73,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               currentSort={currentSort}
               onSort={handleSort}
             />
-            <SortableColumnHeader
-              label="Proxy"
-              column="proxy"
-              currentSort={currentSort}
-              onSort={handleSort}
-            />
+            <th>Proxy</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -158,7 +89,7 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
               </td>
             </tr>
           ) : (
-            visible.map((lo) => (
+            lotOwners.map((lo) => (
               <tr key={lo.id}>
                 <td style={{ fontFamily: "'Overpass Mono', monospace", fontSize: "0.875rem" }}>
                   {lo.lot_number}
@@ -197,7 +128,6 @@ export default function LotOwnerTable({ lotOwners, onEdit, isLoading }: LotOwner
         </tbody>
       </table>
       </div>
-      {paginationControls}
     </div>
   );
 }
