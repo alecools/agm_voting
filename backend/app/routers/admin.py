@@ -26,7 +26,9 @@ from app.services.email_service import EmailService
 from app.schemas.admin import (
     AddEmailRequest,
     AddOwnerEmailRequest,
+    PersonOut,
     UpdateOwnerEmailRequest,
+    UpdatePersonRequest,
     AdminUserInviteRequest,
     AdminUserListOut,
     AdminUserOut,
@@ -684,9 +686,11 @@ async def add_owner_email_to_lot_owner(
     data: AddOwnerEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LotOwnerOut:
-    """Add an owner email (with optional name and phone) to a lot owner."""
+    """Add an owner email (person) to a lot owner."""
     owner = await admin_service.add_owner_email_to_lot_owner(
-        lot_owner_id, data.email, data.given_name, data.surname, db,
+        lot_owner_id, data.email, db,
+        given_name=data.given_name,
+        surname=data.surname,
         phone_number=data.phone_number,
     )
     return LotOwnerOut(**owner)
@@ -737,6 +741,49 @@ async def remove_owner_email_by_id(
     return LotOwnerOut(**owner)
 
 
+@router.get(
+    "/persons/lookup",
+    response_model=PersonOut,
+)
+async def lookup_person(
+    email: str,
+    db: AsyncSession = Depends(get_db),
+) -> PersonOut:
+    """Look up a person by email address. Returns 404 if not found."""
+    person = await admin_service.lookup_person(email, db)
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return PersonOut.model_validate(person)
+
+
+@router.patch(
+    "/persons/{person_id}",
+    response_model=PersonOut,
+)
+async def update_person(
+    person_id: uuid.UUID,
+    data: UpdatePersonRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PersonOut:
+    """Update name, email, and/or phone on a person row."""
+    person = await admin_service.update_person(person_id, data, db)
+    return PersonOut.model_validate(person)
+
+
+@router.delete(
+    "/lot-owners/{lot_owner_id}/persons/{person_id}",
+    response_model=LotOwnerOut,
+)
+async def remove_person_from_lot(
+    lot_owner_id: uuid.UUID,
+    person_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> LotOwnerOut:
+    """Remove a person from a lot by person_id."""
+    owner = await admin_service.remove_person_from_lot(lot_owner_id, person_id, db)
+    return LotOwnerOut(**owner)
+
+
 @router.put(
     "/lot-owners/{lot_owner_id}/proxy",
     response_model=LotOwnerOut,
@@ -749,7 +796,8 @@ async def set_lot_owner_proxy(
     """Set or replace the proxy nomination for a lot owner."""
     owner = await admin_service.set_lot_owner_proxy(
         lot_owner_id, data.proxy_email, db,
-        given_name=data.given_name, surname=data.surname,
+        given_name=data.given_name,
+        surname=data.surname,
     )
     return LotOwnerOut(**owner)
 

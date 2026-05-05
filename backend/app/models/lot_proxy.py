@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -10,21 +10,22 @@ from app.models.base import Base
 class LotProxy(Base):
     __tablename__ = "lot_proxies"
     __table_args__ = (
-        UniqueConstraint("lot_owner_id", name="uq_lot_proxies_lot_owner_id"),
-        Index("ix_lot_proxies_proxy_email", "proxy_email"),
+        UniqueConstraint("lot_id", name="uq_lot_proxies_lot_id"),
+        Index("ix_lot_proxies_person_id", "person_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
     )
-    lot_owner_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("lot_owners.id", ondelete="CASCADE"),
+    lot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lots.id", ondelete="CASCADE"),
         nullable=False,
     )
-    proxy_email: Mapped[str] = mapped_column(String, nullable=False)
-    given_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    surname: Mapped[str | None] = mapped_column(String, nullable=True)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("persons.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -32,6 +33,9 @@ class LotProxy(Base):
     )
 
     # Relationships
-    lot_owner: Mapped["LotOwner"] = relationship(  # noqa: F821
-        "LotOwner", back_populates="lot_proxy"
+    lot: Mapped["Lot"] = relationship(  # noqa: F821
+        "Lot", back_populates="lot_proxy"
+    )
+    person: Mapped["Person"] = relationship(  # noqa: F821
+        "Person", back_populates="proxied_lots"
     )

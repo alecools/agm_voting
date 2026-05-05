@@ -34,9 +34,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Building, GeneralMeeting, GeneralMeetingStatus, LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.models.tenant_smtp_config import TenantSmtpConfig
 from app.services import smtp_config_service
+from tests.conftest import add_person_to_lot
 from app.services.sms_service import (
     SmsDeliveryError,
     _send_clicksend,
@@ -658,8 +661,7 @@ async def sms_building_and_meeting(db_session: AsyncSession):
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="sms_voter@test.com", phone_number="+61411111111")
-    db_session.add(lo_email)
+    lo_email = await add_person_to_lot(db_session, lo, "sms_voter@test.com", phone_number="+61411111111")
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -689,8 +691,7 @@ async def sms_building_no_phone(db_session: AsyncSession):
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="nophone_voter@test.com", phone_number=None)
-    db_session.add(lo_email)
+    lo_email = await add_person_to_lot(db_session, lo, "nophone_voter@test.com", phone_number=None)
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -1203,10 +1204,7 @@ class TestLotOwnerImportWithPhone:
         )
         lo = lo_result.scalar_one()
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lo.id,
-                LotOwnerEmail.email == "voter@test.com",
-            )
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id, Person.email == "voter@test.com")
         )
         em = em_result.scalar_one()
         assert em.phone_number == "+61412345678"
@@ -1236,7 +1234,7 @@ class TestLotOwnerImportWithPhone:
         )
         lo = lo_result.scalar_one()
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id)
         )
         em = em_result.scalar_one()
         assert em.phone_number is None
@@ -1268,7 +1266,7 @@ class TestLotOwnerImportWithPhone:
         )
         lo = lo_result.scalar_one()
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id)
         )
         em = em_result.scalar_one()
         assert em.phone_number is None
@@ -1286,8 +1284,7 @@ class TestLotOwnerImportWithPhone:
         )
         db_session.add(lo)
         await db_session.flush()
-        old_em = LotOwnerEmail(lot_owner_id=lo.id, email="voter@test.com", phone_number="+61400000000")
-        db_session.add(old_em)
+        old_em = await add_person_to_lot(db_session, lo, "voter@test.com", phone_number="+61400000000")
         await db_session.flush()
 
         content = make_csv(
@@ -1306,10 +1303,7 @@ class TestLotOwnerImportWithPhone:
         assert resp.status_code == 200
         # Import replaces email rows; fetch the new row
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lo.id,
-                LotOwnerEmail.email == "voter@test.com",
-            )
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id, Person.email == "voter@test.com")
         )
         new_em = em_result.scalar_one()
         assert new_em.phone_number == "+61499999999"
@@ -1348,10 +1342,7 @@ class TestLotOwnerImportWithPhone:
         )
         lo = lo_result.scalar_one()
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lo.id,
-                LotOwnerEmail.email == "voter@test.com",
-            )
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id, Person.email == "voter@test.com")
         )
         em = em_result.scalar_one()
         assert em.phone_number == "+61412345678"
@@ -1389,10 +1380,7 @@ class TestLotOwnerImportWithPhone:
         )
         lo = lo_result.scalar_one()
         em_result = await db_session.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lo.id,
-                LotOwnerEmail.email == "voter2@test.com",
-            )
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lo.id, Person.email == "voter2@test.com")
         )
         em = em_result.scalar_one()
         assert em.phone_number == "+61499123456"

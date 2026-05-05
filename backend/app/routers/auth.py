@@ -20,9 +20,10 @@ from app.logging_config import get_logger
 from app.models.auth_otp import AuthOtp
 from app.models.building import Building
 from app.models.general_meeting import GeneralMeeting, get_effective_status
-from app.models.lot_owner import LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
 from app.models.lot_proxy import LotProxy
+from app.models.person import Person
 from app.models.motion import Motion
 from app.models.otp_rate_limit import OTPRateLimit
 from app.models.session_record import SessionRecord
@@ -96,9 +97,9 @@ async def _resolve_voter_state(
     # Merge: union of direct and proxy lots
     all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
 
-    # Fetch all relevant LotOwner records
+    # Fetch all relevant Lot records
     lots_result = await db.execute(
-        select(LotOwner).where(LotOwner.id.in_(all_lot_owner_ids))
+        select(Lot).where(Lot.id.in_(all_lot_owner_ids))
     )
     lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
 
@@ -270,41 +271,37 @@ async def request_otp(
                 )
 
     # 3. Check if email is known in this building (enumeration-safe: still return 200 if not found)
-    emails_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+    # Direct owner: email matches a Person linked to a Lot in this building
+    direct_person_result = await db.execute(
+        select(Person)
+        .join(lot_persons, lot_persons.c.person_id == Person.id)
+        .join(Lot, Lot.id == lot_persons.c.lot_id)
         .where(
-            LotOwnerEmail.email.isnot(None),
-            LotOwnerEmail.email == body.email,
-            LotOwner.building_id == meeting.building_id,
+            Person.email.isnot(None),
+            Person.email == body.email,
+            Lot.building_id == meeting.building_id,
         )
+        .limit(1)
     )
-    email_records = list(emails_result.scalars().all())
+    direct_person = direct_person_result.scalar_one_or_none()
 
     proxy_result = await db.execute(
         select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        .join(Person, Person.id == LotProxy.person_id)
+        .join(Lot, Lot.id == LotProxy.lot_id)
         .where(
-            LotProxy.proxy_email == body.email,
-            LotOwner.building_id == meeting.building_id,
+            Person.email == body.email,
+            Lot.building_id == meeting.building_id,
         )
+        .limit(1)
     )
-    proxy_records = list(proxy_result.scalars().all())
+    proxy_record = proxy_result.scalar_one_or_none()
 
-    email_known = bool(email_records or proxy_records)
+    email_known = bool(direct_person or proxy_record)
 
-    # Resolve whether the voter has a phone number on their matched LotOwnerEmail row(s).
+    # Resolve whether the voter has a phone number on their matched Person row.
     # Proxy lots are excluded — phone belongs to the contact, not the proxy.
-    has_phone = False
-    if email_records:
-        email_ids = [rec.id for rec in email_records]
-        phone_result = await db.execute(
-            select(LotOwnerEmail.phone_number).where(
-                LotOwnerEmail.id.in_(email_ids),
-                LotOwnerEmail.phone_number.isnot(None),
-            ).limit(1)
-        )
-        has_phone = phone_result.scalar_one_or_none() is not None
+    has_phone = bool(direct_person and direct_person.phone_number)
 
     # 3b. SMS-channel validation (before generating/storing OTP)
     if body.channel == "sms":
@@ -348,14 +345,8 @@ async def request_otp(
         skip_email_effective = body.skip_email and settings.testing_mode
         if not skip_email_effective:
             if body.channel == "sms":
-                # SMS path: fetch phone number from the matched LotOwnerEmail row(s).
-                phone_result2 = await db.execute(
-                    select(LotOwnerEmail.phone_number).where(
-                        LotOwnerEmail.id.in_([rec.id for rec in email_records]),
-                        LotOwnerEmail.phone_number.isnot(None),
-                    ).limit(1)
-                )
-                phone_number = phone_result2.scalar_one_or_none()
+                # SMS path: phone number is on the matched Person row.
+                phone_number = direct_person.phone_number if direct_person else None
                 if phone_number:
                     sms_cfg = await smtp_config_service.get_smtp_config(db)
                     sms_kwargs = smtp_config_service.get_sms_send_kwargs(sms_cfg)

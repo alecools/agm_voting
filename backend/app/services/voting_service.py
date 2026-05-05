@@ -18,9 +18,10 @@ logger = get_logger(__name__)
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
 from app.models.ballot_submission import BallotSubmission
-from app.models.lot_owner import LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
 from app.models.lot_proxy import LotProxy
+from app.models.person import Person
 from app.models.motion import Motion, MotionType
 from app.models.motion_option import MotionOption
 from app.models.vote import Vote, VoteChoice, VoteStatus
@@ -226,17 +227,21 @@ async def submit_ballot(
     # Batch both lookups with IN queries to avoid O(N) round-trips (RR3-12).
     # Also determine proxy_email per lot for audit trail.
     direct_owner_result = await db.execute(
-        select(LotOwnerEmail.lot_owner_id).where(
-            LotOwnerEmail.lot_owner_id.in_(lot_owner_ids),
-            LotOwnerEmail.email == voter_email,
+        select(lot_persons.c.lot_id)
+        .join(Person, Person.id == lot_persons.c.person_id)
+        .where(
+            lot_persons.c.lot_id.in_(lot_owner_ids),
+            Person.email == voter_email,
         )
     )
     direct_owner_ids: set[uuid.UUID] = {row[0] for row in direct_owner_result.all()}
 
     proxy_result = await db.execute(
-        select(LotProxy.lot_owner_id).where(
-            LotProxy.lot_owner_id.in_(lot_owner_ids),
-            LotProxy.proxy_email == voter_email,
+        select(LotProxy.lot_id)
+        .join(Person, Person.id == LotProxy.person_id)
+        .where(
+            LotProxy.lot_id.in_(lot_owner_ids),
+            Person.email == voter_email,
         )
     )
     proxy_lot_ids: set[uuid.UUID] = {row[0] for row in proxy_result.all()}
@@ -348,18 +353,18 @@ async def submit_ballot(
     weights_result = await db.execute(
         select(GeneralMeetingLotWeight).where(
             GeneralMeetingLotWeight.general_meeting_id == general_meeting_id,
-            GeneralMeetingLotWeight.lot_owner_id.in_(lot_owner_ids),
+            GeneralMeetingLotWeight.lot_id.in_(lot_owner_ids),
         )
     )
     weight_by_lot: dict[uuid.UUID, GeneralMeetingLotWeight] = {
-        w.lot_owner_id: w for w in weights_result.scalars().all()
+        w.lot_id: w for w in weights_result.scalars().all()
     }
 
     # Get lot number info
     lot_owners_result = await db.execute(
-        select(LotOwner).where(LotOwner.id.in_(lot_owner_ids))
+        select(Lot).where(Lot.id.in_(lot_owner_ids))
     )
-    lot_owners_by_id: dict[uuid.UUID, LotOwner] = {
+    lot_owners_by_id: dict[uuid.UUID, Lot] = {
         lo.id: lo for lo in lot_owners_result.scalars().all()
     }
 
@@ -640,27 +645,29 @@ async def get_my_ballot(
     )
     building = building_result.scalar_one_or_none()
 
-    # Find all lot owners for this voter email in this building
-    # (direct ownership via LotOwnerEmail, plus proxy lots via LotProxy)
+    # Find all lot IDs for this voter email in this building
+    # (direct ownership via lot_persons JOIN persons, plus proxy lots via LotProxy JOIN persons)
     all_email_lots_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        select(lot_persons.c.lot_id)
+        .join(Person, Person.id == lot_persons.c.person_id)
+        .join(Lot, Lot.id == lot_persons.c.lot_id)
         .where(
-            LotOwnerEmail.email == voter_email,
-            LotOwner.building_id == general_meeting.building_id,
+            Person.email == voter_email,
+            Lot.building_id == general_meeting.building_id,
         )
     )
-    direct_lot_owner_ids = [r.lot_owner_id for r in all_email_lots_result.scalars().all()]
+    direct_lot_owner_ids = [row[0] for row in all_email_lots_result.all()]
 
     all_proxy_lots_result = await db.execute(
-        select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        select(LotProxy.lot_id)
+        .join(Person, Person.id == LotProxy.person_id)
+        .join(Lot, Lot.id == LotProxy.lot_id)
         .where(
-            LotProxy.proxy_email == voter_email,
-            LotOwner.building_id == general_meeting.building_id,
+            Person.email == voter_email,
+            Lot.building_id == general_meeting.building_id,
         )
     )
-    proxy_lot_owner_ids = [r.lot_owner_id for r in all_proxy_lots_result.scalars().all()]
+    proxy_lot_owner_ids = [row[0] for row in all_proxy_lots_result.all()]
 
     # Merge without duplicates
     all_lot_owner_ids_set = set(direct_lot_owner_ids) | set(proxy_lot_owner_ids)
@@ -692,11 +699,11 @@ async def get_my_ballot(
     if not target_lot_ids:
         raise HTTPException(status_code=404, detail="No submitted ballot found")
 
-    # Get lot owner info
+    # Get lot info
     lot_owners_result = await db.execute(
-        select(LotOwner).where(LotOwner.id.in_(target_lot_ids))
+        select(Lot).where(Lot.id.in_(target_lot_ids))
     )
-    lot_owners_by_id: dict[uuid.UUID, LotOwner] = {
+    lot_owners_by_id: dict[uuid.UUID, Lot] = {
         lo.id: lo for lo in lot_owners_result.scalars().all()
     }
 
@@ -704,11 +711,11 @@ async def get_my_ballot(
     weights_result = await db.execute(
         select(GeneralMeetingLotWeight).where(
             GeneralMeetingLotWeight.general_meeting_id == general_meeting_id,
-            GeneralMeetingLotWeight.lot_owner_id.in_(target_lot_ids),
+            GeneralMeetingLotWeight.lot_id.in_(target_lot_ids),
         )
     )
     weight_by_lot: dict[uuid.UUID, GeneralMeetingLotWeight] = {
-        w.lot_owner_id: w for w in weights_result.scalars().all()
+        w.lot_id: w for w in weights_result.scalars().all()
     }
 
     # Get submitted votes for these lots, joining to Motion WITHOUT filtering on

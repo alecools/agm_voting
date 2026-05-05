@@ -21,8 +21,9 @@ class BallotSubmission(Base):
         ForeignKey("general_meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Column intentionally kept as lot_owner_id (audit snapshot); FK target updated to lots.id
     lot_owner_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("lot_owners.id", ondelete="CASCADE"),
+        ForeignKey("lots.id", ondelete="CASCADE"),
         nullable=False,
     )
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
@@ -41,6 +42,6 @@ class BallotSubmission(Base):
     general_meeting: Mapped["GeneralMeeting"] = relationship(  # noqa: F821
         "GeneralMeeting", back_populates="ballot_submissions"
     )
-    lot_owner: Mapped["LotOwner"] = relationship(  # noqa: F821
-        "LotOwner", back_populates="ballot_submissions"
+    lot_owner: Mapped["Lot"] = relationship(  # noqa: F821
+        "Lot", back_populates="ballot_submissions"
     )

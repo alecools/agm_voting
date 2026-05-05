@@ -27,7 +27,9 @@ from app.models import (
     FinancialPosition,
     FinancialPositionSnapshot,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
 from tests.conftest import meeting_dt, closing_dt
 
@@ -83,7 +85,7 @@ async def _setup_meeting_with_lots(
         fp_snap = FinancialPositionSnapshot.in_arrear if lo.financial_position == "in_arrear" else FinancialPositionSnapshot.normal
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=fp_snap,
         )
@@ -288,7 +290,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )
@@ -343,7 +345,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )
@@ -462,7 +464,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )
@@ -586,7 +588,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )
@@ -649,7 +651,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -1225,7 +1227,7 @@ class TestAdminVoteEntry:
         for lo in (lo_submitted, lo_new):
             db_session.add(GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
                 financial_position_snapshot=FinancialPositionSnapshot.normal,
             ))
@@ -1323,7 +1325,7 @@ class TestAdminVoteEntry:
 
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         ))
@@ -1430,7 +1432,7 @@ class TestAdminVoteEntry:
 
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         ))
@@ -1626,7 +1628,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         ))
@@ -1711,7 +1713,7 @@ class TestAdminVoteEntry:
         await db_session.flush()
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         ))
@@ -1810,7 +1812,7 @@ async def _setup_mc_meeting(
     )
     w = GeneralMeetingLotWeight(
         general_meeting_id=agm.id,
-        lot_owner_id=lo.id,
+        lot_id=lo.id,
         unit_entitlement_snapshot=lo.unit_entitlement,
         financial_position_snapshot=fp_snap,
     )

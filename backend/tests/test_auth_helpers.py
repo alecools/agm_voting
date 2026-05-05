@@ -32,7 +32,9 @@ from app.models import (
     VoteChoice,
     VoteStatus,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.routers.auth import _resolve_voter_state
 
 
@@ -61,12 +63,14 @@ async def basic_setup(db_session: AsyncSession):
     db_session.add(b)
     await db_session.flush()
 
-    lo = LotOwner(building_id=b.id, lot_number="H-1", unit_entitlement=100)
+    lo = Lot(building_id=b.id, lot_number="H-1", unit_entitlement=100)
     db_session.add(lo)
     await db_session.flush()
 
-    email = LotOwnerEmail(lot_owner_id=lo.id, email="helper_voter@test.com")
-    db_session.add(email)
+    p = Person(email="helper_voter@test.com")
+    db_session.add(p)
+    await db_session.flush()
+    await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -135,11 +139,15 @@ class TestResolveVoterState:
         building = basic_setup["building"]
         agm = basic_setup["agm"]
 
-        lo2 = LotOwner(building_id=building.id, lot_number="A-1", unit_entitlement=50)
+        lo2 = Lot(building_id=building.id, lot_number="A-1", unit_entitlement=50)
         db_session.add(lo2)
         await db_session.flush()
-        email2 = LotOwnerEmail(lot_owner_id=lo2.id, email=basic_setup["voter_email"])
-        db_session.add(email2)
+        # Reuse existing person (same email) — just add lot_persons link
+        from sqlalchemy import select as _select
+        p2 = (await db_session.execute(
+            _select(Person).where(Person.email == basic_setup["voter_email"])
+        )).scalar_one()
+        await db_session.execute(lot_persons.insert().values(lot_id=lo2.id, person_id=p2.id))
         await db_session.flush()
 
         result = await _resolve_voter_state(
@@ -264,12 +272,14 @@ class TestResolveVoterState:
         db_session.add(b)
         await db_session.flush()
 
-        lo = LotOwner(building_id=b.id, lot_number="NM-1", unit_entitlement=10)
+        lo = Lot(building_id=b.id, lot_number="NM-1", unit_entitlement=10)
         db_session.add(lo)
         await db_session.flush()
 
-        email = LotOwnerEmail(lot_owner_id=lo.id, email="nomotion@test.com")
-        db_session.add(email)
+        p = Person(email="nomotion@test.com")
+        db_session.add(p)
+        await db_session.flush()
+        await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
 
         agm = GeneralMeeting(
             building_id=b.id,
@@ -301,11 +311,14 @@ class TestResolveVoterState:
         proxy_email = "proxy_helper@test.com"
 
         # Create a different lot with a proxy
-        lo2 = LotOwner(building_id=building.id, lot_number="H-Proxy", unit_entitlement=75)
+        lo2 = Lot(building_id=building.id, lot_number="H-Proxy", unit_entitlement=75)
         db_session.add(lo2)
         await db_session.flush()
 
-        lp = LotProxy(lot_owner_id=lo2.id, proxy_email=proxy_email)
+        proxy_person = Person(email=proxy_email)
+        db_session.add(proxy_person)
+        await db_session.flush()
+        lp = LotProxy(lot_id=lo2.id, person_id=proxy_person.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -330,7 +343,11 @@ class TestResolveVoterState:
         voter_email = basic_setup["voter_email"]
 
         # Also add a proxy record for the same lot using the same email
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=voter_email)
+        from sqlalchemy import select as _sel
+        voter_person = (await db_session.execute(
+            _sel(Person).where(Person.email == voter_email)
+        )).scalar_one()
+        lp = LotProxy(lot_id=lo.id, person_id=voter_person.id)
         db_session.add(lp)
         await db_session.flush()
 

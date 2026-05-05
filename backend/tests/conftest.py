@@ -37,7 +37,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.database import get_db
 from app.models import Base, Building, LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
 # Use the test database URL from environment or fall back to default
 _BASE_DATABASE_URL = os.getenv(
@@ -229,29 +231,32 @@ def patch_parallel_lot_lookup(db_session: AsyncSession):
     import uuid
     from unittest.mock import patch
     from sqlalchemy import select
-    from app.models.lot_owner import LotOwner
-    from app.models.lot_owner_email import LotOwnerEmail
+    from app.models.lot import Lot
+    from app.models.lot_person import lot_persons as _lot_persons
     from app.models.lot_proxy import LotProxy
+    from app.models.person import Person
 
     async def _direct_ids_via_test_session(voter_email: str, building_id: uuid.UUID) -> set[uuid.UUID]:
         r = await db_session.execute(
-            select(LotOwnerEmail.lot_owner_id)
-            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+            select(_lot_persons.c.lot_id)
+            .join(Person, Person.id == _lot_persons.c.person_id)
+            .join(Lot, Lot.id == _lot_persons.c.lot_id)
             .where(
-                LotOwnerEmail.email.isnot(None),
-                LotOwnerEmail.email == voter_email,
-                LotOwner.building_id == building_id,
+                Person.email.isnot(None),
+                Person.email == voter_email,
+                Lot.building_id == building_id,
             )
         )
         return {row[0] for row in r.all()}
 
     async def _proxy_ids_via_test_session(voter_email: str, building_id: uuid.UUID) -> set[uuid.UUID]:
         r = await db_session.execute(
-            select(LotProxy.lot_owner_id)
-            .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+            select(LotProxy.lot_id)
+            .join(Person, Person.id == LotProxy.person_id)
+            .join(Lot, Lot.id == LotProxy.lot_id)
             .where(
-                LotProxy.proxy_email == voter_email,
-                LotOwner.building_id == building_id,
+                Person.email == voter_email,
+                Lot.building_id == building_id,
             )
         )
         return {row[0] for row in r.all()}
@@ -371,21 +376,100 @@ async def building_with_owners(db_session: AsyncSession) -> Building:
     b = Building(name="Building With Owners", manager_email="mgr@bwo.com")
     db_session.add(b)
     await db_session.flush()
-    lo1 = LotOwner(
+    lo1 = Lot(
         building_id=b.id,
         lot_number="1A",
         unit_entitlement=100,
     )
-    lo2 = LotOwner(
+    lo2 = Lot(
         building_id=b.id,
         lot_number="2B",
         unit_entitlement=50,
     )
     db_session.add_all([lo1, lo2])
     await db_session.flush()
-    lo1_email = LotOwnerEmail(lot_owner_id=lo1.id, email="voter1@test.com")
-    lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="voter2@test.com")
-    db_session.add_all([lo1_email, lo2_email])
+    p1 = Person(email="voter1@test.com")
+    p2 = Person(email="voter2@test.com")
+    db_session.add_all([p1, p2])
+    await db_session.flush()
+    await db_session.execute(
+        lot_persons.insert().values([
+            {"lot_id": lo1.id, "person_id": p1.id},
+            {"lot_id": lo2.id, "person_id": p2.id},
+        ])
+    )
     await db_session.flush()
     await db_session.refresh(b)
     return b
+
+
+async def add_person_to_lot(
+    db_session: AsyncSession,
+    lot: "Lot",
+    email: str,
+    given_name: str | None = None,
+    surname: str | None = None,
+    phone_number: str | None = None,
+) -> Person:
+    """Create (or reuse) a Person and link them to a Lot via lot_persons.
+
+    If a Person with the given email already exists in the session, it is reused.
+    This helper is used throughout tests wherever old code used LotOwnerEmail.
+    """
+    from sqlalchemy import select as _select
+
+    existing = (await db_session.execute(
+        _select(Person).where(Person.email == email)
+    )).scalar_one_or_none()
+
+    if existing is None:
+        person = Person(
+            email=email,
+            given_name=given_name,
+            surname=surname,
+            phone_number=phone_number,
+        )
+        db_session.add(person)
+        await db_session.flush()
+    else:
+        person = existing
+
+    # Insert lot_persons link (ignore if already exists)
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    await db_session.execute(
+        pg_insert(lot_persons).values(lot_id=lot.id, person_id=person.id).on_conflict_do_nothing()
+    )
+    await db_session.flush()
+    return person
+
+
+async def get_or_create_person(
+    db_session: AsyncSession,
+    email: str,
+    given_name: str | None = None,
+    surname: str | None = None,
+    phone_number: str | None = None,
+) -> Person:
+    """Create (or reuse) a Person row without adding any lot_persons link.
+
+    Used when setting up LotProxy fixtures where the person is a proxy
+    (not a direct lot owner).
+    """
+    from sqlalchemy import select as _select
+
+    existing = (await db_session.execute(
+        _select(Person).where(Person.email == email)
+    )).scalar_one_or_none()
+
+    if existing is not None:
+        return existing
+
+    person = Person(
+        email=email,
+        given_name=given_name,
+        surname=surname,
+        phone_number=phone_number,
+    )
+    db_session.add(person)
+    await db_session.flush()
+    return person

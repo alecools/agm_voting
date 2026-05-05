@@ -13,11 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import openpyxl
 
 from app.models import Building, LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
 # Helpers and fixtures (make_csv, make_excel, client, building, building_with_owners)
 # are defined in conftest.py and automatically available to all test modules.
-from tests.conftest import make_csv, make_excel
+from tests.conftest import make_csv, make_excel, add_person_to_lot
 
 # ---------------------------------------------------------------------------
 # POST /api/admin/buildings/import
@@ -909,7 +911,7 @@ class TestArchiveBuilding:
         lo = LotOwner(building_id=b.id, lot_number="AO1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="lone@test.com"))
+        await add_person_to_lot(db_session, lo, "lone@test.com")
         await db_session.commit()
 
         await client.post(f"/api/admin/buildings/{b.id}/archive")
@@ -932,8 +934,8 @@ class TestArchiveBuilding:
         await db_session.flush()
 
         # Same email in both buildings
-        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="shared@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="shared@test.com"))
+        await add_person_to_lot(db_session, lo1, "shared@test.com")
+        await add_person_to_lot(db_session, lo2, "shared@test.com")
         await db_session.commit()
 
         await client.post(f"/api/admin/buildings/{b1.id}/archive")
@@ -962,9 +964,9 @@ class TestArchiveBuilding:
         await db_session.flush()
 
         shared_email = "multishared@test.com"
-        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email=shared_email))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email=shared_email))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo3.id, email=shared_email))
+        await add_person_to_lot(db_session, lo1, shared_email)
+        await add_person_to_lot(db_session, lo2, shared_email)
+        await add_person_to_lot(db_session, lo3, shared_email)
         await db_session.commit()
 
         # Must not raise MultipleResultsFound — must return HTTP 200

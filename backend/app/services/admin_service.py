@@ -29,15 +29,17 @@ from app.models import (
     EmailDeliveryStatus,
     FinancialPosition,
     FinancialPositionSnapshot,
-    LotOwner,
-    LotOwnerEmail,
+    Lot,
+    LotOwner,  # backward-compat alias for Lot
     LotProxy,
     Motion,
     MotionOption,
+    Person,
     Vote,
     VoteChoice,
     VoteStatus,
     get_effective_status,
+    lot_persons,
 )
 from app.models.tenant_settings import TenantSettings
 from app.schemas.admin import (
@@ -48,6 +50,7 @@ from app.schemas.admin import (
     LotOwnerUpdate,
     MotionAddRequest,
     MotionUpdateRequest,
+    UpdatePersonRequest,
 )
 
 logger = get_logger(__name__)
@@ -497,7 +500,7 @@ async def count_buildings(
 
 async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building:
     """
-    Archive a building and any lot owners that have no emails in another non-archived building.
+    Archive a building and any lots whose persons do not appear in another non-archived building.
     """
     building = await get_building_or_404(building_id, db)
 
@@ -506,48 +509,47 @@ async def archive_building(building_id: uuid.UUID, db: AsyncSession) -> Building
 
     building.is_archived = True
 
-    # Find all active lot owners for this building
+    # Find all active lots for this building
     owners_result = await db.execute(
-        select(LotOwner).where(
-            LotOwner.building_id == building_id,
-            LotOwner.is_archived == False,  # noqa: E712
+        select(Lot).where(
+            Lot.building_id == building_id,
+            Lot.is_archived == False,  # noqa: E712
         )
     )
     owners = list(owners_result.scalars().all())
 
-    # Batch-load emails for all owners to avoid O(N) queries (RR3-12).
+    # Batch-load person_ids for all lots to avoid O(N) queries (RR3-12).
     owner_ids = [o.id for o in owners]
-    all_emails_result = await db.execute(
-        select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
-            LotOwnerEmail.lot_owner_id.in_(owner_ids)
+    all_persons_result = await db.execute(
+        select(lot_persons.c.lot_id, lot_persons.c.person_id).where(
+            lot_persons.c.lot_id.in_(owner_ids)
         )
     )
-    emails_by_owner_id: dict[uuid.UUID, list[str]] = {}
-    all_emails_flat: list[str] = []
-    for row in all_emails_result.all():
-        if row[1]:
-            emails_by_owner_id.setdefault(row[0], []).append(row[1])
-            all_emails_flat.append(row[1])
+    person_ids_by_lot: dict[uuid.UUID, list[uuid.UUID]] = {}
+    all_person_ids_flat: list[uuid.UUID] = []
+    for row in all_persons_result.all():
+        person_ids_by_lot.setdefault(row[0], []).append(row[1])
+        all_person_ids_flat.append(row[1])
 
-    # Batch-check which emails appear in another non-archived building — one query
-    # instead of one query per (owner, email) pair (RR3-12).
-    emails_in_other_buildings: set[str] = set()
-    if all_emails_flat:
+    # Batch-check which persons appear in another non-archived building — one query
+    # instead of one query per (owner, person) pair (RR3-12).
+    persons_in_other_buildings: set[uuid.UUID] = set()
+    if all_person_ids_flat:
         other_result = await db.execute(
-            select(LotOwnerEmail.email)
-            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
-            .join(Building, LotOwner.building_id == Building.id)
+            select(lot_persons.c.person_id)
+            .join(Lot, lot_persons.c.lot_id == Lot.id)
+            .join(Building, Lot.building_id == Building.id)
             .where(
-                LotOwnerEmail.email.in_(all_emails_flat),
-                LotOwner.building_id != building_id,
+                lot_persons.c.person_id.in_(all_person_ids_flat),
+                Lot.building_id != building_id,
                 Building.is_archived == False,  # noqa: E712
             )
         )
-        emails_in_other_buildings = {row[0] for row in other_result.all()}
+        persons_in_other_buildings = {row[0] for row in other_result.all()}
 
     for owner in owners:
-        owner_emails = emails_by_owner_id.get(owner.id, [])
-        found_in_other = any(email in emails_in_other_buildings for email in owner_emails)
+        owner_person_ids = person_ids_by_lot.get(owner.id, [])
+        found_in_other = any(pid in persons_in_other_buildings for pid in owner_person_ids)
         if not found_in_other:
             owner.is_archived = True
 
@@ -600,11 +602,12 @@ async def get_building_or_404(building_id: uuid.UUID, db: AsyncSession) -> Build
     return building
 
 
-async def _get_proxy_info(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict | None:
-    """Return {proxy_email, given_name, surname} for the lot owner's proxy, or None."""
+async def _get_proxy_info(lot_id: uuid.UUID, db: AsyncSession) -> dict | None:
+    """Return {proxy_email, given_name, surname} for the lot's proxy via the persons join, or None."""
     proxy_result = await db.execute(
-        select(LotProxy.proxy_email, LotProxy.given_name, LotProxy.surname)
-        .where(LotProxy.lot_owner_id == lot_owner_id)
+        select(Person.email, Person.given_name, Person.surname)
+        .join(LotProxy, LotProxy.person_id == Person.id)
+        .where(LotProxy.lot_id == lot_id)
     )
     row = proxy_result.first()
     if row is None:
@@ -614,8 +617,8 @@ async def _get_proxy_info(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict | N
 
 async def count_lot_owners(building_id: uuid.UUID, db: AsyncSession) -> int:
     result = await db.execute(
-        select(func.count()).select_from(LotOwner).where(
-            LotOwner.building_id == building_id,
+        select(func.count()).select_from(Lot).where(
+            Lot.building_id == building_id,
         )
     )
     return result.scalar_one()
@@ -626,8 +629,8 @@ def _format_financial_position(fp: object) -> str:
     return fp.value if hasattr(fp, "value") else fp  # type: ignore[attr-defined]
 
 
-def _owner_email_to_dict(row: LotOwnerEmail) -> dict:
-    """Serialise a LotOwnerEmail ORM row to the owner_emails dict shape."""
+def _person_to_dict(row: Person) -> dict:
+    """Serialise a Person ORM row to the persons dict shape."""
     return {
         "id": row.id,
         "email": row.email,
@@ -637,53 +640,127 @@ def _owner_email_to_dict(row: LotOwnerEmail) -> dict:
     }
 
 
-async def _load_owner_emails_for_one(lot_owner_id: uuid.UUID, db: AsyncSession) -> list[dict]:
-    """Return owner_emails list for a single lot owner."""
+async def _load_persons_for_one(lot_id: uuid.UUID, db: AsyncSession) -> list[dict]:
+    """Return persons list for a single lot."""
     result = await db.execute(
-        select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot_owner_id)
+        select(Person)
+        .join(lot_persons, lot_persons.c.person_id == Person.id)
+        .where(lot_persons.c.lot_id == lot_id)
     )
-    return [_owner_email_to_dict(row) for row in result.scalars().all()]
+    return [_person_to_dict(row) for row in result.scalars().all()]
+
+
+async def get_or_create_person(
+    email: str,
+    db: AsyncSession,
+    given_name: str | None = None,
+    surname: str | None = None,
+) -> Person:
+    """Look up a Person by email (case-insensitive). Create if not found.
+
+    Fill-blanks policy: given_name/surname are only applied if the Person row
+    currently has NULL for those fields (never overwrite existing names).
+    """
+    normalised = email.strip().lower()
+    result = await db.execute(select(Person).where(Person.email == normalised))
+    person = result.scalar_one_or_none()
+    if person is None:
+        person = Person(email=normalised, given_name=given_name, surname=surname)
+        db.add(person)
+        await db.flush()
+    else:
+        # Fill-blanks: only set if currently NULL
+        if given_name is not None and person.given_name is None:
+            person.given_name = given_name
+        if surname is not None and person.surname is None:
+            person.surname = surname
+    return person
+
+
+async def lookup_person(email: str, db: AsyncSession) -> Person | None:
+    """Look up a Person by email. Returns None if not found."""
+    normalised = email.strip().lower()
+    result = await db.execute(select(Person).where(Person.email == normalised))
+    return result.scalar_one_or_none()
+
+
+async def update_person(
+    person_id: uuid.UUID,
+    data: UpdatePersonRequest,
+    db: AsyncSession,
+) -> Person:
+    """Patch name/phone/email on a persons row. Returns updated Person. 404 if not found, 409 on email conflict."""
+    result = await db.execute(select(Person).where(Person.id == person_id))
+    person = result.scalar_one_or_none()
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    if "email" in data.model_fields_set and data.email is not None:
+        normalised = data.email.strip().lower()
+        conflict = await db.execute(
+            select(Person).where(Person.email == normalised, Person.id != person_id)
+        )
+        if conflict.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail="Email already in use by another person")
+        person.email = normalised
+
+    if "given_name" in data.model_fields_set:
+        raw = data.given_name
+        person.given_name = bleach.clean(raw, tags=[], strip=True).strip() or None if raw else None
+
+    if "surname" in data.model_fields_set:
+        raw = data.surname
+        person.surname = bleach.clean(raw, tags=[], strip=True).strip() or None if raw else None
+
+    if "phone_number" in data.model_fields_set:
+        person.phone_number = data.phone_number
+
+    await db.commit()
+    await db.refresh(person)
+    return person
 
 
 async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int = 20, offset: int = 0) -> list[dict]:
     await get_building_or_404(building_id, db)
     result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id).offset(offset).limit(limit)
+        select(Lot).where(Lot.building_id == building_id).offset(offset).limit(limit)
     )
     owners = list(result.scalars().all())
 
     if not owners:
         return []
 
-    # Batch-load emails and proxies with IN queries — O(1) queries regardless of owner count.
+    # Batch-load persons and proxies with IN queries — O(1) queries regardless of owner count.
     owner_ids = [o.id for o in owners]
 
-    emails_result = await db.execute(
-        select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id.in_(owner_ids))
+    persons_result = await db.execute(
+        select(lot_persons.c.lot_id, Person)
+        .join(Person, lot_persons.c.person_id == Person.id)
+        .where(lot_persons.c.lot_id.in_(owner_ids))
     )
-    owner_emails_by_owner: dict[uuid.UUID, list[dict]] = {}
-    for row in emails_result.scalars().all():
-        owner_emails_by_owner.setdefault(row.lot_owner_id, []).append(_owner_email_to_dict(row))
+    persons_by_lot: dict[uuid.UUID, list[dict]] = {}
+    for row in persons_result.all():
+        lot_id_val = row[0]
+        person_obj = row[1]
+        persons_by_lot.setdefault(lot_id_val, []).append(_person_to_dict(person_obj))
 
     proxies_result = await db.execute(
-        select(LotProxy.lot_owner_id, LotProxy.proxy_email, LotProxy.given_name, LotProxy.surname).where(
-            LotProxy.lot_owner_id.in_(owner_ids)
-        )
+        select(LotProxy.lot_id, Person.email, Person.given_name, Person.surname)
+        .join(Person, LotProxy.person_id == Person.id)
+        .where(LotProxy.lot_id.in_(owner_ids))
     )
-    proxy_by_owner: dict[uuid.UUID, dict] = {
+    proxy_by_lot: dict[uuid.UUID, dict] = {
         row[0]: {"proxy_email": row[1], "given_name": row[2], "surname": row[3]}
         for row in proxies_result.all()
     }
 
     out = []
     for owner in owners:
-        proxy_info = proxy_by_owner.get(owner.id, {})
+        proxy_info = proxy_by_lot.get(owner.id, {})
         out.append({
             "id": owner.id,
             "lot_number": owner.lot_number,
-            "given_name": owner.given_name,
-            "surname": owner.surname,
-            "owner_emails": owner_emails_by_owner.get(owner.id, []),
+            "persons": persons_by_lot.get(owner.id, []),
             "unit_entitlement": owner.unit_entitlement,
             "financial_position": _format_financial_position(owner.financial_position),
             "proxy_email": proxy_info.get("proxy_email"),
@@ -694,25 +771,23 @@ async def list_lot_owners(building_id: uuid.UUID, db: AsyncSession, limit: int =
 
 
 async def get_lot_owner(lot_owner_id: uuid.UUID, db: AsyncSession) -> dict:
-    """Return a single lot owner by ID, including proxy info."""
+    """Return a single lot by ID, including proxy info."""
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
@@ -1078,74 +1153,104 @@ async def import_lot_owners_from_excel(
     return await _upsert_lot_owners(building_id, lot_data, db)
 
 
+async def _resolve_or_create_person_for_import(
+    email: str,
+    given_name: str | None,
+    surname: str | None,
+    phone_number: str | None,
+    db: AsyncSession,
+) -> Person:
+    """Look up or create a Person for an import row, applying fill-blanks policy."""
+    normalised = email.strip().lower()
+    result = await db.execute(select(Person).where(Person.email == normalised))
+    person = result.scalar_one_or_none()
+    if person is None:
+        person = Person(
+            email=normalised,
+            given_name=given_name,
+            surname=surname,
+            phone_number=phone_number,
+        )
+        db.add(person)
+        await db.flush()
+    else:
+        # Always overwrite on import (CSV is authoritative source of truth)
+        if given_name is not None or surname is not None:
+            person.given_name = given_name
+            person.surname = surname
+        if phone_number is not None:
+            person.phone_number = phone_number
+    return person
+
+
 async def _upsert_lot_owners(
     building_id: uuid.UUID,
     lot_data: dict[str, dict],
     db: AsyncSession,
 ) -> dict[str, int]:
     """
-    Upsert lot owners from parsed lot_data.
+    Upsert lots from parsed lot_data. Rebuild lot_persons links for the building.
     lot_data: {lot_number -> {unit_entitlement, financial_position, email_entries: list[dict]}}
     Returns {"imported": int, "emails": int}.
     """
-    # Load existing lot owners keyed by lot_number to preserve IDs
+    # Load existing lots keyed by lot_number to preserve IDs
     existing_result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id)
+        select(Lot).where(Lot.building_id == building_id)
     )
-    existing: dict[str, LotOwner] = {
+    existing: dict[str, Lot] = {
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
-    # Upsert: update existing, insert new — never delete absent lots.
-    # Deleting lots absent from the import would cascade-delete AGMLotWeight
-    # records and destroy historical vote tallies for existing AGMs.
+    # Step 1: Upsert lots (never delete — would cascade-delete AGMLotWeight records)
     for lot_number, data in lot_data.items():
         if lot_number in existing:
             lo = existing[lot_number]
             lo.unit_entitlement = data["unit_entitlement"]
             lo.financial_position = data["financial_position"]
-            if data.get("given_name") is not None:
-                lo.given_name = data["given_name"]
-            if data.get("surname") is not None:
-                lo.surname = data["surname"]
             await db.flush()
-            # Replace emails: delete existing, insert new entries
-            await db.execute(
-                delete(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lo.id)
-            )
-            for entry in data["email_entries"]:
-                if entry["email"]:
-                    db.add(LotOwnerEmail(
-                        lot_owner_id=lo.id,
-                        email=entry["email"],
-                        given_name=entry["given_name"],
-                        surname=entry["surname"],
-                        phone_number=entry.get("phone_number"),
-                    ))
         else:
-            new_lo = LotOwner(
+            new_lo = Lot(
                 building_id=building_id,
                 lot_number=lot_number,
-                given_name=data.get("given_name"),
-                surname=data.get("surname"),
                 unit_entitlement=data["unit_entitlement"],
                 financial_position=data["financial_position"],
             )
             db.add(new_lo)
             await db.flush()
-            for entry in data["email_entries"]:
-                if entry["email"]:
-                    db.add(LotOwnerEmail(
-                        lot_owner_id=new_lo.id,
-                        email=entry["email"],
-                        given_name=entry["given_name"],
-                        surname=entry["surname"],
-                        phone_number=entry.get("phone_number"),
-                    ))
+            existing[lot_number] = new_lo
+
+    # Step 2: Clear ALL lot_persons links for every lot in this building
+    # (authoritative delete-and-rebuild — CSV is the complete source of truth)
+    all_lot_ids = [lo.id for lo in existing.values()]
+    if all_lot_ids:
+        await db.execute(
+            delete(lot_persons).where(lot_persons.c.lot_id.in_(all_lot_ids))
+        )
+
+    # Step 3: Rebuild lot_persons from CSV rows
+    total_emails = 0
+    for lot_number, data in lot_data.items():
+        lo = existing[lot_number]
+        for entry in data["email_entries"]:
+            if entry["email"]:
+                person = await _resolve_or_create_person_for_import(
+                    entry["email"],
+                    entry.get("given_name"),
+                    entry.get("surname"),
+                    entry.get("phone_number"),
+                    db,
+                )
+                # on_conflict_do_nothing handles duplicate emails on same lot row
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                await db.execute(
+                    pg_insert(lot_persons)
+                    .values(lot_id=lo.id, person_id=person.id)
+                    .on_conflict_do_nothing()
+                )
+                total_emails += 1
 
     await db.commit()
 
-    total_emails = sum(len(data["email_entries"]) for data in lot_data.values())
     return {"imported": len(lot_data), "emails": total_emails}
 
 
@@ -1158,9 +1263,9 @@ async def add_lot_owner(
 
     # Check uniqueness within building
     result = await db.execute(
-        select(LotOwner).where(
-            LotOwner.building_id == building_id,
-            LotOwner.lot_number == data.lot_number,
+        select(Lot).where(
+            Lot.building_id == building_id,
+            Lot.lot_number == data.lot_number,
         )
     )
     existing = result.scalar_one_or_none()
@@ -1170,33 +1275,34 @@ async def add_lot_owner(
             detail=f"lot_number '{data.lot_number}' already exists in this building",
         )
 
-    lot_owner = LotOwner(
+    lot = Lot(
         building_id=building_id,
         lot_number=data.lot_number,
-        given_name=data.given_name,
-        surname=data.surname,
         unit_entitlement=data.unit_entitlement,
         financial_position=FinancialPosition(data.financial_position),
     )
-    db.add(lot_owner)
+    db.add(lot)
     await db.flush()
 
     for email in data.emails:
         if email.strip():
-            normalised = email.strip().lower()
-            db.add(LotOwnerEmail(lot_owner_id=lot_owner.id, email=normalised))
+            person = await get_or_create_person(email.strip().lower(), db)
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            await db.execute(
+                pg_insert(lot_persons)
+                .values(lot_id=lot.id, person_id=person.id)
+                .on_conflict_do_nothing()
+            )
 
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner.id, db)
+    persons = await _load_persons_for_one(lot.id, db)
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": None,
         "proxy_given_name": None,
         "proxy_surname": None,
@@ -1209,33 +1315,27 @@ async def update_lot_owner(
     db: AsyncSession,
 ) -> dict:
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    if data.given_name is not None:
-        lot_owner.given_name = data.given_name
-    if data.surname is not None:
-        lot_owner.surname = data.surname
     if data.unit_entitlement is not None:
-        lot_owner.unit_entitlement = data.unit_entitlement
+        lot.unit_entitlement = data.unit_entitlement
     if data.financial_position is not None:
-        lot_owner.financial_position = FinancialPosition(data.financial_position)
+        lot.financial_position = FinancialPosition(data.financial_position)
 
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
@@ -1247,40 +1347,44 @@ async def add_email_to_lot_owner(
     email: str,
     db: AsyncSession,
 ) -> dict:
-    """Add an email to a lot owner. Returns the updated lot owner dict."""
+    """Add an email (person) to a lot. Returns the updated lot dict."""
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    email = email.strip().lower()
+    normalised = email.strip().lower()
 
-    # Check if email already exists for this lot owner
-    existing = await db.execute(
-        select(LotOwnerEmail).where(
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
-            LotOwnerEmail.email == email,
+    # Check if this person is already linked to this lot
+    person = await get_or_create_person(normalised, db)
+    existing_link = await db.execute(
+        select(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person.id,
         )
     )
-    if existing.scalar_one_or_none() is not None:
+    if existing_link.first() is not None:
         raise HTTPException(status_code=409, detail="Email already exists for this lot owner")
 
-    db.add(LotOwnerEmail(lot_owner_id=lot_owner_id, email=email))
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    await db.execute(
+        pg_insert(lot_persons)
+        .values(lot_id=lot_owner_id, person_id=person.id)
+        .on_conflict_do_nothing()
+    )
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
@@ -1292,38 +1396,47 @@ async def remove_email_from_lot_owner(
     email: str,
     db: AsyncSession,
 ) -> dict:
-    """Remove an email from a lot owner. Returns the updated lot owner dict."""
+    """Remove a person from a lot by email. Returns the updated lot dict."""
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    email_result = await db.execute(
-        select(LotOwnerEmail).where(
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
-            LotOwnerEmail.email == email,
-        )
+    person_result = await db.execute(
+        select(Person).where(Person.email == email.strip().lower())
     )
-    email_obj = email_result.scalar_one_or_none()
-    if email_obj is None:
+    person = person_result.scalar_one_or_none()
+    if person is None:
         raise HTTPException(status_code=404, detail="Email not found for this lot owner")
 
-    await db.delete(email_obj)
+    link_result = await db.execute(
+        select(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person.id,
+        )
+    )
+    if link_result.first() is None:
+        raise HTTPException(status_code=404, detail="Email not found for this lot owner")
+
+    await db.execute(
+        delete(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person.id,
+        )
+    )
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
@@ -1337,47 +1450,48 @@ async def set_lot_owner_proxy(
     given_name: str | None = None,
     surname: str | None = None,
 ) -> dict:
-    """Create or replace the proxy nomination for a lot owner."""
+    """Create or replace the proxy nomination for a lot. Resolves/creates person by email."""
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
+    person = await get_or_create_person(proxy_email, db)
+
+    # Update person's name fields if provided (fill-blanks policy: only set if currently NULL)
+    if given_name is not None and person.given_name is None:
+        person.given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None
+    if surname is not None and person.surname is None:
+        person.surname = bleach.clean(surname, tags=[], strip=True).strip() or None
+
     proxy_result = await db.execute(
-        select(LotProxy).where(LotProxy.lot_owner_id == lot_owner_id)
+        select(LotProxy).where(LotProxy.lot_id == lot_owner_id)
     )
     existing_proxy = proxy_result.scalar_one_or_none()
     if existing_proxy is not None:
-        existing_proxy.proxy_email = proxy_email
-        if given_name is not None:
-            existing_proxy.given_name = given_name
-        if surname is not None:
-            existing_proxy.surname = surname
+        existing_proxy.person_id = person.id
     else:
         db.add(LotProxy(
-            lot_owner_id=lot_owner_id,
-            proxy_email=proxy_email,
-            given_name=given_name,
-            surname=surname,
+            lot_id=lot_owner_id,
+            person_id=person.id,
         ))
 
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_email,
-        "proxy_given_name": given_name,
-        "proxy_surname": surname,
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
@@ -1385,16 +1499,16 @@ async def remove_lot_owner_proxy(
     lot_owner_id: uuid.UUID,
     db: AsyncSession,
 ) -> dict:
-    """Remove the proxy nomination for a lot owner. 404 if no proxy is set."""
+    """Remove the proxy nomination for a lot. 404 if no proxy is set."""
     result = await db.execute(
-        select(LotOwner).where(LotOwner.id == lot_owner_id)
+        select(Lot).where(Lot.id == lot_owner_id)
     )
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
     proxy_result = await db.execute(
-        select(LotProxy).where(LotProxy.lot_owner_id == lot_owner_id)
+        select(LotProxy).where(LotProxy.lot_id == lot_owner_id)
     )
     existing_proxy = proxy_result.scalar_one_or_none()
     if existing_proxy is None:
@@ -1403,16 +1517,14 @@ async def remove_lot_owner_proxy(
     await db.delete(existing_proxy)
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": None,
         "proxy_given_name": None,
         "proxy_surname": None,
@@ -1422,59 +1534,105 @@ async def remove_lot_owner_proxy(
 async def add_owner_email_to_lot_owner(
     lot_owner_id: uuid.UUID,
     email: str,
-    given_name: str | None,
-    surname: str | None,
     db: AsyncSession,
+    given_name: str | None = None,
+    surname: str | None = None,
     phone_number: str | None = None,
 ) -> dict:
-    """Add an email+name owner entry to a lot owner. Returns the updated lot owner dict."""
-    result = await db.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
-    lot_owner = result.scalar_one_or_none()
-    if lot_owner is None:
+    """Add a person (by email) to a lot. Look up or create the person row. Returns updated lot dict."""
+    result = await db.execute(select(Lot).where(Lot.id == lot_owner_id))
+    lot = result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
     normalised_email = email.strip().lower()
+    person = await get_or_create_person(normalised_email, db)
 
-    # Sanitise name fields before storage
-    clean_given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None if given_name else None
-    clean_surname = bleach.clean(surname, tags=[], strip=True).strip() or None if surname else None
+    # Fill-blanks policy: only update name/phone if currently NULL on the person row
+    if given_name is not None and person.given_name is None:
+        person.given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None
+    if surname is not None and person.surname is None:
+        person.surname = bleach.clean(surname, tags=[], strip=True).strip() or None
+    if phone_number is not None and person.phone_number is None:
+        person.phone_number = phone_number
 
-    # Check if email already exists for this lot owner
-    existing = await db.execute(
-        select(LotOwnerEmail).where(
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
-            LotOwnerEmail.email == normalised_email,
+    # Check if person already linked to this lot
+    existing_link = await db.execute(
+        select(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person.id,
         )
     )
-    if existing.scalar_one_or_none() is not None:
+    if existing_link.first() is not None:
         raise HTTPException(status_code=409, detail="Email already exists for this lot owner")
 
-    db.add(LotOwnerEmail(
-        lot_owner_id=lot_owner_id,
-        email=normalised_email,
-        given_name=clean_given_name,
-        surname=clean_surname,
-        phone_number=phone_number,
-    ))
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    await db.execute(
+        pg_insert(lot_persons)
+        .values(lot_id=lot_owner_id, person_id=person.id)
+        .on_conflict_do_nothing()
+    )
     await db.commit()
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
     }
 
 
+async def remove_person_from_lot(
+    lot_owner_id: uuid.UUID,
+    person_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict:
+    """Remove a person from a lot by person_id. The persons row is NOT deleted."""
+    lo_result = await db.execute(select(Lot).where(Lot.id == lot_owner_id))
+    lot = lo_result.scalar_one_or_none()
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Lot owner not found")
+
+    link_result = await db.execute(
+        select(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person_id,
+        )
+    )
+    if link_result.first() is None:
+        raise HTTPException(status_code=404, detail="Person not linked to this lot")
+
+    await db.execute(
+        delete(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == person_id,
+        )
+    )
+    await db.commit()
+
+    persons = await _load_persons_for_one(lot_owner_id, db)
+    proxy_info = await _get_proxy_info(lot_owner_id, db)
+
+    return {
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
+        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
+        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
+        "proxy_surname": proxy_info["surname"] if proxy_info else None,
+    }
+
+
+# Kept for backward-compatibility with old endpoint paths
 async def update_owner_email(
     lot_owner_id: uuid.UUID,
     email_id: uuid.UUID,
@@ -1485,64 +1643,56 @@ async def update_owner_email(
     phone_number: str | None = None,
     clear_phone: bool = False,
 ) -> dict:
-    """Update email, given_name, surname, and/or phone_number on a LotOwnerEmail row by ID.
+    """Update a person row by person_id and return the updated lot dict.
 
-    Validates that the email_id belongs to lot_owner_id. Returns the updated lot owner dict.
-    Pass phone_number=<value> to set a phone; pass clear_phone=True to set it to NULL.
+    The old endpoint patched LotOwnerEmail rows; this now delegates to update_person.
+    email_id is treated as person_id.
+
+    Returns 404 if the person is not linked to the specified lot.
     """
-    # Fetch the lot owner first
-    lo_result = await db.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
-    lot_owner = lo_result.scalar_one_or_none()
-    if lot_owner is None:
+    from app.schemas.admin import UpdatePersonRequest as _UPR
+
+    # Verify the lot exists
+    lo_result = await db.execute(select(Lot).where(Lot.id == lot_owner_id))
+    lot = lo_result.scalar_one_or_none()
+    if lot is None:
         raise HTTPException(status_code=404, detail="Lot owner not found")
 
-    # Fetch the email record, verifying it belongs to this lot owner
-    em_result = await db.execute(
-        select(LotOwnerEmail).where(
-            LotOwnerEmail.id == email_id,
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
+    # Verify the person is linked to this lot via lot_persons
+    link_result = await db.execute(
+        select(lot_persons).where(
+            lot_persons.c.lot_id == lot_owner_id,
+            lot_persons.c.person_id == email_id,
         )
     )
-    email_obj = em_result.scalar_one_or_none()
-    if email_obj is None:
-        raise HTTPException(status_code=404, detail="Owner email record not found")
+    if link_result.first() is None:
+        raise HTTPException(status_code=404, detail="Email record not found for this lot owner")
 
+    fields: dict = {}
     if email is not None:
-        normalised_email = email.strip().lower()
-        # Check for duplicate email on this lot (excluding this record)
-        dup_result = await db.execute(
-            select(LotOwnerEmail).where(
-                LotOwnerEmail.lot_owner_id == lot_owner_id,
-                LotOwnerEmail.email == normalised_email,
-                LotOwnerEmail.id != email_id,
-            )
-        )
-        if dup_result.scalar_one_or_none() is not None:
-            raise HTTPException(status_code=409, detail="Email already exists for this lot owner")
-        email_obj.email = normalised_email
-
+        fields["email"] = email
     if given_name is not None:
-        email_obj.given_name = bleach.clean(given_name, tags=[], strip=True).strip() or None
+        fields["given_name"] = given_name
     if surname is not None:
-        email_obj.surname = bleach.clean(surname, tags=[], strip=True).strip() or None
+        fields["surname"] = surname
     if phone_number is not None:
-        email_obj.phone_number = phone_number
+        fields["phone_number"] = phone_number
     elif clear_phone:
-        email_obj.phone_number = None
+        fields["phone_number"] = None
 
-    await db.commit()
+    if fields:
+        req = _UPR.model_construct(_fields_set=set(fields.keys()), **fields)
+        await update_person(email_id, req, db)
 
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
+    persons = await _load_persons_for_one(lot_owner_id, db)
     proxy_info = await _get_proxy_info(lot_owner_id, db)
 
     return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
+        "id": lot.id,
+        "lot_number": lot.lot_number,
+        "persons": persons,
+        "unit_entitlement": lot.unit_entitlement,
+        "financial_position": _format_financial_position(lot.financial_position),
         "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
         "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
         "proxy_surname": proxy_info["surname"] if proxy_info else None,
@@ -1554,40 +1704,8 @@ async def remove_owner_email_by_id(
     email_id: uuid.UUID,
     db: AsyncSession,
 ) -> dict:
-    """Delete a LotOwnerEmail row by its UUID. Validates it belongs to lot_owner_id."""
-    lo_result = await db.execute(select(LotOwner).where(LotOwner.id == lot_owner_id))
-    lot_owner = lo_result.scalar_one_or_none()
-    if lot_owner is None:
-        raise HTTPException(status_code=404, detail="Lot owner not found")
-
-    em_result = await db.execute(
-        select(LotOwnerEmail).where(
-            LotOwnerEmail.id == email_id,
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
-        )
-    )
-    email_obj = em_result.scalar_one_or_none()
-    if email_obj is None:
-        raise HTTPException(status_code=404, detail="Owner email record not found")
-
-    await db.delete(email_obj)
-    await db.commit()
-
-    owner_emails = await _load_owner_emails_for_one(lot_owner_id, db)
-    proxy_info = await _get_proxy_info(lot_owner_id, db)
-
-    return {
-        "id": lot_owner.id,
-        "lot_number": lot_owner.lot_number,
-        "given_name": lot_owner.given_name,
-        "surname": lot_owner.surname,
-        "owner_emails": owner_emails,
-        "unit_entitlement": lot_owner.unit_entitlement,
-        "financial_position": _format_financial_position(lot_owner.financial_position),
-        "proxy_email": proxy_info["proxy_email"] if proxy_info else None,
-        "proxy_given_name": proxy_info["given_name"] if proxy_info else None,
-        "proxy_surname": proxy_info["surname"] if proxy_info else None,
-    }
+    """Remove a person from a lot by person_id (email_id treated as person_id)."""
+    return await remove_person_from_lot(lot_owner_id, email_id, db)
 
 
 # ---------------------------------------------------------------------------
@@ -1670,7 +1788,7 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
 
     # Snapshot lot weights (include financial_position_snapshot)
     lot_owners_result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == data.building_id)
+        select(Lot).where(Lot.building_id == data.building_id)
     )
     lot_owners = list(lot_owners_result.scalars().all())
 
@@ -1679,7 +1797,7 @@ async def create_general_meeting(data: GeneralMeetingCreate, db: AsyncSession) -
         fp_snapshot = FinancialPositionSnapshot(fp.value if hasattr(fp, "value") else fp)
         weight = GeneralMeetingLotWeight(
             general_meeting_id=general_meeting.id,
-            lot_owner_id=lot_owner.id,
+            lot_id=lot_owner.id,
             unit_entitlement_snapshot=lot_owner.unit_entitlement,
             financial_position_snapshot=fp_snapshot,
         )
@@ -1875,42 +1993,44 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         for opt in opts_result.scalars().all():
             motion_options_map.setdefault(opt.motion_id, []).append(opt)
 
-    # Load lot weights joined with lot_owner to get lot numbers
+    # Load lot weights joined with lot to get lot numbers
     weights_result = await db.execute(
-        select(GeneralMeetingLotWeight, LotOwner.lot_number.label("lot_number"))
-        .join(LotOwner, GeneralMeetingLotWeight.lot_owner_id == LotOwner.id)
+        select(GeneralMeetingLotWeight, Lot.lot_number.label("lot_number"))
+        .join(Lot, GeneralMeetingLotWeight.lot_id == Lot.id)
         .where(GeneralMeetingLotWeight.general_meeting_id == general_meeting_id)
     )
     weight_rows = weights_result.all()
 
-    # Build per-lot_owner_id entitlement and lot info.
-    # Batch-load emails for all lot owners in a single IN query to avoid O(N) queries (RR3-12).
+    # Build per-lot_id entitlement and lot info.
+    # Batch-load emails for all lots in a single IN query to avoid O(N) queries (RR3-12).
     lot_entitlement: dict[uuid.UUID, int] = {}
-    lot_info: dict[uuid.UUID, dict] = {}  # lot_owner_id -> {lot_number, emails, entitlement}
+    lot_info: dict[uuid.UUID, dict] = {}  # lot_id -> {lot_number, emails, entitlement}
 
     for w, lot_num in weight_rows:
-        lot_entitlement[w.lot_owner_id] = w.unit_entitlement_snapshot
+        lot_entitlement[w.lot_id] = w.unit_entitlement_snapshot
         # Placeholder; emails filled by batch query below
-        lot_info[w.lot_owner_id] = {
-            "lot_owner_id": w.lot_owner_id,
+        lot_info[w.lot_id] = {
+            "lot_owner_id": w.lot_id,
             "lot_number": lot_num,
             "emails": [],
             "entitlement": w.unit_entitlement_snapshot,
         }
 
-    # Maps (lot_owner_id, email) -> display_name ("Given Surname" or None)
+    # Maps (lot_id, email) -> display_name ("Given Surname" or None)
     lot_owner_email_to_name: dict[tuple, str | None] = {}
 
     if lot_entitlement:
-        # Batch-load emails (with names) for all lots in the snapshot — single query (RR3-12)
+        # Batch-load emails (with names) via lot_persons JOIN persons — single query (RR3-12)
         batch_emails_result = await db.execute(
             select(
-                LotOwnerEmail.lot_owner_id,
-                LotOwnerEmail.email,
-                LotOwnerEmail.given_name,
-                LotOwnerEmail.surname,
+                lot_persons.c.lot_id,
+                Person.email,
+                Person.given_name,
+                Person.surname,
+            ).join(
+                Person, Person.id == lot_persons.c.person_id
             ).where(
-                LotOwnerEmail.lot_owner_id.in_(list(lot_entitlement.keys()))
+                lot_persons.c.lot_id.in_(list(lot_entitlement.keys()))
             )
         )
         for row in batch_emails_result.all():
@@ -1920,15 +2040,16 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 name_parts = [p for p in [row[2], row[3]] if p]
                 lot_owner_email_to_name[(row[0], row[1])] = " ".join(name_parts).strip() or None
 
-        # Populate proxy names from lot_proxies — proxy voter_email is the proxy's email,
-        # which is not present in lot_owner_emails so must be loaded separately.
+        # Populate proxy names from lot_proxies JOIN persons.
         proxy_rows = await db.execute(
             select(
-                LotProxy.lot_owner_id,
-                LotProxy.proxy_email,
-                LotProxy.given_name,
-                LotProxy.surname,
-            ).where(LotProxy.lot_owner_id.in_(list(lot_entitlement.keys())))
+                LotProxy.lot_id,
+                Person.email,
+                Person.given_name,
+                Person.surname,
+            ).join(
+                Person, Person.id == LotProxy.person_id
+            ).where(LotProxy.lot_id.in_(list(lot_entitlement.keys())))
         )
         for row in proxy_rows.all():
             name_parts = [p for p in [row[2], row[3]] if p]
@@ -1941,7 +2062,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
     # Fallback: if snapshot is empty
     if not lot_entitlement:
         current_result = await db.execute(
-            select(LotOwner).where(LotOwner.building_id == general_meeting.building_id)
+            select(Lot).where(Lot.building_id == general_meeting.building_id)
         )
         fallback_owners = list(current_result.scalars().all())
         for lo in fallback_owners:
@@ -1953,14 +2074,17 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
                 "entitlement": lo.unit_entitlement,
             }
         if fallback_owners:
+            fallback_lot_ids = [lo.id for lo in fallback_owners]
             fallback_emails_result = await db.execute(
                 select(
-                    LotOwnerEmail.lot_owner_id,
-                    LotOwnerEmail.email,
-                    LotOwnerEmail.given_name,
-                    LotOwnerEmail.surname,
+                    lot_persons.c.lot_id,
+                    Person.email,
+                    Person.given_name,
+                    Person.surname,
+                ).join(
+                    Person, Person.id == lot_persons.c.person_id
                 ).where(
-                    LotOwnerEmail.lot_owner_id.in_([lo.id for lo in fallback_owners])
+                    lot_persons.c.lot_id.in_(fallback_lot_ids)
                 )
             )
             for row in fallback_emails_result.all():
@@ -1973,11 +2097,13 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
             # Populate proxy names from lot_proxies for fallback path.
             fallback_proxy_rows = await db.execute(
                 select(
-                    LotProxy.lot_owner_id,
-                    LotProxy.proxy_email,
-                    LotProxy.given_name,
-                    LotProxy.surname,
-                ).where(LotProxy.lot_owner_id.in_([lo.id for lo in fallback_owners]))
+                    LotProxy.lot_id,
+                    Person.email,
+                    Person.given_name,
+                    Person.surname,
+                ).join(
+                    Person, Person.id == LotProxy.person_id
+                ).where(LotProxy.lot_id.in_(fallback_lot_ids))
             )
             for row in fallback_proxy_rows.all():
                 name_parts = [p for p in [row[2], row[3]] if p]
@@ -2014,7 +2140,7 @@ async def get_general_meeting_detail(general_meeting_id: uuid.UUID, db: AsyncSes
         )
         .join(
             GeneralMeetingLotWeight,
-            (GeneralMeetingLotWeight.lot_owner_id == Vote.lot_owner_id)
+            (GeneralMeetingLotWeight.lot_id == Vote.lot_owner_id)
             & (GeneralMeetingLotWeight.general_meeting_id == Vote.general_meeting_id),
             isouter=True,
         )
@@ -2905,7 +3031,7 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
     # These capture contact emails as a snapshot at close time so the export has
     # the right emails even if lot owner emails are later changed.
     weights_result = await db.execute(
-        select(GeneralMeetingLotWeight.lot_owner_id).where(
+        select(GeneralMeetingLotWeight.lot_id).where(
             GeneralMeetingLotWeight.general_meeting_id == general_meeting_id
         )
     )
@@ -2922,10 +3048,12 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
         absent_lot_owner_ids = eligible_lot_owner_ids - voted_lot_owner_ids
 
         if absent_lot_owner_ids:
-            # Batch-load owner emails for all absent lots
+            # Batch-load owner emails for all absent lots via lot_persons JOIN persons
             emails_result = await db.execute(
-                select(LotOwnerEmail.lot_owner_id, LotOwnerEmail.email).where(
-                    LotOwnerEmail.lot_owner_id.in_(absent_lot_owner_ids)
+                select(lot_persons.c.lot_id, Person.email).join(
+                    Person, Person.id == lot_persons.c.person_id
+                ).where(
+                    lot_persons.c.lot_id.in_(absent_lot_owner_ids)
                 )
             )
             emails_by_owner: dict[uuid.UUID, list[str]] = {}
@@ -2933,10 +3061,12 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
                 if row[1]:
                     emails_by_owner.setdefault(row[0], []).append(row[1])
 
-            # Batch-load proxy emails for all absent lots
+            # Batch-load proxy emails for all absent lots via LotProxy JOIN persons
             proxies_result = await db.execute(
-                select(LotProxy.lot_owner_id, LotProxy.proxy_email).where(
-                    LotProxy.lot_owner_id.in_(absent_lot_owner_ids)
+                select(LotProxy.lot_id, Person.email).join(
+                    Person, Person.id == LotProxy.person_id
+                ).where(
+                    LotProxy.lot_id.in_(absent_lot_owner_ids)
                 )
             )
             proxy_by_owner: dict[uuid.UUID, str] = {
@@ -2945,7 +3075,7 @@ async def close_general_meeting(general_meeting_id: uuid.UUID, db: AsyncSession,
 
             # Pre-load lot_number for absent lots to include in the warning (RR5-12)
             absent_lot_owners_result = await db.execute(
-                select(LotOwner.id, LotOwner.lot_number).where(LotOwner.id.in_(absent_lot_owner_ids))
+                select(Lot.id, Lot.lot_number).where(Lot.id.in_(absent_lot_owner_ids))
             )
             absent_lot_number_map: dict[uuid.UUID, str] = {row[0]: row[1] for row in absent_lot_owners_result.all()}
 
@@ -3053,7 +3183,7 @@ async def compute_multi_choice_outcomes(general_meeting_id: uuid.UUID, db: Async
         )
         .join(
             GeneralMeetingLotWeight,
-            (GeneralMeetingLotWeight.lot_owner_id == Vote.lot_owner_id)
+            (GeneralMeetingLotWeight.lot_id == Vote.lot_owner_id)
             & (GeneralMeetingLotWeight.general_meeting_id == general_meeting_id),
             isouter=True,
         )
@@ -3484,22 +3614,22 @@ async def import_proxies(
     """
     await get_building_or_404(building_id, db)
 
-    # Load all lot owners for this building keyed by lot_number
+    # Load all lots for this building keyed by lot_number
     existing_result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id)
+        select(Lot).where(Lot.building_id == building_id)
     )
-    lot_owner_map: dict[str, LotOwner] = {
+    lot_map: dict[str, Lot] = {
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
     # Batch-load all existing proxies for this building's lots in a single query
     # to avoid N+1 SELECT per row (RR5-04).
-    lot_owner_ids = list({lo.id for lo in lot_owner_map.values()})
+    lot_ids = list({lo.id for lo in lot_map.values()})
     existing_proxies_result = await db.execute(
-        select(LotProxy).where(LotProxy.lot_owner_id.in_(lot_owner_ids))
+        select(LotProxy).where(LotProxy.lot_id.in_(lot_ids))
     )
     proxy_map: dict[uuid.UUID, LotProxy] = {
-        p.lot_owner_id: p for p in existing_proxies_result.scalars().all()
+        p.lot_id: p for p in existing_proxies_result.scalars().all()
     }
 
     upserted = 0
@@ -3510,8 +3640,8 @@ async def import_proxies(
         lot_number = row["lot_number"]
         proxy_email = row["proxy_email"]
 
-        lot_owner = lot_owner_map.get(lot_number)
-        if lot_owner is None:
+        lot = lot_map.get(lot_number)
+        if lot is None:
             logger.warning(
                 "Proxy import: lot_number %r not found in building %s — skipping",
                 lot_number,
@@ -3521,7 +3651,7 @@ async def import_proxies(
             continue
 
         # Lookup existing proxy from pre-loaded dict (RR5-04: no per-row SELECT)
-        existing_proxy = proxy_map.get(lot_owner.id)
+        existing_proxy = proxy_map.get(lot.id)
 
         given_name = row.get("given_name")
         surname = row.get("surname")
@@ -3532,19 +3662,14 @@ async def import_proxies(
                 await db.delete(existing_proxy)
                 removed += 1
         else:
-            # Upsert nomination
+            # Upsert nomination: resolve/create person, then set person_id on LotProxy
+            person = await get_or_create_person(proxy_email, db, given_name=given_name, surname=surname)
             if existing_proxy is not None:
-                existing_proxy.proxy_email = proxy_email
-                if given_name is not None:
-                    existing_proxy.given_name = given_name
-                if surname is not None:
-                    existing_proxy.surname = surname
+                existing_proxy.person_id = person.id
             else:
                 db.add(LotProxy(
-                    lot_owner_id=lot_owner.id,
-                    proxy_email=proxy_email,
-                    given_name=given_name,
-                    surname=surname,
+                    lot_id=lot.id,
+                    person_id=person.id,
                 ))
             upserted += 1
 
@@ -3919,11 +4044,11 @@ async def import_financial_positions(
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
-    # Load all lot owners for this building keyed by lot_number
+    # Load all lots for this building keyed by lot_number
     existing_result = await db.execute(
-        select(LotOwner).where(LotOwner.building_id == building_id)
+        select(Lot).where(Lot.building_id == building_id)
     )
-    lot_owner_map: dict[str, LotOwner] = {
+    lot_map: dict[str, Lot] = {
         lo.lot_number: lo for lo in existing_result.scalars().all()
     }
 
@@ -3934,8 +4059,8 @@ async def import_financial_positions(
         lot_number = row["lot_number"]
         fp_raw = row["financial_position_raw"]
 
-        lot_owner = lot_owner_map.get(lot_number)
-        if lot_owner is None:
+        lot = lot_map.get(lot_number)
+        if lot is None:
             logger.warning(
                 "Financial position import: lot_number %r not found in building %s — skipping",
                 lot_number,
@@ -3945,7 +4070,7 @@ async def import_financial_positions(
             continue
 
         fp = _parse_financial_position_import(fp_raw)
-        lot_owner.financial_position = fp  # type: ignore[assignment]
+        lot.financial_position = fp  # type: ignore[assignment]
         updated += 1
 
     await db.commit()
@@ -4022,7 +4147,7 @@ async def enter_votes_for_meeting(
 
     # Validate all lot_owner_ids exist in the DB
     lo_result = await db.execute(
-        select(LotOwner.id).where(LotOwner.id.in_(lot_owner_ids))
+        select(Lot.id).where(Lot.id.in_(lot_owner_ids))
     )
     found_ids: set[uuid.UUID] = {row[0] for row in lo_result.all()}
     unknown = [str(lid) for lid in lot_owner_ids if lid not in found_ids]
@@ -4062,11 +4187,11 @@ async def enter_votes_for_meeting(
     weights_result = await db.execute(
         select(GeneralMeetingLotWeight).where(
             GeneralMeetingLotWeight.general_meeting_id == general_meeting_id,
-            GeneralMeetingLotWeight.lot_owner_id.in_(lot_owner_ids),
+            GeneralMeetingLotWeight.lot_id.in_(lot_owner_ids),
         )
     )
     weight_by_lot: dict[uuid.UUID, GeneralMeetingLotWeight] = {
-        w.lot_owner_id: w for w in weights_result.scalars().all()
+        w.lot_id: w for w in weights_result.scalars().all()
     }
 
     # Load all visible motions for this meeting

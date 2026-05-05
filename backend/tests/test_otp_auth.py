@@ -33,8 +33,11 @@ from app.models import (
     LotProxy,
     OTPRateLimit,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.routers.auth import _generate_otp_code, _OTP_ALPHABET
+from tests.conftest import get_or_create_person
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +73,14 @@ async def building_and_meeting(db_session: AsyncSession):
     db_session.add(b)
     await db_session.flush()
 
-    lo = LotOwner(building_id=b.id, lot_number="OTP-1", unit_entitlement=100)
+    lo = Lot(building_id=b.id, lot_number="OTP-1", unit_entitlement=100)
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="otp_voter@test.com")
-    db_session.add(lo_email)
+    p = Person(email="otp_voter@test.com")
+    db_session.add(p)
+    await db_session.flush()
+    await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -184,7 +189,8 @@ class TestRequestOtp:
         agm = building_and_meeting["agm"]
         lo = building_and_meeting["lot_owner"]
         proxy_email = "proxy_otp@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        proxy_person = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
         db_session.add(lp)
         await db_session.flush()
 

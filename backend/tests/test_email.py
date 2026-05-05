@@ -37,12 +37,14 @@ from app.models import (
     EmailDelivery,
     EmailDeliveryStatus,
     LotOwner,
-    LotOwnerEmail,
     Motion,
     Vote,
     VoteChoice,
     VoteStatus,
 )
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.services.email_service import (
     EmailService,
     SmtpNotConfiguredError,
@@ -106,24 +108,26 @@ async def _create_motion(db: AsyncSession, agm: GeneralMeeting, order_index: int
     return motion
 
 
-async def _create_lot_owner(db: AsyncSession, building: Building, email: str, unit_entitlement: int = 100) -> LotOwner:
-    lo = LotOwner(
+async def _create_lot_owner(db: AsyncSession, building: Building, email: str, unit_entitlement: int = 100) -> Lot:
+    lo = Lot(
         building_id=building.id,
         lot_number=f"L{uuid.uuid4().hex[:6]}",
         unit_entitlement=unit_entitlement,
     )
     db.add(lo)
     await db.flush()
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=email)
-    db.add(lo_email)
+    p = Person(email=email)
+    db.add(p)
+    await db.flush()
+    await db.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
     await db.flush()
     return lo
 
 
-async def _create_lot_weight(db: AsyncSession, agm: GeneralMeeting, lot_owner: LotOwner) -> GeneralMeetingLotWeight:
+async def _create_lot_weight(db: AsyncSession, agm: GeneralMeeting, lot_owner: Lot) -> GeneralMeetingLotWeight:
     w = GeneralMeetingLotWeight(
         general_meeting_id=agm.id,
-        lot_owner_id=lot_owner.id,
+        lot_id=lot_owner.id,
         unit_entitlement_snapshot=lot_owner.unit_entitlement,
     )
     db.add(w)

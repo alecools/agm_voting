@@ -53,8 +53,9 @@ class Vote(Base):
         nullable=False,
     )
     voter_email: Mapped[str] = mapped_column(String, nullable=False)
+    # Column intentionally kept as lot_owner_id (audit snapshot); FK target updated to lots.id
     lot_owner_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("lot_owners.id", ondelete="CASCADE"),
+        ForeignKey("lots.id", ondelete="CASCADE"),
         nullable=False,
     )
     choice: Mapped[VoteChoice | None] = mapped_column(
