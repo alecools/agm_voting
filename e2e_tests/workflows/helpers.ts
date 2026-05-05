@@ -588,6 +588,7 @@ export async function goToAuthPage(page: Page, buildingName: string): Promise<vo
  * Fill and submit the auth form via the two-step OTP flow.
  *
  * Step 1: fill email, click "Send Verification Code".
+ * Step 1b (if voter has a phone number): channel selector appears — select email, click "Send code".
  * Step 2: retrieve OTP via `getOtp` callback, fill code field, click "Verify".
  *
  * The `getOtp` callback is typically `() => getTestOtp(api, email, meetingId)`.
@@ -606,6 +607,16 @@ export async function authenticateVoter(
   await page.context().clearCookies({ name: 'agm_session' });
   await page.getByLabel("Email address").fill(email);
   await page.getByRole("button", { name: "Send Verification Code" }).click();
+
+  // If the voter has a phone number on record, a channel selector (email / SMS)
+  // appears before the code input. Always choose email for E2E tests.
+  const channelSelector = page.getByRole("radiogroup", { name: "Verification channel" });
+  const channelVisible = await channelSelector.isVisible().catch(() => false);
+  if (channelVisible) {
+    await page.getByRole("radio", { name: "Email" }).check();
+    await page.getByRole("button", { name: "Send code" }).click();
+  }
+
   await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
   const code = await getOtp();
   await page.getByLabel("Verification code").fill(code);
