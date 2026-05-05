@@ -355,6 +355,7 @@ async def create_building(
 
 
 _VALID_BUILDINGS_SORT_BY = {"name", "manager_email", "created_at"}
+_VALID_LOT_OWNERS_SORT_BY = {"lot_number", "unit_entitlement", "financial_position"}
 _VALID_SORT_DIRS = {"asc", "desc"}
 
 
@@ -515,9 +516,17 @@ async def list_lot_owners(
     building_id: uuid.UUID,
     limit: int = Query(default=20, le=1000),
     offset: int = Query(default=0, ge=0),
+    sort_by: str | None = Query(None),
+    sort_dir: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> list[LotOwnerOut]:
-    owners = await admin_service.list_lot_owners(building_id, db, limit=limit, offset=offset)
+    if sort_by is not None and sort_by not in _VALID_LOT_OWNERS_SORT_BY:
+        raise HTTPException(status_code=400, detail="Invalid sort_by value")
+    if sort_dir is not None and sort_dir not in _VALID_SORT_DIRS:
+        raise HTTPException(status_code=400, detail="Invalid sort_dir value")
+    owners = await admin_service.list_lot_owners(
+        building_id, db, limit=limit, offset=offset, sort_by=sort_by, sort_dir=sort_dir
+    )
     return [LotOwnerOut(**o) for o in owners]
 
 

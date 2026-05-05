@@ -398,11 +398,13 @@ export async function importBuildings(file: File): Promise<BuildingImportResult>
 
 export async function listLotOwners(
   buildingId: string,
-  params?: { limit?: number; offset?: number }
+  params?: { limit?: number; offset?: number; sort_by?: string; sort_dir?: string }
 ): Promise<LotOwner[]> {
   const qs = new URLSearchParams();
   if (params?.limit !== undefined) qs.set("limit", String(params.limit));
   if (params?.offset !== undefined) qs.set("offset", String(params.offset));
+  if (params?.sort_by !== undefined) qs.set("sort_by", params.sort_by);
+  if (params?.sort_dir !== undefined) qs.set("sort_dir", params.sort_dir);
   const query = qs.toString();
   return apiFetch<LotOwner[]>(
     `/api/admin/buildings/${buildingId}/lot-owners${query ? `?${query}` : ""}`
