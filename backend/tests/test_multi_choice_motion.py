@@ -31,9 +31,11 @@ from app.models import (
     VoteChoice,
     VoteStatus,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.models.session_record import SessionRecord
-from tests.conftest import meeting_dt, closing_dt
+from tests.conftest import meeting_dt, closing_dt, add_person_to_lot
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +56,7 @@ async def mc_building(db_session: AsyncSession) -> Building:
         )
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=f"lot{i}@test.com"))
+        await add_person_to_lot(db_session, lo, f"lot{i}@test.com")
     await db_session.commit()
     return b
 
@@ -234,7 +236,7 @@ class TestMotionOptionModel:
         # Create weight snapshot
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=gm.id,
-            lot_owner_id=lot.id,
+            lot_id=lot.id,
             unit_entitlement_snapshot=lot.unit_entitlement,
         ))
 
@@ -783,7 +785,7 @@ class TestGetMeetingDetailWithMultiChoice:
         for lot, opts in [(lot1, [alice_opt_id]), (lot2, [alice_opt_id, bob_opt_id])]:
             # Create a vote submission directly via DB
             emails_result = await db_session.execute(
-                select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+                select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
             )
             email = emails_result.scalars().first()
             voter_email = email.email if email else "voter@test.com"
@@ -885,7 +887,7 @@ class TestListMotionsWithMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -916,7 +918,7 @@ class TestListMotionsWithMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -953,7 +955,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1013,7 +1015,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1062,7 +1064,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1109,7 +1111,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1147,7 +1149,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1184,7 +1186,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1218,7 +1220,7 @@ class TestSubmitBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1301,7 +1303,7 @@ class TestSubmitBallotMultiChoice:
         weight_result = await db_session.execute(
             select(GeneralMeetingLotWeight).where(
                 GeneralMeetingLotWeight.general_meeting_id == meeting_id,
-                GeneralMeetingLotWeight.lot_owner_id == lot.id,
+                GeneralMeetingLotWeight.lot_id == lot.id,
             )
         )
         weight = weight_result.scalar_one()
@@ -1309,7 +1311,7 @@ class TestSubmitBallotMultiChoice:
         await db_session.commit()
 
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1364,7 +1366,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -1417,7 +1419,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -1469,7 +1471,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -1534,7 +1536,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -1611,7 +1613,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email_row = emails_result.scalars().first()
         voter_email = email_row.email
@@ -1666,7 +1668,7 @@ class TestMyBallotMultiChoice:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email_row = emails_result.scalars().first()
         voter_email = email_row.email
@@ -1883,7 +1885,7 @@ class TestListMotionsSubmittedOptionChoices:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -1936,7 +1938,7 @@ class TestListMotionsSubmittedOptionChoices:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -1966,7 +1968,7 @@ class TestListMotionsSubmittedOptionChoices:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2014,7 +2016,7 @@ class TestListMotionsSubmittedOptionChoices:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2069,7 +2071,7 @@ class TestListMotionsSubmittedOptionChoices:
         # Give both lots the same voter email
         voter_email = "shared@test.com"
         for lot in lots:
-            db_session.add(LotOwnerEmail(lot_owner_id=lot.id, email=voter_email))
+            await add_person_to_lot(db_session, lot, voter_email)
         await db_session.flush()
 
         token = await _create_voter_session(db_session, meeting_id, voter_email, mc_building.id)
@@ -2133,7 +2135,7 @@ class TestAbstainedIdsComputationFix:
         )
         lot = lots_result.scalars().first()
         email_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         voter_email = email_result.scalars().first().email
 
@@ -2183,7 +2185,7 @@ class TestAbstainedIdsComputationFix:
         )
         lot = lots_result.scalars().first()
         email_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         voter_email = email_result.scalars().first().email
 
@@ -2226,7 +2228,7 @@ class TestAbstainedIdsComputationFix:
         )
         lot = lots_result.scalars().first()
         email_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         voter_email = email_result.scalars().first().email
 
@@ -2305,7 +2307,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2363,7 +2365,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2418,7 +2420,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2461,7 +2463,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2518,7 +2520,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2569,7 +2571,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2634,7 +2636,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2689,7 +2691,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         token = await _create_voter_session(db_session, meeting_id, email.email, mc_building.id)
@@ -2749,7 +2751,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2799,7 +2801,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2852,7 +2854,7 @@ class TestSlice3ForAgainstAbstain:
         )
         lot = lots_result.scalars().first()
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email
@@ -2925,7 +2927,7 @@ class TestSlice10ForAgainstAbstainedTally:
         lot1 = lots[0]  # UOE=100
 
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot1.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot1.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email if email else "voter@test.com"
@@ -2996,7 +2998,7 @@ class TestSlice10ForAgainstAbstainedTally:
             (lot3, VoteChoice.abstained, alice_opt_id),
         ]:
             emails_result = await db_session.execute(
-                select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot.id).limit(1)
+                select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot.id).limit(1)
             )
             email = emails_result.scalars().first()
             voter_email = email.email if email else f"voter{lot.lot_number}@test.com"
@@ -3068,7 +3070,7 @@ class TestSlice10ForAgainstAbstainedTally:
         lot1 = lots[0]
 
         emails_result = await db_session.execute(
-            select(LotOwnerEmail).where(LotOwnerEmail.lot_owner_id == lot1.id).limit(1)
+            select(Person).join(lot_persons, lot_persons.c.person_id == Person.id).where(lot_persons.c.lot_id == lot1.id).limit(1)
         )
         email = emails_result.scalars().first()
         voter_email = email.email if email else "voter@test.com"

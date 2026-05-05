@@ -19,9 +19,10 @@ from app.rate_limiter import ballot_submit_limiter
 
 from app.database import get_db
 from app.models.general_meeting import GeneralMeeting
-from app.models.lot_owner import LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
 from app.models.lot_proxy import LotProxy
+from app.models.person import Person
 from app.models.motion import Motion
 from app.models.motion_option import MotionOption
 from app.models.session_record import SessionRecord
@@ -181,28 +182,32 @@ async def _verify_lot_ownership(
       - a direct lot owner (LotOwnerEmail record linking email → lot in this building), or
       - a nominated proxy (LotProxy record linking proxy_email → lot in this building).
     """
-    # Check direct ownership
+    # Check direct ownership via lot_persons JOIN persons
     direct_result = await db.execute(
-        select(LotOwnerEmail)
-        .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+        select(lot_persons.c.lot_id)
+        .join(Person, Person.id == lot_persons.c.person_id)
+        .join(Lot, Lot.id == lot_persons.c.lot_id)
         .where(
-            LotOwnerEmail.email == voter_email,
-            LotOwnerEmail.lot_owner_id == lot_owner_id,
-            LotOwner.building_id == building_id,
+            Person.email == voter_email,
+            lot_persons.c.lot_id == lot_owner_id,
+            Lot.building_id == building_id,
         )
+        .limit(1)
     )
     if direct_result.scalar_one_or_none() is not None:
         return
 
-    # Check proxy ownership
+    # Check proxy ownership via LotProxy JOIN persons
     proxy_result = await db.execute(
-        select(LotProxy)
-        .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+        select(LotProxy.lot_id)
+        .join(Person, Person.id == LotProxy.person_id)
+        .join(Lot, Lot.id == LotProxy.lot_id)
         .where(
-            LotProxy.proxy_email == voter_email,
-            LotProxy.lot_owner_id == lot_owner_id,
-            LotOwner.building_id == building_id,
+            Person.email == voter_email,
+            LotProxy.lot_id == lot_owner_id,
+            Lot.building_id == building_id,
         )
+        .limit(1)
     )
     if proxy_result.scalar_one_or_none() is not None:
         return

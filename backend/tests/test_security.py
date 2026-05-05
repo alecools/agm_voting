@@ -32,8 +32,11 @@ from app.models import (
     LotOwner,
     OTPRateLimit,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.services.admin_service import _sanitise_description
+from tests.conftest import add_person_to_lot
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +70,7 @@ async def building_and_meeting(db_session: AsyncSession):
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="sec_voter@test.com")
-    db_session.add(lo_email)
+    await add_person_to_lot(db_session, lo, "sec_voter@test.com")
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -1049,7 +1051,9 @@ class TestStructuredLoggingVotingService:
             GeneralMeetingStatus,
             LotOwner,
         )
-        from app.models.lot_owner_email import LotOwnerEmail
+        from app.models.lot import Lot
+        from app.models.lot_person import lot_persons
+        from app.models.person import Person
         from app.services.voting_service import submit_ballot
 
         building = Building(name=f"Log Test Bldg {uuid.uuid4().hex[:6]}", manager_email="m@e.com")
@@ -1060,8 +1064,7 @@ class TestStructuredLoggingVotingService:
         db_session.add(lo)
         await db_session.flush()
 
-        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email="logtest@example.com")
-        db_session.add(email_rec)
+        await add_person_to_lot(db_session, lo, "logtest@example.com")
 
         agm = GeneralMeeting(
             building_id=building.id,
@@ -1075,7 +1078,7 @@ class TestStructuredLoggingVotingService:
 
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
         )
         db_session.add(weight)
@@ -1153,7 +1156,9 @@ class TestStructuredLoggingAdminService:
             GeneralMeetingStatus,
             LotOwner,
         )
-        from app.models.lot_owner_email import LotOwnerEmail
+        from app.models.lot import Lot
+        from app.models.lot_person import lot_persons
+        from app.models.person import Person
         from app.services.admin_service import close_general_meeting
 
         building = Building(name=f"Close Log Bldg {uuid.uuid4().hex[:6]}", manager_email="m@e.com")
@@ -1164,7 +1169,7 @@ class TestStructuredLoggingAdminService:
         db_session.add(lo)
         await db_session.flush()
 
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="closetest@example.com"))
+        await add_person_to_lot(db_session, lo, "closetest@example.com")
 
         agm = GeneralMeeting(
             building_id=building.id,
@@ -1178,7 +1183,7 @@ class TestStructuredLoggingAdminService:
 
         db_session.add(GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
         ))
         await db_session.flush()

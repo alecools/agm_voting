@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.logging_config import get_logger
-from app.models.lot_owner import LotOwner
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
 from app.models.lot_proxy import LotProxy
+from app.models.person import Person
 from app.models.session_record import SessionRecord
 
 logger = get_logger(__name__)
@@ -70,19 +71,20 @@ def _unsign_token(signed_token: str) -> str:
 async def _load_direct_lot_owner_ids(
     voter_email: str, building_id: uuid.UUID
 ) -> set[uuid.UUID]:
-    """Load lot_owner_ids for direct lot owners matching voter_email within building_id.
+    """Load lot IDs for direct lot owners matching voter_email within building_id.
 
     Opens its own AsyncSession so it can be run concurrently via asyncio.gather
     without sharing a session with another coroutine.
     """
     async with AsyncSessionLocal() as s:
         r = await s.execute(
-            select(LotOwnerEmail.lot_owner_id)
-            .join(LotOwner, LotOwnerEmail.lot_owner_id == LotOwner.id)
+            select(lot_persons.c.lot_id)
+            .join(Person, Person.id == lot_persons.c.person_id)
+            .join(Lot, Lot.id == lot_persons.c.lot_id)
             .where(
-                LotOwnerEmail.email.isnot(None),
-                LotOwnerEmail.email == voter_email,
-                LotOwner.building_id == building_id,
+                Person.email.isnot(None),
+                Person.email == voter_email,
+                Lot.building_id == building_id,
             )
         )
         return {row[0] for row in r.all()}
@@ -91,18 +93,19 @@ async def _load_direct_lot_owner_ids(
 async def _load_proxy_lot_owner_ids(
     voter_email: str, building_id: uuid.UUID
 ) -> set[uuid.UUID]:
-    """Load lot_owner_ids for proxy lots where proxy_email matches within building_id.
+    """Load lot IDs for proxy lots where proxy person email matches within building_id.
 
     Opens its own AsyncSession so it can be run concurrently via asyncio.gather
     without sharing a session with another coroutine.
     """
     async with AsyncSessionLocal() as s:
         r = await s.execute(
-            select(LotProxy.lot_owner_id)
-            .join(LotOwner, LotProxy.lot_owner_id == LotOwner.id)
+            select(LotProxy.lot_id)
+            .join(Person, Person.id == LotProxy.person_id)
+            .join(Lot, Lot.id == LotProxy.lot_id)
             .where(
-                LotProxy.proxy_email == voter_email,
-                LotOwner.building_id == building_id,
+                Person.email == voter_email,
+                Lot.building_id == building_id,
             )
         )
         return {row[0] for row in r.all()}

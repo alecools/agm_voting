@@ -37,9 +37,12 @@ from app.models import (
     VoteChoice,
     VoteStatus,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 from app.models.general_meeting import get_effective_status
 from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight
+from tests.conftest import add_person_to_lot, get_or_create_person
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +85,7 @@ async def building_with_agm(db_session: AsyncSession):
     db_session.add(lo)
     await db_session.flush()
 
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="voter@p2test.com")
-    db_session.add(lo_email)
+    await add_person_to_lot(db_session, lo, "voter@p2test.com")
 
     agm = GeneralMeeting(
         building_id=b.id,
@@ -1079,7 +1081,8 @@ class TestSessionRestore:
         building = building_with_agm["building"]
         proxy_email = f"proxy_restore_{uuid.uuid4().hex[:6]}@test.com"
 
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -1729,8 +1732,7 @@ class TestListMotions:
         )
         db_session.add(lo_arrear)
         await db_session.flush()
-        lo_email_arrear = LotOwnerEmail(lot_owner_id=lo_arrear.id, email=voter_email)
-        db_session.add(lo_email_arrear)
+        await add_person_to_lot(db_session, lo_arrear, voter_email)
         await db_session.flush()
 
         # Record not_eligible for in-arrear lot (added first)
@@ -2077,7 +2079,9 @@ class TestSaveDraft:
         from sqlalchemy import select as sa_select
         from app.services.voting_service import save_draft as _save_draft
         from app.models.lot_owner import LotOwner as _LotOwner
-        from app.models.lot_owner_email import LotOwnerEmail as _LOEmail
+        from app.models.lot import Lot
+        from app.models.lot_person import lot_persons
+        from app.models.person import Person as _LOEmail
 
         agm = building_with_agm["agm"]
         lo = building_with_agm["lot_owner"]
@@ -2089,7 +2093,7 @@ class TestSaveDraft:
         lo2 = _LotOwner(building_id=building.id, lot_number="DRAFT-LO2", unit_entitlement=50)
         db_session.add(lo2)
         await db_session.flush()
-        db_session.add(_LOEmail(lot_owner_id=lo2.id, email=voter_email))
+        await add_person_to_lot(db_session, lo2, voter_email)
         await db_session.flush()
 
         # Pre-create a submitted Vote for lot_owner lo (lot_owner_id is set)
@@ -2434,11 +2438,10 @@ class TestSubmitBallot:
         lo2 = LotOwner(building_id=building.id, lot_number="P2-multi-2", unit_entitlement=30)
         db_session.add(lo2)
         await db_session.flush()
-        lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email=voter_email)
-        db_session.add(lo2_email)
+        await add_person_to_lot(db_session, lo2, voter_email)
         agm_weight2 = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo2.id,
+            lot_id=lo2.id,
             unit_entitlement_snapshot=30,
         )
         db_session.add(agm_weight2)
@@ -2497,8 +2500,7 @@ class TestSubmitBallot:
         lo2 = LotOwner(building_id=building.id, lot_number="P2-OTHER", unit_entitlement=50)
         db_session.add(lo2)
         await db_session.flush()
-        lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="other@p2test.com")
-        db_session.add(lo2_email)
+        await add_person_to_lot(db_session, lo2, "other@p2test.com")
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, agm.id)
@@ -3064,11 +3066,15 @@ class TestSubmitBallot:
                 setup_session.add(lot_owner)
                 await setup_session.flush()
 
-                lot_owner_email = LotOwnerEmail(
-                    lot_owner_id=lot_owner.id,
-                    email=voter_email,
+                _voter_person = Person(email=voter_email)
+                setup_session.add(_voter_person)
+                await setup_session.flush()
+                from sqlalchemy.dialects.postgresql import insert as _pg_insert
+                await setup_session.execute(
+                    _pg_insert(lot_persons)
+                    .values(lot_id=lot_owner.id, person_id=_voter_person.id)
+                    .on_conflict_do_nothing()
                 )
-                setup_session.add(lot_owner_email)
 
                 agm = GeneralMeeting(
                     building_id=building.id,
@@ -3210,8 +3216,8 @@ class TestSubmitBallot:
                     )
                 )
                 await cleanup_session.execute(
-                    sa_delete(LotOwnerEmail).where(
-                        LotOwnerEmail.lot_owner_id == lot_owner_id,
+                    sa_delete(lot_persons).where(
+                        lot_persons.c.lot_id == lot_owner_id,
                     )
                 )
                 await cleanup_session.execute(
@@ -3287,8 +3293,7 @@ class TestMyBallot:
         lo2 = LotOwner(building_id=building.id, lot_number="P2-2", unit_entitlement=50)
         db_session.add(lo2)
         await db_session.flush()
-        lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email=voter_email)
-        db_session.add(lo2_email)
+        await add_person_to_lot(db_session, lo2, voter_email)
         await db_session.flush()
 
         # Submit ballot for lo only
@@ -3353,8 +3358,7 @@ class TestMyBallot:
 
         # Add a second email for the same lot (Voter B)
         voter_b_email = "voterb@coowner.com"
-        lo_email_b = LotOwnerEmail(lot_owner_id=lo.id, email=voter_b_email)
-        db_session.add(lo_email_b)
+        await add_person_to_lot(db_session, lo, voter_b_email)
         await db_session.flush()
 
         # Voter A submits ballot
@@ -3440,7 +3444,8 @@ class TestMyBallot:
         motions = building_with_agm["motions"]
 
         proxy_email = "proxy@delegate.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -3511,7 +3516,8 @@ class TestProxyAuth:
         lo = building_with_agm["lot_owner"]
 
         proxy_email = "proxy@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
         code = await make_otp(db_session, proxy_email, agm.id)
@@ -3562,9 +3568,9 @@ class TestProxyAuth:
         lo2 = LotOwner(building_id=building.id, lot_number="PROXY-LOT", unit_entitlement=50)
         db_session.add(lo2)
         await db_session.flush()
-        lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="other@owner.com")
-        db_session.add(lo2_email)
-        lp = LotProxy(lot_owner_id=lo2.id, proxy_email=voter_email)
+        await add_person_to_lot(db_session, lo2, "other@owner.com")
+        _proxy_person_lo2 = await get_or_create_person(db_session, voter_email)
+        lp = LotProxy(lot_id=lo2.id, person_id=_proxy_person_lo2.id)
         db_session.add(lp)
         await db_session.flush()
         code = await make_otp(db_session, voter_email, agm.id)
@@ -3594,7 +3600,8 @@ class TestProxyAuth:
         voter_email = building_with_agm["voter_email"]
 
         # Also set voter as proxy for their own lot
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=voter_email)
+        _proxy_person_lo = await get_or_create_person(db_session, voter_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
         code = await make_otp(db_session, voter_email, agm.id)
@@ -3623,7 +3630,8 @@ class TestProxyAuth:
         motions = building_with_agm["motions"]  # [m1, m2] — both visible by default
 
         proxy_email = "proxy2@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         bs = BallotSubmission(general_meeting_id=agm.id, lot_owner_id=lo.id, voter_email=proxy_email)
         db_session.add(bs)
@@ -3686,10 +3694,10 @@ class TestProxyAuth:
         lo2 = LotOwner(building_id=b2.id, lot_number="B2-1", unit_entitlement=10)
         db_session.add(lo2)
         await db_session.flush()
-        lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="b2owner@test.com")
-        db_session.add(lo2_email)
+        await add_person_to_lot(db_session, lo2, "b2owner@test.com")
         proxy_email = "crossbuildingproxy@test.com"
-        lp = LotProxy(lot_owner_id=lo2.id, proxy_email=proxy_email)
+        _proxy_person_lo2 = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo2.id, person_id=_proxy_person_lo2.id)
         db_session.add(lp)
         await db_session.flush()
         code = await make_otp(db_session, proxy_email, agm.id)
@@ -3726,7 +3734,8 @@ class TestProxyBallotSubmission:
         lo = building_with_agm["lot_owner"]
 
         proxy_email = "proxy_audit@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -3794,9 +3803,9 @@ class TestProxyBallotSubmission:
         lo_proxy = LotOwner(building_id=building.id, lot_number="PROXY-SUBMIT", unit_entitlement=50)
         db_session.add(lo_proxy)
         await db_session.flush()
-        lo_proxy_email = LotOwnerEmail(lot_owner_id=lo_proxy.id, email="proxy_other@test.com")
-        db_session.add(lo_proxy_email)
-        lp = LotProxy(lot_owner_id=lo_proxy.id, proxy_email=voter_email)
+        await add_person_to_lot(db_session, lo_proxy, "proxy_other@test.com")
+        _proxy_person_lo_proxy = await get_or_create_person(db_session, voter_email)
+        lp = LotProxy(lot_id=lo_proxy.id, person_id=_proxy_person_lo_proxy.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -3833,8 +3842,7 @@ class TestProxyBallotSubmission:
         lo_other = LotOwner(building_id=building.id, lot_number="UNRELATED", unit_entitlement=10)
         db_session.add(lo_other)
         await db_session.flush()
-        lo_other_email = LotOwnerEmail(lot_owner_id=lo_other.id, email="unrelated@test.com")
-        db_session.add(lo_other_email)
+        await add_person_to_lot(db_session, lo_other, "unrelated@test.com")
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, agm.id)
@@ -3855,7 +3863,8 @@ class TestProxyBallotSubmission:
         lo = building_with_agm["lot_owner"]
 
         proxy_email = "proxy_hidden@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -3894,9 +3903,9 @@ class TestMyBallotProxyLots:
         lo_proxy = LotOwner(building_id=building.id, lot_number="REMAINING-PROXY", unit_entitlement=30)
         db_session.add(lo_proxy)
         await db_session.flush()
-        lo_proxy_owner_email = LotOwnerEmail(lot_owner_id=lo_proxy.id, email="realowner@test.com")
-        db_session.add(lo_proxy_owner_email)
-        lp = LotProxy(lot_owner_id=lo_proxy.id, proxy_email=voter_email)
+        await add_person_to_lot(db_session, lo_proxy, "realowner@test.com")
+        _proxy_person_lo_proxy = await get_or_create_person(db_session, voter_email)
+        lp = LotProxy(lot_id=lo_proxy.id, person_id=_proxy_person_lo_proxy.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -4086,7 +4095,7 @@ class TestAuthVerifyEffectiveStatus:
         lo = LotOwner(building_id=b.id, lot_number="EA1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="effauth@voter.test"))
+        await add_person_to_lot(db_session, lo, "effauth@voter.test")
 
         # GeneralMeeting is status=open but voting_closes_at is in the past
         past_agm = GeneralMeeting(
@@ -4123,7 +4132,7 @@ class TestAuthVerifyEffectiveStatus:
         lo = LotOwner(building_id=b.id, lot_number="FA1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="futauth@voter.test"))
+        await add_person_to_lot(db_session, lo, "futauth@voter.test")
 
         future_agm = GeneralMeeting(
             building_id=b.id,
@@ -4159,7 +4168,7 @@ class TestAuthVerifyEffectiveStatus:
         lo = LotOwner(building_id=b.id, lot_number="OA1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="openauth@voter.test"))
+        await add_person_to_lot(db_session, lo, "openauth@voter.test")
 
         open_agm = GeneralMeeting(
             building_id=b.id,
@@ -4393,7 +4402,8 @@ class TestDraftOwnershipVerification:
         building = building_with_agm["building"]
         proxy_email = f"proxy_draft_{uuid.uuid4().hex[:6]}@test.com"
 
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -4420,8 +4430,7 @@ class TestDraftOwnershipVerification:
         lo_b = LotOwner(building_id=building.id, lot_number="OWN-B", unit_entitlement=50)
         db_session.add(lo_b)
         await db_session.flush()
-        lo_b_email = LotOwnerEmail(lot_owner_id=lo_b.id, email="voter_b@test.com")
-        db_session.add(lo_b_email)
+        await add_person_to_lot(db_session, lo_b, "voter_b@test.com")
         await db_session.flush()
 
         # Voter A's session
@@ -4448,8 +4457,7 @@ class TestDraftOwnershipVerification:
         lo_b = LotOwner(building_id=building.id, lot_number="GET-B", unit_entitlement=50)
         db_session.add(lo_b)
         await db_session.flush()
-        lo_b_email = LotOwnerEmail(lot_owner_id=lo_b.id, email="voter_b_get@test.com")
-        db_session.add(lo_b_email)
+        await add_person_to_lot(db_session, lo_b, "voter_b_get@test.com")
         await db_session.flush()
 
         # Voter A's session
@@ -4551,8 +4559,7 @@ class TestDraftOwnershipVerification:
         db_session.add(lo_other)
         await db_session.flush()
 
-        lo_other_email = LotOwnerEmail(lot_owner_id=lo_other.id, email=voter_email)
-        db_session.add(lo_other_email)
+        await add_person_to_lot(db_session, lo_other, voter_email)
         await db_session.flush()
 
         # Session is scoped to the ORIGINAL building/meeting
@@ -4594,8 +4601,7 @@ class TestDraftOwnershipVerification:
         db_session.add(lo_other)
         await db_session.flush()
 
-        lo_other_email = LotOwnerEmail(lot_owner_id=lo_other.id, email=voter_email)
-        db_session.add(lo_other_email)
+        await add_person_to_lot(db_session, lo_other, voter_email)
         await db_session.flush()
 
         token = await create_session(db_session, voter_email, building.id, agm.id)
@@ -4735,7 +4741,8 @@ class TestProxyResubmission:
         lo = building_with_agm["lot_owner"]
 
         proxy_email = f"proxy_rr309_{uuid.uuid4().hex[:8]}@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -4767,7 +4774,8 @@ class TestProxyResubmission:
         motions = building_with_agm["motions"]
 
         proxy_email = f"proxy_rr309b_{uuid.uuid4().hex[:8]}@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -4822,7 +4830,8 @@ class TestProxyResubmission:
         lo = building_with_agm["lot_owner"]
 
         proxy_email = f"proxy_rr309c_{uuid.uuid4().hex[:8]}@test.com"
-        lp = LotProxy(lot_owner_id=lo.id, proxy_email=proxy_email)
+        _proxy_person_lo = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo.id, person_id=_proxy_person_lo.id)
         db_session.add(lp)
         await db_session.flush()
 
@@ -4890,13 +4899,11 @@ class TestProxyVoterInArrearNotEligible:
         db_session.add(lo_arrear)
         await db_session.flush()
 
-        lo_arrear_owner_email = LotOwnerEmail(
-            lot_owner_id=lo_arrear.id, email=f"arrear_owner_{uuid.uuid4().hex[:6]}@test.com"
-        )
-        db_session.add(lo_arrear_owner_email)
+        await add_person_to_lot(db_session, lo_arrear, f"arrear_owner_{uuid.uuid4().hex[:6]}@test.com")
 
         proxy_email = f"proxy_arrear_{uuid.uuid4().hex[:8]}@test.com"
-        lp = LotProxy(lot_owner_id=lo_arrear.id, proxy_email=proxy_email)
+        _proxy_person_lo_arrear = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo_arrear.id, person_id=_proxy_person_lo_arrear.id)
         db_session.add(lp)
 
         # Create the AGM lot weight snapshot with in_arrear status.
@@ -4904,7 +4911,7 @@ class TestProxyVoterInArrearNotEligible:
         # not the raw financial_position on the LotOwner (RR3-10).
         agm_weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo_arrear.id,
+            lot_id=lo_arrear.id,
             unit_entitlement_snapshot=50,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -4980,19 +4987,17 @@ class TestProxyVoterInArrearNotEligible:
         db_session.add(lo_arrear)
         await db_session.flush()
 
-        lo_arrear_owner_email = LotOwnerEmail(
-            lot_owner_id=lo_arrear.id, email=f"sp_arrear_owner_{uuid.uuid4().hex[:6]}@test.com"
-        )
-        db_session.add(lo_arrear_owner_email)
+        await add_person_to_lot(db_session, lo_arrear, f"sp_arrear_owner_{uuid.uuid4().hex[:6]}@test.com")
 
         proxy_email = f"proxy_sp_arrear_{uuid.uuid4().hex[:8]}@test.com"
-        lp = LotProxy(lot_owner_id=lo_arrear.id, proxy_email=proxy_email)
+        _proxy_person_lo_arrear = await get_or_create_person(db_session, proxy_email)
+        lp = LotProxy(lot_id=lo_arrear.id, person_id=_proxy_person_lo_arrear.id)
         db_session.add(lp)
 
         # Create the AGM lot weight snapshot with in_arrear status
         agm_weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo_arrear.id,
+            lot_id=lo_arrear.id,
             unit_entitlement_snapshot=50,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -5150,8 +5155,7 @@ class TestPartialVoteResubmissionAfterSessionExpiry:
         db_session.add(lo)
         await db_session.flush()
 
-        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=f"pr_voter_{label}@test.com")
-        db_session.add(lo_email)
+        await add_person_to_lot(db_session, lo, f"pr_voter_{label}@test.com")
 
         agm = GeneralMeeting(
             building_id=b.id,
@@ -5382,8 +5386,8 @@ class TestReentryVotingFixes:
 
         voter_a_email = f"voter_a_{label}@test.com"
         voter_b_email = f"voter_b_{label}@test.com"
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=voter_a_email))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=voter_b_email))
+        await add_person_to_lot(db_session, lo, voter_a_email)
+        await add_person_to_lot(db_session, lo, voter_b_email)
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -5400,7 +5404,7 @@ class TestReentryVotingFixes:
         from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )
@@ -5739,7 +5743,7 @@ class TestReentryVotingFixes:
         db_session.add(lo)
         await db_session.flush()
 
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="fix4mc_voter@test.com"))
+        await add_person_to_lot(db_session, lo, "fix4mc_voter@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -5755,7 +5759,7 @@ class TestReentryVotingFixes:
         from app.models.general_meeting_lot_weight import GeneralMeetingLotWeight, FinancialPositionSnapshot
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
             financial_position_snapshot=FinancialPositionSnapshot.normal,
         )

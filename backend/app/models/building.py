@@ -25,8 +25,8 @@ class Building(Base):
     )
 
     # Relationships
-    lot_owners: Mapped[list["LotOwner"]] = relationship(  # noqa: F821
-        "LotOwner", back_populates="building", cascade="all, delete-orphan"
+    lot_owners: Mapped[list["Lot"]] = relationship(  # noqa: F821
+        "Lot", back_populates="building", cascade="all, delete-orphan"
     )
     general_meetings: Mapped[list["GeneralMeeting"]] = relationship(  # noqa: F821
         "GeneralMeeting", back_populates="building", cascade="all, delete-orphan"

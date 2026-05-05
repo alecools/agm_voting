@@ -32,7 +32,10 @@ from app.models import (
     LotOwner,
     LotProxy,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
+from tests.conftest import add_person_to_lot
 from app.services.admin_service import (
     _parse_closing_balance,
     _parse_closing_balance_numeric,
@@ -137,8 +140,8 @@ async def building_with_owners(db_session: AsyncSession) -> Building:
     db_session.add_all([lo1, lo2, lo3])
     await db_session.flush()
 
-    db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="owner1@test.com"))
-    db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="owner2@test.com"))
+    await add_person_to_lot(db_session, lo1, "owner1@test.com")
+    await add_person_to_lot(db_session, lo2, "owner2@test.com")
     await db_session.flush()
     await db_session.refresh(b)
     return b
@@ -170,12 +173,15 @@ class TestImportProxiesCSV:
         assert data["skipped"] == 0
 
         # Verify DB
+        from sqlalchemy.orm import selectinload
         result = await db_session.execute(
-            select(LotProxy).join(LotOwner).where(LotOwner.building_id == building_with_owners.id)
+            select(LotProxy).join(LotOwner, LotProxy.lot_id == LotOwner.id)
+            .where(LotOwner.building_id == building_with_owners.id)
+            .options(selectinload(LotProxy.person))
         )
         proxies = result.scalars().all()
         assert len(proxies) == 2
-        emails = {p.proxy_email for p in proxies}
+        emails = {p.person.email for p in proxies}
         assert "proxy1@test.com" in emails
         assert "proxy2@test.com" in emails
 
@@ -273,13 +279,15 @@ class TestImportProxiesCSV:
         )
 
         # 2B proxy should still exist
+        from sqlalchemy.orm import selectinload
         result = await db_session.execute(
             select(LotProxy)
-            .join(LotOwner)
+            .join(LotOwner, LotProxy.lot_id == LotOwner.id)
             .where(LotOwner.building_id == building_with_owners.id)
+            .options(selectinload(LotProxy.person))
         )
         proxies = result.scalars().all()
-        emails = {p.proxy_email for p in proxies}
+        emails = {p.person.email for p in proxies}
         assert "proxy2@test.com" in emails
 
     async def test_extra_columns_ignored(

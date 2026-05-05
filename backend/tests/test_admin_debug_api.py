@@ -28,9 +28,11 @@ from app.models import (
     LotOwner,
     LotProxy,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
-from tests.conftest import meeting_dt, closing_dt
+from tests.conftest import meeting_dt, closing_dt, add_person_to_lot, get_or_create_person
 
 
 # ---------------------------------------------------------------------------
@@ -108,18 +110,14 @@ async def building_with_many_owners(db_session: AsyncSession) -> Building:
     db_session.add_all(owners)
     await db_session.flush()
 
-    emails = [
-        LotOwnerEmail(lot_owner_id=o.id, email=f"owner{i}@test.com")
-        for i, o in enumerate(owners, 1)
-    ]
-    db_session.add_all(emails)
+    for i, o in enumerate(owners, 1):
+        await add_person_to_lot(db_session, o, f"owner{i}@test.com")
 
     # Add proxy for the first two owners only
-    proxies = [
-        LotProxy(lot_owner_id=owners[0].id, proxy_email="proxy1@test.com"),
-        LotProxy(lot_owner_id=owners[1].id, proxy_email="proxy2@test.com"),
-    ]
-    db_session.add_all(proxies)
+    proxy1 = await get_or_create_person(db_session, "proxy1@test.com")
+    proxy2 = await get_or_create_person(db_session, "proxy2@test.com")
+    db_session.add(LotProxy(lot_id=owners[0].id, person_id=proxy1.id))
+    db_session.add(LotProxy(lot_id=owners[1].id, person_id=proxy2.id))
     await db_session.flush()
     await db_session.refresh(b)
     return b

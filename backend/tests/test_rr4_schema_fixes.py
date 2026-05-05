@@ -32,9 +32,11 @@ from app.models import (
     VoteStatus,
     FinancialPositionSnapshot,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
-from tests.conftest import meeting_dt, closing_dt
+from tests.conftest import meeting_dt, closing_dt, add_person_to_lot
 
 
 # ---------------------------------------------------------------------------
@@ -79,14 +81,13 @@ async def _setup_mc_meeting(
 
     w = GeneralMeetingLotWeight(
         general_meeting_id=agm.id,
-        lot_owner_id=lo.id,
+        lot_id=lo.id,
         unit_entitlement_snapshot=100,
         financial_position_snapshot=FinancialPositionSnapshot.normal,
     )
     db_session.add(w)
 
-    email = LotOwnerEmail(lot_owner_id=lo.id, email=f"rr4_{name}@example.com")
-    db_session.add(email)
+    await add_person_to_lot(db_session, lo, f"rr4_{name}@example.com")
 
     motion = Motion(
         general_meeting_id=agm.id,
@@ -128,14 +129,13 @@ async def _setup_simple_meeting(
 
     w = GeneralMeetingLotWeight(
         general_meeting_id=agm.id,
-        lot_owner_id=lo.id,
+        lot_id=lo.id,
         unit_entitlement_snapshot=100,
         financial_position_snapshot=FinancialPositionSnapshot.normal,
     )
     db_session.add(w)
 
-    email = LotOwnerEmail(lot_owner_id=lo.id, email=f"rr4s_{name}@example.com")
-    db_session.add(email)
+    await add_person_to_lot(db_session, lo, f"rr4s_{name}@example.com")
 
     motion = Motion(
         general_meeting_id=agm.id,

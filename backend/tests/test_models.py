@@ -32,7 +32,6 @@ from app.models import (
     EmailDeliveryStatus,
     FinancialPositionSnapshot,
     LotOwner,
-    LotOwnerEmail,
     LotProxy,
     Motion,
     SessionRecord,
@@ -41,6 +40,9 @@ from app.models import (
     VoteStatus,
     get_effective_status,
 )
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -267,17 +269,27 @@ class TestLotOwner:
 
 
 # ---------------------------------------------------------------------------
-# LotOwnerEmail tests
+# Person / lot_persons tests (replaces old LotOwnerEmail tests)
 # ---------------------------------------------------------------------------
 
 
-class TestLotOwnerEmail:
-    """Tests for LotOwnerEmail model."""
+class TestPersonAndLotPersons:
+    """Tests for the persons table and lot_persons many-to-many junction."""
 
     # --- Happy path ---
 
-    async def test_create_lot_owner_email(self, db_session: AsyncSession):
-        b = make_building("Email Bldg")
+    async def test_create_person(self, db_session: AsyncSession):
+        """A Person row can be created with an email."""
+        p = Person(email="owner@example.com")
+        db_session.add(p)
+        await db_session.flush()
+
+        assert p.id is not None
+        assert p.email == "owner@example.com"
+
+    async def test_link_person_to_lot(self, db_session: AsyncSession):
+        """A Person can be linked to a Lot via lot_persons."""
+        b = make_building("LP Bldg")
         db_session.add(b)
         await db_session.flush()
 
@@ -285,16 +297,16 @@ class TestLotOwnerEmail:
         db_session.add(lo)
         await db_session.flush()
 
-        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email="owner@example.com")
-        db_session.add(email_rec)
+        p = Person(email="linked@example.com")
+        db_session.add(p)
         await db_session.flush()
 
-        assert email_rec.id is not None
-        assert email_rec.lot_owner_id == lo.id
-        assert email_rec.email == "owner@example.com"
+        await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
+        await db_session.flush()  # Should not raise
 
-    async def test_multiple_emails_per_lot_owner(self, db_session: AsyncSession):
-        b = make_building("Multi Email Bldg")
+    async def test_multiple_persons_per_lot(self, db_session: AsyncSession):
+        """Multiple persons can be linked to the same lot."""
+        b = make_building("Multi Person Bldg")
         db_session.add(b)
         await db_session.flush()
 
@@ -302,14 +314,21 @@ class TestLotOwnerEmail:
         db_session.add(lo)
         await db_session.flush()
 
-        e1 = LotOwnerEmail(lot_owner_id=lo.id, email="first@example.com")
-        e2 = LotOwnerEmail(lot_owner_id=lo.id, email="second@example.com")
-        db_session.add_all([e1, e2])
+        p1 = Person(email="first@example.com")
+        p2 = Person(email="second@example.com")
+        db_session.add_all([p1, p2])
         await db_session.flush()
-        assert e1.id != e2.id
 
-    async def test_same_email_different_lot_owners(self, db_session: AsyncSession):
-        b = make_building("Shared Email Bldg")
+        await db_session.execute(lot_persons.insert().values([
+            {"lot_id": lo.id, "person_id": p1.id},
+            {"lot_id": lo.id, "person_id": p2.id},
+        ]))
+        await db_session.flush()
+        assert p1.id != p2.id
+
+    async def test_same_person_multiple_lots(self, db_session: AsyncSession):
+        """One person (shared email) can be linked to multiple lots."""
+        b = make_building("Shared Person Bldg")
         db_session.add(b)
         await db_session.flush()
 
@@ -318,32 +337,46 @@ class TestLotOwnerEmail:
         db_session.add_all([lo1, lo2])
         await db_session.flush()
 
-        e1 = LotOwnerEmail(lot_owner_id=lo1.id, email="shared@example.com")
-        e2 = LotOwnerEmail(lot_owner_id=lo2.id, email="shared@example.com")
-        db_session.add_all([e1, e2])
+        p = Person(email="shared@example.com")
+        db_session.add(p)
+        await db_session.flush()
+
+        await db_session.execute(lot_persons.insert().values([
+            {"lot_id": lo1.id, "person_id": p.id},
+            {"lot_id": lo2.id, "person_id": p.id},
+        ]))
         await db_session.flush()  # Should NOT raise
-        assert e1.id != e2.id
 
-    async def test_null_email_allowed(self, db_session: AsyncSession):
-        """Email can be null."""
-        b = make_building("Null Email Bldg")
-        db_session.add(b)
+    async def test_person_optional_fields(self, db_session: AsyncSession):
+        """Person given_name, surname, phone_number are optional."""
+        p = Person(
+            email="full@example.com",
+            given_name="Alice",
+            surname="Smith",
+            phone_number="+61400000000",
+        )
+        db_session.add(p)
         await db_session.flush()
-
-        lo = make_lot_owner(b)
-        db_session.add(lo)
-        await db_session.flush()
-
-        email_rec = LotOwnerEmail(lot_owner_id=lo.id, email=None)
-        db_session.add(email_rec)
-        await db_session.flush()
-        assert email_rec.email is None
+        assert p.given_name == "Alice"
+        assert p.surname == "Smith"
+        assert p.phone_number == "+61400000000"
 
     # --- Constraints ---
 
-    async def test_unique_constraint_owner_email(self, db_session: AsyncSession):
-        """Same (lot_owner_id, email) pair raises IntegrityError."""
-        b = make_building("Dup Email Bldg")
+    async def test_unique_constraint_person_email(self, db_session: AsyncSession):
+        """Two Person rows with the same email raise IntegrityError."""
+        p1 = Person(email="dup@example.com")
+        db_session.add(p1)
+        await db_session.flush()
+
+        p2 = Person(email="dup@example.com")
+        db_session.add(p2)
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
+
+    async def test_lot_persons_unique_constraint(self, db_session: AsyncSession):
+        """Duplicate (lot_id, person_id) in lot_persons raises IntegrityError."""
+        b = make_building("Dup LP Bldg")
         db_session.add(b)
         await db_session.flush()
 
@@ -351,13 +384,15 @@ class TestLotOwnerEmail:
         db_session.add(lo)
         await db_session.flush()
 
-        e1 = LotOwnerEmail(lot_owner_id=lo.id, email="dup@example.com")
-        db_session.add(e1)
+        p = Person(email="duplink@example.com")
+        db_session.add(p)
         await db_session.flush()
 
-        e2 = LotOwnerEmail(lot_owner_id=lo.id, email="dup@example.com")
-        db_session.add(e2)
+        await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
+        await db_session.flush()
+
         with pytest.raises(IntegrityError):
+            await db_session.execute(lot_persons.insert().values(lot_id=lo.id, person_id=p.id))
             await db_session.flush()
 
 
@@ -798,7 +833,7 @@ class TestGeneralMeetingLotWeight:
 
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=250,
         )
         db_session.add(weight)
@@ -824,7 +859,7 @@ class TestGeneralMeetingLotWeight:
 
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=1,
         )
         db_session.add(weight)
@@ -846,7 +881,7 @@ class TestGeneralMeetingLotWeight:
 
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -870,11 +905,11 @@ class TestGeneralMeetingLotWeight:
         db_session.add(agm)
         await db_session.flush()
 
-        w1 = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=100)
+        w1 = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_id=lo.id, unit_entitlement_snapshot=100)
         db_session.add(w1)
         await db_session.flush()
 
-        w2 = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=200)
+        w2 = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_id=lo.id, unit_entitlement_snapshot=200)
         db_session.add(w2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -892,7 +927,7 @@ class TestGeneralMeetingLotWeight:
         db_session.add(agm)
         await db_session.flush()
 
-        w = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_owner_id=lo.id, unit_entitlement_snapshot=-5)
+        w = GeneralMeetingLotWeight(general_meeting_id=agm.id, lot_id=lo.id, unit_entitlement_snapshot=-5)
         db_session.add(w)
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -912,8 +947,8 @@ class TestGeneralMeetingLotWeight:
         db_session.add_all([agm1, agm2])
         await db_session.flush()
 
-        w1 = GeneralMeetingLotWeight(general_meeting_id=agm1.id, lot_owner_id=lo.id, unit_entitlement_snapshot=100)
-        w2 = GeneralMeetingLotWeight(general_meeting_id=agm2.id, lot_owner_id=lo.id, unit_entitlement_snapshot=150)
+        w1 = GeneralMeetingLotWeight(general_meeting_id=agm1.id, lot_id=lo.id, unit_entitlement_snapshot=100)
+        w2 = GeneralMeetingLotWeight(general_meeting_id=agm2.id, lot_id=lo.id, unit_entitlement_snapshot=150)
         db_session.add_all([w1, w2])
         await db_session.flush()  # Should NOT raise
 
@@ -1194,7 +1229,7 @@ class TestBallotSubmission:
 
 
 class TestLotProxy:
-    """Happy path and constraint tests for LotProxy model."""
+    """Happy path and constraint tests for LotProxy model (persons refactor)."""
 
     async def _setup(self, db_session: AsyncSession, suffix: str = ""):
         b = make_building(f"Proxy Bldg{suffix}")
@@ -1205,39 +1240,42 @@ class TestLotProxy:
         db_session.add(lo)
         await db_session.flush()
 
-        return b, lo
+        proxy_person = Person(email=f"proxy{suffix.replace(' ', '')}@example.com")
+        db_session.add(proxy_person)
+        await db_session.flush()
+
+        return b, lo, proxy_person
 
     # --- Happy path ---
 
     async def test_create_lot_proxy(self, db_session: AsyncSession):
-        """A LotProxy record is created with the expected fields."""
-        _, lo = await self._setup(db_session, " Create")
+        """A LotProxy record is created with lot_id and person_id."""
+        _, lo, proxy_person = await self._setup(db_session, " Create")
 
-        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="proxy@example.com")
+        proxy = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
         db_session.add(proxy)
         await db_session.flush()
 
         assert proxy.id is not None
         assert isinstance(proxy.id, uuid.UUID)
-        assert proxy.lot_owner_id == lo.id
-        assert proxy.proxy_email == "proxy@example.com"
+        assert proxy.lot_id == lo.id
+        assert proxy.person_id == proxy_person.id
         assert proxy.created_at is not None
 
-    async def test_lot_proxy_relationship_via_lot_owner(self, db_session: AsyncSession):
-        """LotProxy is accessible through the lot_owner relationship."""
-        _, lo = await self._setup(db_session, " Rel")
+    async def test_lot_proxy_relationship_via_lot(self, db_session: AsyncSession):
+        """LotProxy is accessible through the lot relationship."""
+        _, lo, proxy_person = await self._setup(db_session, " Rel")
 
-        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="relproxy@example.com")
+        proxy = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
         db_session.add(proxy)
         await db_session.flush()
 
-        # Expire the cached lo object so the relationship is reloaded
         await db_session.refresh(lo, ["lot_proxy"])
         assert lo.lot_proxy is not None
-        assert lo.lot_proxy.proxy_email == "relproxy@example.com"
+        assert lo.lot_proxy.person_id == proxy_person.id
 
-    async def test_multiple_lot_owners_can_have_different_proxies(self, db_session: AsyncSession):
-        """Different lot owners can each have their own proxy."""
+    async def test_multiple_lots_can_have_different_proxies(self, db_session: AsyncSession):
+        """Different lots can each have their own proxy person."""
         b = make_building("Multi Proxy Bldg")
         db_session.add(b)
         await db_session.flush()
@@ -1247,15 +1285,20 @@ class TestLotProxy:
         db_session.add_all([lo1, lo2])
         await db_session.flush()
 
-        p1 = LotProxy(lot_owner_id=lo1.id, proxy_email="proxyA@example.com")
-        p2 = LotProxy(lot_owner_id=lo2.id, proxy_email="proxyB@example.com")
-        db_session.add_all([p1, p2])
+        pp1 = Person(email="proxyA@example.com")
+        pp2 = Person(email="proxyB@example.com")
+        db_session.add_all([pp1, pp2])
+        await db_session.flush()
+
+        lp1 = LotProxy(lot_id=lo1.id, person_id=pp1.id)
+        lp2 = LotProxy(lot_id=lo2.id, person_id=pp2.id)
+        db_session.add_all([lp1, lp2])
         await db_session.flush()  # Should NOT raise
 
-        assert p1.id != p2.id
+        assert lp1.id != lp2.id
 
-    async def test_same_proxy_email_for_multiple_lots(self, db_session: AsyncSession):
-        """The same proxy email can represent multiple lots (no unique constraint on proxy_email)."""
+    async def test_same_person_proxy_for_multiple_lots(self, db_session: AsyncSession):
+        """The same person can be the proxy for multiple lots."""
         b = make_building("Shared Proxy Bldg")
         db_session.add(b)
         await db_session.flush()
@@ -1265,33 +1308,41 @@ class TestLotProxy:
         db_session.add_all([lo1, lo2])
         await db_session.flush()
 
-        p1 = LotProxy(lot_owner_id=lo1.id, proxy_email="shared@example.com")
-        p2 = LotProxy(lot_owner_id=lo2.id, proxy_email="shared@example.com")
-        db_session.add_all([p1, p2])
-        await db_session.flush()  # Should NOT raise — same email, different lots
+        shared_person = Person(email="shared@example.com")
+        db_session.add(shared_person)
+        await db_session.flush()
 
-        assert p1.id != p2.id
+        lp1 = LotProxy(lot_id=lo1.id, person_id=shared_person.id)
+        lp2 = LotProxy(lot_id=lo2.id, person_id=shared_person.id)
+        db_session.add_all([lp1, lp2])
+        await db_session.flush()  # Should NOT raise — same person, different lots
+
+        assert lp1.id != lp2.id
 
     # --- Input validation / constraints ---
 
-    async def test_unique_constraint_lot_owner_id(self, db_session: AsyncSession):
-        """Only one proxy per lot_owner_id — second insert raises IntegrityError."""
-        _, lo = await self._setup(db_session, " UniqueOwner")
+    async def test_unique_constraint_lot_id(self, db_session: AsyncSession):
+        """Only one proxy per lot_id — second insert raises IntegrityError."""
+        _, lo, proxy_person = await self._setup(db_session, " UniqueOwner")
 
-        p1 = LotProxy(lot_owner_id=lo.id, proxy_email="first@example.com")
-        db_session.add(p1)
+        lp1 = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
+        db_session.add(lp1)
         await db_session.flush()
 
-        p2 = LotProxy(lot_owner_id=lo.id, proxy_email="second@example.com")
-        db_session.add(p2)
+        pp2 = Person(email="second@example.com")
+        db_session.add(pp2)
+        await db_session.flush()
+
+        lp2 = LotProxy(lot_id=lo.id, person_id=pp2.id)
+        db_session.add(lp2)
         with pytest.raises(IntegrityError):
             await db_session.flush()
 
-    async def test_cascade_delete_when_lot_owner_deleted(self, db_session: AsyncSession):
-        """Deleting a LotOwner cascades and removes its LotProxy record."""
-        _, lo = await self._setup(db_session, " Cascade")
+    async def test_cascade_delete_when_lot_deleted(self, db_session: AsyncSession):
+        """Deleting a Lot cascades and removes its LotProxy record."""
+        _, lo, proxy_person = await self._setup(db_session, " Cascade")
 
-        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="cascade@example.com")
+        proxy = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
         db_session.add(proxy)
         await db_session.flush()
         proxy_id = proxy.id
@@ -1304,24 +1355,16 @@ class TestLotProxy:
 
     # --- Boundary values ---
 
-    async def test_lot_proxy_long_email(self, db_session: AsyncSession):
-        """proxy_email accepts long email-like strings."""
-        _, lo = await self._setup(db_session, " LongEmail")
+    async def test_lot_proxy_person_email_accessible(self, db_session: AsyncSession):
+        """Proxy person's email is accessible via the person relationship."""
+        _, lo, proxy_person = await self._setup(db_session, " EmailAccess")
 
-        long_email = "a" * 200 + "@example.com"
-        proxy = LotProxy(lot_owner_id=lo.id, proxy_email=long_email)
+        proxy = LotProxy(lot_id=lo.id, person_id=proxy_person.id)
         db_session.add(proxy)
         await db_session.flush()
-        assert proxy.proxy_email == long_email
 
-    async def test_lot_proxy_tagged_email(self, db_session: AsyncSession):
-        """proxy_email accepts tagged emails (user+tag@domain)."""
-        _, lo = await self._setup(db_session, " Tagged")
-
-        proxy = LotProxy(lot_owner_id=lo.id, proxy_email="proxy+tag@domain.co.nz")
-        db_session.add(proxy)
-        await db_session.flush()
-        assert proxy.proxy_email == "proxy+tag@domain.co.nz"
+        await db_session.refresh(proxy, ["person"])
+        assert proxy.person.email == proxy_person.email
 
 
 # ---------------------------------------------------------------------------

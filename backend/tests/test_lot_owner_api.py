@@ -42,7 +42,10 @@ from app.models import (
     VoteChoice,
     VoteStatus,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
+from tests.conftest import add_person_to_lot
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -80,11 +83,8 @@ def make_lot_owner(
     )
 
 
-async def add_email(db: AsyncSession, lo: LotOwner, email: str) -> LotOwnerEmail:
-    lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=email)
-    db.add(lo_email)
-    await db.flush()
-    return lo_email
+async def add_email(db: AsyncSession, lo: LotOwner, email: str) -> Person:
+    return await add_person_to_lot(db, lo, email)
 
 
 def make_motion(agm: GeneralMeeting, title: str = "Motion 1", order_index: int = 1) -> Motion:
@@ -2192,7 +2192,7 @@ class TestInArrearVoting:
         # GeneralMeetingLotWeight with in_arrear snapshot
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -2270,7 +2270,7 @@ class TestInArrearVoting:
         # GeneralMeetingLotWeight with in_arrear snapshot
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )
@@ -2537,7 +2537,7 @@ class TestInArrearVoting:
 
         weight = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=100,
             financial_position_snapshot=FinancialPositionSnapshot.in_arrear,
         )

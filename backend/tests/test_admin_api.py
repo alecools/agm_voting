@@ -43,7 +43,10 @@ from app.models import (
     VoteStatus,
     get_effective_status,
 )
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.lot import Lot
+from app.models.lot_person import lot_persons
+from app.models.person import Person
+from tests.conftest import add_person_to_lot, get_or_create_person
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +128,8 @@ async def building_with_owners(db_session: AsyncSession) -> Building:
     )
     db_session.add_all([lo1, lo2])
     await db_session.flush()
-    lo1_email = LotOwnerEmail(lot_owner_id=lo1.id, email="voter1@test.com")
-    lo2_email = LotOwnerEmail(lot_owner_id=lo2.id, email="voter2@test.com")
-    db_session.add_all([lo1_email, lo2_email])
+    await add_person_to_lot(db_session, lo1, "voter1@test.com")
+    await add_person_to_lot(db_session, lo2, "voter2@test.com")
     await db_session.flush()
     await db_session.refresh(b)
     return b
@@ -579,10 +581,8 @@ class TestGetLotOwner:
         lot_owner_id = owners[0]["id"]
 
         # Seed a proxy for this lot owner
-        proxy = LotProxy(
-            lot_owner_id=uuid.UUID(lot_owner_id),
-            proxy_email="proxy@example.com",
-        )
+        _proxy_person = await get_or_create_person(db_session, "proxy@example.com")
+        proxy = LotProxy(lot_id=uuid.UUID(lot_owner_id), person_id=_proxy_person.id)
         db_session.add(proxy)
         await db_session.flush()
 
@@ -968,7 +968,7 @@ class TestImportLotOwners:
         for lo in owners_result.scalars().all():
             db_session.add(GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
         await db_session.commit()
@@ -1319,8 +1319,7 @@ class TestAddEmailToLotOwner:
         lo = LotOwner(building_id=building.id, lot_number="EM02", unit_entitlement=50)
         db_session.add(lo)
         await db_session.flush()
-        existing = LotOwnerEmail(lot_owner_id=lo.id, email="first@test.com")
-        db_session.add(existing)
+        await add_person_to_lot(db_session, lo, "first@test.com")
         await db_session.commit()
         await db_session.refresh(lo)
 
@@ -1372,8 +1371,7 @@ class TestRemoveEmailFromLotOwner:
         lo = LotOwner(building_id=building.id, lot_number="REM01", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        em = LotOwnerEmail(lot_owner_id=lo.id, email="todelete@test.com")
-        db_session.add(em)
+        await add_person_to_lot(db_session, lo, "todelete@test.com")
         await db_session.commit()
         await db_session.refresh(lo)
 
@@ -1472,7 +1470,7 @@ class TestCreateAGM:
         assert len(weight_list) == 1
         assert weight_list[0].unit_entitlement_snapshot == 123
         # No voter_email on snapshot anymore
-        assert weight_list[0].lot_owner_id == lo.id
+        assert weight_list[0].lot_id == lo.id
 
     async def test_agm_with_multiple_motions(
         self, client: AsyncClient, db_session: AsyncSession
@@ -2075,10 +2073,10 @@ class TestGetGeneralMeetingDetail:
         await db_session.flush()
 
         # Add emails
-        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="yes@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="no@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo3.id, email="abs@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo4.id, email="absent@test.com"))
+        await add_person_to_lot(db_session, lo1, "yes@test.com")
+        await add_person_to_lot(db_session, lo2, "no@test.com")
+        await add_person_to_lot(db_session, lo3, "abs@test.com")
+        await add_person_to_lot(db_session, lo4, "absent@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2099,7 +2097,7 @@ class TestGetGeneralMeetingDetail:
         for lo in [lo1, lo2, lo3, lo4]:
             w = GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
@@ -2233,7 +2231,7 @@ class TestGetGeneralMeetingDetail:
 
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
         db_session.add(w)
@@ -2267,8 +2265,7 @@ class TestGetGeneralMeetingDetail:
         )
         db_session.add(lo)
         await db_session.flush()
-        lo_email = LotOwnerEmail(lot_owner_id=lo.id, email="snap_tally@test.com")
-        db_session.add(lo_email)
+        await add_person_to_lot(db_session, lo, "snap_tally@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2288,7 +2285,7 @@ class TestGetGeneralMeetingDetail:
         # Snapshot at 500
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=500,
         )
         db_session.add(w)
@@ -2331,8 +2328,8 @@ class TestGetGeneralMeetingDetail:
         lo2 = LotOwner(building_id=b.id, lot_number="TL2", unit_entitlement=200)
         db_session.add_all([lo1, lo2])
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="twolots@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="twolots@test.com"))
+        await add_person_to_lot(db_session, lo1, "twolots@test.com")
+        await add_person_to_lot(db_session, lo2, "twolots@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2352,7 +2349,7 @@ class TestGetGeneralMeetingDetail:
         for lo in [lo1, lo2]:
             w = GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
@@ -2412,7 +2409,7 @@ class TestGetGeneralMeetingDetail:
         await db_session.flush()
 
         for i, lo in enumerate(owners):
-            db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email=f"yes{i}@test.com"))
+            await add_person_to_lot(db_session, lo, f"yes{i}@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2432,7 +2429,7 @@ class TestGetGeneralMeetingDetail:
         for i, lo in enumerate(owners):
             w = GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
@@ -2476,7 +2473,7 @@ class TestGetGeneralMeetingDetail:
         )
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="nullchoice@test.com"))
+        await add_person_to_lot(db_session, lo, "nullchoice@test.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2495,7 +2492,7 @@ class TestGetGeneralMeetingDetail:
 
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=lo.unit_entitlement,
         )
         db_session.add(w)
@@ -2576,8 +2573,8 @@ class TestGetGeneralMeetingDetail:
         db_session.add_all([lo_normal, lo_arrear])
         await db_session.flush()
 
-        db_session.add(LotOwnerEmail(lot_owner_id=lo_normal.id, email="normal@ne.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo_arrear.id, email="arrear@ne.com"))
+        await add_person_to_lot(db_session, lo_normal, "normal@ne.com")
+        await add_person_to_lot(db_session, lo_arrear, "arrear@ne.com")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -2597,7 +2594,7 @@ class TestGetGeneralMeetingDetail:
         for lo in [lo_normal, lo_arrear]:
             db_session.add(GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
         await db_session.flush()
@@ -3793,7 +3790,7 @@ class TestArchiveBuilding:
         lo = LotOwner(building_id=b.id, lot_number="AO1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="lone@test.com"))
+        await add_person_to_lot(db_session, lo, "lone@test.com")
         await db_session.commit()
 
         await client.post(f"/api/admin/buildings/{b.id}/archive")
@@ -3816,8 +3813,8 @@ class TestArchiveBuilding:
         await db_session.flush()
 
         # Same email in both buildings
-        db_session.add(LotOwnerEmail(lot_owner_id=lo1.id, email="shared@test.com"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo2.id, email="shared@test.com"))
+        await add_person_to_lot(db_session, lo1, "shared@test.com")
+        await add_person_to_lot(db_session, lo2, "shared@test.com")
         await db_session.commit()
 
         await client.post(f"/api/admin/buildings/{b1.id}/archive")
@@ -4725,7 +4722,7 @@ class TestAddEmailDuplicate:
         lo = LotOwner(building_id=b.id, lot_number="DE1", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotOwnerEmail(lot_owner_id=lo.id, email="existing@test.com"))
+        await add_person_to_lot(db_session, lo, "existing@test.com")
         await db_session.commit()
 
         response = await client.post(
@@ -4768,7 +4765,8 @@ class TestSetLotOwnerProxy:
         lo = LotOwner(building_id=building.id, lot_number="PX02", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="old_proxy@test.com"))
+        _old_proxy = await get_or_create_person(db_session, "old_proxy@test.com")
+        db_session.add(LotProxy(lot_id=lo.id, person_id=_old_proxy.id))
         await db_session.commit()
         await db_session.refresh(lo)
 
@@ -4833,7 +4831,8 @@ class TestRemoveLotOwnerProxy:
         lo = LotOwner(building_id=building.id, lot_number="PX05", unit_entitlement=100)
         db_session.add(lo)
         await db_session.flush()
-        db_session.add(LotProxy(lot_owner_id=lo.id, proxy_email="proxy_to_remove@test.com"))
+        _remove_proxy = await get_or_create_person(db_session, "proxy_to_remove@test.com")
+        db_session.add(LotProxy(lot_id=lo.id, person_id=_remove_proxy.id))
         await db_session.commit()
         await db_session.refresh(lo)
 
@@ -5168,8 +5167,7 @@ class TestCloseAGMAbsentRecords:
             )
             db_session.add(lo)
             await db_session.flush()
-            lo_email = LotOwnerEmail(lot_owner_id=lo.id, email=f"voter{i+1}@{name}.test")
-            db_session.add(lo_email)
+            await add_person_to_lot(db_session, lo, f"voter{i+1}@{name}.test")
             lots.append(lo)
 
         agm = GeneralMeeting(
@@ -5189,7 +5187,7 @@ class TestCloseAGMAbsentRecords:
         for lo in lots:
             w = GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             )
             db_session.add(w)
@@ -5369,7 +5367,7 @@ class TestCloseAGMAbsentRecords:
         await db_session.flush()
         w = GeneralMeetingLotWeight(
             general_meeting_id=agm.id,
-            lot_owner_id=lo.id,
+            lot_id=lo.id,
             unit_entitlement_snapshot=50,
         )
         db_session.add(w)
@@ -5415,8 +5413,8 @@ class TestGetGeneralMeetingDetailAbsentBehaviour:
         db_session.add_all([lo_voted, lo_absent])
         await db_session.flush()
 
-        db_session.add(LotOwnerEmail(lot_owner_id=lo_voted.id, email=f"voted@{name}.test"))
-        db_session.add(LotOwnerEmail(lot_owner_id=lo_absent.id, email=f"absent@{name}.test"))
+        await add_person_to_lot(db_session, lo_voted, f"voted@{name}.test")
+        await add_person_to_lot(db_session, lo_absent, f"absent@{name}.test")
         await db_session.flush()
 
         agm = GeneralMeeting(
@@ -5436,7 +5434,7 @@ class TestGetGeneralMeetingDetailAbsentBehaviour:
         for lo in [lo_voted, lo_absent]:
             db_session.add(GeneralMeetingLotWeight(
                 general_meeting_id=agm.id,
-                lot_owner_id=lo.id,
+                lot_id=lo.id,
                 unit_entitlement_snapshot=lo.unit_entitlement,
             ))
         await db_session.flush()

@@ -1,8 +1,9 @@
 from app.models.base import Base, TimestampMixin
 from app.models.auth_otp import AuthOtp
 from app.models.building import Building
-from app.models.lot_owner import LotOwner, FinancialPosition
-from app.models.lot_owner_email import LotOwnerEmail
+from app.models.person import Person
+from app.models.lot_person import lot_persons
+from app.models.lot import Lot, LotOwner, FinancialPosition
 from app.models.general_meeting import GeneralMeeting, GeneralMeetingStatus, get_effective_status
 from app.models.motion import Motion, MotionType
 from app.models.motion_option import MotionOption
@@ -23,9 +24,11 @@ __all__ = [
     "AuthOtp",
     "TimestampMixin",
     "Building",
-    "LotOwner",
+    "Person",
+    "lot_persons",
+    "Lot",
+    "LotOwner",  # backward-compatible alias for Lot
     "FinancialPosition",
-    "LotOwnerEmail",
     "GeneralMeeting",
     "GeneralMeetingStatus",
     "get_effective_status",
