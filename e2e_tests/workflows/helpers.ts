@@ -608,16 +608,21 @@ export async function authenticateVoter(
   await page.getByLabel("Email address").fill(email);
   await page.getByRole("button", { name: "Send Verification Code" }).click();
 
-  // If the voter has a phone number on record, a channel selector (email / SMS)
-  // appears before the code input. Always choose email for E2E tests.
+  // Wait for either the channel selector (has_phone: true) or the verification code
+  // input (has_phone: false) to appear after the API round-trip completes.
+  // Using Promise.race avoids a synchronous isVisible() check that fires before
+  // the React state update has rendered either element.
   const channelSelector = page.getByRole("radiogroup", { name: "Verification channel" });
-  const channelVisible = await channelSelector.isVisible().catch(() => false);
-  if (channelVisible) {
+  const codeInput = page.getByLabel("Verification code");
+  const whichAppeared = await Promise.race([
+    channelSelector.waitFor({ state: "visible", timeout: 15000 }).then(() => "channel" as const),
+    codeInput.waitFor({ state: "visible", timeout: 15000 }).then(() => "code" as const),
+  ]);
+  if (whichAppeared === "channel") {
     await page.getByRole("radio", { name: "Email" }).check();
     await page.getByRole("button", { name: "Send code" }).click();
+    await expect(codeInput).toBeVisible({ timeout: 15000 });
   }
-
-  await expect(page.getByLabel("Verification code")).toBeVisible({ timeout: 15000 });
   const code = await getOtp();
   await page.getByLabel("Verification code").fill(code);
   await page.getByRole("button", { name: "Verify" }).click();
