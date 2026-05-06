@@ -755,7 +755,10 @@ class TestRequestOtpSmsChannel:
         mock_sms.assert_awaited_once()
         # Verify the OTP message format
         call_args = mock_sms.call_args
-        assert "AGM Voting code" in call_args[1].get("message", call_args[0][1] if len(call_args[0]) > 1 else "")
+        sms_message = call_args[1].get("message", call_args[0][1] if len(call_args[0]) > 1 else "")
+        assert "Your verification code is" in sms_message
+        assert "Never share your verification code" in sms_message
+        assert "Do not reply to this SMS" in sms_message
 
     async def test_response_has_phone_true_when_phone_present(
         self, app, db_session: AsyncSession, sms_building_and_meeting
@@ -918,8 +921,8 @@ class TestRequestOtpSmsChannel:
                         "channel": "sms",
                     },
                 )
-        assert resp.status_code == 502
-        assert "SMS delivery failed" in resp.json()["detail"]
+        assert resp.status_code == 422
+        assert "SMS could not be sent" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

@@ -668,6 +668,34 @@ describe("AuthPage — SMS channel selector", () => {
     });
   });
 
+  it("shows specific SMS error and keeps channel selector when SMS OTP returns 422", async () => {
+    let callCount = 0;
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true });
+        return HttpResponse.json(
+          { detail: "SMS could not be sent. Please try again or use email instead." },
+          { status: 422 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    // Select SMS then submit
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    await waitFor(() => {
+      expect(screen.getByText("SMS could not be sent. Please choose email instead.")).toBeInTheDocument();
+    });
+    // Channel selector must still be visible so the user can switch to email
+    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
+  });
+
   // --- Multi-step sequence: email → channel → code → navigate ---
 
   it("clicking email radio after SMS radio sets channel back to email", async () => {

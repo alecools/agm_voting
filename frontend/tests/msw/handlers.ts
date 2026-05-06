@@ -861,6 +861,31 @@ export const adminHandlers = [
     return HttpResponse.json(updated);
   }),
 
+  // Person update endpoint
+  http.patch(`${BASE}/api/admin/persons/:personId`, async ({ request, params }) => {
+    const body = await request.json() as { given_name?: string | null; surname?: string | null; phone_number?: string | null };
+    const personId = params.personId as string;
+    const allPersons = ADMIN_LOT_OWNERS.flatMap((lo) =>
+      lo.owner_emails.map((e) => ({
+        id: e.id,
+        email: e.email ?? "",
+        given_name: e.given_name ?? null,
+        surname: e.surname ?? null,
+        phone_number: e.phone_number ?? null,
+      }))
+    );
+    const existing = allPersons.find((p) => p.id === personId);
+    if (!existing) {
+      return HttpResponse.json({ detail: "Person not found" }, { status: 404 });
+    }
+    return HttpResponse.json({
+      ...existing,
+      ...(body.given_name !== undefined ? { given_name: body.given_name } : {}),
+      ...(body.surname !== undefined ? { surname: body.surname } : {}),
+      ...(body.phone_number !== undefined ? { phone_number: body.phone_number } : {}),
+    });
+  }),
+
   // Person search endpoint
   http.get(`${BASE}/api/admin/persons/search`, ({ request }) => {
     const url = new URL(request.url);

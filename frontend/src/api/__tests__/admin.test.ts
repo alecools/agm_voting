@@ -17,6 +17,7 @@ import {
   importFinancialPositions,
   closeMotion,
   searchPersons,
+  updatePerson,
 } from "../admin";
 
 const BASE = "http://localhost";
@@ -839,5 +840,68 @@ describe("searchPersons", () => {
       )
     );
     await expect(searchPersons("x")).rejects.toThrow("500");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updatePerson
+// ---------------------------------------------------------------------------
+
+describe("updatePerson", () => {
+  // --- Happy path ---
+
+  it("sends PATCH request and returns updated person", async () => {
+    const personId = "p-abc-123";
+    server.use(
+      http.patch(`${BASE}/api/admin/persons/${personId}`, async ({ request }) => {
+        const body = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({
+          id: personId,
+          email: "alice@example.com",
+          given_name: body.given_name ?? "Alice",
+          surname: body.surname ?? "Smith",
+          phone_number: body.phone_number ?? null,
+        });
+      })
+    );
+    const result = await updatePerson(personId, { given_name: "Alicia", surname: "Smith" });
+    expect(result.id).toBe(personId);
+    expect(result.given_name).toBe("Alicia");
+    expect(result.surname).toBe("Smith");
+  });
+
+  it("sends only the provided fields", async () => {
+    const personId = "p-xyz-456";
+    let capturedBody: Record<string, unknown> = {};
+    server.use(
+      http.patch(`${BASE}/api/admin/persons/${personId}`, async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: personId, email: "bob@example.com", given_name: null, surname: null, phone_number: "+61412345678" });
+      })
+    );
+    await updatePerson(personId, { phone_number: "+61412345678" });
+    expect(capturedBody).toEqual({ phone_number: "+61412345678" });
+  });
+
+  // --- Error handling ---
+
+  it("throws on 404 not found", async () => {
+    const personId = "p-not-found";
+    server.use(
+      http.patch(`${BASE}/api/admin/persons/${personId}`, () =>
+        HttpResponse.json({ detail: "Person not found" }, { status: 404 })
+      )
+    );
+    await expect(updatePerson(personId, { given_name: "Test" })).rejects.toThrow("404");
+  });
+
+  it("throws on server error (500)", async () => {
+    const personId = "p-err-500";
+    server.use(
+      http.patch(`${BASE}/api/admin/persons/${personId}`, () =>
+        HttpResponse.json({ detail: "Internal server error" }, { status: 500 })
+      )
+    );
+    await expect(updatePerson(personId, {})).rejects.toThrow("500");
   });
 });

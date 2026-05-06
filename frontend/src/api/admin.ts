@@ -297,6 +297,22 @@ export async function searchPersons(q: string, limit = 10): Promise<PersonOut[]>
   return apiFetch<PersonOut[]>(`/api/admin/persons/search?${qs}`);
 }
 
+export interface PersonUpdateRequest {
+  given_name?: string | null;
+  surname?: string | null;
+  phone_number?: string | null;
+}
+
+export async function updatePerson(
+  personId: string,
+  data: PersonUpdateRequest
+): Promise<PersonOut> {
+  return apiFetch<PersonOut>(`/api/admin/persons/${personId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function removeLotOwnerProxy(
   lotOwnerId: string
 ): Promise<LotOwner> {
