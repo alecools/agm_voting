@@ -393,7 +393,18 @@ async def request_otp(
             await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
             await db.commit()
 
-    return OtpRequestResponse(sent=True, has_phone=has_phone)
+    # Compute masked phone hint server-side when a phone number is present.
+    # Only the last 4 digits are revealed; the rest are replaced with bullet characters
+    # grouped as 4-char blocks separated by spaces (e.g. "+61433590018" → "•••• •••• 0018").
+    # The full number is never returned to the client.
+    phone_hint: str | None = None
+    if has_phone and direct_person and direct_person.phone_number:
+        digits = "".join(c for c in direct_person.phone_number if c.isdigit())
+        last4 = digits[-4:] if len(digits) >= 4 else digits
+        masked = "•••• •••• " + last4
+        phone_hint = masked
+
+    return OtpRequestResponse(sent=True, has_phone=has_phone, phone_hint=phone_hint)
 
 
 @router.post("/auth/logout")

@@ -1,19 +1,165 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { requestOtp, verifyAuth, restoreSession } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 import { useBranding } from "../../context/BrandingContext";
 
+// ---------------------------------------------------------------------------
+// Channel selector modal
+// ---------------------------------------------------------------------------
+
+interface ChannelModalProps {
+  channel: "email" | "sms";
+  onChannelChange: (c: "email" | "sms") => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isSending: boolean;
+  error: string;
+}
+
+function ChannelModal({
+  channel,
+  onChannelChange,
+  onConfirm,
+  onCancel,
+  isSending,
+  error,
+}: ChannelModalProps) {
+  // Focus trap: move focus into the dialog on mount
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
+      'input, button, [tabindex]:not([tabindex="-1"])'
+    );
+    firstFocusable?.focus();
+  }, []);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose verification method"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        ref={dialogRef}
+        style={{
+          background: "#fff",
+          borderRadius: "var(--r-md)",
+          padding: 32,
+          minWidth: 320,
+          maxWidth: 440,
+          width: "100%",
+          boxShadow: "var(--shadow-lg)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 20, fontSize: "1.2rem" }}>
+          Choose verification method
+        </h2>
+
+        <div
+          role="radiogroup"
+          aria-label="Verification channel"
+          style={{ marginBottom: 16 }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 12,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="radio"
+              name="otp-channel"
+              value="email"
+              checked={channel === "email"}
+              onChange={() => onChannelChange("email")}
+            />
+            Email
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="radio"
+              name="otp-channel"
+              value="sms"
+              checked={channel === "sms"}
+              onChange={() => onChannelChange("sms")}
+            />
+            SMS
+          </label>
+        </div>
+
+        {error && (
+          <p className="field__error" role="alert" style={{ marginBottom: 16 }}>
+            {error}
+          </p>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={onCancel}
+            disabled={isSending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={isSending}
+            onClick={onConfirm}
+          >
+            {isSending ? "Sending…" : "Send code"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AuthPage
+// ---------------------------------------------------------------------------
+
 export function AuthPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const { config } = useBranding();
   const [authError, setAuthError] = useState("");
-  const [authStep, setAuthStep] = useState<"email" | "channel" | "code">("email");
+  const [authStep, setAuthStep] = useState<"email" | "code">("email");
   const [otpEmail, setOtpEmail] = useState("");
-  const [hasPhone, setHasPhone] = useState(false);
+  const [showChannelModal, setShowChannelModal] = useState(false);
   const [channel, setChannel] = useState<"email" | "sms">("email");
+  const [phoneHint, setPhoneHint] = useState<string | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
 
   // Shared logic: write sessionStorage keys and navigate after a successful auth response
@@ -71,25 +217,31 @@ export function AuthPage() {
       // First call (no channel specified): check if voter has a phone number
       if (variables.otpChannel === undefined) {
         if (data.has_phone) {
-          // Show channel selector — voter can choose email or SMS
-          setHasPhone(true);
-          setAuthStep("channel");
+          // Store phone hint and show the channel selector modal
+          setPhoneHint(data.phone_hint ?? null);
+          setChannel("email");
+          setShowChannelModal(true);
         } else {
           // No phone on record: go straight to code entry (email OTP sent)
+          setPhoneHint(null);
           setAuthStep("code");
         }
       } else {
-        // Second call with explicit channel: go to code entry
+        // Second call with explicit channel: store hint and go to code entry
+        setPhoneHint(data.phone_hint ?? null);
+        setShowChannelModal(false);
         setAuthStep("code");
       }
     },
     onError: (error: Error, variables) => {
       if (variables.otpChannel === "sms" && error.message.includes("422")) {
         setAuthError("SMS could not be sent. Please choose email instead.");
-        // Keep the channel selector visible so the user can switch to email
-        setAuthStep("channel");
+        // Keep the channel modal visible so the user can switch to email
       } else {
         setAuthError("Failed to send code. Please try again.");
+        if (variables.otpChannel !== undefined) {
+          // Error on the channel-selection send: keep modal open to retry
+        }
       }
     },
   });
@@ -118,10 +270,15 @@ export function AuthPage() {
     requestOtpMutation.mutate({ email });
   };
 
-  const handleChannelSelect = (selectedChannel: "email" | "sms") => {
-    setChannel(selectedChannel);
+  const handleChannelConfirm = () => {
     setAuthError("");
-    requestOtpMutation.mutate({ email: otpEmail, otpChannel: selectedChannel });
+    requestOtpMutation.mutate({ email: otpEmail, otpChannel: channel });
+  };
+
+  const handleChannelCancel = () => {
+    setShowChannelModal(false);
+    setAuthError("");
+    setChannel("email");
   };
 
   const handleVerify = (email: string, code: string) => {
@@ -143,55 +300,25 @@ export function AuthPage() {
         ← Back
       </button>
 
-      {authStep === "channel" && hasPhone ? (
-        <div className="auth-channel-selector">
-          <h2 className="auth-channel-selector__title">How would you like to receive your code?</h2>
-          <div
-            role="radiogroup"
-            aria-label="Verification channel"
-            className="auth-channel-selector__options"
-          >
-            <label className="auth-channel-selector__option">
-              <input
-                type="radio"
-                name="otp-channel"
-                value="email"
-                checked={channel === "email"}
-                onChange={() => setChannel("email")}
-              />
-              {" "}Email
-            </label>
-            <label className="auth-channel-selector__option">
-              <input
-                type="radio"
-                name="otp-channel"
-                value="sms"
-                checked={channel === "sms"}
-                onChange={() => setChannel("sms")}
-              />
-              {" "}SMS
-            </label>
-          </div>
-          {authError && (
-            <p className="field__error" role="alert">{authError}</p>
-          )}
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={requestOtpMutation.isPending}
-            onClick={() => handleChannelSelect(channel)}
-          >
-            {requestOtpMutation.isPending ? "Sending…" : "Send code"}
-          </button>
-        </div>
-      ) : (
-        <AuthForm
-          onRequestOtp={handleRequestOtp}
-          onVerify={handleVerify}
-          isRequestingOtp={requestOtpMutation.isPending}
-          isVerifying={verifyMutation.isPending}
-          step={authStep === "channel" ? "email" : authStep}
-          otpEmail={otpEmail}
+      <AuthForm
+        onRequestOtp={handleRequestOtp}
+        onVerify={handleVerify}
+        isRequestingOtp={requestOtpMutation.isPending}
+        isVerifying={verifyMutation.isPending}
+        step={authStep}
+        otpEmail={otpEmail}
+        error={showChannelModal ? "" : authError}
+        smsChannel={channel === "sms"}
+        phoneHint={phoneHint}
+      />
+
+      {showChannelModal && (
+        <ChannelModal
+          channel={channel}
+          onChannelChange={setChannel}
+          onConfirm={handleChannelConfirm}
+          onCancel={handleChannelCancel}
+          isSending={requestOtpMutation.isPending}
           error={authError}
         />
       )}

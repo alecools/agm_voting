@@ -812,6 +812,91 @@ class TestRequestOtpSmsChannel:
         assert resp.status_code == 200
         assert resp.json()["has_phone"] is False
 
+    # --- phone_hint field ---
+
+    async def test_phone_hint_returned_when_phone_present(
+        self, app, db_session: AsyncSession, sms_building_and_meeting
+    ):
+        """phone_hint is returned when voter has a phone number; only last 4 digits visible."""
+        agm = sms_building_and_meeting["agm"]
+        voter_email = sms_building_and_meeting["voter_email"]
+        # voter has phone "+61411111111"
+        with patch("app.routers.auth.send_otp_email", new=AsyncMock()):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            ) as client:
+                resp = await client.post(
+                    "/api/auth/request-otp",
+                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
+                )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["phone_hint"] is not None
+        # Last 4 digits of "+61411111111" are "1111"
+        assert body["phone_hint"].endswith("1111")
+        # Full number must not appear in hint
+        assert "+61411111111" not in body["phone_hint"]
+        assert "61411" not in body["phone_hint"]
+
+    async def test_phone_hint_none_when_no_phone(
+        self, app, db_session: AsyncSession, sms_building_no_phone
+    ):
+        """phone_hint is None when voter has no phone number."""
+        agm = sms_building_no_phone["agm"]
+        voter_email = sms_building_no_phone["voter_email"]
+        with patch("app.routers.auth.send_otp_email", new=AsyncMock()):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            ) as client:
+                resp = await client.post(
+                    "/api/auth/request-otp",
+                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
+                )
+        assert resp.status_code == 200
+        assert resp.json()["phone_hint"] is None
+
+    async def test_phone_hint_none_for_unknown_email(
+        self, app, db_session: AsyncSession, sms_building_and_meeting
+    ):
+        """phone_hint is None for unknown emails (no person record found)."""
+        agm = sms_building_and_meeting["agm"]
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        ) as client:
+            resp = await client.post(
+                "/api/auth/request-otp",
+                json={"email": "unknown@test.com", "general_meeting_id": str(agm.id)},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["phone_hint"] is None
+
+    async def test_phone_hint_format_uses_bullet_groups(
+        self, app, db_session: AsyncSession, sms_building_and_meeting
+    ):
+        """phone_hint format is '•••• •••• XXXX' where XXXX is the last 4 digits."""
+        agm = sms_building_and_meeting["agm"]
+        voter_email = sms_building_and_meeting["voter_email"]
+        with patch("app.routers.auth.send_otp_email", new=AsyncMock()):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            ) as client:
+                resp = await client.post(
+                    "/api/auth/request-otp",
+                    json={"email": voter_email, "general_meeting_id": str(agm.id)},
+                )
+        assert resp.status_code == 200
+        hint = resp.json()["phone_hint"]
+        # Must start with bullet groups
+        assert hint.startswith("•••• ••••")
+
     # --- State / precondition errors ---
 
     async def test_sms_channel_503_when_sms_disabled(

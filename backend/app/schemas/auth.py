@@ -33,6 +33,7 @@ class OtpRequestBody(BaseModel):
 class OtpRequestResponse(BaseModel):
     sent: bool
     has_phone: bool = False
+    phone_hint: str | None = None
 
 
 class AuthVerifyRequest(BaseModel):

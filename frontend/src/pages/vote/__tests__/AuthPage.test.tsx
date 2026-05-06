@@ -722,7 +722,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("full sequence: email → channel selector → SMS → code → navigate", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
       )
     );
     const user = userEvent.setup();
@@ -738,7 +738,7 @@ describe("AuthPage — SMS channel selector", () => {
     // Step 3: make second OTP request with channel=sms
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
       )
     );
     await user.click(screen.getByRole("button", { name: "Send code" }));
@@ -750,5 +750,166 @@ describe("AuthPage — SMS channel selector", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith(`/vote/${AGM_ID}/voting`);
     });
+  });
+
+  // --- Modal-specific: Change 1 ---
+
+  it("modal has title 'Choose verification method'", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    expect(screen.getByRole("heading", { name: "Choose verification method" })).toBeInTheDocument();
+  });
+
+  it("modal has role='dialog' with aria-modal='true'", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("modal has a Cancel button that dismisses it", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("pressing Escape closes the modal", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("after Cancel, user stays on email input page (not code step)", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    // Should still be on step 1 — code input must not be visible
+    expect(screen.queryByLabelText("Verification code")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+  });
+
+  it("modal is shown as overlay over email form (not a page transition)", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    // Both email form AND modal are visible simultaneously
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  // --- Change 2: phone_hint on code step ---
+
+  it("shows phone hint on code step after SMS channel selected", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+      )
+    );
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    // Should show SMS-specific hint with last 4 digits (in at least one element)
+    const smsHints = screen.getAllByText(/ending in 0018/);
+    expect(smsHints.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not show phone hint on code step after email channel selected", async () => {
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    // Keep email selected (default) and confirm
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    // Should show email hint, not phone hint
+    // The status paragraph specifically contains the email hint
+    const statusEl = screen.getByRole("status");
+    expect(statusEl).toHaveTextContent("owner@example.com");
+    expect(screen.queryByText(/ending in/)).not.toBeInTheDocument();
   });
 });

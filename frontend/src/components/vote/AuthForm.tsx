@@ -8,6 +8,8 @@ interface AuthFormProps {
   step: "email" | "code";
   otpEmail: string;
   error?: string;
+  smsChannel?: boolean;
+  phoneHint?: string | null;
 }
 
 export function AuthForm({
@@ -18,6 +20,8 @@ export function AuthForm({
   step,
   otpEmail,
   error,
+  smsChannel,
+  phoneHint,
 }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -79,7 +83,9 @@ export function AuthForm({
           )}
           {step === "code" && (
             <p className="auth-card__hint">
-              We sent a verification code to {otpEmail}
+              {smsChannel && phoneHint
+                ? `A verification code has been sent to the mobile number ending in ${phoneHint.slice(-4)}.`
+                : `We sent a verification code to ${otpEmail}`}
             </p>
           )}
         </div>
@@ -136,7 +142,9 @@ export function AuthForm({
               role="status"
               aria-live="polite"
             >
-              Verification code sent to {otpEmail}. Check your email — it may take a minute to arrive.
+              {smsChannel && phoneHint
+                ? `Verification code sent to mobile number ending in ${phoneHint.slice(-4)}. It may take a moment to arrive.`
+                : `Verification code sent to ${otpEmail}. Check your email — it may take a minute to arrive.`}
             </p>
             <div className="field">
               <label className="field__label field__label--required" htmlFor="otp-code">Verification code</label>
