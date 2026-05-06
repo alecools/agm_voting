@@ -938,12 +938,16 @@ class TestEmailOverride:
         mock_smtp_config.smtp_from_email = "noreply@test.com"
         mock_smtp_config.smtp_password_enc = "enc"
 
+        mock_tenant_config = MagicMock()
+        mock_tenant_config.app_name = "TestApp"
+
         mock_db = AsyncMock()
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
              patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
-             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"), \
+             patch("app.services.email_service.config_service.get_config", AsyncMock(return_value=mock_tenant_config)):
             mock_settings.email_override = "override@test.com"
 
             from app.services.email_service import send_otp_email
@@ -974,12 +978,16 @@ class TestEmailOverride:
         mock_smtp_config.smtp_from_email = "noreply@test.com"
         mock_smtp_config.smtp_password_enc = "enc"
 
+        mock_tenant_config = MagicMock()
+        mock_tenant_config.app_name = "TestApp"
+
         mock_db = AsyncMock()
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
              patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
-             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"), \
+             patch("app.services.email_service.config_service.get_config", AsyncMock(return_value=mock_tenant_config)):
             mock_settings.email_override = "override@test.com"
 
             from app.services.email_service import send_otp_email
@@ -1009,12 +1017,16 @@ class TestEmailOverride:
         mock_smtp_config.smtp_from_email = "noreply@test.com"
         mock_smtp_config.smtp_password_enc = "enc"
 
+        mock_tenant_config = MagicMock()
+        mock_tenant_config.app_name = "TestApp"
+
         mock_db = AsyncMock()
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
              patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
-             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"), \
+             patch("app.services.email_service.config_service.get_config", AsyncMock(return_value=mock_tenant_config)):
             mock_settings.email_override = ""
 
             from app.services.email_service import send_otp_email
@@ -1044,12 +1056,16 @@ class TestEmailOverride:
         mock_smtp_config.smtp_from_email = "noreply@test.com"
         mock_smtp_config.smtp_password_enc = "enc"
 
+        mock_tenant_config = MagicMock()
+        mock_tenant_config.app_name = "TestApp"
+
         mock_db = AsyncMock()
 
         with patch("app.services.email_service.settings") as mock_settings, \
              patch("app.services.email_service.aiosmtplib.send", side_effect=mock_send), \
              patch("app.services.email_service.get_smtp_config", AsyncMock(return_value=mock_smtp_config)), \
-             patch("app.services.email_service.get_decrypted_password", return_value="pass"):
+             patch("app.services.email_service.get_decrypted_password", return_value="pass"), \
+             patch("app.services.email_service.config_service.get_config", AsyncMock(return_value=mock_tenant_config)):
             mock_settings.email_override = ""
 
             from app.services.email_service import send_otp_email
@@ -1138,11 +1154,12 @@ class TestOtpEmailTemplate:
             autoescape=select_autoescape(["html"]),
         )
         template = env.get_template("otp_email.html")
-        html = template.render(meeting_title="Test AGM", code="ABCD1234")
+        html = template.render(meeting_title="Test AGM", code="ABCD1234", app_name="TestApp")
         assert "ABCD1234" in html
         assert "Test AGM" in html
-        assert "5 minutes" in html
-        assert "Do not share" in html
+        assert "TestApp" in html
+        assert "Never share your verification code" in html
+        assert "Do not reply to this email" in html
 
     def test_otp_template_has_monospace_code_block(self):
         from jinja2 import Environment, FileSystemLoader, select_autoescape

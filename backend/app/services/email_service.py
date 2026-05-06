@@ -25,6 +25,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.logging_config import get_logger
 from app.services.smtp_config_service import get_smtp_config, get_decrypted_password
+from app.services import config_service
 from app.models import (
     GeneralMeeting,
     GeneralMeetingLotWeight,
@@ -106,9 +107,12 @@ async def send_otp_email(to_email: str, meeting_title: str, code: str, db: Async
         )
     smtp_password = get_decrypted_password(smtp_config)
 
+    tenant_config = await config_service.get_config(db)
+    app_name = tenant_config.app_name or "AGM Voting"
+
     env = _get_jinja_env()
     template = env.get_template("otp_email.html")
-    html_body = template.render(meeting_title=meeting_title, code=code)
+    html_body = template.render(meeting_title=meeting_title, code=code, app_name=app_name)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Your AGM Voting Code — {meeting_title}"

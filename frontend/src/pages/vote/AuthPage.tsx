@@ -83,8 +83,14 @@ export function AuthPage() {
         setAuthStep("code");
       }
     },
-    onError: () => {
-      setAuthError("Failed to send code. Please try again.");
+    onError: (error: Error, variables) => {
+      if (variables.otpChannel === "sms" && error.message.includes("422")) {
+        setAuthError("SMS could not be sent. Please choose email instead.");
+        // Keep the channel selector visible so the user can switch to email
+        setAuthStep("channel");
+      } else {
+        setAuthError("Failed to send code. Please try again.");
+      }
     },
   });
 

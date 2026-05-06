@@ -10,6 +10,7 @@ import {
   removeOwnerEmailById,
   setLotOwnerProxy,
   removeLotOwnerProxy,
+  updatePerson,
 } from "../../api/admin";
 import type { LotOwner, LotOwnerEmailEntry } from "../../types";
 import type { LotOwnerCreateRequest, LotOwnerUpdateRequest, PersonOut } from "../../api/admin";
@@ -65,6 +66,14 @@ function EditModal({
   const [editPendingEmailId, setEditPendingEmailId] = useState<string | null>(null);
   // The stored person data used to detect conflicts during inline edit
   const [editStoredPerson, setEditStoredPerson] = useState<LotOwnerEmailEntry | null>(null);
+  // Conflict modal state for add-owner sub-form
+  const [addOwnerConflictModalOpen, setAddOwnerConflictModalOpen] = useState(false);
+  // The autocomplete-suggested person for the add-owner sub-form (tracks id for PATCH)
+  const [addOwnerSuggestedPerson, setAddOwnerSuggestedPerson] = useState<PersonOut | null>(null);
+  // Pending mutation args held while the add-owner conflict modal is open
+  const [addOwnerPendingArgs, setAddOwnerPendingArgs] = useState<{
+    email: string; given_name: string | null; surname: string | null; phone_number: string | null;
+  } | null>(null);
 
   // Proxy management
   const [proxyEmail, setProxyEmail] = useState<string | null>(lotOwner.proxy_email ?? null);
@@ -78,6 +87,14 @@ function EditModal({
   const [proxyPhoneNumber, setProxyPhoneNumber] = useState<string | null>(
     lotOwner.proxy_phone_number ?? null
   );
+  // Conflict modal state for proxy sub-form
+  const [proxyConflictModalOpen, setProxyConflictModalOpen] = useState(false);
+  // The autocomplete-suggested person for the proxy sub-form (tracks id for PATCH)
+  const [proxySuggestedPerson, setProxySuggestedPerson] = useState<PersonOut | null>(null);
+  // Pending mutation args held while the proxy conflict modal is open
+  const [proxyPendingArgs, setProxyPendingArgs] = useState<{
+    email: string; givenName: string | null; surname: string | null; phoneNumber: string | null;
+  } | null>(null);
 
   const queryClient = useQueryClient();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -104,6 +121,9 @@ function EditModal({
     setEditConflictEmail("");
     setEditPendingEmailId(null);
     setEditStoredPerson(null);
+    setAddOwnerConflictModalOpen(false);
+    setAddOwnerSuggestedPerson(null);
+    setAddOwnerPendingArgs(null);
     setProxyEmail(lotOwner.proxy_email ?? null);
     setNewProxyEmail("");
     setProxyGivenName(lotOwner.proxy_given_name ?? "");
@@ -112,18 +132,21 @@ function EditModal({
     setProxyPhoneNumber(lotOwner.proxy_phone_number ?? null);
     setProxyError(null);
     setProxyModified(false);
+    setProxyConflictModalOpen(false);
+    setProxySuggestedPerson(null);
+    setProxyPendingArgs(null);
   }, [lotOwner]);
 
-  // Close on Escape (only if conflict modal is not open)
+  // Close on Escape (only if no conflict modal is open)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && !editConflictModalOpen) {
+      if (e.key === "Escape" && !editConflictModalOpen && !addOwnerConflictModalOpen && !proxyConflictModalOpen) {
         onCancel();
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel, editConflictModalOpen]);
+  }, [onCancel, editConflictModalOpen, addOwnerConflictModalOpen, proxyConflictModalOpen]);
 
   const editMutation = useMutation<LotOwner, Error, LotOwnerUpdateRequest>({
     mutationFn: (data) => updateLotOwner(lotOwner.id, data),
@@ -258,6 +281,21 @@ function EditModal({
     editMutation.mutate(updateData);
   }
 
+  function _addOwnerHasConflict(suggested: PersonOut | null): boolean {
+    if (!suggested) return false;
+    const submittedName = newOwnerGivenName.trim();
+    const submittedSurname = newOwnerSurname.trim();
+    const submittedPhone = newOwnerPhone.trim();
+    const suggestedName = suggested.given_name ?? "";
+    const suggestedSurname = suggested.surname ?? "";
+    const suggestedPhone = suggested.phone_number ?? "";
+    return (
+      (submittedName !== "" && submittedName !== suggestedName) ||
+      (submittedSurname !== "" && submittedSurname !== suggestedSurname) ||
+      (submittedPhone !== "" && submittedPhone !== suggestedPhone)
+    );
+  }
+
   function handleAddOwnerEmail() {
     setEmailError(null);
     const trimmedEmail = newOwnerEmail.trim().toLowerCase();
@@ -269,12 +307,42 @@ function EditModal({
       setEmailError("Please enter a valid email address.");
       return;
     }
-    addOwnerEmailMutation.mutate({
+    const args = {
       email: trimmedEmail,
       given_name: newOwnerGivenName.trim() || null,
       surname: newOwnerSurname.trim() || null,
       phone_number: newOwnerPhone.trim() || null,
-    });
+    };
+    if (_addOwnerHasConflict(addOwnerSuggestedPerson)) {
+      setAddOwnerPendingArgs(args);
+      setAddOwnerConflictModalOpen(true);
+      return;
+    }
+    addOwnerEmailMutation.mutate(args);
+  }
+
+  async function handleAddOwnerConflictConfirm() {
+    if (!addOwnerPendingArgs || !addOwnerSuggestedPerson) return;
+    setAddOwnerConflictModalOpen(false);
+    try {
+      await updatePerson(addOwnerSuggestedPerson.id, {
+        given_name: addOwnerPendingArgs.given_name,
+        surname: addOwnerPendingArgs.surname,
+        phone_number: addOwnerPendingArgs.phone_number,
+      });
+    } catch {
+      setEmailError("Failed to update person record. Please try again.");
+      setAddOwnerPendingArgs(null);
+      return;
+    }
+    addOwnerEmailMutation.mutate(addOwnerPendingArgs);
+    setAddOwnerPendingArgs(null);
+    setAddOwnerSuggestedPerson(null);
+  }
+
+  function handleAddOwnerConflictCancel() {
+    setAddOwnerConflictModalOpen(false);
+    setAddOwnerPendingArgs(null);
   }
 
   function handleRemoveOwnerEmail(emailId: string) {
@@ -362,17 +430,62 @@ function EditModal({
     setEditPendingEmailId(null);
   }
 
+  function _proxyHasConflict(suggested: PersonOut | null): boolean {
+    if (!suggested) return false;
+    const submittedName = proxyGivenName.trim();
+    const submittedSurname = proxySurname.trim();
+    const submittedPhone = proxyPhone.trim();
+    const suggestedName = suggested.given_name ?? "";
+    const suggestedSurname = suggested.surname ?? "";
+    const suggestedPhone = suggested.phone_number ?? "";
+    return (
+      (submittedName !== "" && submittedName !== suggestedName) ||
+      (submittedSurname !== "" && submittedSurname !== suggestedSurname) ||
+      (submittedPhone !== "" && submittedPhone !== suggestedPhone)
+    );
+  }
+
   function handleSetProxy() {
     setProxyError(null);
     const trimmed = newProxyEmail.trim();
     if (!trimmed) { setProxyError("Proxy email is required."); return; }
     if (!isValidEmail(trimmed)) { setProxyError("Please enter a valid email address."); return; }
-    setProxyMutation.mutate({
+    const args = {
       email: trimmed,
       givenName: proxyGivenName.trim() || null,
       surname: proxySurname.trim() || null,
       phoneNumber: proxyPhone.trim() || null,
-    });
+    };
+    if (_proxyHasConflict(proxySuggestedPerson)) {
+      setProxyPendingArgs(args);
+      setProxyConflictModalOpen(true);
+      return;
+    }
+    setProxyMutation.mutate(args);
+  }
+
+  async function handleProxyConflictConfirm() {
+    if (!proxyPendingArgs || !proxySuggestedPerson) return;
+    setProxyConflictModalOpen(false);
+    try {
+      await updatePerson(proxySuggestedPerson.id, {
+        given_name: proxyPendingArgs.givenName,
+        surname: proxyPendingArgs.surname,
+        phone_number: proxyPendingArgs.phoneNumber,
+      });
+    } catch {
+      setProxyError("Failed to update person record. Please try again.");
+      setProxyPendingArgs(null);
+      return;
+    }
+    setProxyMutation.mutate(proxyPendingArgs);
+    setProxyPendingArgs(null);
+    setProxySuggestedPerson(null);
+  }
+
+  function handleProxyConflictCancel() {
+    setProxyConflictModalOpen(false);
+    setProxyPendingArgs(null);
   }
 
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -537,12 +650,13 @@ function EditModal({
               <PersonEmailAutocomplete
                 id="add-owner-email-input"
                 value={newOwnerEmail}
-                onChange={(v) => setNewOwnerEmail(v)}
+                onChange={(v) => { setNewOwnerEmail(v); setAddOwnerSuggestedPerson(null); }}
                 onSelect={(person) => {
                   setNewOwnerEmail(person.email);
                   setNewOwnerGivenName(person.given_name ?? "");
                   setNewOwnerSurname(person.surname ?? "");
                   setNewOwnerPhone(person.phone_number ?? "");
+                  setAddOwnerSuggestedPerson(person);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -634,12 +748,13 @@ function EditModal({
                 <PersonEmailAutocomplete
                   id="set-proxy-input"
                   value={newProxyEmail}
-                  onChange={(v) => setNewProxyEmail(v)}
+                  onChange={(v) => { setNewProxyEmail(v); setProxySuggestedPerson(null); }}
                   onSelect={(person) => {
                     setNewProxyEmail(person.email);
                     setProxyGivenName(person.given_name ?? "");
                     setProxySurname(person.surname ?? "");
                     setProxyPhone(person.phone_number ?? "");
+                    setProxySuggestedPerson(person);
                   }}
                   placeholder="proxy@example.com"
                   aria-label="Set proxy email"
@@ -757,6 +872,24 @@ function EditModal({
           email={editConflictEmail}
           onConfirm={handleConflictConfirm}
           onCancel={handleConflictCancel}
+        />
+      )}
+
+      {/* Add-owner conflict modal */}
+      {addOwnerConflictModalOpen && addOwnerPendingArgs && (
+        <PersonConflictModal
+          email={addOwnerPendingArgs.email}
+          onConfirm={() => { void handleAddOwnerConflictConfirm(); }}
+          onCancel={handleAddOwnerConflictCancel}
+        />
+      )}
+
+      {/* Proxy conflict modal */}
+      {proxyConflictModalOpen && proxyPendingArgs && (
+        <PersonConflictModal
+          email={proxyPendingArgs.email}
+          onConfirm={() => { void handleProxyConflictConfirm(); }}
+          onCancel={handleProxyConflictCancel}
         />
       )}
     </>

@@ -45,7 +45,7 @@ from app.services.auth_service import (
     extend_session,
 )
 from app.services.email_service import send_otp_email
-from app.services import smtp_config_service
+from app.services import smtp_config_service, config_service
 from app.services.sms_service import SmsDeliveryError, send as sms_send
 
 logger = get_logger(__name__)
@@ -350,15 +350,26 @@ async def request_otp(
                 if phone_number:
                     sms_cfg = await smtp_config_service.get_smtp_config(db)
                     sms_kwargs = smtp_config_service.get_sms_send_kwargs(sms_cfg)
+                    tenant_config = await config_service.get_config(db)
+                    app_name = tenant_config.app_name or "AGM Voting"
+                    sms_body = (
+                        f"{app_name}: Your verification code is {code}. "
+                        "Never share your verification code under any circumstances. "
+                        "If you did not request this, please contact your OC manager immediately. "
+                        "Do not reply to this SMS."
+                    )
                     try:
                         await sms_send(
                             to=phone_number,
-                            message=f"Your AGM Voting code is {code}. Expires in 5 minutes.",
+                            message=sms_body,
                             **sms_kwargs,
                         )
                     except SmsDeliveryError as exc:
                         logger.error("otp_sms_send_failed", email=body.email, error=str(exc))
-                        raise HTTPException(status_code=502, detail="SMS delivery failed")
+                        raise HTTPException(
+                            status_code=422,
+                            detail="SMS could not be sent. Please try again or use email instead.",
+                        )
             else:
                 # Default email path
                 try:
