@@ -32,6 +32,7 @@ export interface OtpRequestBody {
 export interface OtpRequestResponse {
   sent: boolean;
   has_phone: boolean;
+  phone_hint: string | null;
 }
 
 export interface AuthVerifyRequest {

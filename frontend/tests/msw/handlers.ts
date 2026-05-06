@@ -1543,7 +1543,7 @@ export const handlers = [
   ),
 
   http.post(`${BASE}/api/auth/request-otp`, () =>
-    HttpResponse.json({ sent: true, has_phone: false })
+    HttpResponse.json({ sent: true, has_phone: false, phone_hint: null })
   ),
 
   http.post(`${BASE}/api/auth/verify`, () =>

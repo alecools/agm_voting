@@ -387,3 +387,66 @@ describe("AuthForm — miscellaneous", () => {
     expect(screen.getByLabelText("Verification code")).toHaveValue("");
   });
 });
+
+describe("AuthForm — SMS channel hint (phone_hint)", () => {
+  // --- Happy path ---
+  it("shows email wording when smsChannel is false (default)", () => {
+    render(<AuthForm {...step2Props("voter@example.com")} />);
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("Verification code sent to voter@example.com");
+    expect(hint).toHaveTextContent("Check your email");
+  });
+
+  it("shows SMS wording in header hint when smsChannel=true and phoneHint is set", () => {
+    render(
+      <AuthForm
+        {...step2Props("voter@example.com", { smsChannel: true, phoneHint: "•••• •••• 0018" })}
+      />
+    );
+    // The h2-area hint (inside auth-card__header)
+    expect(screen.getByText(/A verification code has been sent to the mobile number ending in 0018/)).toBeInTheDocument();
+  });
+
+  it("shows SMS wording in status paragraph when smsChannel=true and phoneHint is set", () => {
+    render(
+      <AuthForm
+        {...step2Props("voter@example.com", { smsChannel: true, phoneHint: "•••• •••• 0018" })}
+      />
+    );
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("0018");
+    expect(hint).not.toHaveTextContent("Check your email");
+  });
+
+  it("shows email wording when smsChannel=false even if phoneHint is set", () => {
+    render(
+      <AuthForm
+        {...step2Props("voter@example.com", { smsChannel: false, phoneHint: "•••• •••• 0018" })}
+      />
+    );
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("voter@example.com");
+    expect(hint).toHaveTextContent("Check your email");
+  });
+
+  it("shows email wording when smsChannel=true but phoneHint is null", () => {
+    render(
+      <AuthForm
+        {...step2Props("voter@example.com", { smsChannel: true, phoneHint: null })}
+      />
+    );
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent("voter@example.com");
+  });
+
+  // --- Boundary values ---
+  it("extracts last 4 digits correctly from phoneHint '•••• •••• 1234'", () => {
+    render(
+      <AuthForm
+        {...step2Props("voter@example.com", { smsChannel: true, phoneHint: "•••• •••• 1234" })}
+      />
+    );
+    const elements = screen.getAllByText(/ending in 1234/);
+    expect(elements.length).toBeGreaterThanOrEqual(1);
+  });
+});
