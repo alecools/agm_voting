@@ -48,12 +48,25 @@ test.describe("Admin Start Meeting button", () => {
 
     const api = await makeAdminApi(baseURL);
 
+    // Warm-up: confirm admin API is reachable before seeding begins.
+    // Lambda cold-starts after Neon Auth SDK init can transiently return 401
+    // on the first request. Retry up to 5x with 3s back-off.
+    for (let warmUp = 0; warmUp < 5; warmUp++) {
+      const probe = await api.get("/api/admin/buildings?limit=1");
+      if (probe.ok()) break;
+      if (warmUp === 4) {
+        const body = await probe.text();
+        throw new Error(`Admin API unreachable after 5 warm-up attempts (${probe.status()}): ${body}`);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
     // Helper: create or find a building by name, with retry for transient 500s.
     // On 409 (already exists), re-fetch the list to get the existing ID.
     async function getOrCreateBuilding(name: string, managerEmail: string): Promise<string> {
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, 500 * attempt));
+          await new Promise((r) => setTimeout(r, 2000 * attempt));
         }
 
         // Try to find an existing building first
