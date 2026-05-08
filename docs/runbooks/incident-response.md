@@ -17,7 +17,7 @@
 
 1. **Assess scope** — Check `GET /api/health` and `GET /api/health/live` to distinguish DB failure from process failure.
 2. **Check Vercel** — Visit the Vercel dashboard for the relevant branch deployment. Check function logs for errors.
-3. **Check Neon** — Log in to `console.neon.tech`, check the project `divine-dust-41291876` for connection errors or high usage.
+3. **Check Neon** — Log in to `console.neon.tech`, check the project `curly-lab-57416583` for connection errors or high usage.
 4. **Roll back if needed** — If a recent deploy caused the issue, revert via Vercel dashboard → Deployments → previous deployment → Promote.
    - Note: Alembic migrations are **not** auto-reverted. If the migration caused the issue, a compensating migration must be written and deployed.
 5. **Communicate** — Notify meeting organiser(s) of the issue and estimated resolution time.
@@ -40,8 +40,8 @@
 
 ## Contacts
 
-- Vercel project: `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L`
-- Neon project: `divine-dust-41291876`
+- Vercel project: `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0`
+- Neon project: `curly-lab-57416583`
 - Credentials: macOS Keychain under service `agm-survey`
 
 ---
@@ -50,7 +50,7 @@
 
 | Resource | URL |
 |----------|-----|
-| Production app | `https://agm-voting.vercel.app` |
-| Health check | `https://agm-voting.vercel.app/api/health` |
-| Vercel dashboard | `https://vercel.com/ocss/agm-voting` |
-| Neon console | `https://console.neon.tech/app/projects/divine-dust-41291876` |
+| Production app | `https://vms-demo.ocss.tech` |
+| Health check | `https://vms-demo.ocss.tech/api/health` |
+| Vercel dashboard | `https://vercel.com/ocss/internal-vms` |
+| Neon console | `https://console.neon.tech/app/projects/curly-lab-57416583` |

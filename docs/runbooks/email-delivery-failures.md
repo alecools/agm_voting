@@ -13,7 +13,7 @@ After closing a meeting, check for a persistent error banner in the admin portal
 ### Via debug endpoint
 
 ```bash
-curl -H "Cookie: admin_session=..." https://agm-voting.vercel.app/api/admin/debug/email-deliveries
+curl -H "Cookie: admin_session=..." https://vms-demo.ocss.tech/api/admin/debug/email-deliveries
 ```
 
 Response fields:
@@ -51,7 +51,7 @@ WHERE status = 'pending'
 # Replace {meeting_id} with the UUID from the debug endpoint
 curl -X POST \
   -H "Cookie: admin_session=..." \
-  https://agm-voting.vercel.app/api/admin/general-meetings/{meeting_id}/resend-report
+  https://vms-demo.ocss.tech/api/admin/general-meetings/{meeting_id}/resend-report
 ```
 
 This transitions the delivery status back to `pending` with `next_retry_at=null` and fires an immediate retry.
@@ -82,7 +82,7 @@ To inspect the current settings without logging in:
 
 ```bash
 curl -H "Cookie: admin_session=..." \
-  https://agm-voting.vercel.app/api/admin/debug/smtp-config
+  https://vms-demo.ocss.tech/api/admin/debug/smtp-config
 ```
 
 ---
