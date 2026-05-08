@@ -66,8 +66,6 @@ export function useMotionSubmission({
         })),
       }),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ["voting-init", meetingId] });
-
       const submittedIds = variables.lotsToSubmit;
       const submittedSet = new Set(submittedIds);
       const currentMotionIds = motions ? motions.map((m) => m.id) : [];
@@ -117,6 +115,11 @@ export function useMotionSubmission({
       callbacks.resetMultiChoiceSelections();
 
       navigate(`/vote/${meetingId}/confirmation`);
+
+      // Invalidate after navigation so the refetch does not race with VotingPage unmounting.
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ["voting-init", meetingId] });
+      }, 0);
     },
     onError: (error: Error) => {
       if (error.message.includes("409")) {
