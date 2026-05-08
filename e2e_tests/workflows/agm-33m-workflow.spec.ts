@@ -1108,11 +1108,14 @@ test("33M.18: dunsgaard logs in, sees lot 7, votes on all interactive motions", 
   const motionCards = page.locator(".motion-card");
   await expect(motionCards).toHaveCount(10, { timeout: 20000 });
 
-  // Vote For on all interactive (non-read-only) motions for lot 7
+  // Vote For on all interactive (non-read-only) motions for lot 7.
+  // Use a short timeout on isVisible so the loop does not hang on cards that
+  // have no vote-btn-yes (e.g. the multi-choice card renders different buttons).
   for (let i = 0; i < 10; i++) {
     const card = motionCards.nth(i);
     const forBtn = card.getByTestId("vote-btn-yes").first();
-    if (await forBtn.isEnabled().catch(() => false)) {
+    const visible = await forBtn.isVisible({ timeout: 1000 }).catch(() => false);
+    if (visible && await forBtn.isEnabled().catch(() => false)) {
       await forBtn.click();
     }
   }
