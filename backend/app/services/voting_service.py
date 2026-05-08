@@ -41,7 +41,7 @@ from app.schemas.voting import (
 )
 
 
-def _compute_ballot_hash(
+def compute_ballot_hash(
     agm_id: uuid.UUID,
     lot_owner_id: uuid.UUID,
     vote_choices: list[tuple[str, str]],
@@ -553,7 +553,7 @@ async def submit_ballot(
             (str(v.motion_id), v.choice.value if v.choice else "none")
             for v in votes_to_add
         ]
-        computed_hash = _compute_ballot_hash(
+        computed_hash = compute_ballot_hash(
             general_meeting_id, lot_owner_id, ballot_vote_choices
         )
 

@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class SessionRestoreRequest(BaseModel):
@@ -17,9 +17,8 @@ class SessionRestoreRequest(BaseModel):
 
 
 class OtpRequestBody(BaseModel):
-    email: str
+    email: str = Field(..., max_length=254)
     general_meeting_id: uuid.UUID
-    skip_email: bool = False
     channel: Literal["email", "sms"] = "email"
 
     @field_validator("email")
@@ -37,9 +36,9 @@ class OtpRequestResponse(BaseModel):
 
 
 class AuthVerifyRequest(BaseModel):
-    email: str
+    email: str = Field(..., max_length=254)
     general_meeting_id: uuid.UUID
-    code: str
+    code: str = Field(..., max_length=20)
 
     @field_validator("email")
     @classmethod

@@ -32,6 +32,7 @@ from app.schemas.admin import (
     AdminUserInviteRequest,
     AdminUserListOut,
     AdminUserOut,
+    BallotVerifyOut,
     GeneralMeetingBallotResetOut,
     GeneralMeetingCloseOut,
     GeneralMeetingCreate,
@@ -80,6 +81,7 @@ from app.schemas.config import (
 )
 from app.services.sms_service import SmsDeliveryError, send as sms_send
 from app.services import admin_service
+from app.services.voting_service import compute_ballot_hash
 from app.services import config_service
 from app.services import smtp_config_service
 from app.services import blob_service
@@ -325,8 +327,9 @@ async def import_buildings(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: BetterAuthUser = Depends(require_admin),
 ) -> BuildingImportResult:
-    admin_import_limiter.check("admin")
+    admin_import_limiter.check(current_user.user_id)
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -549,8 +552,9 @@ async def import_lot_owners(
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: BetterAuthUser = Depends(require_admin),
 ) -> LotOwnerImportResult:
-    admin_import_limiter.check("admin")
+    admin_import_limiter.check(current_user.user_id)
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -575,8 +579,9 @@ async def import_proxy_nominations(
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: BetterAuthUser = Depends(require_admin),
 ) -> ProxyImportResult:
-    admin_import_limiter.check("admin")
+    admin_import_limiter.check(current_user.user_id)
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -601,8 +606,9 @@ async def import_financial_positions(
     building_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: BetterAuthUser = Depends(require_admin),
 ) -> FinancialPositionImportResult:
-    admin_import_limiter.check("admin")
+    admin_import_limiter.check(current_user.user_id)
     fmt = _detect_file_format(file)
     content = await file.read()
     if len(content) > _MAX_IMPORT_BYTES:
@@ -1059,8 +1065,9 @@ async def close_general_meeting(
     general_meeting_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: BetterAuthUser = Depends(require_admin),
 ) -> GeneralMeetingCloseOut:
-    admin_close_limiter.check("admin")
+    admin_close_limiter.check(current_user.user_id)
     meeting = await admin_service.close_general_meeting(general_meeting_id, db)
     email_service = EmailService()
     base_url = str(request.base_url).rstrip("/")
@@ -1144,10 +1151,64 @@ async def enter_votes_for_meeting(
     Returns 422 if unknown lot_owner_ids or invalid votes are provided.
     """
     result = await admin_service.enter_votes_for_meeting(
-        general_meeting_id, data, db, admin_username=admin_user.email
+        general_meeting_id, data, db, admin_username=admin_user.email, admin_user_id=admin_user.user_id
     )
     return AdminVoteEntryResult(**result)
 
+
+
+
+@router.get(
+    "/general-meetings/{general_meeting_id}/verify-ballot/{ballot_id}",
+    response_model=BallotVerifyOut,
+)
+async def verify_ballot(
+    general_meeting_id: uuid.UUID,
+    ballot_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: BetterAuthUser = Depends(require_admin),
+) -> BallotVerifyOut:
+    """Verify the cryptographic hash of a submitted ballot (CODE-3).
+
+    Recomputes the hash from Vote rows and compares to the stored hash.
+    Returns 404 if the ballot does not exist for this meeting.
+    """
+    from sqlalchemy import select as _select
+    from app.models.ballot_submission import BallotSubmission as _BallotSubmission
+    from app.models.vote import Vote as _Vote, VoteStatus as _VoteStatus
+
+    sub_result = await db.execute(
+        _select(_BallotSubmission).where(
+            _BallotSubmission.id == ballot_id,
+            _BallotSubmission.general_meeting_id == general_meeting_id,
+        )
+    )
+    submission = sub_result.scalar_one_or_none()
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Ballot not found")
+
+    votes_result = await db.execute(
+        _select(_Vote).where(
+            _Vote.general_meeting_id == general_meeting_id,
+            _Vote.lot_owner_id == submission.lot_owner_id,
+            _Vote.status == _VoteStatus.submitted,
+        )
+    )
+    votes = list(votes_result.scalars().all())
+
+    vote_choices = [
+        (str(v.motion_id), v.choice.value if v.choice else "none")
+        for v in votes
+    ]
+    computed = compute_ballot_hash(general_meeting_id, submission.lot_owner_id, vote_choices)
+    verified = computed == submission.ballot_hash
+
+    return BallotVerifyOut(
+        verified=verified,
+        ballot_id=ballot_id,
+        computed_hash=computed,
+        stored_hash=submission.ballot_hash,
+    )
 
 # ---------------------------------------------------------------------------
 # Tenant configuration

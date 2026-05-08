@@ -253,7 +253,7 @@ class TestBallotHashEnforcement:
 
     async def test_compute_ballot_hash_returns_non_null_string(self):
         """_compute_ballot_hash always returns a non-null 64-char hex string."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
 
         agm_id = uuid.uuid4()
         lot_owner_id = uuid.uuid4()
@@ -265,7 +265,7 @@ class TestBallotHashEnforcement:
 
     async def test_compute_ballot_hash_empty_choices(self):
         """_compute_ballot_hash handles empty vote list."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
 
         agm_id = uuid.uuid4()
         lot_owner_id = uuid.uuid4()
@@ -275,7 +275,7 @@ class TestBallotHashEnforcement:
 
     async def test_compute_ballot_hash_deterministic(self):
         """_compute_ballot_hash is deterministic for same inputs."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
 
         agm_id = uuid.uuid4()
         lot_owner_id = uuid.uuid4()
@@ -294,7 +294,7 @@ class TestBallotHashEnforcement:
         This integration test verifies the service layer always provides ballot_hash
         before creating a BallotSubmission.
         """
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
 
         agm, lo, motion = await _setup_simple_meeting(db_session, "HashCheck01")
 
@@ -528,3 +528,165 @@ class TestCloseMotionTemporalConstraint:
         assert "Voting close time must be after meeting start time" in str(
             exc_info.value.detail
         )
+
+
+# ---------------------------------------------------------------------------
+# CODE-3: Ballot hash verification endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestVerifyBallot:
+    """Tests for GET /api/admin/general-meetings/{id}/verify-ballot/{ballot_id} (CODE-3)."""
+
+    # --- Happy path ---
+
+    async def test_verify_ballot_verified_true_on_matching_hash(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """verify_ballot returns verified=True when computed hash matches stored hash."""
+        from app.services.voting_service import compute_ballot_hash
+
+        agm, lo, motion = await _setup_simple_meeting(db_session, "VB01")
+        voter_email = f"rr4_VB01@example.com"
+
+        # Create a Vote
+        vote = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            motion_id=motion.id,
+            choice=VoteChoice.yes,
+            status=VoteStatus.submitted,
+            voter_email=voter_email,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+
+        # Compute expected hash
+        vote_choices = [(str(motion.id), VoteChoice.yes.value)]
+        expected_hash = compute_ballot_hash(agm.id, lo.id, vote_choices)
+
+        # Create BallotSubmission with matching hash
+        sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+            ballot_hash=expected_hash,
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        resp = await client.get(
+            f"/api/admin/general-meetings/{agm.id}/verify-ballot/{sub.id}"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["verified"] is True
+        assert body["computed_hash"] == expected_hash
+        assert body["stored_hash"] == expected_hash
+        assert body["ballot_id"] == str(sub.id)
+
+    async def test_verify_ballot_verified_false_on_mismatched_hash(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """verify_ballot returns verified=False when computed hash differs from stored hash."""
+        from app.services.voting_service import compute_ballot_hash
+
+        agm, lo, motion = await _setup_simple_meeting(db_session, "VB02")
+        voter_email = f"rr4_VB02@example.com"
+
+        vote = Vote(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            motion_id=motion.id,
+            choice=VoteChoice.no,
+            status=VoteStatus.submitted,
+            voter_email=voter_email,
+        )
+        db_session.add(vote)
+        await db_session.flush()
+
+        # Store a WRONG hash
+        sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+            ballot_hash="0" * 64,  # deliberately wrong
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        resp = await client.get(
+            f"/api/admin/general-meetings/{agm.id}/verify-ballot/{sub.id}"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["verified"] is False
+        assert body["stored_hash"] == "0" * 64
+        assert body["computed_hash"] != "0" * 64
+
+    # --- State / precondition errors ---
+
+    async def test_verify_ballot_404_when_ballot_not_found(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """verify_ballot returns 404 when ballot_id does not exist for the meeting."""
+        agm, lo, motion = await _setup_simple_meeting(db_session, "VB03")
+
+        resp = await client.get(
+            f"/api/admin/general-meetings/{agm.id}/verify-ballot/{uuid.uuid4()}"
+        )
+        assert resp.status_code == 404
+        assert "Ballot not found" in resp.json()["detail"]
+
+    async def test_verify_ballot_404_when_ballot_belongs_to_different_meeting(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """verify_ballot returns 404 when ballot exists but for a different meeting."""
+        from app.services.voting_service import compute_ballot_hash
+
+        agm1, lo1, motion1 = await _setup_simple_meeting(db_session, "VB04a")
+        agm2, lo2, motion2 = await _setup_simple_meeting(db_session, "VB04b")
+
+        # Create ballot for agm1, try to verify against agm2
+        vote_choices = [(str(motion1.id), "yes")]
+        hash1 = compute_ballot_hash(agm1.id, lo1.id, vote_choices)
+        sub = BallotSubmission(
+            general_meeting_id=agm1.id,
+            lot_owner_id=lo1.id,
+            voter_email="rr4_VB04a@example.com",
+            ballot_hash=hash1,
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        resp = await client.get(
+            f"/api/admin/general-meetings/{agm2.id}/verify-ballot/{sub.id}"
+        )
+        assert resp.status_code == 404
+
+    # --- Edge cases ---
+
+    async def test_verify_ballot_with_null_stored_hash(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """verify_ballot handles null stored_hash gracefully — verified=False."""
+        agm, lo, motion = await _setup_simple_meeting(db_session, "VB05")
+        voter_email = "rr4_VB05@example.com"
+
+        sub = BallotSubmission(
+            general_meeting_id=agm.id,
+            lot_owner_id=lo.id,
+            voter_email=voter_email,
+            ballot_hash=None,
+        )
+        db_session.add(sub)
+        await db_session.flush()
+
+        resp = await client.get(
+            f"/api/admin/general-meetings/{agm.id}/verify-ballot/{sub.id}"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["verified"] is False
+        assert body["stored_hash"] is None

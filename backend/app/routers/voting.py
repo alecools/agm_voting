@@ -10,11 +10,12 @@ import asyncio
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.rate_limiter import ballot_submit_limiter
 
 from app.database import get_db
@@ -37,8 +38,10 @@ from app.schemas.voting import (
     SubmitResponse,
 )
 from app.services.auth_service import (
+    _TOKEN_MAX_AGE_SECONDS,
     _load_direct_lot_owner_ids,
     _load_proxy_lot_owner_ids,
+    extend_session,
     get_session,
 )
 from app.services.voting_service import (
@@ -222,6 +225,7 @@ async def _verify_lot_ownership(
 async def save_draft_endpoint(
     general_meeting_id: uuid.UUID,
     body: DraftSaveRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
@@ -257,7 +261,17 @@ async def save_draft_endpoint(
         choice=body.choice,
         lot_owner_id=body.lot_owner_id,
     )
+    new_token = await extend_session(db=db, session_record=session)
     await db.commit()
+    response.set_cookie(
+        key="agm_session",
+        value=new_token,
+        httponly=True,
+        secure=not settings.testing_mode,
+        samesite="lax",
+        max_age=_TOKEN_MAX_AGE_SECONDS,
+        path="/api",
+    )
     return DraftSaveResponse(saved=True)
 
 
@@ -297,6 +311,7 @@ async def submit_ballot_endpoint(
     general_meeting_id: uuid.UUID,
     body: SubmitBallotRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     agm_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
@@ -315,7 +330,17 @@ async def submit_ballot_endpoint(
         inline_votes={item.motion_id: item.choice for item in body.votes},
         multi_choice_votes={item.motion_id: item.option_choices for item in body.multi_choice_votes},
     )
+    new_token = await extend_session(db=db, session_record=session)
     await db.commit()
+    response.set_cookie(
+        key="agm_session",
+        value=new_token,
+        httponly=True,
+        secure=not settings.testing_mode,
+        samesite="lax",
+        max_age=_TOKEN_MAX_AGE_SECONDS,
+        path="/api",
+    )
     return result
 
 

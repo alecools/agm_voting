@@ -717,7 +717,9 @@ class TestRequestOtpSmsChannel:
         voter_email = sms_building_and_meeting["voter_email"]
         await _seed_sms_config(db_session)
         with patch("app.routers.auth.sms_send", new=AsyncMock()) as mock_sms, \
-             patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg:
+             patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg, \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
             cfg = MagicMock()
             cfg.sms_enabled = True
             cfg.sms_provider = "webhook"
@@ -988,7 +990,9 @@ class TestRequestOtpSmsChannel:
                  "smtp2go_api_key": "", "smtp2go_sender": "",
                  "twilio_account_sid": "", "twilio_auth_token": "", "twilio_from_number": "",
                  "clicksend_username": "", "clicksend_api_key": "", "clicksend_from_number": "",
-             }):
+             }), \
+             patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
             cfg = MagicMock()
             cfg.sms_enabled = True
             cfg.sms_provider = "webhook"

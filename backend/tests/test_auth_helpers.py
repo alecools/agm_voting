@@ -35,7 +35,7 @@ from app.models import (
 from app.models.lot import Lot
 from app.models.lot_person import lot_persons
 from app.models.person import Person
-from app.routers.auth import _resolve_voter_state
+from app.services.auth_service import resolve_voter_state as _resolve_voter_state
 
 
 # ---------------------------------------------------------------------------

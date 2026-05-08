@@ -80,11 +80,10 @@ async def _try_acquire_email_lock(db: AsyncSession, agm_id: uuid.UUID) -> bool:
     return bool(result.scalar())
 
 
-def _get_jinja_env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=select_autoescape(["html"]),
-    )
+_jinja_env: Environment = Environment(
+    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+    autoescape=select_autoescape(["html"]),
+)
 
 
 def _backoff_seconds(attempt: int) -> int:
@@ -110,7 +109,7 @@ async def send_otp_email(to_email: str, meeting_title: str, code: str, db: Async
     tenant_config = await config_service.get_config(db)
     app_name = tenant_config.app_name or "AGM Voting"
 
-    env = _get_jinja_env()
+    env = _jinja_env
     template = env.get_template("otp_email.html")
     html_body = template.render(meeting_title=meeting_title, code=code, app_name=app_name)
 
@@ -178,7 +177,7 @@ class EmailService:
 
         # Render template
         meeting_url = f"{base_url.rstrip('/')}/admin/general-meetings/{agm_id}"
-        env = _get_jinja_env()
+        env = _jinja_env
         template = env.get_template("report_email.html")
         html_body = template.render(
             building_name=building_name,
@@ -447,11 +446,5 @@ class EmailService:
             )
             tasks.append(_send_with_limit(self.trigger_with_retry(delivery.general_meeting_id)))
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for exc in results:
-                if isinstance(exc, BaseException):
-                    logger.error(
-                        "startup_email_requeue_task_error",
-                        error=str(exc),
-                    )
+        for task_coro in tasks:
+            asyncio.create_task(task_coro)

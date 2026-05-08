@@ -1653,7 +1653,7 @@ class TestAdminImportRateLimitProxiesAndFinancial:
         from app.rate_limiter import admin_import_limiter
         import time
 
-        admin_import_limiter._timestamps["admin"] = [time.monotonic() for _ in range(20)]
+        admin_import_limiter._timestamps["test-user-id"] = [time.monotonic() for _ in range(20)]
 
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -1675,7 +1675,7 @@ class TestAdminImportRateLimitProxiesAndFinancial:
         from app.rate_limiter import admin_import_limiter
         import time
 
-        admin_import_limiter._timestamps["admin"] = [time.monotonic() for _ in range(20)]
+        admin_import_limiter._timestamps["test-user-id"] = [time.monotonic() for _ in range(20)]
 
         buf = io.StringIO()
         writer = csv.writer(buf)

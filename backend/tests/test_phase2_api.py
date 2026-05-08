@@ -5054,7 +5054,7 @@ class TestBallotHash:
 
     def test_compute_ballot_hash_is_deterministic(self):
         """Same inputs produce the same hash regardless of vote order."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
         import uuid as _uuid
 
         agm_id = _uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -5068,7 +5068,7 @@ class TestBallotHash:
 
     def test_compute_ballot_hash_is_64_hex_chars(self):
         """SHA-256 hex digest is exactly 64 characters."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
         import uuid as _uuid
 
         h = _compute_ballot_hash(_uuid.uuid4(), _uuid.uuid4(), [("m1", "yes")])
@@ -5077,7 +5077,7 @@ class TestBallotHash:
 
     def test_compute_ballot_hash_differs_for_different_votes(self):
         """Different vote choices produce different hashes."""
-        from app.services.voting_service import _compute_ballot_hash
+        from app.services.voting_service import compute_ballot_hash as _compute_ballot_hash
         import uuid as _uuid
 
         agm_id = _uuid.uuid4()
@@ -5225,7 +5225,6 @@ class TestPartialVoteResubmissionAfterSessionExpiry:
         for s in sessions:
             s.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await db_session.flush()
-        await db_session.commit()
 
         # Step 3: Verify session A is now invalid (returns 401)
         verify_response = await client.get(
@@ -5238,7 +5237,10 @@ class TestPartialVoteResubmissionAfterSessionExpiry:
 
         # Step 4: Re-authenticate — create a fresh session B
         token_b = await create_session(db_session, voter_email, b.id, agm.id)
-        await db_session.commit()
+        # Clear the agm_session cookie set by the prior submit (from extend_session).
+        # The cookie takes priority over Authorization header in get_session, so leaving
+        # it set would cause step 5 to use the expired session A rather than session B.
+        client.cookies.delete("agm_session")
 
         # Step 5: Submit both motions using session B
         response2 = await client.post(
@@ -5485,6 +5487,8 @@ class TestReentryVotingFixes:
 
         # Step 3: Voter B (co-owner) re-submits M2
         token_b = await create_session(db_session, voter_b_email, building.id, agm.id)
+        # Clear cookie set by voter A's submit so voter B's Authorization header takes priority
+        client.cookies.delete("agm_session")
         resp = await client.post(
             f"/api/general-meeting/{agm.id}/submit",
             json={

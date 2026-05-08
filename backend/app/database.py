@@ -50,10 +50,10 @@ _engine_url = os.environ.get("DATABASE_URL_UNPOOLED") or settings.database_url
 # Neon auto-suspend note: the free/launch Neon plan auto-suspends the compute after
 # 5 minutes of idle. This cannot be disabled programmatically on those tiers. When a
 # Lambda request arrives during wake-up the connection attempt raises OperationalError.
-# get_db() below retries up to 5× with exponential backoff (2s, 4s, 8s, 16s — 30s
-# total wait) to cover Neon's full 20-30s wake-up window. Cold-start requests block
-# briefly and return a real response rather than failing with a 500.
-# Total worst-case latency: 5×5s + 2+4+8+16 = 55s — within Playwright's 180s timeout.
+# get_db() below retries up to 3× with exponential backoff (1s, 2s — 3s total
+# wait) to cover Neon's wake-up window. Cold-start requests block briefly and
+# return a real response rather than failing with a 500.
+# Total worst-case latency: 3×5s + 1+2 = 18s — within Playwright's 180s timeout.
 engine = create_async_engine(
     _engine_url,
     echo=False,
@@ -79,9 +79,9 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # Maximum number of attempts when the DB connection fails with a transient error.
-_DB_RETRY_ATTEMPTS = 5
-# Base wait in seconds between retries (doubles each attempt: 2s, 4s, 8s, 16s).
-_DB_RETRY_BASE_WAIT = 2
+_DB_RETRY_ATTEMPTS = 3
+# Base wait in seconds between retries (doubles each attempt: 1s, 2s).
+_DB_RETRY_BASE_WAIT = 1
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -91,7 +91,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     OperationalError or DBAPIError. Under Fluid Compute, concurrent requests can also
     exhaust the QueuePool (SQLAlchemyTimeoutError) or hit a TCP timeout
     (asyncio.TimeoutError). All four are retried up to _DB_RETRY_ATTEMPTS times with
-    exponential backoff (_DB_RETRY_BASE_WAIT * 2^attempt seconds: 2s, 4s, 8s, 16s) to
+    exponential backoff (_DB_RETRY_BASE_WAIT * 2^attempt seconds: 1s, 2s) to
     give the compute time to become ready before propagating the error.
     """
     last_err: Exception | None = None

@@ -10,12 +10,12 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import AsyncSessionLocal, get_db
+from app.database import get_db
 from app.logging_config import get_logger
 from app.models.auth_otp import AuthOtp
 from app.models.building import Building
@@ -41,8 +41,13 @@ from app.services.auth_service import (
     _load_direct_lot_owner_ids,
     _load_proxy_lot_owner_ids,
     _unsign_token,
+    cleanup_expired_otps,
+    cleanup_expired_sessions,
     create_session,
     extend_session,
+    mask_phone_hint,
+    resolve_voter_state,
+    upsert_rate_limit,
 )
 from app.services.email_service import send_otp_email
 from app.services import smtp_config_service, config_service
@@ -68,156 +73,11 @@ def _generate_otp_code() -> str:
     return "".join(secrets.choice(_OTP_ALPHABET) for _ in range(8))
 
 
-async def _resolve_voter_state(
-    db: AsyncSession,
-    voter_email: str,
-    general_meeting_id: uuid.UUID,
-    building_id: uuid.UUID,
-) -> dict:
-    """Shared lot-lookup helper used by both verify_auth and restore_session.
-
-    Looks up direct lot owners and proxy lots for the given voter email within
-    the building, fetches visible motions, and computes per-lot already_submitted
-    and voted_motion_ids flags.
-
-    Returns a dict with keys:
-      - lots: list[LotInfo]
-      - visible_motions: list[Motion]
-      - unvoted_visible_count: int
-    """
-    # Fire direct-owner and proxy-lot lookups concurrently.
-    # Each helper opens its own AsyncSession so they can run in parallel without
-    # sharing a connection — a single AsyncSession must not be used across
-    # concurrent coroutines (SQLAlchemy asyncio safety requirement).
-    direct_lot_owner_ids, proxy_lot_owner_ids = await asyncio.gather(
-        _load_direct_lot_owner_ids(voter_email, building_id),
-        _load_proxy_lot_owner_ids(voter_email, building_id),
-    )
-
-    # Merge: union of direct and proxy lots
-    all_lot_owner_ids = direct_lot_owner_ids | proxy_lot_owner_ids
-
-    # Fetch all relevant Lot records
-    lots_result = await db.execute(
-        select(Lot).where(Lot.id.in_(all_lot_owner_ids))
-    )
-    lot_owners = {lo.id: lo for lo in lots_result.scalars().all()}
-
-    # Fetch all currently visible motions for this meeting.
-    visible_motions_result = await db.execute(
-        select(Motion).where(
-            Motion.general_meeting_id == general_meeting_id,
-            Motion.is_visible == True,  # noqa: E712
-        )
-    )
-    visible_motions = list(visible_motions_result.scalars().all())
-    visible_motion_ids: set[uuid.UUID] = {m.id for m in visible_motions}
-
-    # For each lot, determine the set of visible motion IDs that already have a
-    # submitted Vote row.
-    voted_by_lot_result = await db.execute(
-        select(Vote.lot_owner_id, Vote.motion_id).where(
-            Vote.general_meeting_id == general_meeting_id,
-            Vote.lot_owner_id.in_(all_lot_owner_ids),
-            Vote.status == VoteStatus.submitted,
-        )
-    )
-    voted_motion_ids_by_lot: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for lot_owner_id, motion_id in voted_by_lot_result.all():
-        voted_motion_ids_by_lot.setdefault(lot_owner_id, set()).add(motion_id)
-
-    lots = []
-    for lot_owner_id in all_lot_owner_ids:
-        lo = lot_owners.get(lot_owner_id)
-        if lo is None:  # pragma: no cover  # FK constraint guarantees lot_owner always exists
-            continue
-        is_proxy = lot_owner_id not in direct_lot_owner_ids
-        fp = lo.financial_position
-        voted_for_this_lot = voted_motion_ids_by_lot.get(lot_owner_id, set())
-        already_submitted = (
-            len(visible_motion_ids) > 0
-            and visible_motion_ids.issubset(voted_for_this_lot)
-        )
-        lots.append(LotInfo(
-            lot_owner_id=lo.id,
-            lot_number=lo.lot_number,
-            financial_position=fp.value if hasattr(fp, "value") else fp,
-            already_submitted=already_submitted,
-            is_proxy=is_proxy,
-            voted_motion_ids=list(voted_for_this_lot),
-        ))
-
-    lots.sort(key=lambda l: l.lot_number)
-
-    any_lot_not_submitted = any(not l.already_submitted for l in lots)
-    unvoted_visible_count = len(visible_motions) if any_lot_not_submitted else 0
-
-    return {
-        "lots": lots,
-        "visible_motions": visible_motions,
-        "unvoted_visible_count": unvoted_visible_count,
-    }
-
-
-async def _upsert_rate_limit(
-    db: AsyncSession,
-    email: str,
-    building_id: uuid.UUID,
-    now: datetime,
-) -> None:
-    """Insert or update the OTPRateLimit row for (email, building_id).
-
-    Resets the window on each call — caller is responsible for checking the
-    limit BEFORE calling this function.
-    """
-    rl_result = await db.execute(
-        select(OTPRateLimit).where(
-            OTPRateLimit.email == email,
-            OTPRateLimit.building_id == building_id,
-        )
-    )
-    rl_record = rl_result.scalar_one_or_none()
-    if rl_record is None:
-        db.add(OTPRateLimit(
-            email=email,
-            building_id=building_id,
-            attempt_count=1,
-            first_attempt_at=now,
-            last_attempt_at=now,
-        ))
-    else:
-        rl_record.attempt_count += 1
-        rl_record.last_attempt_at = now
-    await db.flush()
-
-
-async def _cleanup_expired_otps() -> None:
-    """Delete expired OTP records — runs as a fire-and-forget background task."""
-    try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                delete(AuthOtp).where(AuthOtp.expires_at < datetime.now(UTC))
-            )
-            await session.commit()
-    except Exception:  # pragma: no cover
-        pass  # Background cleanup — never let failures surface to the caller
-
-
-async def _cleanup_expired_sessions() -> None:
-    """Delete expired session records — runs as a fire-and-forget background task."""
-    try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                delete(SessionRecord).where(SessionRecord.expires_at < datetime.now(UTC))
-            )
-            await session.commit()
-    except Exception:  # pragma: no cover
-        pass  # Background cleanup — never let failures surface to the caller
-
 
 @router.post("/auth/request-otp", response_model=OtpRequestResponse)
 async def request_otp(
     body: OtpRequestBody,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> OtpRequestResponse:
     """
@@ -225,8 +85,8 @@ async def request_otp(
     Always returns 200 {"sent": true} to prevent enumeration.
     Response always includes has_phone: bool.
     """
-    # Fire-and-forget cleanup of expired OTPs — doesn't block the request.
-    asyncio.create_task(_cleanup_expired_otps())
+    # Schedule cleanup of expired OTPs as a BackgroundTask (runs after response is sent).
+    background_tasks.add_task(cleanup_expired_otps)
 
     # Normalise email to lowercase for case-insensitive matching
     body = body.model_copy(update={"email": body.email.strip().lower()})
@@ -338,11 +198,11 @@ async def request_otp(
         # commit is for the rate-limit upsert only (CRIT-2).
         now_rl = datetime.now(UTC)
         if not settings.testing_mode:
-            await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
+            await upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
             await db.commit()
 
         # 7. Deliver the OTP via the requested channel.
-        skip_email_effective = body.skip_email and settings.testing_mode
+        skip_email_effective = settings.testing_mode
         if not skip_email_effective:
             if body.channel == "sms":
                 # SMS path: phone number is on the matched Person row.
@@ -390,7 +250,7 @@ async def request_otp(
         # a signal that the email was not found.
         if not settings.testing_mode:
             now_rl = datetime.now(UTC)
-            await _upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
+            await upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
             await db.commit()
 
     # Compute masked phone hint server-side when a phone number is present.
@@ -399,10 +259,7 @@ async def request_otp(
     # The full number is never returned to the client.
     phone_hint: str | None = None
     if has_phone and direct_person and direct_person.phone_number:
-        digits = "".join(c for c in direct_person.phone_number if c.isdigit())
-        last4 = digits[-4:] if len(digits) >= 4 else digits
-        masked = "•••• •••• " + last4
-        phone_hint = masked
+        phone_hint = mask_phone_hint(direct_person.phone_number)
 
     return OtpRequestResponse(sent=True, has_phone=has_phone, phone_hint=phone_hint)
 
@@ -504,7 +361,7 @@ async def verify_auth(
     building_id = meeting.building_id
 
     # 4. Resolve lots, visible motions, and already_submitted flags via shared helper
-    voter_state = await _resolve_voter_state(
+    voter_state = await resolve_voter_state(
         db=db,
         voter_email=request.email,
         general_meeting_id=request.general_meeting_id,
@@ -574,6 +431,7 @@ async def verify_auth(
 async def restore_session(
     request: SessionRestoreRequest,
     response: Response,
+    background_tasks: BackgroundTasks,
     agm_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AuthVerifyResponse:
@@ -587,8 +445,8 @@ async def restore_session(
 
     Returns 401 if the token is invalid, expired, or the AGM is closed.
     """
-    # Fire-and-forget cleanup of expired sessions — doesn't block the request.
-    asyncio.create_task(_cleanup_expired_sessions())
+    # Schedule cleanup of expired sessions as a BackgroundTask (runs after response is sent).
+    background_tasks.add_task(cleanup_expired_sessions)
 
     # Resolve the token: cookie takes priority over request body
     token_to_use = agm_session or request.session_token
@@ -631,7 +489,7 @@ async def restore_session(
     building_id = meeting.building_id
 
     # 4. Run lot-lookup via shared helper (same logic as verify_auth)
-    voter_state = await _resolve_voter_state(
+    voter_state = await resolve_voter_state(
         db=db,
         voter_email=voter_email,
         general_meeting_id=request.general_meeting_id,

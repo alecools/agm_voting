@@ -7797,7 +7797,7 @@ class TestAdminCloseMeetingRateLimit:
         import time
 
         # Exhaust the limit (30 req/min)
-        admin_close_limiter._timestamps["admin"] = [time.monotonic() for _ in range(30)]
+        admin_close_limiter._timestamps["test-user-id"] = [time.monotonic() for _ in range(30)]
 
         # Create an open meeting to close
         b = Building(name="Rate Limit Close Building", manager_email="rlc@test.com")

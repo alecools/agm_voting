@@ -1847,9 +1847,9 @@ class TestAdminImportRateLimitBuildings:
         from app.rate_limiter import admin_import_limiter
 
         # Exhaust the limit
-        admin_import_limiter._timestamps["admin"] = []
+        admin_import_limiter._timestamps["test-user-id"] = []
         for _ in range(20):
-            admin_import_limiter._timestamps["admin"].append(
+            admin_import_limiter._timestamps["test-user-id"].append(
                 __import__("time").monotonic()
             )
 

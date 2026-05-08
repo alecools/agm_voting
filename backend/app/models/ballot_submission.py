@@ -31,6 +31,7 @@ class BallotSubmission(Base):
     is_absent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     submitted_by_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     submitted_by_admin_username: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    submitted_by_admin_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     ballot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

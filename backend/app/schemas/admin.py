@@ -741,3 +741,14 @@ class AdminVoteEntryRequest(BaseModel):
 class AdminVoteEntryResult(BaseModel):
     submitted_count: int
     skipped_count: int
+
+# ---------------------------------------------------------------------------
+# Ballot hash verification schemas
+# ---------------------------------------------------------------------------
+
+
+class BallotVerifyOut(BaseModel):
+    verified: bool
+    ballot_id: uuid.UUID
+    computed_hash: str
+    stored_hash: str | None

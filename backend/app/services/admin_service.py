@@ -4227,6 +4227,7 @@ async def enter_votes_for_meeting(
     request: AdminVoteEntryRequest,
     db: AsyncSession,
     admin_username: str | None = None,
+    admin_user_id: str | None = None,
 ) -> dict[str, int]:
     """
     Enter votes on behalf of in-person lot owners (US-AVE-01/02).
@@ -4523,6 +4524,7 @@ async def enter_votes_for_meeting(
                         proxy_email=None,
                         submitted_by_admin=True,
                         submitted_by_admin_username=admin_username,
+                        submitted_by_admin_user_id=admin_user_id,
                     )
                     db.add(submission)
                 for vote in votes_to_add:
