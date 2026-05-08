@@ -1132,6 +1132,27 @@ test("33M.18: dunsgaard logs in, sees lot 7, votes on all interactive motions", 
     }
   }
 
+  // Scroll to bottom so the Submit button is in viewport
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
+  // If the page already redirected to confirmation (lot 7 fully submitted by proxy),
+  // verify and return.
+  if (page.url().includes("/confirmation")) {
+    await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
+    return;
+  }
+
+  // "View Submission" appearing means lot 7 is already fully submitted for all motions.
+  // This can happen if alecools voted lot 7 as proxy for M8/M9 in a prior step.
+  const viewSubmissionBtn = page.getByRole("button", { name: "View Submission" });
+  if (await viewSubmissionBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    // Lot 7 is fully submitted — navigate to confirmation to verify
+    await viewSubmissionBtn.click();
+    await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 30000 });
+    await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
+    return;
+  }
+
   await submitBallot(page);
   await expect(page).toHaveURL(/vote\/.*\/confirmation/, { timeout: 30000 });
   await expect(page.getByText("Ballot submitted")).toBeVisible({ timeout: 15000 });
