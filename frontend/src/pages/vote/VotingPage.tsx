@@ -531,6 +531,7 @@ export function VotingPage() {
                     unvotedCount={unvotedMotions.length}
                     isClosed={isClosed}
                     showSidebar={showSidebar}
+                    allSubmitted={allSubmitted}
                     isPending={isSubmitPending}
                     onSubmitClick={handleSubmitClick}
                     onViewSubmission={handleViewSubmission}

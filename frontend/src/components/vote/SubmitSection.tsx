@@ -12,6 +12,7 @@ interface SubmitSectionProps {
   unvotedCount: number;
   isClosed: boolean;
   showSidebar: boolean;
+  allSubmitted: boolean;
   isPending: boolean;
   onSubmitClick: () => void;
   onViewSubmission: () => void;
@@ -21,13 +22,15 @@ export function SubmitSection({
   unvotedCount,
   isClosed,
   showSidebar,
+  allSubmitted,
   isPending,
   onSubmitClick,
   onViewSubmission,
 }: SubmitSectionProps) {
   if (isClosed) return null;
 
-  if (unvotedCount === 0 && !showSidebar) {
+  // All motions already submitted to the server — show view-only state.
+  if (unvotedCount === 0 && !showSidebar && allSubmitted) {
     return (
       <div className="submit-section">
         <p className="state-message" data-testid="all-voted-message">
@@ -40,11 +43,29 @@ export function SubmitSection({
     );
   }
 
-  if (unvotedCount > 0) {
+  // Pending submission: single-lot voter, ballot not yet submitted.
+  // Show Submit ballot whether or not all interactive motions are answered.
+  if (!showSidebar && !allSubmitted) {
     return (
       <div className="submit-section">
         {/* RR3-39: aria-disabled announces disabled state to screen readers even when
             the button is not HTML-disabled (i.e. still accepts keyboard focus). */}
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={onSubmitClick}
+          disabled={isPending}
+          aria-disabled={isPending ? "true" : undefined}
+        >
+          {isPending ? "Submitting…" : "Submit ballot"}
+        </button>
+      </div>
+    );
+  }
+
+  if (unvotedCount > 0) {
+    return (
+      <div className="submit-section">
         <button
           type="button"
           className="btn btn--primary"

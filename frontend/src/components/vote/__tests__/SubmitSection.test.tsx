@@ -10,6 +10,7 @@ function renderSection(overrides: Partial<Parameters<typeof SubmitSection>[0]> =
     unvotedCount: 1,
     isClosed: false,
     showSidebar: false,
+    allSubmitted: false,
     isPending: false,
     onSubmitClick: noop,
     onViewSubmission: noop,
@@ -21,13 +22,19 @@ function renderSection(overrides: Partial<Parameters<typeof SubmitSection>[0]> =
 describe("SubmitSection", () => {
   // --- Happy path ---
 
-  it("renders Submit ballot button when unvotedCount > 0", () => {
-    renderSection({ unvotedCount: 1 });
+  it("renders Submit ballot button when unvotedCount > 0 and not submitted", () => {
+    renderSection({ unvotedCount: 1, allSubmitted: false });
     expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
   });
 
-  it("renders 'all voted' message and View Submission button when unvotedCount === 0 and no sidebar", () => {
-    renderSection({ unvotedCount: 0, showSidebar: false });
+  it("renders Submit ballot when all interactive motions answered but ballot not yet submitted", () => {
+    renderSection({ unvotedCount: 0, showSidebar: false, allSubmitted: false });
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    expect(screen.queryByTestId("all-voted-message")).not.toBeInTheDocument();
+  });
+
+  it("renders 'all voted' message and View Submission button when allSubmitted is true", () => {
+    renderSection({ unvotedCount: 0, showSidebar: false, allSubmitted: true });
     expect(screen.getByTestId("all-voted-message")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View Submission" })).toBeInTheDocument();
   });
@@ -40,10 +47,10 @@ describe("SubmitSection", () => {
     expect(onSubmitClick).toHaveBeenCalledOnce();
   });
 
-  it("calls onViewSubmission when View Submission is clicked in all-voted state", async () => {
+  it("calls onViewSubmission when View Submission is clicked in all-submitted state", async () => {
     const user = userEvent.setup();
     const onViewSubmission = vi.fn();
-    renderSection({ unvotedCount: 0, showSidebar: false, onViewSubmission });
+    renderSection({ unvotedCount: 0, showSidebar: false, allSubmitted: true, onViewSubmission });
     await user.click(screen.getByRole("button", { name: "View Submission" }));
     expect(onViewSubmission).toHaveBeenCalledOnce();
   });
@@ -57,8 +64,8 @@ describe("SubmitSection", () => {
 
   // --- showSidebar branch ---
 
-  it("renders nothing when unvotedCount === 0 and showSidebar is true", () => {
-    const { container } = renderSection({ unvotedCount: 0, showSidebar: true });
+  it("renders nothing when unvotedCount === 0, showSidebar is true, and allSubmitted is false", () => {
+    const { container } = renderSection({ unvotedCount: 0, showSidebar: true, allSubmitted: false });
     expect(container.firstChild).toBeNull();
   });
 
@@ -67,7 +74,7 @@ describe("SubmitSection", () => {
     expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
   });
 
-  it("does NOT render View Submission button alongside Submit ballot (no anySubmitted prop)", () => {
+  it("does NOT render View Submission button when unvotedCount > 0", () => {
     renderSection({ unvotedCount: 1 });
     expect(screen.queryByRole("button", { name: "View Submission" })).not.toBeInTheDocument();
   });
@@ -88,17 +95,17 @@ describe("SubmitSection", () => {
     expect(btn).not.toHaveAttribute("aria-disabled");
   });
 
-  // --- Boundary values ---
+  // --- allSubmitted boundary values ---
 
-  it("renders nothing when unvotedCount is 0, isClosed is false, and showSidebar is false — all-voted branch entered", () => {
-    // Distinct from "renders nothing" — ensure correct branch (all-voted state not null)
-    renderSection({ unvotedCount: 0, showSidebar: false });
-    expect(screen.getByTestId("all-voted-message")).toBeInTheDocument();
+  it("renders Submit ballot when unvotedCount is 0 and allSubmitted is false (pre-submit state)", () => {
+    renderSection({ unvotedCount: 0, showSidebar: false, allSubmitted: false });
+    expect(screen.getByRole("button", { name: "Submit ballot" })).toBeInTheDocument();
+    expect(screen.queryByTestId("all-voted-message")).not.toBeInTheDocument();
   });
 
   it("renders nothing (null) when unvotedCount is negative (unexpected boundary)", () => {
-    // unvotedCount < 0 falls through to null return
-    const { container } = renderSection({ unvotedCount: -1, showSidebar: false });
+    // unvotedCount < 0 with showSidebar=true falls through to null return
+    const { container } = renderSection({ unvotedCount: -1, showSidebar: true });
     expect(container.firstChild).toBeNull();
   });
 });
