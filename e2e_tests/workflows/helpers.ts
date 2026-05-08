@@ -614,10 +614,14 @@ export async function authenticateVoter(
   // the React state update has rendered either element.
   const channelSelector = page.getByRole("radiogroup", { name: "Verification channel" });
   const codeInput = page.getByLabel("Verification code");
-  const whichAppeared = await Promise.race([
-    channelSelector.waitFor({ state: "visible", timeout: 15000 }).then(() => "channel" as const),
-    codeInput.waitFor({ state: "visible", timeout: 15000 }).then(() => "code" as const),
-  ]);
+  // The losing branch of Promise.race will reject after its timeout; attach a no-op
+  // .catch() to each branch so that rejection is silently swallowed and does not
+  // become an unhandled Promise rejection that disrupts subsequent page actions.
+  const channelRace = channelSelector.waitFor({ state: "visible", timeout: 15000 }).then(() => "channel" as const);
+  const codeRace = codeInput.waitFor({ state: "visible", timeout: 15000 }).then(() => "code" as const);
+  channelRace.catch(() => {});
+  codeRace.catch(() => {});
+  const whichAppeared = await Promise.race([channelRace, codeRace]);
   if (whichAppeared === "channel") {
     await page.getByRole("radio", { name: "Email" }).check();
     await page.getByRole("button", { name: "Send code" }).click();
