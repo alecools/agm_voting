@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useCountdown } from "../../hooks/useCountdown";
 import type { UseServerTimeResult } from "../../hooks/useServerTime";
 
@@ -16,9 +17,21 @@ export function CountdownTimer({ closesAt, serverTime }: CountdownTimerProps) {
     serverTime.getServerNow
   );
 
+  const announced5min = useRef(false);
+  const announced1min = useRef(false);
+
   const hours = Math.floor(secondsRemaining / 3600);
   const minutes = Math.floor((secondsRemaining % 3600) / 60);
   const seconds = secondsRemaining % 60;
+
+  let milestoneMessage = "";
+  if (secondsRemaining <= 300 && secondsRemaining > 295 && !announced5min.current) {
+    milestoneMessage = "5 minutes remaining";
+    announced5min.current = true;
+  } else if (secondsRemaining <= 60 && secondsRemaining > 55 && !announced1min.current) {
+    milestoneMessage = "1 minute remaining";
+    announced1min.current = true;
+  }
 
   if (isExpired) {
     return (
@@ -33,13 +46,22 @@ export function CountdownTimer({ closesAt, serverTime }: CountdownTimerProps) {
   }
 
   return (
-    <div
-      role="timer"
-      aria-live="polite"
-      className={`agm-header__timer${isWarning ? " agm-header__timer--warning" : ""}`}
-    >
-      {isWarning && <span aria-hidden="true">! </span>}
-      {pad(hours)}:{pad(minutes)}:{pad(seconds)}
-    </div>
+    <>
+      <div
+        role="timer"
+        aria-live="off"
+        className={`agm-header__timer${isWarning ? " agm-header__timer--warning" : ""}`}
+      >
+        {isWarning && <span aria-hidden="true">! </span>}
+        {pad(hours)}:{pad(minutes)}:{pad(seconds)}
+      </div>
+      <span
+        className="sr-only"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        {milestoneMessage}
+      </span>
+    </>
   );
 }

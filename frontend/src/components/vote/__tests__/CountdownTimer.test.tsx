@@ -86,4 +86,69 @@ describe("CountdownTimer", () => {
 
     expect(screen.getByRole("timer")).toHaveTextContent("00:00:04");
   });
+
+  // --- ACCESSIBILITY-4: aria-live changes ---
+
+  it("running timer has aria-live='off' to prevent per-second announcements", () => {
+    const closesAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const serverTime = makeServerTime(Date.now());
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const timer = screen.getByRole("timer");
+    expect(timer).toHaveAttribute("aria-live", "off");
+  });
+
+  it("expired state has aria-live='assertive'", () => {
+    const closesAt = new Date(Date.now() - 1000).toISOString();
+    const serverTime = makeServerTime(Date.now());
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const timer = screen.getByRole("timer");
+    expect(timer).toHaveAttribute("aria-live", "assertive");
+    expect(timer).toHaveTextContent("Voting has closed");
+  });
+
+  it("announces '5 minutes remaining' milestone when seconds reach 300", () => {
+    const now = Date.now();
+    // Set closes at exactly 300 seconds from now
+    const closesAt = new Date(now + 300 * 1000).toISOString();
+    const serverTime = makeServerTime(now);
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    // At exactly 300s the milestone should fire
+    const announcement = document.querySelector(".sr-only");
+    expect(announcement).toHaveTextContent("5 minutes remaining");
+  });
+
+  it("does not repeat 5-minute announcement on subsequent ticks", () => {
+    const now = Date.now();
+    let currentNow = now;
+    // Set closes at exactly 300 seconds from now
+    const closesAt = new Date(now + 300 * 1000).toISOString();
+    const serverTime: UseServerTimeResult = { getServerNow: () => currentNow };
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+
+    // Advance 1 second (now at 299 seconds)
+    currentNow += 1000;
+    act(() => { vi.advanceTimersByTime(1000); });
+
+    const announcement = document.querySelector(".sr-only");
+    expect(announcement).not.toHaveTextContent("5 minutes remaining");
+  });
+
+  it("announces '1 minute remaining' milestone when seconds reach 60", () => {
+    const now = Date.now();
+    // Set closes at exactly 60 seconds from now
+    const closesAt = new Date(now + 60 * 1000).toISOString();
+    const serverTime = makeServerTime(now);
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const announcement = document.querySelector(".sr-only");
+    expect(announcement).toHaveTextContent("1 minute remaining");
+  });
+
+  it("does not announce milestones when well above thresholds", () => {
+    const now = Date.now();
+    const closesAt = new Date(now + 10 * 60 * 1000).toISOString();
+    const serverTime = makeServerTime(now);
+    render(<CountdownTimer closesAt={closesAt} serverTime={serverTime} />);
+    const announcement = document.querySelector(".sr-only");
+    expect(announcement).toHaveTextContent("");
+  });
 });

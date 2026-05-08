@@ -19,6 +19,7 @@ export function useAutoSave(
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestChoice = useRef(choice);
   latestChoice.current = choice;
+  const isFirstMount = useRef(true);
 
   const doSave = useCallback(() => {
     setStatus("saving");
@@ -32,7 +33,10 @@ export function useAutoSave(
   }, [meetingId, motionId]);
 
   useEffect(() => {
-    // Don't auto-save on first mount when idle
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
     if (debounceRef.current !== null) {
       clearTimeout(debounceRef.current);
     }
@@ -45,8 +49,7 @@ export function useAutoSave(
         clearTimeout(debounceRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [choice]);
+  }, [choice, doSave]); // doSave added — safe because it is a stable useCallback
 
   const saveNow = useCallback(() => {
     if (debounceRef.current !== null) {

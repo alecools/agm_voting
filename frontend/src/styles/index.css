@@ -2524,3 +2524,31 @@ button, input, select, textarea {
   body > *:not(.qr-modal__print-area) { display: none !important; }
   .qr-modal__print-area { position: static !important; box-shadow: none !important; }
 }
+
+/* === CHANNEL MODAL INTERIOR CLASSES (ACCESSIBILITY-1) === */
+.channel-modal__heading {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 1.2rem;
+}
+.channel-modal__radiogroup {
+  margin-bottom: 16px;
+}
+.channel-modal__radio-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.channel-modal__radio-label:last-child {
+  margin-bottom: 0;
+}
+.channel-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.channel-modal .field__error {
+  margin-bottom: 16px;
+}

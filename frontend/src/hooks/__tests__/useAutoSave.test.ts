@@ -22,10 +22,67 @@ describe("useAutoSave", () => {
     expect(result.current.status).toBe("idle");
   });
 
-  it("transitions to saving then saved after debounce", async () => {
-    const { result } = renderHook(() =>
-      useAutoSave("agm-1", "mot-1", "yes")
+  // --- First-mount bug fix (FRONTEND-1) ---
+
+  it("does NOT call saveDraft on first mount when choice is null", async () => {
+    const handler = vi.fn(() => HttpResponse.json({ status: "ok" }));
+    server.use(http.put(`${BASE}/api/general-meeting/agm-1/draft`, handler));
+
+    renderHook(() => useAutoSave("agm-1", "mot-1", null));
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call saveDraft on first mount even when choice has a value", async () => {
+    const handler = vi.fn(() => HttpResponse.json({ status: "ok" }));
+    server.use(http.put(`${BASE}/api/general-meeting/agm-1/draft`, handler));
+
+    renderHook(() => useAutoSave("agm-1", "mot-1", "yes"));
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("calls saveDraft after debounce when choice changes", async () => {
+    let choice: "yes" | "no" | null = null;
+    const { result, rerender } = renderHook(() =>
+      useAutoSave("agm-1", "mot-1", choice)
     );
+
+    // First mount — no save
+    act(() => { vi.advanceTimersByTime(500); });
+
+    // Change choice
+    choice = "yes";
+    rerender();
+
+    act(() => { vi.advanceTimersByTime(400); });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("saved");
+    });
+  });
+
+  it("transitions to saving then saved after debounce on choice change", async () => {
+    let choice: "yes" | null = null;
+    const { result, rerender } = renderHook(() =>
+      useAutoSave("agm-1", "mot-1", choice)
+    );
+
+    // skip first mount
+    act(() => { vi.advanceTimersByTime(500); });
+
+    choice = "yes";
+    rerender();
 
     act(() => {
       vi.advanceTimersByTime(400);
@@ -41,9 +98,15 @@ describe("useAutoSave", () => {
       http.put(`${BASE}/api/general-meeting/agm-1/draft`, () => HttpResponse.error())
     );
 
-    const { result } = renderHook(() =>
-      useAutoSave("agm-1", "mot-1", "no")
+    let choice: "no" | null = null;
+    const { result, rerender } = renderHook(() =>
+      useAutoSave("agm-1", "mot-1", choice)
     );
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    choice = "no";
+    rerender();
 
     act(() => {
       vi.advanceTimersByTime(400);
@@ -69,9 +132,15 @@ describe("useAutoSave", () => {
   });
 
   it("saveNow clears pending debounce", async () => {
-    const { result } = renderHook(() =>
-      useAutoSave("agm-1", "mot-1", "yes")
+    let choice: "yes" | null = null;
+    const { result, rerender } = renderHook(() =>
+      useAutoSave("agm-1", "mot-1", choice)
     );
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    choice = "yes";
+    rerender();
 
     // Trigger saveNow before debounce fires
     act(() => {
@@ -83,13 +152,18 @@ describe("useAutoSave", () => {
     });
   });
 
-  it("debounces rapid choice changes", async () => {
-    let choice: "yes" | "no" | null = "yes";
+  it("debounces rapid choice changes — saveDraft called exactly once", async () => {
+    let choice: "yes" | "no" | null = null;
     const { result, rerender } = renderHook(() =>
       useAutoSave("agm-1", "mot-1", choice)
     );
 
+    // First mount — skip
+    act(() => { vi.advanceTimersByTime(500); });
+
     // Change choice rapidly
+    choice = "yes";
+    rerender();
     choice = "no";
     rerender();
     choice = "yes";

@@ -10,6 +10,14 @@ const MOTION_TYPE_LABELS: Record<string, string> = {
   special: "Special",
 };
 
+const ARIA_ACTION_LABELS: Record<VoteChoice, string> = {
+  yes: "For",
+  no: "Against",
+  abstained: "Abstain",
+  not_eligible: "Not Eligible",
+  selected: "Selected",
+};
+
 type OptionChoiceMap = Record<string, "for" | "against" | "abstained">;
 
 interface MotionCardProps {
@@ -53,6 +61,8 @@ export function MotionCard({
   // Fix 6: badge class and label always derived from motion_type, never from isMultiChoice
   const badgeClass = isSpecial ? "motion-type-badge--special" : "motion-type-badge--general";
   const typeLabel = MOTION_TYPE_LABELS[motion.motion_type] ?? motion.motion_type;
+
+  const motionLabel = `Motion ${motion.motion_number?.trim() || position}`;
 
   return (
     <div
@@ -116,6 +126,7 @@ export function MotionCard({
               selected={choice === c}
               disabled={isEffectivelyDisabled}
               ariaDisabled={false}
+              ariaLabel={`Vote ${ARIA_ACTION_LABELS[c]} for ${motionLabel}`}
               onClick={() => handleClick(c)}
             />
           ))}

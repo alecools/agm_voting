@@ -184,9 +184,9 @@ describe("VotingPage", () => {
       )
     );
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
     // Despite the server returning a draft, no button is pre-selected
-    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    const yesButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(yesButtons[0]).toHaveAttribute("aria-pressed", "false");
     expect(yesButtons[1]).toHaveAttribute("aria-pressed", "false");
   });
@@ -196,7 +196,7 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByLabelText("0 / 2 motions answered"));
 
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
     await user.click(yesButtons[0]);
 
     await waitFor(() => {
@@ -207,7 +207,7 @@ describe("VotingPage", () => {
   it("deselects choice when same button clicked again", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
     await user.click(yesButtons[0]);
     await waitFor(() => screen.getByLabelText("1 / 2 motions answered"));
 
@@ -220,9 +220,9 @@ describe("VotingPage", () => {
   it("shows simple confirm dialog when all motions answered", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
 
-    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    const yesButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(yesButtons[0]);
     await user.click(yesButtons[1]);
 
@@ -381,7 +381,7 @@ describe("VotingPage", () => {
     const saveDraftSpy = vi.spyOn(voterApi, "saveDraft");
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    const yesButtons = await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
     await user.click(yesButtons[0]);
     act(() => { vi.advanceTimersByTime(1000); });
     // No draft save should have been called
@@ -951,7 +951,7 @@ describe("VotingPage", () => {
       expect(screen.getByTestId("arrear-banner")).toBeInTheDocument();
     });
     // Vote buttons on the general motion are NOT disabled — in-arrear restriction is backend-only
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(forButtons[0]).not.toHaveAttribute("aria-disabled");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -976,7 +976,7 @@ describe("VotingPage", () => {
       expect(screen.getByLabelText("0 / 2 motions answered")).toBeInTheDocument();
     });
     // Voter CAN vote on the general motion
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(forButtons[0]);
     await waitFor(() => {
       expect(screen.getByLabelText("1 / 2 motions answered")).toBeInTheDocument();
@@ -995,9 +995,9 @@ describe("VotingPage", () => {
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
 
-    const yesButtons = screen.getAllByRole("button", { name: "For" });
+    const yesButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(yesButtons[0]);
 
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
@@ -1024,11 +1024,11 @@ describe("VotingPage", () => {
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
 
     // Select Yes on motion 1, No on motion 2
-    const yesButtons = screen.getAllByRole("button", { name: "For" });
-    const noButtons = screen.getAllByRole("button", { name: "Against" });
+    const yesButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
+    const noButtons = screen.getAllByRole("button", { name: /^Vote Against for Motion/ });
     await user.click(yesButtons[0]); // motion 1 → yes
     await user.click(noButtons[1]);  // motion 2 → no
 
@@ -1137,7 +1137,7 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 2" }));
 
     // Vote on Motion 2 only (Motion 1 is read-only)
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(forButtons[forButtons.length - 1]); // last For button is Motion 2
 
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
@@ -1223,7 +1223,7 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 2" }));
 
     // Vote on Motion 2 only
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(forButtons[forButtons.length - 1]);
 
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
@@ -1390,7 +1390,7 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 2 (new)" }));
 
     // Vote on Motion 2 (the only interactive motion)
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     await user.click(forButtons[forButtons.length - 1]);
 
     await user.click(screen.getByRole("button", { name: "Submit ballot" }));
@@ -1959,7 +1959,7 @@ describe("VotingPage", () => {
     // lo2 has not voted on MOTION_ID_1 → not read-only
     expect(screen.queryByText("✓ Already voted")).not.toBeInTheDocument();
     // Vote buttons should be enabled
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(forButtons[0]).not.toBeDisabled();
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -2303,11 +2303,11 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // Motion 1 is locked — its For button should be aria-pressed="true"
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
     });
     // Motion 2 has submitted_choice=null — its For button should be aria-pressed="false"
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -2332,7 +2332,7 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // Motion 1 is unlocked — For button must NOT be pre-filled
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
       expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
     });
@@ -2361,8 +2361,8 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // Both motions are locked — submitted choices must be pre-filled
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
-      const againstButtons = screen.getAllByRole("button", { name: "Against" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
+      const againstButtons = screen.getAllByRole("button", { name: /^Vote Against for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");   // Motion 1 = "yes"
       expect(againstButtons[1]).toHaveAttribute("aria-pressed", "true"); // Motion 2 = "no"
     });
@@ -2391,7 +2391,7 @@ describe("VotingPage", () => {
     renderPage();
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       // Motion 1 is locked → pre-filled as "yes"
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
       // Motion 2 is unlocked → no pre-fill
@@ -2423,7 +2423,7 @@ describe("VotingPage", () => {
     await waitFor(() => screen.getByRole("heading", { name: "Motion 1" }));
     // selectedIds = {lo-B} because Lot A is submitted. Lot B has no voted motions → no motion locked.
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
       expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
     });
@@ -2441,8 +2441,8 @@ describe("VotingPage", () => {
       )
     );
     renderPage();
-    await waitFor(() => screen.getAllByRole("button", { name: "For" }));
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    await waitFor(() => screen.getAllByRole("button", { name: /^Vote For for Motion/ }));
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
     expect(forButtons[1]).toHaveAttribute("aria-pressed", "false");
     // Progress bar shows 0 answered
@@ -2471,18 +2471,18 @@ describe("VotingPage", () => {
     renderPage();
     // Motion 1 is unlocked → not pre-seeded → For button starts as unpressed
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
     });
     // User selects "Against" for Motion 1
-    const noButtons = screen.getAllByRole("button", { name: "Against" });
+    const noButtons = screen.getAllByRole("button", { name: /^Vote Against for Motion/ });
     await user.click(noButtons[0]);
     await waitFor(() => {
       expect(noButtons[0]).toHaveAttribute("aria-pressed", "true");
     });
     // The seeding guard (!(m.id in seeded)) means if motions re-resolves, Motion 1's "no" is kept.
     // We can verify this: the For button for Motion 1 remains unpressed (the "no" choice persists).
-    const forButtons = screen.getAllByRole("button", { name: "For" });
+    const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
     expect(forButtons[0]).toHaveAttribute("aria-pressed", "false");
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);
   });
@@ -2754,7 +2754,7 @@ describe("VotingPage", () => {
     });
     // Motion 1 should be pre-filled (already_voted=true, submitted_choice="yes")
     await waitFor(() => {
-      const forButtons = screen.getAllByRole("button", { name: "For" });
+      const forButtons = screen.getAllByRole("button", { name: /^Vote For for Motion/ });
       expect(forButtons[0]).toHaveAttribute("aria-pressed", "true");
     });
     sessionStorage.removeItem(`meeting_lots_info_${AGM_ID}`);

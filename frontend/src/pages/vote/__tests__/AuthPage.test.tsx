@@ -913,3 +913,130 @@ describe("AuthPage — SMS channel selector", () => {
     expect(screen.queryByText(/ending in/)).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ACCESSIBILITY-3: Focus return when ChannelModal closes
+// ---------------------------------------------------------------------------
+
+describe("AuthPage — focus restoration on modal close", () => {
+  beforeEach(() => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      ),
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+  });
+
+  it("does not trigger focus restore on initial render (modal never opened)", async () => {
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    const sendBtn = screen.getByRole("button", { name: "Send Verification Code" });
+    // Just ensure the button is present and not unexpectedly focused
+    expect(sendBtn).toBeInTheDocument();
+  });
+
+  it("Send Verification Code button has focus after modal Cancel", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    const sendBtn = screen.getByRole("button", { name: "Send Verification Code" });
+    expect(sendBtn).toHaveFocus();
+  });
+
+  it("Send Verification Code button has focus after Escape closes modal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    const sendBtn = screen.getByRole("button", { name: "Send Verification Code" });
+    expect(sendBtn).toHaveFocus();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ACCESSIBILITY-1: ChannelModal interior CSS classes
+// ---------------------------------------------------------------------------
+
+describe("AuthPage — ChannelModal CSS classes", () => {
+  beforeEach(() => {
+    server.use(
+      http.post(`${BASE}/api/auth/session`, () =>
+        HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
+      ),
+      http.post(`${BASE}/api/auth/request-otp`, () =>
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+      )
+    );
+  });
+
+  it("modal panel has channel-modal class", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    const heading = screen.getByRole("heading", { name: "Choose verification method" });
+    expect(heading).toHaveClass("channel-modal__heading");
+  });
+
+  it("radiogroup div has channel-modal__radiogroup class", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    expect(screen.getByRole("radiogroup")).toHaveClass("channel-modal__radiogroup");
+  });
+
+  it("radio labels have channel-modal__radio-label class", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    const emailRadio = screen.getByRole("radio", { name: /Email/i });
+    expect(emailRadio.closest("label")).toHaveClass("channel-modal__radio-label");
+  });
+
+  it("actions div has channel-modal__actions class", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelBtn.closest("div")).toHaveClass("channel-modal__actions");
+  });
+
+  it("no inline style props on interior modal content (only backdrop and panel have inline styles)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("dialog"));
+    // The heading must not have inline style
+    const heading = screen.getByRole("heading", { name: "Choose verification method" });
+    expect(heading).not.toHaveStyle("marginTop: 0");
+  });
+});

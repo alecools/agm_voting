@@ -439,18 +439,18 @@ export default function GeneralMeetingDetailPage() {
     onMutate: async ({ motionId, isVisible }) => {
       await queryClient.cancelQueries({ queryKey: ["admin", "general-meetings", meetingId] });
       const previous = queryClient.getQueryData(["admin", "general-meetings", meetingId]);
-      queryClient.setQueryData(["admin", "general-meetings", meetingId], (old: any) => {
+      queryClient.setQueryData(["admin", "general-meetings", meetingId], (old: GeneralMeetingDetail | undefined): GeneralMeetingDetail | undefined => {
         if (!old) return old;
         return {
           ...old,
-          motions: old.motions.map((m: any) =>
+          motions: old.motions.map((m: MotionDetail) =>
             m.id === motionId ? { ...m, is_visible: isVisible } : m
           ),
         };
       });
       return { previous };
     },
-    onError: (error: Error, variables, context: any) => {
+    onError: (error: Error, variables, context: { previous: GeneralMeetingDetail | undefined } | undefined) => {
       if (context?.previous) {
         queryClient.setQueryData(["admin", "general-meetings", meetingId], context.previous);
       }

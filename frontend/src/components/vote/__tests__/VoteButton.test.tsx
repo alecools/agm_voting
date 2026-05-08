@@ -72,4 +72,25 @@ describe("VoteButton", () => {
     render(<VoteButton choice="not_eligible" selected={false} disabled={false} onClick={() => {}} />);
     expect(screen.getByRole("button", { name: "Not Eligible" })).toBeInTheDocument();
   });
+
+  // --- ACCESSIBILITY-2: optional ariaLabel prop ---
+
+  it("uses ariaLabel as accessible name when provided", () => {
+    render(
+      <VoteButton
+        choice="yes"
+        selected={false}
+        disabled={false}
+        ariaLabel="Vote For for Motion 1"
+        onClick={() => {}}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Vote For for Motion 1" })).toBeInTheDocument();
+  });
+
+  it("does not set aria-label attribute when ariaLabel prop is omitted", () => {
+    render(<VoteButton choice="yes" selected={false} disabled={false} onClick={() => {}} />);
+    const btn = screen.getByRole("button", { name: "For" });
+    expect(btn).not.toHaveAttribute("aria-label");
+  });
 });

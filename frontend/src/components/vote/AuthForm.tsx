@@ -10,6 +10,7 @@ interface AuthFormProps {
   error?: string;
   smsChannel?: boolean;
   phoneHint?: string | null;
+  triggerRef?: React.RefObject<HTMLButtonElement>;
 }
 
 export function AuthForm({
@@ -22,6 +23,7 @@ export function AuthForm({
   error,
   smsChannel,
   phoneHint,
+  triggerRef,
 }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -123,6 +125,7 @@ export function AuthForm({
             )}
 
             <button
+              ref={triggerRef}
               className="btn btn--primary btn--full mt-16"
               type="submit"
               disabled={isRequestingOtp}

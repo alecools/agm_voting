@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { requestOtp, verifyAuth, restoreSession } from "../../api/voter";
+import type { AuthVerifyResponse } from "../../api/voter";
 import { AuthForm } from "../../components/vote/AuthForm";
 import { useBranding } from "../../context/BrandingContext";
 
@@ -61,6 +62,7 @@ function ChannelModal({
     >
       <div
         ref={dialogRef}
+        className="channel-modal"
         style={{
           background: "#fff",
           borderRadius: "var(--r-md)",
@@ -71,24 +73,16 @@ function ChannelModal({
           boxShadow: "var(--shadow-lg)",
         }}
       >
-        <h2 style={{ marginTop: 0, marginBottom: 20, fontSize: "1.2rem" }}>
+        <h2 className="channel-modal__heading">
           Choose verification method
         </h2>
 
         <div
           role="radiogroup"
           aria-label="Verification channel"
-          style={{ marginBottom: 16 }}
+          className="channel-modal__radiogroup"
         >
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              marginBottom: 12,
-              cursor: "pointer",
-            }}
-          >
+          <label className="channel-modal__radio-label">
             <input
               type="radio"
               name="otp-channel"
@@ -98,14 +92,7 @@ function ChannelModal({
             />
             Email
           </label>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              cursor: "pointer",
-            }}
-          >
+          <label className="channel-modal__radio-label">
             <input
               type="radio"
               name="otp-channel"
@@ -118,12 +105,12 @@ function ChannelModal({
         </div>
 
         {error && (
-          <p className="field__error" role="alert" style={{ marginBottom: 16 }}>
+          <p className="field__error" role="alert">
             {error}
           </p>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div className="channel-modal__actions">
           <button
             type="button"
             className="btn btn--secondary"
@@ -162,8 +149,20 @@ export function AuthPage() {
   const [phoneHint, setPhoneHint] = useState<string | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
 
+  // Ref to the "Send Verification Code" button — used to restore focus when ChannelModal closes
+  const sendCodeButtonRef = useRef<HTMLButtonElement>(null);
+  const prevShowModalRef = useRef(false);
+
+  // Return focus to send-code button when the channel modal closes (ACCESSIBILITY-3)
+  useEffect(() => {
+    if (prevShowModalRef.current && !showChannelModal) {
+      sendCodeButtonRef.current?.focus();
+    }
+    prevShowModalRef.current = showChannelModal;
+  }, [showChannelModal]);
+
   // Shared logic: write sessionStorage keys and navigate after a successful auth response
-  const handleAuthSuccess = useCallback((data: Parameters<typeof verifyAuth>[0] extends infer _R ? Awaited<ReturnType<typeof verifyAuth>> : never) => {
+  const handleAuthSuccess = useCallback((data: AuthVerifyResponse) => {
     /* c8 ignore next */
     if (!meetingId) return;
     const pendingLots = data.lots.filter((l) => !l.already_submitted);
@@ -310,6 +309,7 @@ export function AuthPage() {
         error={showChannelModal ? "" : authError}
         smsChannel={channel === "sms"}
         phoneHint={phoneHint}
+        triggerRef={sendCodeButtonRef}
       />
 
       {showChannelModal && (
