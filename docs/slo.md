@@ -71,3 +71,28 @@ An "AGM window" is defined as the period from `meeting_at` to `voting_closes_at`
 | [`disaster-recovery.md`](runbooks/disaster-recovery.md) | DR and data recovery |
 | [`smoke-test.md`](runbooks/smoke-test.md) | Post-deployment validation |
 | [`admin-vote-entry.md`](runbooks/admin-vote-entry.md) | Admin vote entry for in-person voters and per-motion window controls |
+
+---
+
+## Alerting
+
+### Vercel function log alerts
+
+The application emits structured log events. Search Vercel function logs for:
+
+- `event=email_delivery_failed` — all 30 retry attempts for a results email exhausted; manual intervention required (see `docs/runbooks/email-delivery-failures.md`)
+- HTTP 5xx rate above 1% over a 5-minute window — indicates a deployment regression or DB connectivity issue
+- `startup_email_requeue count=N` where N > 5 — test data not cleaned up and is triggering spurious email retries
+
+To view logs: Vercel dashboard → Project → Deployments → current deployment → Functions tab → select a failing invocation → expand the log stream. Use the search bar to filter by event keyword.
+
+### Uptime monitoring (recommended)
+
+Configure a free-tier external uptime check independent of Vercel:
+
+- **Recommended tool:** [Uptime Robot](https://uptimerobot.com) — free tier supports 5-minute check intervals
+- **Monitor URL:** `https://vms-demo.ocss.tech/api/health`
+- **Expected response:** HTTP 200, body `{"status": "ok", "db": "connected"}`
+- **Alert channel:** Email to on-call engineer or shared ops Slack channel
+
+Setup: Create a free account at uptimerobot.com → Add New Monitor → HTTP(s) → enter the URL above → set check interval to 5 minutes → add an alert contact.

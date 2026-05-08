@@ -10,7 +10,7 @@ Use this runbook when the application cannot connect to the Neon PostgreSQL data
 
 ```bash
 # Full health check — returns 503 if DB is unreachable
-curl https://agm-voting.vercel.app/api/health
+curl https://vms-demo.ocss.tech/api/health
 ```
 
 Expected healthy response:
@@ -27,7 +27,7 @@ Degraded response (DB unreachable):
 
 ```bash
 curl -H "Cookie: admin_session=..." \
-  https://agm-voting.vercel.app/api/admin/debug/db-health
+  https://vms-demo.ocss.tech/api/admin/debug/db-health
 ```
 
 Response fields:

@@ -38,6 +38,7 @@ class Vote(Base):
     # Partial indexes with WHERE clauses cannot be expressed as UniqueConstraint or
     # Index(..., unique=True) in the SQLAlchemy ORM model — they are defined exclusively
     # in the Alembic migration (same pattern as the motion_number partial index on motions).
+    # Migration: a1b2c3d4e5f7_add_multi_choice_motion_type.py
     __table_args__ = ()
 
     id: Mapped[uuid.UUID] = mapped_column(

@@ -150,7 +150,7 @@ The AGM Voting App demonstrates **strong operational foundations** with well-def
    ```yaml
    - name: Smoke tests
      run: |
-       ENDPOINT="https://agm-voting.vercel.app"  # or preview URL
+       ENDPOINT="https://vms-demo.ocss.tech"  # or preview URL
 
        # Full health check
        curl -f "$ENDPOINT/api/health" || exit 1

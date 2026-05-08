@@ -26,7 +26,7 @@ Buildings, lot owners, and meeting/motion definitions are less frequently writte
 
 Neon provides PITR via branch creation. To restore to a point before the incident:
 
-1. Log in to `https://console.neon.tech/app/projects/divine-dust-41291876`.
+1. Log in to `https://console.neon.tech/app/projects/curly-lab-57416583`.
 
 2. Navigate to **Branches** → **New Branch**.
 
@@ -136,7 +136,7 @@ A disaster recovery drill should be performed **once per quarter** to verify the
 
 ## Contacts and credentials
 
-- Neon console: `https://console.neon.tech/app/projects/divine-dust-41291876`
-- Vercel project: `prj_qrC03F0jBalhpHV5VLK3IyCRUU6L`
+- Neon console: `https://console.neon.tech/app/projects/curly-lab-57416583`
+- Vercel project: `prj_HasiiyZJvxTj16WM1fmUv3IRZUf0`
 - Neon API key: macOS Keychain → `security find-generic-password -a "neon-api-key" -s "agm-survey" -w`
 - Vercel token: macOS Keychain under service `agm-survey`

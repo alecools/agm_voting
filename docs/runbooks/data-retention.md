@@ -25,6 +25,14 @@ This runbook documents how long meeting data is retained, how to archive old mee
 
 ## Retention Periods
 
+| Data | Minimum retention | Notes |
+|------|-------------------|-------|
+| Votes / ballots (`ballot_submissions`, `votes`) | 7 years | Australian body-corporate law |
+| Meeting records (`general_meetings`) | 7 years | Same legal requirement |
+| Sessions / OTPs (`auth_otps`, `otp_rate_limits`) | 30 days | Auto-expired by application TTL |
+| Email delivery logs (`email_deliveries`) | 1 year | Sufficient for SMTP audit trail |
+| Active lot owner emails (`lot_owner_emails`) | Until lot sold or erasure request | GDPR legitimate interest |
+
 ### Meeting ballot data (7-year minimum)
 
 Under Australian body corporate law (and most equivalent legislation), the strata manager must retain meeting records and voting results for at least 7 years. `general_meetings`, `ballot_submissions`, and `votes` must not be deleted within this window.
@@ -77,6 +85,14 @@ There is no automated archiving process. Manual archiving steps:
      WHERE closed_at < NOW() - INTERVAL '7 years'
    );
    ```
+
+
+### Test data cleanup
+
+For removal of E2E test data from UAT, use the authoritative cleanup SQL documented in `CLAUDE.md` under "Test Data Conventions". Do not use ad-hoc DELETE statements — the authoritative approach deletes by exclusion of known real buildings to avoid accidental deletion of production data.
+
+Automated enforcement of retention periods is tracked as a future enhancement.
+
 
 ---
 

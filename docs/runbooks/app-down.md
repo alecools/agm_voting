@@ -26,10 +26,10 @@ In the Vercel dashboard: Deployments → current deployment → Functions tab �
 
 ```bash
 # Process-level liveness (does not touch DB)
-curl https://agm-voting.vercel.app/api/health/live
+curl https://vms-demo.ocss.tech/api/health/live
 
 # Full health check (includes DB connectivity)
-curl https://agm-voting.vercel.app/api/health
+curl https://vms-demo.ocss.tech/api/health
 ```
 
 | Result | Diagnosis |
@@ -42,7 +42,7 @@ curl https://agm-voting.vercel.app/api/health
 
 ## Step 2: Check Vercel deployment status
 
-1. Log in to `https://vercel.com/ocss/agm-voting`.
+1. Log in to `https://vercel.com/ocss/internal-vms`.
 2. Navigate to Deployments and check the most recent deployment status.
 3. Click the deployment → Functions tab → check recent invocations for errors.
 4. Common causes:
@@ -54,7 +54,7 @@ curl https://agm-voting.vercel.app/api/health
 
 ## Step 3: Check Neon DB status
 
-1. Log in to `https://console.neon.tech/app/projects/divine-dust-41291876`.
+1. Log in to `https://console.neon.tech/app/projects/curly-lab-57416583`.
 2. Check the dashboard for:
    - High connection count (> 20 active connections suggests pool exhaustion)
    - Recent errors in the query log
