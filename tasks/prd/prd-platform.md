@@ -303,6 +303,65 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 
 ---
 
+---
+
+### US-OTP-TOGGLE-01: Admin can enable or disable Email OTP verification
+
+**Status:** ✅ Implemented — branch: `feat-otp-method-toggle`, committed 2026-05-09
+
+**Description:** As an admin, I want to control whether voters can use email as an OTP verification method, so that I can disable it when the building uses SMS-only authentication.
+
+**Acceptance Criteria:**
+
+- [ ] The Settings page UI & Theme tab shows an "Email verification" toggle under a new "Authentication" subsection (enabled by default)
+- [ ] Toggling email OFF when SMS is also disabled shows an inline error: "At least one verification method must be enabled"
+- [ ] When email is toggled OFF and at least one other method is enabled, a confirmation dialog appears before saving: "Voters who only have an email address and no phone number will not be able to log in."
+- [ ] Toggling email back ON dismisses any pending warning without a dialog
+- [ ] The toggle state is saved via the existing Save button on the UI & Theme tab; the existing PUT /api/admin/config endpoint persists the new fields
+- [ ] On save failure the toggle reverts to its pre-save state and shows an error message
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-TOGGLE-02: Admin can enable or disable SMS OTP verification
+
+**Status:** ✅ Implemented — branch: `feat-otp-method-toggle`, committed 2026-05-09
+
+**Description:** As an admin, I want to control whether voters can use SMS as an OTP verification method independently of the email toggle, so that I can manage both channels from a single place.
+
+**Acceptance Criteria:**
+
+- [ ] The Settings page UI & Theme tab shows an "SMS verification" toggle under the Authentication subsection (disabled by default when no SMS is configured)
+- [ ] Toggling SMS OFF when Email is also disabled shows an inline error: "At least one verification method must be enabled"
+- [ ] When SMS is toggled OFF and at least one other method is enabled, a confirmation dialog appears before saving: "Voters who only have a phone number and no email address will not be able to log in."
+- [ ] Toggling SMS back ON dismisses any pending warning without a dialog
+- [ ] The SMS channel toggle is independent of the existing sms_enabled flag in the SMS tab (which gates provider configuration). This new toggle specifically controls whether voters can select SMS as an OTP channel
+- [ ] On save failure the toggle reverts to its pre-save state and shows an error message
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
+### US-OTP-TOGGLE-03: Voter auth channel selector reflects enabled methods only
+
+**Status:** ✅ Implemented — branch: `feat-otp-method-toggle`, committed 2026-05-09
+
+**Description:** As a voter, I want the login page to only show me verification methods that the admin has enabled, so that I am not offered a disabled channel that will fail.
+
+**Acceptance Criteria:**
+
+- [ ] POST /api/auth/request-otp returns a new field enabled_channels: list[str] (e.g. ["email", "sms"]) alongside has_phone and phone_hint
+- [ ] When both Email and SMS are enabled: existing behaviour — the channel selector modal appears if the voter has a phone number
+- [ ] When only Email is enabled: the channel selector modal is never shown; the OTP is sent via email automatically
+- [ ] When only SMS is enabled: the channel selector modal is never shown; if the voter has a phone number the OTP is sent via SMS automatically; if the voter has no phone number the backend returns 400 and the frontend shows: "SMS is the only verification method available and no phone number is on file for your account"
+- [ ] A disabled channel that was previously selected by any client-side state is ignored; the backend enforces the active channel list
+- [ ] POST /api/auth/request-otp returns 503 if the requested channel is not in enabled_channels (in addition to the existing SMS not configured check)
+- [ ] All tests pass at 100% coverage
+- [ ] Typecheck/lint passes
+
+---
+
 ## Non-Goals
 
 - No per-building SMTP configuration (one global config per tenant)
@@ -310,5 +369,6 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 - No exporting or viewing the SMTP password from the admin UI (write-only field)
 - No email notifications to lot owners (invites, reminders, vote confirmations)
 - No PropertyIQ sync changes until API credentials are provided
-- No role hierarchy for admin users (flat — any admin can invite or remove others)
+- No role hierarchy for admin users (flat --- any admin can invite or remove others)
 - No self-removal (the current admin's Remove button is hidden, not merely disabled)
+- No per-building OTP channel configuration (one global toggle per tenant)

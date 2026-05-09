@@ -17,6 +17,7 @@ interface ChannelModalProps {
   onCancel: () => void;
   isSending: boolean;
   error: string;
+  enabledChannels: string[];
 }
 
 function ChannelModal({
@@ -26,6 +27,7 @@ function ChannelModal({
   onCancel,
   isSending,
   error,
+  enabledChannels,
 }: ChannelModalProps) {
   // Focus trap: move focus into the dialog on mount
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -82,26 +84,30 @@ function ChannelModal({
           aria-label="Verification channel"
           className="channel-modal__radiogroup"
         >
-          <label className="channel-modal__radio-label">
-            <input
-              type="radio"
-              name="otp-channel"
-              value="email"
-              checked={channel === "email"}
-              onChange={() => onChannelChange("email")}
-            />
-            Email
-          </label>
-          <label className="channel-modal__radio-label">
-            <input
-              type="radio"
-              name="otp-channel"
-              value="sms"
-              checked={channel === "sms"}
-              onChange={() => onChannelChange("sms")}
-            />
-            SMS
-          </label>
+          {enabledChannels.includes("email") && (
+            <label className="channel-modal__radio-label">
+              <input
+                type="radio"
+                name="otp-channel"
+                value="email"
+                checked={channel === "email"}
+                onChange={() => onChannelChange("email")}
+              />
+              Email
+            </label>
+          )}
+          {enabledChannels.includes("sms") && (
+            <label className="channel-modal__radio-label">
+              <input
+                type="radio"
+                name="otp-channel"
+                value="sms"
+                checked={channel === "sms"}
+                onChange={() => onChannelChange("sms")}
+              />
+              SMS
+            </label>
+          )}
         </div>
 
         {error && (
@@ -147,6 +153,7 @@ export function AuthPage() {
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [channel, setChannel] = useState<"email" | "sms">("email");
   const [phoneHint, setPhoneHint] = useState<string | null>(null);
+  const [enabledChannels, setEnabledChannels] = useState<string[]>(["email"]);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
 
   // Ref to the "Send Verification Code" button — used to restore focus when ChannelModal closes
@@ -213,16 +220,19 @@ export function AuthPage() {
     },
     onSuccess: (data, variables) => {
       setAuthError("");
-      // First call (no channel specified): check if voter has a phone number
+      // First call (no channel specified): use enabled_channels to decide flow
       if (variables.otpChannel === undefined) {
-        if (data.has_phone) {
-          // Store phone hint and show the channel selector modal
+        const channels = data.enabled_channels ?? ["email"];
+        setEnabledChannels(channels);
+        const multiChannel = channels.length > 1;
+        if (multiChannel && data.has_phone) {
+          // Multiple channels available and voter has a phone: show selector
           setPhoneHint(data.phone_hint ?? null);
           setChannel("email");
           setShowChannelModal(true);
         } else {
-          // No phone on record: go straight to code entry (email OTP sent)
-          setPhoneHint(null);
+          // Single channel or no phone: OTP already sent, go straight to code entry
+          setPhoneHint(data.phone_hint ?? null);
           setAuthStep("code");
         }
       } else {
@@ -320,6 +330,7 @@ export function AuthPage() {
           onCancel={handleChannelCancel}
           isSending={requestOtpMutation.isPending}
           error={authError}
+          enabledChannels={enabledChannels}
         />
       )}
 

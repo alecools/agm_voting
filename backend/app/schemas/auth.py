@@ -19,7 +19,9 @@ class SessionRestoreRequest(BaseModel):
 class OtpRequestBody(BaseModel):
     email: str = Field(..., max_length=254)
     general_meeting_id: uuid.UUID
-    channel: Literal["email", "sms"] = "email"
+    # channel is optional: when None, backend auto-selects enabled_channels[0].
+    # When supplied, backend enforces that it is in enabled_channels.
+    channel: Optional[Literal["email", "sms"]] = None
 
     @field_validator("email")
     @classmethod
@@ -33,6 +35,7 @@ class OtpRequestResponse(BaseModel):
     sent: bool
     has_phone: bool = False
     phone_hint: str | None = None
+    enabled_channels: list[str] = ["email"]
 
 
 class AuthVerifyRequest(BaseModel):

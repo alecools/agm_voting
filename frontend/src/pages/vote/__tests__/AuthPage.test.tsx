@@ -561,7 +561,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("shows channel selector radiogroup when has_phone is true", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -576,7 +576,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("channel selector has Email and SMS options", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -592,7 +592,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("email option is selected by default in channel selector", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -608,7 +608,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("selecting SMS makes second requestOtp call with channel=sms", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const requests: string[] = [];
@@ -616,7 +616,7 @@ describe("AuthPage — SMS channel selector", () => {
       http.post(`${BASE}/api/auth/request-otp`, async ({ request }) => {
         const body = await request.json() as { channel?: string };
         requests.push(body?.channel ?? "none");
-        return HttpResponse.json({ sent: true, has_phone: true });
+        return HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] });
       })
     );
     const user = userEvent.setup();
@@ -635,7 +635,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("Send code button is shown in channel selector step", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -652,7 +652,7 @@ describe("AuthPage — SMS channel selector", () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () => {
         callCount++;
-        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true });
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] });
         return HttpResponse.json({ detail: "Rate limited" }, { status: 429 });
       })
     );
@@ -673,7 +673,7 @@ describe("AuthPage — SMS channel selector", () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () => {
         callCount++;
-        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true });
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] });
         return HttpResponse.json(
           { detail: "SMS could not be sent. Please try again or use email instead." },
           { status: 422 }
@@ -701,7 +701,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("clicking email radio after SMS radio sets channel back to email", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -722,7 +722,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("full sequence: email → channel selector → SMS → code → navigate", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018", enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -738,7 +738,7 @@ describe("AuthPage — SMS channel selector", () => {
     // Step 3: make second OTP request with channel=sms
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018", enabled_channels: ["email", "sms"] })
       )
     );
     await user.click(screen.getByRole("button", { name: "Send code" }));
@@ -757,7 +757,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("modal has title 'Choose verification method'", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -772,7 +772,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("modal has role='dialog' with aria-modal='true'", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -788,7 +788,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("modal has a Cancel button that dismisses it", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -806,7 +806,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("pressing Escape closes the modal", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -824,7 +824,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("after Cancel, user stays on email input page (not code step)", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -845,7 +845,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("modal is shown as overlay over email form (not a page transition)", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -864,7 +864,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("shows phone hint on code step after SMS channel selected", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018", enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -876,7 +876,7 @@ describe("AuthPage — SMS channel selector", () => {
     await user.click(screen.getByRole("radio", { name: /SMS/i }));
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018", enabled_channels: ["email", "sms"] })
       )
     );
     await user.click(screen.getByRole("button", { name: "Send code" }));
@@ -889,7 +889,7 @@ describe("AuthPage — SMS channel selector", () => {
   it("does not show phone hint on code step after email channel selected", async () => {
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018" })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: "•••• •••• 0018", enabled_channels: ["email", "sms"] })
       )
     );
     const user = userEvent.setup();
@@ -901,7 +901,7 @@ describe("AuthPage — SMS channel selector", () => {
     // Keep email selected (default) and confirm
     server.use(
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
     await user.click(screen.getByRole("button", { name: "Send code" }));
@@ -925,7 +925,7 @@ describe("AuthPage — focus restoration on modal close", () => {
         HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
       ),
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
   });
@@ -980,7 +980,7 @@ describe("AuthPage — ChannelModal CSS classes", () => {
         HttpResponse.json({ detail: "Session expired or invalid" }, { status: 401 })
       ),
       http.post(`${BASE}/api/auth/request-otp`, () =>
-        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null })
+        HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] })
       )
     );
   });

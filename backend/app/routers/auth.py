@@ -83,7 +83,11 @@ async def request_otp(
     """
     Send a one-time verification code to the voter's email or phone (SMS).
     Always returns 200 {"sent": true} to prevent enumeration.
-    Response always includes has_phone: bool.
+    Response always includes has_phone: bool and enabled_channels: list[str].
+
+    channel is optional:
+      - When None: backend auto-selects enabled_channels[0] as the effective channel.
+      - When supplied: backend enforces that it is in enabled_channels (503 if not).
     """
     # Schedule cleanup of expired OTPs as a BackgroundTask (runs after response is sent).
     background_tasks.add_task(cleanup_expired_otps)
@@ -130,6 +134,34 @@ async def request_otp(
                     detail="Please wait before requesting another code",
                 )
 
+    # 2b. Load tenant config to determine enabled channels
+    tenant_config = await config_service.get_config(db)
+    sms_cfg = await smtp_config_service.get_smtp_config(db)
+
+    # Compute enabled_channels from config flags + SMS provider availability
+    enabled_channels: list[str] = []
+    if tenant_config.otp_email_enabled:
+        enabled_channels.append("email")
+    if tenant_config.otp_sms_enabled and sms_cfg.sms_enabled and sms_cfg.sms_provider:
+        enabled_channels.append("sms")
+
+    # If no channels are configured (edge case: admin disabled both via direct DB), fall back to email
+    if not enabled_channels:
+        enabled_channels = ["email"]
+
+    # 2c. Resolve effective channel:
+    #     - If body.channel is None: auto-select the first enabled channel.
+    #     - If body.channel is supplied: enforce that it is in enabled_channels.
+    if body.channel is None:
+        effective_channel: str = enabled_channels[0]
+    elif body.channel not in enabled_channels:
+        raise HTTPException(
+            status_code=503,
+            detail="Requested verification method is not available",
+        )
+    else:
+        effective_channel = body.channel
+
     # 3. Check if email is known in this building (enumeration-safe: still return 200 if not found)
     # Direct owner: email matches a Person linked to a Lot in this building
     direct_person_result = await db.execute(
@@ -163,12 +195,19 @@ async def request_otp(
     # Proxy lots are excluded — phone belongs to the contact, not the proxy.
     has_phone = bool(direct_person and direct_person.phone_number)
 
-    # 3b. SMS-channel validation (before generating/storing OTP)
-    if body.channel == "sms":
-        sms_cfg = await smtp_config_service.get_smtp_config(db)
-        if not sms_cfg.sms_enabled or not sms_cfg.sms_provider:
-            raise HTTPException(status_code=503, detail="SMS not configured")
-        if not has_phone:
+    # 3b. SMS-channel validation (before generating/storing OTP).
+    # Note: sms_cfg.sms_enabled and sms_cfg.sms_provider are already validated by
+    # enabled_channels computation above (SMS is only added to enabled_channels when
+    # both flags are set), so no redundant check needed here.
+    if effective_channel == "sms":
+        if not has_phone and email_known:
+            # SMS is the effective channel and voter has no phone on file
+            # Check: is SMS the only available channel?
+            if enabled_channels == ["sms"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="SMS is the only verification method and no phone number is on file for your account",
+                )
             raise HTTPException(status_code=400, detail="No phone number on file for this account")
 
     if email_known:
@@ -201,16 +240,14 @@ async def request_otp(
             await upsert_rate_limit(db, body.email, meeting.building_id, now_rl)
             await db.commit()
 
-        # 7. Deliver the OTP via the requested channel.
+        # 7. Deliver the OTP via the effective channel.
         skip_email_effective = settings.testing_mode
         if not skip_email_effective:
-            if body.channel == "sms":
+            if effective_channel == "sms":
                 # SMS path: phone number is on the matched Person row.
                 phone_number = direct_person.phone_number if direct_person else None
                 if phone_number:
-                    sms_cfg = await smtp_config_service.get_smtp_config(db)
                     sms_kwargs = smtp_config_service.get_sms_send_kwargs(sms_cfg)
-                    tenant_config = await config_service.get_config(db)
                     app_name = tenant_config.app_name or "AGM Voting"
                     sms_body = (
                         f"{app_name}: Your verification code is {code}. "
@@ -261,7 +298,12 @@ async def request_otp(
     if has_phone and direct_person and direct_person.phone_number:
         phone_hint = mask_phone_hint(direct_person.phone_number)
 
-    return OtpRequestResponse(sent=True, has_phone=has_phone, phone_hint=phone_hint)
+    return OtpRequestResponse(
+        sent=True,
+        has_phone=has_phone,
+        phone_hint=phone_hint,
+        enabled_channels=enabled_channels,
+    )
 
 
 @router.post("/auth/logout")

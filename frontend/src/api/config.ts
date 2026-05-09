@@ -6,6 +6,8 @@ export interface TenantConfig {
   favicon_url: string | null;
   primary_colour: string;
   support_email: string;
+  otp_email_enabled: boolean;
+  otp_sms_enabled: boolean;
 }
 
 export async function getPublicConfig(): Promise<TenantConfig> {

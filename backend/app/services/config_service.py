@@ -53,6 +53,8 @@ async def get_config(db: AsyncSession) -> TenantConfig:
             favicon_url=None,
             primary_colour=_DEFAULT_PRIMARY_COLOUR,
             support_email="",
+            otp_email_enabled=True,
+            otp_sms_enabled=False,
         )
         db.add(config)
         await db.flush()
@@ -82,6 +84,8 @@ async def update_config(data: TenantConfigUpdate, db: AsyncSession) -> TenantCon
     config.favicon_url = data.favicon_url
     config.primary_colour = data.primary_colour
     config.support_email = data.support_email
+    config.otp_email_enabled = data.otp_email_enabled
+    config.otp_sms_enabled = data.otp_sms_enabled
 
     await db.flush()
     await db.commit()

@@ -27,6 +27,8 @@ export let configFixture: TenantConfig = {
   favicon_url: null,
   primary_colour: "#005f73",
   support_email: "",
+  otp_email_enabled: true,
+  otp_sms_enabled: false,
 };
 
 export let smtpConfigFixture: SmtpConfig = {
@@ -92,6 +94,8 @@ export function resetConfigFixture() {
     favicon_url: null,
     primary_colour: "#005f73",
     support_email: "",
+    otp_email_enabled: true,
+    otp_sms_enabled: false,
   };
   resetSmtpConfigFixture();
   resetSmtpStatusFixture();
@@ -1543,7 +1547,7 @@ export const handlers = [
   ),
 
   http.post(`${BASE}/api/auth/request-otp`, () =>
-    HttpResponse.json({ sent: true, has_phone: false, phone_hint: null })
+    HttpResponse.json({ sent: true, has_phone: false, phone_hint: null, enabled_channels: ["email"] })
   ),
 
   http.post(`${BASE}/api/auth/verify`, () =>

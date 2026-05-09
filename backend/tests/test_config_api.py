@@ -154,7 +154,7 @@ class TestAdminGetConfig:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.get("/api/admin/config")
         body = resp.json()
-        assert set(body.keys()) == {"app_name", "logo_url", "favicon_url", "primary_colour", "support_email"}
+        assert set(body.keys()) == {"app_name", "logo_url", "favicon_url", "primary_colour", "support_email", "otp_email_enabled", "otp_sms_enabled"}
 
     # --- Edge cases ---
 

@@ -716,8 +716,12 @@ class TestRequestOtpSmsChannel:
         agm = sms_building_and_meeting["agm"]
         voter_email = sms_building_and_meeting["voter_email"]
         await _seed_sms_config(db_session)
+        tenant_cfg = MagicMock()
+        tenant_cfg.otp_email_enabled = True
+        tenant_cfg.otp_sms_enabled = True
         with patch("app.routers.auth.sms_send", new=AsyncMock()) as mock_sms, \
              patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg, \
+             patch("app.routers.auth.config_service.get_config", new=AsyncMock(return_value=tenant_cfg)), \
              patch("app.routers.auth.settings") as mock_settings:
             mock_settings.testing_mode = False
             cfg = MagicMock()
@@ -957,7 +961,11 @@ class TestRequestOtpSmsChannel:
     ):
         agm = sms_building_no_phone["agm"]
         voter_email = sms_building_no_phone["voter_email"]
-        with patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg:
+        tenant_cfg = MagicMock()
+        tenant_cfg.otp_email_enabled = True
+        tenant_cfg.otp_sms_enabled = True
+        with patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg, \
+             patch("app.routers.auth.config_service.get_config", new=AsyncMock(return_value=tenant_cfg)):
             cfg = MagicMock()
             cfg.sms_enabled = True
             cfg.sms_provider = "webhook"
@@ -983,8 +991,12 @@ class TestRequestOtpSmsChannel:
     ):
         agm = sms_building_and_meeting["agm"]
         voter_email = sms_building_and_meeting["voter_email"]
+        tenant_cfg = MagicMock()
+        tenant_cfg.otp_email_enabled = True
+        tenant_cfg.otp_sms_enabled = True
         with patch("app.routers.auth.smtp_config_service.get_smtp_config", new=AsyncMock()) as mock_cfg, \
              patch("app.routers.auth.sms_send", new=AsyncMock(side_effect=SmsDeliveryError("fail"))) as mock_sms, \
+             patch("app.routers.auth.config_service.get_config", new=AsyncMock(return_value=tenant_cfg)), \
              patch("app.routers.auth.smtp_config_service.get_sms_send_kwargs", return_value={
                  "provider": "webhook", "webhook_url": "https://h.com", "webhook_secret": None,
                  "smtp2go_api_key": "", "smtp2go_sender": "",

@@ -21,6 +21,11 @@ export default function SettingsPage() {
   const [primaryColour, setPrimaryColour] = useState("#005f73");
   const [supportEmail, setSupportEmail] = useState("");
 
+  const [otpEmailEnabled, setOtpEmailEnabled] = useState(true);
+  const [otpSmsEnabled, setOtpSmsEnabled] = useState(false);
+  const [otpMethodError, setOtpMethodError] = useState("");
+  const [pendingDisableMethod, setPendingDisableMethod] = useState<"email" | "sms" | null>(null);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -122,6 +127,8 @@ export default function SettingsPage() {
         setFaviconUrl(config.favicon_url);
         setPrimaryColour(config.primary_colour);
         setSupportEmail(config.support_email);
+        setOtpEmailEnabled(config.otp_email_enabled);
+        setOtpSmsEnabled(config.otp_sms_enabled);
 
         setSmtpHost(smtp.smtp_host);
         setSmtpPort(smtp.smtp_port);
@@ -379,6 +386,8 @@ export default function SettingsPage() {
         favicon_url: faviconUrl,
         primary_colour: primaryColour,
         support_email: supportEmail,
+        otp_email_enabled: otpEmailEnabled,
+        otp_sms_enabled: otpSmsEnabled,
       };
       await updateAdminConfig(updated);
       // Show success immediately — don't block on cache refresh.
@@ -495,6 +504,32 @@ export default function SettingsPage() {
     } finally {
       setIsChangingPassword(false);
     }
+  }
+
+  function handleOtpMethodToggle(method: "email" | "sms", checked: boolean) {
+    if (checked) {
+      setOtpMethodError("");
+      if (method === "email") setOtpEmailEnabled(true);
+      else setOtpSmsEnabled(true);
+    } else {
+      const otherEnabled = method === "email" ? otpSmsEnabled : otpEmailEnabled;
+      if (!otherEnabled) {
+        setOtpMethodError("At least one verification method must be enabled");
+      } else {
+        setOtpMethodError("");
+        setPendingDisableMethod(method);
+      }
+    }
+  }
+
+  function handleOtpDisableConfirm() {
+    if (pendingDisableMethod === "email") setOtpEmailEnabled(false);
+    if (pendingDisableMethod === "sms") setOtpSmsEnabled(false);
+    setPendingDisableMethod(null);
+  }
+
+  function handleOtpDisableCancel() {
+    setPendingDisableMethod(null);
   }
 
   // type="color" requires exactly #rrggbb. If the text input holds a partial
@@ -752,6 +787,38 @@ export default function SettingsPage() {
                     onChange={(e) => setSupportEmail(e.target.value)}
                     placeholder="support@example.com"
                   />
+                </div>
+
+                <div style={{ marginTop: 24 }}>
+                  <p className="field__label" style={{ marginBottom: 8 }}>Authentication methods</p>
+
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={otpEmailEnabled}
+                        onChange={(e) => handleOtpMethodToggle("email", e.target.checked)}
+                        aria-label="Enable email OTP verification"
+                      />
+                      <span>Email verification</span>
+                    </label>
+                  </div>
+
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={otpSmsEnabled}
+                        onChange={(e) => handleOtpMethodToggle("sms", e.target.checked)}
+                        aria-label="Enable SMS OTP verification"
+                      />
+                      <span>SMS verification</span>
+                    </label>
+                  </div>
+
+                  {otpMethodError && (
+                    <span className="field__error" role="alert">{otpMethodError}</span>
+                  )}
                 </div>
 
                 {saveSuccess && (
@@ -1511,6 +1578,49 @@ export default function SettingsPage() {
       )}
 
       {/* Remove user confirmation modal */}
+      {pendingDisableMethod && (
+        <div
+          className="dialog-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="otp-disable-dialog-title"
+          onKeyDown={(e) => { if (e.key === "Escape") handleOtpDisableCancel(); }}
+          onClick={handleOtpDisableCancel}
+        >
+          <div
+            className="dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="otp-disable-dialog-title" className="dialog__title">
+              {pendingDisableMethod === "email" ? "Disable email verification?" : "Disable SMS verification?"}
+            </h2>
+            <div className="dialog__body">
+              <p>
+                {pendingDisableMethod === "email"
+                  ? "Voters will no longer be able to receive OTP codes by email. Make sure SMS is fully configured before disabling email."
+                  : "Voters will no longer be able to receive OTP codes by SMS. Make sure email is working before disabling SMS."}
+              </p>
+            </div>
+            <div className="dialog__actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={handleOtpDisableCancel}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={handleOtpDisableConfirm}
+              >
+                Disable
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {removeConfirmUser && (
         <div
           className="dialog-overlay"

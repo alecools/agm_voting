@@ -33,6 +33,7 @@ export interface OtpRequestResponse {
   sent: boolean;
   has_phone: boolean;
   phone_hint: string | null;
+  enabled_channels: string[];
 }
 
 export interface AuthVerifyRequest {

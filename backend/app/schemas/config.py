@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 _HEX_COLOUR_RE = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -25,6 +25,8 @@ class TenantConfigOut(BaseModel):
     favicon_url: Optional[str]
     primary_colour: str
     support_email: str
+    otp_email_enabled: bool = True
+    otp_sms_enabled: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -35,6 +37,8 @@ class TenantConfigUpdate(BaseModel):
     favicon_url: Optional[str] = None
     primary_colour: str
     support_email: str = ""
+    otp_email_enabled: bool = True
+    otp_sms_enabled: bool = False
 
     @field_validator("app_name")
     @classmethod
@@ -64,6 +68,12 @@ class TenantConfigUpdate(BaseModel):
             return None
         stripped = v.strip()
         return stripped if stripped else None
+
+    @model_validator(mode="after")
+    def at_least_one_channel(self) -> "TenantConfigUpdate":
+        if not self.otp_email_enabled and not self.otp_sms_enabled:
+            raise ValueError("At least one verification method must be enabled")
+        return self
 
 
 # ---------------------------------------------------------------------------
