@@ -108,7 +108,16 @@ async def request_otp(
     #    across all Lambda instances.
     #    Disabled in testing_mode so E2E tests can re-request OTPs immediately
     #    after setup (beforeAll) without hitting the 429 rate limit.
-    if not settings.testing_mode:
+    #
+    #    Rate limit is also skipped when body.channel is explicitly specified
+    #    (i.e., the second call from the channel-selector modal). This call
+    #    immediately follows the first (auto-send to email) call within the same
+    #    60-second window. Blocking it would prevent the voter from selecting SMS
+    #    after the initial email auto-send (Bug 2 fix).
+    #    Security note: the channel-confirm call only sends to the voter's own
+    #    phone number - it cannot be used to spam email since body.channel is
+    #    validated against enabled_channels later in this handler.
+    if not settings.testing_mode and body.channel is None:
         now_for_rate = datetime.now(UTC)
         rl_result = await db.execute(
             select(OTPRateLimit).where(

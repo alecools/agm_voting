@@ -783,6 +783,85 @@ class TestRequestOtp:
         )
         assert rl_record.attempt_count == 1
 
+    # --- Bug 2 fix: explicit-channel second call bypasses rate limit ---
+
+    async def test_explicit_channel_call_bypasses_rate_limit_within_window(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Bug 2 fix: when body.channel is explicitly specified, the rate limit check
+        is skipped even if a recent no-channel call already set the rate limit record.
+
+        This allows the channel-selector modal second call (with channel="sms") to
+        succeed immediately after the first (no-channel) call that auto-sent to email.
+        """
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+
+        # Pre-seed the rate limit record as if the first (no-channel) call just ran
+        now = datetime.now(UTC)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=1,
+            first_attempt_at=now,
+            last_attempt_at=now,
+        )
+        db_session.add(rl)
+        await db_session.flush()
+
+        # The second call with explicit channel="email" must succeed, not return 429
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock),              patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={
+                    "email": voter_email,
+                    "general_meeting_id": str(agm.id),
+                    "channel": "email",
+                },
+            )
+
+        assert response.status_code == 200, (
+            f"Expected 200 for explicit-channel call within rate-limit window, got {response.status_code}"
+        )
+        assert response.json()["sent"] is True
+
+    async def test_no_channel_call_still_rate_limited_within_window(
+        self, client: AsyncClient, db_session: AsyncSession, building_and_meeting: dict
+    ):
+        """Rate limit still applies to no-channel (initial) calls within the window.
+
+        The Bug 2 fix must not bypass rate limiting for the initial no-channel call —
+        only the explicit-channel channel-confirm call is exempt.
+        """
+        voter_email = building_and_meeting["voter_email"]
+        agm = building_and_meeting["agm"]
+        building = building_and_meeting["building"]
+
+        # Pre-seed the rate limit record within the window
+        now = datetime.now(UTC)
+        rl = OTPRateLimit(
+            email=voter_email,
+            building_id=building.id,
+            attempt_count=1,
+            first_attempt_at=now,
+            last_attempt_at=now,
+        )
+        db_session.add(rl)
+        await db_session.flush()
+
+        # No-channel call must still return 429 (original rate-limit behaviour preserved)
+        with patch("app.routers.auth.send_otp_email", new_callable=AsyncMock),              patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.testing_mode = False
+            response = await client.post(
+                "/api/auth/request-otp",
+                json={"email": voter_email, "general_meeting_id": str(agm.id)},
+            )
+
+        assert response.status_code == 429
+        assert "Please wait" in response.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # GET /api/test/latest-otp

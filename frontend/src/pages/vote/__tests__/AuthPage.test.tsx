@@ -696,6 +696,62 @@ describe("AuthPage — SMS channel selector", () => {
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
   });
 
+  // --- Bug 1 fix: 503 on SMS channel-confirm closes modal and uses email ---
+
+  it("SMS 503 during channel confirm: modal closes and advances to email code entry", async () => {
+    let callCount = 0;
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] });
+        return HttpResponse.json(
+          { detail: "Requested verification method is not available" },
+          { status: 503 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    // Modal must close and code entry must appear
+    await waitFor(() => screen.getByLabelText("Verification code"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Error message must explain what happened
+    expect(screen.getByText("SMS is no longer available. Your code has been sent by email.")).toBeInTheDocument();
+  });
+
+  it("SMS 503 during channel confirm: modal does NOT stay open with SMS option", async () => {
+    let callCount = 0;
+    server.use(
+      http.post(`${BASE}/api/auth/request-otp`, () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ sent: true, has_phone: true, phone_hint: null, enabled_channels: ["email", "sms"] });
+        return HttpResponse.json(
+          { detail: "Requested verification method is not available" },
+          { status: 503 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByLabelText("Email address"));
+    await user.type(screen.getByLabelText("Email address"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Verification Code" }));
+    await waitFor(() => screen.getByRole("radiogroup"));
+    await user.click(screen.getByRole("radio", { name: /SMS/i }));
+    await user.click(screen.getByRole("button", { name: "Send code" }));
+    // The modal must be gone — voter cannot loop in an SMS-error cycle
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+  });
+
   // --- Multi-step sequence: email → channel → code → navigate ---
 
   it("clicking email radio after SMS radio sets channel back to email", async () => {

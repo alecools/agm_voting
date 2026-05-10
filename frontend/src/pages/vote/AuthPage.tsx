@@ -246,6 +246,16 @@ export function AuthPage() {
       if (variables.otpChannel === "sms" && error.message.includes("422")) {
         setAuthError("SMS could not be sent. Please choose email instead.");
         // Keep the channel modal visible so the user can switch to email
+      } else if (variables.otpChannel === "sms" && error.message.includes("503")) {
+        // SMS was disabled by admin between the first (auto-send) call and the
+        // channel-confirm call. Remove SMS from the list and, if only email
+        // remains, hide the modal and advance to code entry (Bug 1 fix).
+        const remainingChannels = ["email"];
+        setEnabledChannels(remainingChannels);
+        setShowChannelModal(false);
+        setChannel("email");
+        setAuthError("SMS is no longer available. Your code has been sent by email.");
+        setAuthStep("code");
       } else {
         setAuthError("Failed to send code. Please try again.");
         if (variables.otpChannel !== undefined) {
