@@ -307,7 +307,7 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
     const loginPage = await context.newPage();
 
     try {
-      await loginPage.goto("/admin/login");
+      await loginPage.goto("/admin/login", { waitUntil: "networkidle" });
       await expect(loginPage).toHaveURL(/admin\/login/, { timeout: 10000 });
 
       // When logo_url is empty, no img element is rendered — instead, the app
