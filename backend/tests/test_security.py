@@ -142,6 +142,7 @@ class TestSecurityHeaders:
         assert "'unsafe-inline'" in csp
         assert "https://vercel.live" in csp
         assert "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live" in csp
+        assert "form-action 'self'" in csp
 
     async def test_csp_allows_google_fonts(self, client: AsyncClient):
         """CSP permits Google Fonts for font-src and style-src."""
@@ -173,15 +174,15 @@ class TestSecurityHeaders:
         assert "payment=()" in pp
 
     async def test_cross_origin_embedder_policy_header_present(self, client: AsyncClient):
-        """Cross-Origin-Embedder-Policy header is set to unsafe-none (DAST rule 90004).
+        """Cross-Origin-Embedder-Policy header is set to credentialless (DAST rule 90004).
 
-        unsafe-none is chosen rather than require-corp because this app loads
-        cross-origin resources (CDN fonts, Vercel analytics scripts). require-corp
-        would block those resources.
+        credentialless is chosen over require-corp because this app loads cross-origin
+        no-cors resources (CDN fonts, Vercel analytics scripts) that lack CORP headers.
+        credentialless allows those resources while still blocking credentialled embeds.
         """
         response = await client.get("/api/health")
         coep = response.headers.get("Cross-Origin-Embedder-Policy", "")
-        assert coep == "unsafe-none"
+        assert coep == "credentialless"
 
     # --- Boundary values ---
 
