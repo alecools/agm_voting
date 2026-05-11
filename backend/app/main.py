@@ -42,8 +42,17 @@ _SECURITY_HEADERS = {
         "img-src 'self' data: https:; "
         "connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; "  # vercel.live WSS and wildcard subdomains required for Vercel preview feedback widget
         "frame-src https://vercel.live https://*.vercel.live; "  # allows Vercel preview toolbar to load iframes
-        "frame-ancestors 'none'"
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "  # disallow Flash/Java plugins (DAST rule 10055)
+        "base-uri 'self'"  # prevent base tag injection (DAST rule 10055)
     ),
+    # Disable browser features not used by this app (DAST rule 10063)
+    "Permissions-Policy": (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    ),
+    # Allow cross-origin embedding without credential requirements — require-corp
+    # would break CDN fonts and Vercel analytics scripts (DAST rule 90004)
+    "Cross-Origin-Embedder-Policy": "unsafe-none",
 }
 
 
