@@ -150,6 +150,39 @@ class TestSecurityHeaders:
         assert "https://fonts.googleapis.com" in csp
         assert "https://fonts.gstatic.com" in csp
 
+    async def test_csp_object_src_none(self, client: AsyncClient):
+        """CSP includes object-src 'none' to disallow Flash/Java plugins (DAST rule 10055)."""
+        response = await client.get("/api/health")
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "object-src 'none'" in csp
+
+    async def test_csp_base_uri_self(self, client: AsyncClient):
+        """CSP includes base-uri 'self' to prevent base tag injection (DAST rule 10055)."""
+        response = await client.get("/api/health")
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "base-uri 'self'" in csp
+
+    async def test_permissions_policy_header_present(self, client: AsyncClient):
+        """Permissions-Policy header disables browser features not used by this app (DAST rule 10063)."""
+        response = await client.get("/api/health")
+        pp = response.headers.get("Permissions-Policy", "")
+        assert pp != "", "Permissions-Policy header must be present"
+        assert "camera=()" in pp
+        assert "microphone=()" in pp
+        assert "geolocation=()" in pp
+        assert "payment=()" in pp
+
+    async def test_cross_origin_embedder_policy_header_present(self, client: AsyncClient):
+        """Cross-Origin-Embedder-Policy header is set to unsafe-none (DAST rule 90004).
+
+        unsafe-none is chosen rather than require-corp because this app loads
+        cross-origin resources (CDN fonts, Vercel analytics scripts). require-corp
+        would block those resources.
+        """
+        response = await client.get("/api/health")
+        coep = response.headers.get("Cross-Origin-Embedder-Policy", "")
+        assert coep == "unsafe-none"
+
     # --- Boundary values ---
 
     async def test_headers_present_on_404_response(self, client: AsyncClient):

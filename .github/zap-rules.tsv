@@ -1,2 +1,6 @@
 10020	IGNORE	(Missing Anti-clickjacking Header)	# Handled by CSP frame-ancestors
 10038	IGNORE	(Content Security Policy (CSP) Header Not Set)	# Set by our middleware, ZAP may not detect dynamically
+10049	IGNORE	(Non-Storable Content)	# API responses intentionally use Cache-Control: no-store
+10050	IGNORE	(Retrieved from Cache)	# CDN static assets — expected
+10109	IGNORE	(Modern Web Application)	# ZAP informational only
+90003	IGNORE	(Sub Resource Integrity Attribute Missing)	# Vercel-injected scripts, not under our control
