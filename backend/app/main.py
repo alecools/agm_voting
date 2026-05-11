@@ -44,15 +44,16 @@ _SECURITY_HEADERS = {
         "frame-src https://vercel.live https://*.vercel.live; "  # allows Vercel preview toolbar to load iframes
         "frame-ancestors 'none'; "
         "object-src 'none'; "  # disallow Flash/Java plugins (DAST rule 10055)
-        "base-uri 'self'"  # prevent base tag injection (DAST rule 10055)
+        "base-uri 'self'; "  # prevent base tag injection (DAST rule 10055)
+        "form-action 'self'"  # restrict form submissions to same origin (DAST rule 10017)
     ),
     # Disable browser features not used by this app (DAST rule 10063)
     "Permissions-Policy": (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
     ),
-    # Allow cross-origin embedding without credential requirements — require-corp
-    # would break CDN fonts and Vercel analytics scripts (DAST rule 90004)
-    "Cross-Origin-Embedder-Policy": "unsafe-none",
+    # credentialless allows cross-origin no-cors resources (fonts, analytics) without
+    # requiring CORP headers, while blocking credentialled cross-origin embeds (DAST rule 90004)
+    "Cross-Origin-Embedder-Policy": "credentialless",
 }
 
 
