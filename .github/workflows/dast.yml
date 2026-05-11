@@ -6,8 +6,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  zap-scan:
+  zap-scan-demo:
+    name: ZAP Scan - Demo (vms-demo.ocss.tech)
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,6 +20,7 @@ jobs:
           target: 'https://vms-demo.ocss.tech'
           rules_file_name: '.github/zap-rules.tsv'
           fail_action: true
+          allow_issue_writing: false
         env:
           ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_BYPASS_TOKEN }}
           ZAP_AUTH_HEADER: x-vercel-protection-bypass
@@ -25,18 +29,59 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zap-report-${{ github.run_id }}
+          name: zap-report-demo-${{ github.run_id }}
           path: report_html.html
 
       - name: Open issue on findings
         if: failure()
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `DAST scan found security issues (${new Date().toISOString().slice(0,10)})`,
-              body: 'ZAP baseline scan detected issues. See workflow artifacts for the full report.',
+              title: `DAST scan found issues on Demo (${new Date().toISOString().slice(0,10)})`,
+              body: 'ZAP baseline scan detected issues on **vms-demo.ocss.tech**. See workflow artifacts for the full report.',
+              labels: ['security']
+            })
+
+  zap-scan-uat:
+    name: ZAP Scan - UAT (vms-uat.ocss.tech)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'https://vms-uat.ocss.tech'
+          rules_file_name: '.github/zap-rules.tsv'
+          fail_action: true
+          allow_issue_writing: false
+        env:
+          ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_BYPASS_TOKEN }}
+          ZAP_AUTH_HEADER: x-vercel-protection-bypass
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report-uat-${{ github.run_id }}
+          path: report_html.html
+
+      - name: Open issue on findings
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `DAST scan found issues on UAT (${new Date().toISOString().slice(0,10)})`,
+              body: 'ZAP baseline scan detected issues on **vms-uat.ocss.tech**. See workflow artifacts for the full report.',
               labels: ['security']
             })
