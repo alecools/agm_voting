@@ -34,7 +34,12 @@ After merge, the `preview/<branch>` Neon branch must be deleted to avoid orphane
 
 ## Security Headers
 
-HTTP security headers are set on every response by `SecurityHeadersMiddleware` in `backend/app/main.py`. The `_SECURITY_HEADERS` dict is applied to all responses including error responses (500, 503) and CORS preflight responses.
+Security headers are applied at two layers:
+
+1. **`vercel.json` (all routes)** — a `headers` entry with `source: "/(.*)"`  injects CSP, Permissions-Policy, and Cross-Origin-Embedder-Policy on every Vercel edge response, including frontend HTML pages served directly from the CDN. This ensures headers are present on all routes, not just API routes.
+2. **`SecurityHeadersMiddleware` in `backend/app/main.py` (API routes)** — applies the full `_SECURITY_HEADERS` dict to all FastAPI responses including error responses (500, 503) and CORS preflight responses. This acts as belt-and-suspenders for all `/api/*` responses that go through the Lambda.
+
+The two layers together ensure complete coverage: Vercel CDN responses (frontend pages) and Lambda responses (API) both carry the required headers.
 
 | Header | Value | Purpose |
 |---|---|---|
