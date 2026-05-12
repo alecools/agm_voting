@@ -57,6 +57,7 @@ _SECURITY_HEADERS = {
     # Isolate the browsing context to same-origin windows, preventing cross-origin
     # opener attacks such as XS-Leaks and Spectre-based side-channels (DAST rule 10035)
     "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
 }
 
 

@@ -5,3 +5,4 @@
 10109	IGNORE	(Modern Web Application)	# ZAP informational only
 90003	IGNORE	(Sub Resource Integrity Attribute Missing)	# Vercel-injected scripts, not under our control
 10027	IGNORE	(Information Disclosure - Suspicious Comments)	# Triggered by Vercel-injected analytics script (script.debug.js) — not our code
+10055	IGNORE	(CSP: script-src unsafe-inline)	# unsafe-inline required for Vercel live preview/analytics injection — cannot remove without breaking platform

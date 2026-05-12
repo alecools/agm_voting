@@ -194,6 +194,13 @@ class TestSecurityHeaders:
         coop = response.headers.get("Cross-Origin-Opener-Policy", "")
         assert coop == "same-origin"
 
+    async def test_cross_origin_resource_policy_header_present(self, client: AsyncClient):
+        """Cross-Origin-Resource-Policy: same-origin prevents cross-origin reads of
+        this application's resources, blocking speculative execution side-channel attacks.
+        """
+        response = await client.get("/api/health")
+        assert response.headers.get("Cross-Origin-Resource-Policy") == "same-origin"
+
     # --- Boundary values ---
 
     async def test_headers_present_on_404_response(self, client: AsyncClient):
