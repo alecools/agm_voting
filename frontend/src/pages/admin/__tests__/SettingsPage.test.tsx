@@ -2687,252 +2687,35 @@ describe("SettingsPage", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Authentication methods subsection (OTP channel toggles)
+// OTP fields pass-through (values loaded from API are sent back on save)
 // ---------------------------------------------------------------------------
 
-describe("SettingsPage — Authentication methods", () => {
+describe("SettingsPage — OTP field pass-through", () => {
   beforeEach(() => {
     resetConfigFixture();
   });
 
-  // --- Happy path ---
-
-  it("renders Email verification and SMS verification checkboxes on UI & Theme tab", async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).toBeInTheDocument());
-    expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument();
-  });
-
-  it("Email verification checkbox is checked by default (otp_email_enabled: true)", async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).toBeInTheDocument());
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-  });
-
-  it("SMS verification checkbox is unchecked by default (otp_sms_enabled: false)", async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    expect(screen.getByLabelText("Enable SMS OTP verification")).not.toBeChecked();
-  });
-
-  it("enabling SMS (checking when unchecked) is applied immediately — no dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    // Immediate check — no confirmation dialog
-    expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked();
-    expect(screen.queryByRole("dialog", { name: /Disable/ })).not.toBeInTheDocument();
-  });
-
-  it("enabling email (checking when unchecked) is applied immediately — no dialog", async () => {
+  it("save passes otp_email_enabled and otp_sms_enabled from loaded config to API", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "", otp_email_enabled: false, otp_sms_enabled: true })
-      )
-    );
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).not.toBeChecked());
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  // --- Confirmation dialog for disabling ---
-
-  it("disabling email when SMS is ON shows confirmation dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    // Enable SMS first (to make SMS the other enabled channel)
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    // Now disable email
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    // Confirmation dialog must appear
-    await waitFor(() => expect(screen.getByText("Disable email verification?")).toBeInTheDocument());
-    expect(screen.getByText(/Voters will no longer be able to receive OTP codes by email/)).toBeInTheDocument();
-    // Email toggle must NOT have changed yet
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-  });
-
-  it("disabling SMS when Email is ON shows confirmation dialog", async () => {
-    server.use(
-      http.get(`${BASE}/api/admin/config`, () =>
-        HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "", otp_email_enabled: true, otp_sms_enabled: true })
-      )
-    );
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await waitFor(() => expect(screen.getByText("Disable SMS verification?")).toBeInTheDocument());
-    expect(screen.getByText(/Voters will no longer be able to receive OTP codes by SMS/)).toBeInTheDocument();
-    // SMS toggle must NOT have changed yet
-    expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked();
-  });
-
-  it("confirming disable email applies the toggle and dismisses dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => screen.getByText("Disable email verification?"));
-    await user.click(screen.getByRole("button", { name: "Disable" }));
-    await waitFor(() => expect(screen.queryByText("Disable email verification?")).not.toBeInTheDocument());
-    expect(screen.getByLabelText("Enable email OTP verification")).not.toBeChecked();
-  });
-
-  it("cancelling disable dialog leaves toggle unchanged and closes dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => screen.getByText("Disable email verification?"));
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByText("Disable email verification?")).not.toBeInTheDocument());
-    // Toggle must remain checked
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-  });
-
-  it("pressing Escape on disable dialog cancels and closes it", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => screen.getByText("Disable email verification?"));
-    const overlay = document.querySelector(".dialog-overlay") as HTMLElement;
-    // Non-Escape keydown must not close the dialog (covers the false branch of the key guard)
-    fireEvent.keyDown(overlay, { key: "Enter" });
-    expect(screen.getByText("Disable email verification?")).toBeInTheDocument();
-    // Escape closes the dialog
-    fireEvent.keyDown(overlay, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText("Disable email verification?")).not.toBeInTheDocument());
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-  });
-
-  it("clicking dialog backdrop dismisses the dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => screen.getByText("Disable email verification?"));
-    // Click the dialog-overlay backdrop (the outer div that has onClick=handleOtpDisableCancel)
-    // The dialog element itself has role="dialog"
-    const dialog = screen.getByRole("dialog", { name: /Disable email/ });
-    // Click outside the inner dialog panel — click on the overlay wrapper
-    fireEvent.click(dialog);
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Disable/ })).not.toBeInTheDocument());
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-  });
-
-  it("clicking inside dialog panel does not dismiss it (stopPropagation)", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => screen.getByText("Disable email verification?"));
-    // Click the inner dialog box (not the backdrop)
-    const dialogHeading = screen.getByText("Disable email verification?");
-    await user.click(dialogHeading);
-    // Dialog should still be open
-    expect(screen.getByText("Disable email verification?")).toBeInTheDocument();
-  });
-
-  // --- Inline error for last-method disable ---
-
-  it("trying to disable email when SMS is also OFF shows inline error and no dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    // Default: email ON, SMS OFF
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked());
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    // Should show inline error — no dialog, toggle unchanged
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getByRole("alert")).toHaveTextContent("At least one verification method must be enabled");
-    expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("trying to disable SMS when Email is also OFF shows inline error", async () => {
-    server.use(
-      http.get(`${BASE}/api/admin/config`, () =>
-        HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "", otp_email_enabled: false, otp_sms_enabled: true })
-      )
-    );
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).not.toBeChecked());
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getByRole("alert")).toHaveTextContent("At least one verification method must be enabled");
-    expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked();
-  });
-
-  it("inline error clears when the other channel is enabled", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).toBeChecked());
-    // Trigger inline error
-    await user.click(screen.getByLabelText("Enable email OTP verification"));
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    // Now enable SMS — error should clear
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  // --- Save payload includes OTP fields ---
-
-  it("save includes otp_email_enabled and otp_sms_enabled in payload", async () => {
-    const user = userEvent.setup();
-    const spy = vi.spyOn(configApi, "updateAdminConfig");
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeInTheDocument());
-    // Enable SMS
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await user.click(screen.getByTestId("branding-save-btn"));
-    await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ otp_email_enabled: true, otp_sms_enabled: true })
-    );
-  });
-
-  it("disabling SMS via confirm then saving sends otp_sms_enabled: false", async () => {
-    server.use(
-      http.get(`${BASE}/api/admin/config`, () =>
-        HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "", otp_email_enabled: true, otp_sms_enabled: true })
       )
     );
     const user = userEvent.setup();
     const spy = vi.spyOn(configApi, "updateAdminConfig");
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked());
-    // Disable SMS — confirm dialog appears
-    await user.click(screen.getByLabelText("Enable SMS OTP verification"));
-    await waitFor(() => screen.getByText("Disable SMS verification?"));
-    await user.click(screen.getByRole("button", { name: "Disable" }));
-    await waitFor(() => expect(screen.getByLabelText("Enable SMS OTP verification")).not.toBeChecked());
-    // Save — should call API with otp_sms_enabled: false
+    await waitFor(() => expect(screen.getByTestId("branding-save-btn")).toBeInTheDocument());
     await user.click(screen.getByTestId("branding-save-btn"));
     await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
     expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ otp_email_enabled: true, otp_sms_enabled: false })
+      expect.objectContaining({ otp_email_enabled: false, otp_sms_enabled: true })
     );
   });
 
-  it("populates checkboxes from API response on mount", async () => {
-    server.use(
-      http.get(`${BASE}/api/admin/config`, () =>
-        HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "", otp_email_enabled: false, otp_sms_enabled: true })
-      )
-    );
+  it("UI & Theme tab does not render OTP channel checkboxes", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Enable email OTP verification")).not.toBeChecked());
-    expect(screen.getByLabelText("Enable SMS OTP verification")).toBeChecked();
+    await waitFor(() => expect(screen.getByLabelText("App name")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Enable email OTP verification")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Enable SMS OTP verification")).not.toBeInTheDocument();
   });
 });
