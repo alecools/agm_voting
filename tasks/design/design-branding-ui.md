@@ -76,7 +76,7 @@ Route: `/admin/settings`. Cards:
 
 **Tenant Branding:**
 - App name (required text input)
-- Logo URL (text input) + "Upload logo image" file input (triggers `POST /api/admin/config/logo` on change; populates URL field with result)
+- Logo: file upload only ("Upload logo image" button triggers `POST /api/admin/config/logo` on change; the returned Vercel Blob URL is stored in state and included in the save payload). No free-text URL input — enforces `img-src 'self' data: https://public.blob.vercel-storage.com` CSP without a `https:` wildcard.
 - Primary colour (text input with hex validation pattern)
 - Support email (email input, optional)
 - Save button → `PUT /api/admin/config`; on success `queryClient.invalidateQueries({ queryKey: ["public-config"] })` for live update in current tab

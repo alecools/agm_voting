@@ -72,7 +72,8 @@ describe("SettingsPage", () => {
   it("renders form fields after config loads on UI & Theme tab", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("App name")).toBeInTheDocument());
-    expect(screen.getByLabelText("Logo URL")).toBeInTheDocument();
+    expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument();
+    expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument();
     expect(screen.getByLabelText("Primary colour")).toBeInTheDocument();
     expect(screen.getByLabelText("Support email")).toBeInTheDocument();
   });
@@ -85,7 +86,8 @@ describe("SettingsPage", () => {
     );
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("App name")).toHaveValue("Test Corp"));
-    expect(screen.getByLabelText("Logo URL")).toHaveValue("https://example.com/logo.png");
+    // Logo URL is shown as a read-only "Current:" line, not an editable text input
+    await waitFor(() => expect(screen.getByText("Current: https://example.com/logo.png")).toBeInTheDocument());
     expect(screen.getByLabelText("Support email")).toHaveValue("help@test.com");
   });
 
@@ -211,14 +213,6 @@ describe("SettingsPage", () => {
     expect(screen.getByLabelText("App name")).toHaveValue("Changed Name");
   });
 
-  it("updates logo URL field on user input", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Logo URL")).toBeInTheDocument());
-    await user.type(screen.getByLabelText("Logo URL"), "https://cdn.example.com/logo.png");
-    expect(screen.getByLabelText("Logo URL")).toHaveValue("https://cdn.example.com/logo.png");
-  });
-
   it("updates primary colour text field on user input", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -278,8 +272,9 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
   });
 
-  it("uploading a valid file populates the logo URL field with the returned URL", async () => {
+  it("uploading a valid file shows the returned URL as current logo and includes it in save payload", async () => {
     const user = userEvent.setup();
+    const spy = vi.spyOn(configApi, "updateAdminConfig");
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("Upload logo image")).toBeInTheDocument());
 
@@ -287,9 +282,15 @@ describe("SettingsPage", () => {
     const file = new File(["fake-png"], "logo.png", { type: "image/png" });
     await user.upload(screen.getByLabelText("Upload logo image"), file);
 
+    // Returned URL is displayed as read-only current value
     await waitFor(() =>
-      expect(screen.getByLabelText("Logo URL")).toHaveValue(blobUrl)
+      expect(screen.getByText(`Current: ${blobUrl}`)).toBeInTheDocument()
     );
+
+    // Saving includes the uploaded URL in the payload
+    await user.click(screen.getByTestId("branding-save-btn"));
+    await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ logo_url: blobUrl }));
   });
 
   it("shows Uploading message during upload then hides it on success", async () => {
@@ -379,64 +380,43 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("Uploading…")).not.toBeInTheDocument();
   });
 
-  // --- Favicon URL field ---
+  // --- Favicon current URL display ---
 
-  it("renders the favicon URL field after loading", async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toBeInTheDocument());
-  });
-
-  it("populates favicon URL field with loaded config value", async () => {
+  it("shows current favicon URL as read-only text when favicon_url is set", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: "https://example.com/fav.png", primary_colour: "#005f73", support_email: "" })
       )
     );
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toHaveValue("https://example.com/fav.png"));
+    await waitFor(() => expect(screen.getByText("Current: https://example.com/fav.png")).toBeInTheDocument());
   });
 
-  it("does not show favicon preview when favicon_url is null", async () => {
+  it("does not show current favicon URL text when favicon_url is null", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: null, primary_colour: "#005f73", support_email: "" })
       )
     );
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
+    expect(screen.queryByText(/^Current: /)).not.toBeInTheDocument();
   });
 
-  it("updates favicon URL field on user input", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toBeInTheDocument());
-    await user.type(screen.getByLabelText("Favicon URL"), "https://cdn.example.com/fav.ico");
-    expect(screen.getByLabelText("Favicon URL")).toHaveValue("https://cdn.example.com/fav.ico");
-  });
-
-  it("clears favicon_url to null when field is cleared", async () => {
-    const user = userEvent.setup();
+  it("includes favicon_url in save payload when loaded from config", async () => {
     server.use(
       http.get(`${BASE}/api/admin/config`, () =>
         HttpResponse.json({ app_name: "Test", logo_url: "", favicon_url: "https://example.com/fav.png", primary_colour: "#005f73", support_email: "" })
       )
     );
-    renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toHaveValue("https://example.com/fav.png"));
-    await user.clear(screen.getByLabelText("Favicon URL"));
-    expect(screen.getByLabelText("Favicon URL")).toHaveValue("");
-  });
-
-  it("includes favicon_url in save payload", async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(configApi, "updateAdminConfig");
     renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Favicon URL")).toBeInTheDocument());
-    await user.type(screen.getByLabelText("Favicon URL"), "https://cdn.example.com/fav.ico");
+    await waitFor(() => expect(screen.getByText("Current: https://example.com/fav.png")).toBeInTheDocument());
     await user.click(screen.getByTestId("branding-save-btn"));
     await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
     expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ favicon_url: "https://cdn.example.com/fav.ico" })
+      expect.objectContaining({ favicon_url: "https://example.com/fav.png" })
     );
   });
 
@@ -447,8 +427,9 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
   });
 
-  it("uploading a valid favicon file populates the favicon URL field with the returned URL", async () => {
+  it("uploading a valid favicon file shows the returned URL as current favicon and includes it in save payload", async () => {
     const user = userEvent.setup();
+    const spy = vi.spyOn(configApi, "updateAdminConfig");
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("Upload favicon image")).toBeInTheDocument());
 
@@ -456,9 +437,15 @@ describe("SettingsPage", () => {
     const file = new File(["fake-png"], "favicon.png", { type: "image/png" });
     await user.upload(screen.getByLabelText("Upload favicon image"), file);
 
+    // Returned URL is displayed as read-only current value
     await waitFor(() =>
-      expect(screen.getByLabelText("Favicon URL")).toHaveValue(blobUrl)
+      expect(screen.getByText(`Current: ${blobUrl}`)).toBeInTheDocument()
     );
+
+    // Saving includes the uploaded URL in the payload
+    await user.click(screen.getByTestId("branding-save-btn"));
+    await waitFor(() => expect(screen.getByText("Settings saved.")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ favicon_url: blobUrl }));
   });
 
   it("shows Uploading message during favicon upload then hides it on success", async () => {

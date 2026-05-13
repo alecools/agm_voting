@@ -35,6 +35,7 @@ This document covers cross-cutting platform concerns: tenant branding configurat
 - [ ] App name is required; submitting with an empty app name returns 422
 - [ ] Primary colour must be a valid 3- or 6-digit CSS hex string (e.g. `#1a73e8`, `#fff`); submitting an invalid value returns 422
 - [ ] Logo URL and support email are optional; clearing them saves empty strings (treated as "not set")
+- [ ] **Logo and favicon must be set via file upload only** — there is no free-text URL input. This enforces a tight `img-src` CSP (`'self' data: https://public.blob.vercel-storage.com`) without requiring a broad `https:` wildcard.
 - [ ] After a successful save, the admin sidebar branding (app name, logo, primary colour) updates immediately without a page reload
 - [ ] All tests pass at 100% coverage
 - [ ] Typecheck/lint passes

@@ -659,19 +659,10 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="field">
-                  <label className="field__label" htmlFor="logo-url">Logo URL</label>
+                  <span className="field__label">Logo</span>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                      id="logo-url"
-                      className="field__input"
-                      type="text"
-                      value={logoUrl}
-                      onChange={(e) => setLogoUrl(e.target.value)}
-                      placeholder="https://example.com/logo.png"
-                      style={{ flex: 1 }}
-                    />
                     <label htmlFor="logo-file" className="btn btn--secondary" style={{ whiteSpace: "nowrap" }}>
-                      {isUploading ? "Uploading…" : "Upload"}
+                      {isUploading ? "Uploading…" : "Upload logo image"}
                     </label>
                     <input
                       id="logo-file"
@@ -684,6 +675,11 @@ export default function SettingsPage() {
                       style={{ position: "absolute", opacity: 0, width: "1px", height: "1px" }}
                     />
                   </div>
+                  {logoUrl && (
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4, wordBreak: "break-all" }}>
+                      Current: {logoUrl}
+                    </p>
+                  )}
                   {uploadError && <span className="field__error">{uploadError}</span>}
                   {uploadLogoSuccess && (
                     <p role="status" style={{ color: "var(--green)", fontSize: "0.875rem", marginTop: 4 }}>
@@ -693,19 +689,10 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="field">
-                  <label className="field__label" htmlFor="favicon-url">Favicon URL</label>
+                  <span className="field__label">Favicon</span>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                      id="favicon-url"
-                      className="field__input"
-                      type="text"
-                      value={faviconUrl ?? ""}
-                      onChange={(e) => setFaviconUrl(e.target.value || null)}
-                      placeholder="https://example.com/favicon.ico"
-                      style={{ flex: 1 }}
-                    />
                     <label htmlFor="favicon-file" className="btn btn--secondary" style={{ whiteSpace: "nowrap" }}>
-                      {isUploadingFavicon ? "Uploading…" : "Upload"}
+                      {isUploadingFavicon ? "Uploading…" : "Upload favicon image"}
                     </label>
                     <input
                       id="favicon-file"
@@ -718,6 +705,11 @@ export default function SettingsPage() {
                       style={{ position: "absolute", opacity: 0, width: "1px", height: "1px" }}
                     />
                   </div>
+                  {faviconUrl && (
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4, wordBreak: "break-all" }}>
+                      Current: {faviconUrl}
+                    </p>
+                  )}
                   {uploadFaviconError && <span className="field__error">{uploadFaviconError}</span>}
                   {uploadFaviconSuccess && (
                     <p role="status" style={{ color: "var(--green)", fontSize: "0.875rem", marginTop: 4 }}>
