@@ -7,7 +7,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.live; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://vercel.live https://*.vercel.live; connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; frame-src https://vercel.live https://*.vercel.live; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.live; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://public.blob.vercel-storage.com https://vercel.live https://*.vercel.live; connect-src 'self' https://vercel.live wss://vercel.live https://*.vercel.live wss://*.vercel.live; frame-src https://vercel.live https://*.vercel.live; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
         },
         {
           "key": "Permissions-Policy",

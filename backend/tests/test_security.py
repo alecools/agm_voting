@@ -163,6 +163,21 @@ class TestSecurityHeaders:
         csp = response.headers.get("Content-Security-Policy", "")
         assert "base-uri 'self'" in csp
 
+    async def test_csp_img_src_allows_vercel_blob(self, client: AsyncClient):
+        """CSP img-src allows Vercel Blob origin so tenant logo/favicon images load.
+
+        Logo and favicon URLs are uploaded to Vercel Blob (public.blob.vercel-storage.com)
+        and stored in tenant_config. Without this origin, the browser blocks all logo
+        and favicon images with a CSP violation. data: is required for inline SVG favicons
+        and base64-encoded image URIs.
+        """
+        response = await client.get("/api/health")
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "img-src" in csp
+        assert "https://public.blob.vercel-storage.com" in csp
+        assert "data:" in csp
+
+
     async def test_permissions_policy_header_present(self, client: AsyncClient):
         """Permissions-Policy header disables browser features not used by this app (DAST rule 10063)."""
         response = await client.get("/api/health")
