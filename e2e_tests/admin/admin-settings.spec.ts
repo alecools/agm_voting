@@ -39,6 +39,60 @@ const clickUserManagementTab = async (page: import("@playwright/test").Page) => 
   await page.getByRole("tab", { name: "User Management" }).click();
 };
 
+/** Fetch the full admin config and return it. */
+async function fetchAdminConfig(baseURL: string): Promise<{
+  app_name: string;
+  logo_url: string;
+  favicon_url: string | null;
+  primary_colour: string;
+  support_email: string;
+  otp_email_enabled: boolean;
+  otp_sms_enabled: boolean;
+}> {
+  const api = await makeAdminApi(baseURL);
+  try {
+    const res = await api.get("/api/admin/config");
+    return await res.json() as {
+      app_name: string;
+      logo_url: string;
+      favicon_url: string | null;
+      primary_colour: string;
+      support_email: string;
+      otp_email_enabled: boolean;
+      otp_sms_enabled: boolean;
+    };
+  } finally {
+    await api.dispose();
+  }
+}
+
+/**
+ * Update the admin config via PUT, merging the provided partial fields into the
+ * current config. Required because PUT /api/admin/config is not a PATCH endpoint —
+ * it requires all fields (app_name, primary_colour are validated as non-empty).
+ */
+async function patchAdminConfig(
+  baseURL: string,
+  updates: Partial<{
+    logo_url: string;
+    favicon_url: string | null;
+    app_name: string;
+    primary_colour: string;
+    support_email: string;
+    otp_email_enabled: boolean;
+    otp_sms_enabled: boolean;
+  }>
+): Promise<void> {
+  const current = await fetchAdminConfig(baseURL);
+  const payload = { ...current, ...updates };
+  const api = await makeAdminApi(baseURL);
+  try {
+    await api.put("/api/admin/config", { data: payload });
+  } finally {
+    await api.dispose();
+  }
+}
+
 test.describe("Admin Settings — tenant branding", () => {
   // --- Navigation ---
 
@@ -53,7 +107,8 @@ test.describe("Admin Settings — tenant branding", () => {
     await page.goto("/admin/settings");
     await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
-    await expect(page.getByLabel("Logo URL")).toBeVisible();
+    // Logo URL text input has been replaced with upload-only UX;
+    // verify the upload button is present instead.
     await expect(page.getByLabel("Upload logo image")).toBeVisible();
     await expect(primaryColourText(page)).toBeVisible();
     await expect(page.getByLabel("Support email")).toBeVisible();
@@ -89,20 +144,27 @@ test.describe("Admin Settings — tenant branding", () => {
 
   test("sidebar app name updates after save (live branding re-fetch)", async ({ page }) => {
     const testAppName = `E2E Branding ${Date.now()}`;
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
     await page.goto("/admin/settings");
     await clickUiThemeTab(page);
     await expect(page.getByLabel("App name")).toBeVisible();
 
-    // Capture the current logo URL so we can restore it at the end.
-    const originalLogoUrl = await page.getByLabel("Logo URL").inputValue();
+    // Fetch the current logo_url from the API so we can restore it at the end.
+    // The logo URL text input has been removed (upload-only UX), so we read it
+    // directly from the config endpoint rather than from a form field.
+    const originalConfig = await fetchAdminConfig(baseURL);
+    const originalLogoUrl = originalConfig.logo_url;
 
-    // Clear logo URL so the sidebar renders the text span (.admin-sidebar__app-name)
-    // rather than the <img> element — the span is only shown when logo_url is empty.
+    // If a logo URL is set, clear it via the API so the sidebar renders the text
+    // span (.admin-sidebar__app-name) rather than the <img> element — the span
+    // is only shown when logo_url is empty.
     if (originalLogoUrl) {
-      await page.getByLabel("Logo URL").fill("");
-      await page.getByTestId("branding-save-btn").click();
-      await expect(page.getByText("Settings saved.")).toBeVisible();
+      await patchAdminConfig(baseURL, { logo_url: "" });
+      // Reload so the page picks up the cleared logo
+      await page.reload();
+      await clickUiThemeTab(page);
+      await expect(page.getByLabel("App name")).toBeVisible();
     }
 
     // Update app name and save
@@ -118,13 +180,16 @@ test.describe("Admin Settings — tenant branding", () => {
       timeout: 15000,
     });
 
-    // Restore original app name and logo URL so the suite is idempotent
+    // Restore original app name via the form
     await page.getByLabel("App name").fill(ORIGINAL_APP_NAME);
-    await page.getByLabel("Logo URL").fill(originalLogoUrl);
     await page.getByTestId("branding-save-btn").click();
     await expect(page.getByText("Settings saved.")).toBeVisible();
-    // Only assert the sidebar text when no logo is set (otherwise the img is shown)
-    if (!originalLogoUrl) {
+
+    // Restore original logo URL via the API (no text input available)
+    if (originalLogoUrl) {
+      await patchAdminConfig(baseURL, { logo_url: originalLogoUrl });
+    } else {
+      // Only assert the sidebar text when no logo is set (otherwise the img is shown)
       await expect(page.locator(".admin-sidebar__app-name").first()).toHaveText(ORIGINAL_APP_NAME, {
         timeout: 15000,
       });
@@ -210,24 +275,12 @@ test.describe("Admin Settings — tenant branding", () => {
 });
 
 test.describe("Admin Settings — favicon upload", () => {
-  test("favicon URL field and upload button are present on the settings page", async ({ page }) => {
+  // The favicon URL text input has been removed (upload-only UX).
+  // Verify that the upload button is present.
+  test("favicon upload button is present on the settings page", async ({ page }) => {
     await page.goto("/admin/settings");
     await clickUiThemeTab(page);
-    await expect(page.getByLabel("Favicon URL")).toBeVisible();
     await expect(page.getByLabel("Upload favicon image")).toBeVisible();
-  });
-
-  test("favicon URL field accepts text input", async ({ page }) => {
-    await page.goto("/admin/settings");
-    await clickUiThemeTab(page);
-    await expect(page.getByLabel("Favicon URL")).toBeVisible();
-    const input = page.getByLabel("Favicon URL");
-    await input.fill("https://example.com/fav.ico");
-    await expect(input).toHaveValue("https://example.com/fav.ico");
-    // Restore
-    await input.fill("");
-    await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible();
   });
 });
 
@@ -241,25 +294,20 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
 
   test.beforeAll(async () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
-    const api = await makeAdminApi(baseURL);
-    const configRes = await api.get("/api/admin/config");
-    const config = await configRes.json() as { logo_url?: string };
+    const config = await fetchAdminConfig(baseURL);
     originalLogoUrl = config.logo_url ?? "";
-    await api.dispose();
   });
 
   test("Scenario F: admin login page img src matches configured logo_url", async ({ page }) => {
     test.setTimeout(60000);
 
     const TEST_LOGO_URL = "https://example.com/e2e-test-logo.png";
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
 
-    // Step 1: Set a custom logo URL via the settings page
-    await page.goto("/admin/settings");
-    await clickUiThemeTab(page);
-    await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
-    await page.getByLabel("Logo URL").fill(TEST_LOGO_URL);
-    await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+    // Step 1: Set a custom logo URL via the API directly.
+    // The logo URL text input has been removed (upload-only UX), so we PUT the
+    // config endpoint directly to set an arbitrary URL for this assertion test.
+    await patchAdminConfig(baseURL, { logo_url: TEST_LOGO_URL });
 
     // Step 2: Navigate to admin login page (unauthenticated context)
     // We use a new browser context to simulate an unauthenticated visit
@@ -285,22 +333,18 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
       await context.close();
     }
 
-    // Restore original logo URL
-    await page.getByLabel("Logo URL").fill(originalLogoUrl);
-    await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+    // Restore original logo URL via the API
+    await patchAdminConfig(baseURL, { logo_url: originalLogoUrl });
   });
 
   test("Scenario F (empty logo): no broken /logo.png image on login page when logo_url is empty", async ({ page }) => {
     test.setTimeout(60000);
 
-    // Step 1: Clear logo URL
-    await page.goto("/admin/settings");
-    await clickUiThemeTab(page);
-    await expect(page.getByLabel("Logo URL")).toBeVisible({ timeout: 10000 });
-    await page.getByLabel("Logo URL").fill("");
-    await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+
+    // Step 1: Clear logo URL via the API directly.
+    // The logo URL text input has been removed (upload-only UX).
+    await patchAdminConfig(baseURL, { logo_url: "" });
 
     // Step 2: Visit login page unauthenticated
     const context = await page.context().browser()!.newContext();
@@ -322,10 +366,8 @@ test.describe("Admin Settings — login page logo reflects branding", () => {
       await context.close();
     }
 
-    // Restore original logo URL
-    await page.getByLabel("Logo URL").fill(originalLogoUrl);
-    await page.getByTestId("branding-save-btn").click();
-    await expect(page.getByText("Settings saved.")).toBeVisible({ timeout: 10000 });
+    // Restore original logo URL via the API
+    await patchAdminConfig(baseURL, { logo_url: originalLogoUrl });
   });
 });
 
