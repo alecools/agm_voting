@@ -174,7 +174,7 @@ class TestSecurityHeaders:
         response = await client.get("/api/health")
         csp = response.headers.get("Content-Security-Policy", "")
         assert "img-src" in csp
-        assert "https://public.blob.vercel-storage.com" in csp
+        assert "https://*.public.blob.vercel-storage.com" in csp
         assert "data:" in csp
 
 
